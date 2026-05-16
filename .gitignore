@@ -181,6 +181,46 @@ dmypy.json
 # Cython debug symbols
 cython_debug/
 
+# ROS 2 / colcon build outputs
+ros2_ws/build/
+ros2_ws/install/
+ros2_ws/log/
+.colcon/
+
+# ROS bags, maps, logs, and generated runtime data
+*.bag
+*.bag.active
+*.db3
+*.mcap
+*.pgm
+*.pcd
+*.ply
+*.bt
+*.log
+
+# Gazebo / simulation cache
+.gazebo/
+*.world~
+*.sdf~
+
+# Large media and model artifacts
+*.mp4
+*.avi
+*.mov
+*.mkv
+*.zip
+*.7z
+*.tar
+*.tar.gz
+*.pt
+*.pth
+*.onnx
+*.engine
+*.bin
+
+# Local VS Code settings
+.vscode/settings.json
+
 # PyCharm
 #   JetBrains specific template is maintained in a separate JetBrains.gitignore that can
 #   be found at https://github.com/github/gitignore/blob/main/Global/JetBrains.gitignore
