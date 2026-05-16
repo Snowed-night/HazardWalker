@@ -107,14 +107,13 @@ git push                                                       # 推送当前分
 当前分支结构：
 
 ```text
-main                    稳定版本，只放可演示、可提交版本
-dev                     日常集成版本
-feature/platform-xxx    平台与仿真开发
-feature/nav-xxx         导航探索开发
-feature/perception-xxx  感知定位开发
-feature/test-xxx        测试脚本开发
-docs/xxx                文档材料开发
-fix/xxx                 Bug 修复
+main                 稳定版本，只放可演示、可提交版本
+dev                  日常集成版本
+feature/platform     平台与仿真开发
+feature/nav          导航探索开发
+feature/perception   感知定位开发
+feature/test         测试脚本开发
+docs/report          文档材料开发
 ```
 
 常用命令：
