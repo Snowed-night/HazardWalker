@@ -1,0 +1,24 @@
+# Initial mission decision parameters.
+
+decision:
+  initial_state: IDLE
+  minimal_states:
+    - IDLE
+    - NAVIGATING
+    - RETURNING
+    - FINISHED
+    - FAILED
+
+  mission:
+    max_duration_sec: 600
+    return_home_distance_threshold_m: 0.5
+    return_home_time_margin_sec: 90
+
+  reobserve:
+    enabled: false
+    min_confidence_for_reobserve: 0.4
+    min_confidence_for_confirmed: 0.8
+
+  result:
+    output_dir: reports/run_results
+    output_frame: start

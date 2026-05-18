@@ -1,0 +1,23 @@
+# HazardWalker internal topic names.
+# Platform adapters should convert simulator or official platform topics to these names.
+
+topics:
+  camera_image: /hw/camera/image_raw
+  camera_info: /hw/camera/camera_info
+  lidar_points: /hw/lidar/points
+  odom: /hw/odom
+  map: /hw/map
+  cmd_vel: /hw/cmd_vel
+
+  nav_goal: /hw/nav/goal
+  nav_active_goal: /hw/nav/active_goal
+  nav_state: /hw/nav/state
+
+  red_ball_candidates_2d: /hw/perception/red_ball_candidates_2d
+  hazard_detections: /hw/perception/hazard_detections
+  tracked_hazards: /hw/perception/tracked_hazards
+  perception_debug_image: /hw/perception/debug_image
+
+  mission_state: /hw/mission/state
+  mission_event: /hw/mission/event
+  mission_result: /hw/mission/result

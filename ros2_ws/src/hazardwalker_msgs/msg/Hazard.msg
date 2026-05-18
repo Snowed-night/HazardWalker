@@ -1,0 +1,9 @@
+int32 id
+std_msgs/Header header
+geometry_msgs/Point position
+float32 confidence
+string status
+float64 first_seen_time
+float64 last_seen_time
+int32 observation_count
+string source
