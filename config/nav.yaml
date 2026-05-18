@@ -1,0 +1,27 @@
+# Initial navigation parameters for the minimal demo.
+
+navigation:
+  mode: waypoint
+  goal_tolerance_m: 0.5
+  yaw_tolerance_rad: 0.5
+  max_goal_retry: 2
+
+  waypoint_patrol:
+    # Placeholder waypoints in map/start frame. Replace after simulator scene is built.
+    frame_id: start
+    waypoints:
+      - [1.0, 0.0, 0.0]
+      - [2.0, 0.0, 0.0]
+      - [2.0, 1.0, 0.0]
+
+  frontier:
+    enabled: false
+    min_frontier_size: 5
+    information_gain_weight: 1.0
+    distance_cost_weight: 0.5
+    unreachable_penalty: 10.0
+
+  stuck_detection:
+    enabled: true
+    window_sec: 8.0
+    min_progress_m: 0.15

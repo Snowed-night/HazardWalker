@@ -4,7 +4,9 @@
 
 后续可定义：
 
-- HazardSource.msg
-- HazardSourceArray.msg
-- ExplorationState.msg
+- Hazard.msg
+- HazardArray.msg
+- MissionState.msg
 - ReobserveTarget.srv
+
+第一阶段节点为了降低集成成本仍使用 `std_msgs/String` JSON 打通链路；稳定后逐步迁移到本包消息。

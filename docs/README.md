@@ -5,7 +5,10 @@
 维护：
 
 - `system_architecture.md`：系统总体架构说明
-- `module_Interface.md`：模块接口、话题、坐标系和消息格式
+- `interface_spec.md`：模块接口、话题、坐标系、消息格式和算法函数契约
+- `official_platform_adaptation_design.md`：官方平台适配、算法嵌入和最小流程接入设计
+- `minimal_demo_acceptance.md`：第一阶段最小闭环验收标准
+- `minimal_demo_development.md`：最小闭环脚手架构建、运行和算法替换说明
 - `development_workflow.md`：开发协作流程
 - `meeting_notes/`：会议纪要
 - `experiments/`：实验记录

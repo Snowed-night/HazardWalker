@@ -1,0 +1,21 @@
+# HazardWalker frame names.
+# Keep algorithm modules independent from simulator-specific frame naming.
+
+frames:
+  map: map
+  odom: odom
+  base_link: base_link
+  camera_link: camera_link
+  camera_optical_frame: camera_optical_frame
+  lidar_link: lidar_link
+  start: start
+
+transforms:
+  global_chain:
+    - map
+    - odom
+    - base_link
+  sensor_frames:
+    - camera_link
+    - camera_optical_frame
+    - lidar_link
