@@ -9,6 +9,7 @@
 - `official_platform_adaptation_design.md`：官方平台适配、算法嵌入和最小流程接入设计
 - `minimal_demo_acceptance.md`：第一阶段最小闭环验收标准
 - `minimal_demo_development.md`：最小闭环脚手架构建、运行和算法替换说明
+- `minimal_demo_update_notes.md`：最小闭环中文更新说明和模块开发模板
 - `development_workflow.md`：开发协作流程
 - `meeting_notes/`：会议纪要
 - `experiments/`：实验记录

@@ -112,3 +112,11 @@ docs/minimal_demo_acceptance.md
 ```
 
 当前脚手架的作用是让团队先看到 topic、节点、launch 和结果文件如何串起来。真正的 Gazebo/官方平台接入后，应优先保持这些内部接口不变。
+
+## 6. Update Notes and Development Template
+
+中文更新说明和模块开发模板见：
+
+```text
+docs/minimal_demo_update_notes.md
+```
