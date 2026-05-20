@@ -50,6 +50,18 @@ ros2 launch hazardwalker_bringup minimal_demo.launch.py
 reports/run_results/<timestamp>_result.json
 ```
 
+如果只想在普通 Python 环境下验证离线算法函数，不需要 ROS 2：
+
+```bash
+python scripts/run_offline_tests.py
+```
+
+检查结果 JSON：
+
+```bash
+python scripts/evaluate_result.py reports/run_results/<timestamp>_result.json
+```
+
 ## 4. Algorithm Replacement Points
 
 ### Platform

@@ -19,8 +19,15 @@
 python -m pytest tests/offline
 ```
 
+如果本机没有安装 `pytest`，使用仓库自带的轻量测试运行器：
+
+```bash
+python scripts/run_offline_tests.py
+```
+
 这些测试用于先验证算法函数：
 
 - 红球 HSV 检测
 - 固定航点控制
 - 任务结果 JSON 构建
+- result JSON 格式评估

@@ -196,15 +196,28 @@ git diff
 python -m pytest tests/offline
 ```
 
+如果没有安装 pytest，也可以直接运行：
+
+```bash
+python scripts/run_offline_tests.py
+```
+
 对应测试内容：
 
 ```text
 tests/offline/test_red_ball_detector.py
 tests/offline/test_waypoint_controller.py
 tests/offline/test_result_builder.py
+tests/offline/test_evaluate_result.py
 ```
 
 成员开发算法时，应优先让这些离线测试通过，再把函数接入 ROS 节点。
+
+测试组可以用以下命令检查一次任务输出：
+
+```bash
+python scripts/evaluate_result.py reports/run_results/<timestamp>_result.json
+```
 
 暂时不建议立刻做：
 
