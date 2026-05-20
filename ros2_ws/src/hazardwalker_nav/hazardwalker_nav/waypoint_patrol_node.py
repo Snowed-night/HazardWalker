@@ -6,6 +6,8 @@ from nav_msgs.msg import Odometry
 from rclpy.node import Node
 from std_msgs.msg import String
 
+from hazardwalker_nav.waypoint_controller import compute_waypoint_command
+
 
 class WaypointPatrolNode(Node):
     """第一阶段固定航点巡检节点。
@@ -69,45 +71,31 @@ class WaypointPatrolNode(Node):
             self.cmd_pub.publish(cmd)
             return
 
-        goal_x, goal_y = self.waypoints[self.goal_index]
         x = self.current_pose.position.x
         y = self.current_pose.position.y
-        dx = goal_x - x
-        dy = goal_y - y
-        distance = math.hypot(dx, dy)
-        tolerance = float(self.get_parameter('goal_tolerance_m').value)
-
-        if distance <= tolerance:
-            # 到达当前航点后切换到下一个航点。如果所有航点都完成，任务结束。
-            self.goal_index += 1
-            if self.goal_index >= len(self.waypoints):
-                self.completed = True
-                state.data = 'FINISHED'
-                self.state_pub.publish(state)
-                self.cmd_pub.publish(cmd)
-                self.get_logger().info('Waypoint patrol finished.')
-                return
-            self.get_logger().info(f'Moving to waypoint {self.goal_index + 1}/{len(self.waypoints)}.')
-
-        # 最后一个航点默认是起点，因此接近最后一个航点时发布 RETURNING。
-        state.data = 'NAVIGATING' if self.goal_index < len(self.waypoints) - 1 else 'RETURNING'
-
-        # 简单控制律：
-        # 1. 先计算机器人当前朝向 yaw 和目标方向 target_yaw；
-        # 2. 如果角度误差较大，原地转向；
-        # 3. 如果朝向基本正确，再向前走。
-        # 这只是为了 fake 平台测试，真实项目应由 Nav2 局部规划器接管。
         yaw = self.get_yaw()
-        target_yaw = math.atan2(dy, dx)
-        heading_error = self.normalize_angle(target_yaw - yaw)
-        heading_tolerance = float(self.get_parameter('heading_tolerance_rad').value)
-        angular_speed = float(self.get_parameter('angular_speed').value)
+        result = compute_waypoint_command(
+            x=x,
+            y=y,
+            yaw=yaw,
+            waypoints=self.waypoints,
+            goal_index=self.goal_index,
+            completed=self.completed,
+            goal_tolerance_m=float(self.get_parameter('goal_tolerance_m').value),
+            linear_speed=float(self.get_parameter('linear_speed').value),
+            angular_speed=float(self.get_parameter('angular_speed').value),
+            heading_tolerance_rad=float(self.get_parameter('heading_tolerance_rad').value),
+        )
+        if result.goal_index != self.goal_index and not result.completed:
+            self.get_logger().info(f'Moving to waypoint {result.goal_index + 1}/{len(self.waypoints)}.')
+        if result.completed and not self.completed:
+            self.get_logger().info('Waypoint patrol finished.')
 
-        if abs(heading_error) > heading_tolerance:
-            cmd.angular.z = max(-angular_speed, min(angular_speed, heading_error))
-        else:
-            cmd.linear.x = min(float(self.get_parameter('linear_speed').value), distance)
-            cmd.angular.z = max(-angular_speed, min(angular_speed, heading_error))
+        self.goal_index = result.goal_index
+        self.completed = result.completed
+        state.data = result.state
+        cmd.linear.x = result.linear_x
+        cmd.angular.z = result.angular_z
         self.state_pub.publish(state)
         self.cmd_pub.publish(cmd)
 
@@ -118,15 +106,6 @@ class WaypointPatrolNode(Node):
         siny_cosp = 2.0 * (q.w * q.z + q.x * q.y)
         cosy_cosp = 1.0 - 2.0 * (q.y * q.y + q.z * q.z)
         return math.atan2(siny_cosp, cosy_cosp)
-
-    @staticmethod
-    def normalize_angle(angle):
-        # 把角度规范到 [-pi, pi]，避免 179 度和 -179 度之间出现错误的大角度差。
-        while angle > math.pi:
-            angle -= 2.0 * math.pi
-        while angle < -math.pi:
-            angle += 2.0 * math.pi
-        return angle
 
 
 def main():

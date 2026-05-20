@@ -6,6 +6,8 @@ import rclpy
 from rclpy.node import Node
 from std_msgs.msg import String
 
+from hazardwalker_decision.result_builder import build_mission_result
+
 
 class MissionStateMachineNode(Node):
     """第一阶段任务状态机和结果写入节点。
@@ -82,22 +84,13 @@ class MissionStateMachineNode(Node):
         # 生成与 docs/interface_spec.md 对齐的结果结构。
         now = self.get_clock().now()
         duration = (now - self.start_time).nanoseconds / 1e9
-        hazards = list(self.hazards.values())
-        for hazard in hazards:
-            # 当前最小链路只要检测到就临时标记 confirmed。
-            # 正式版本必须由多帧确认/空间聚类决定 status。
-            hazard['status'] = 'confirmed'
-
-        return {
-            'mission_id': self.get_parameter('mission_id').value,
-            'status': 'FINISHED',
-            'hazards': hazards,
-            'metrics': {
-                'duration_sec': duration,
-                'return_success': True,
-                'num_confirmed_hazards': len(hazards),
-            },
-        }
+        return build_mission_result(
+            mission_id=self.get_parameter('mission_id').value,
+            status='FINISHED',
+            hazards=list(self.hazards.values()),
+            duration_sec=duration,
+            return_success=True,
+        )
 
     def write_result(self, result):
         # HAZARDWALKER_ROOT 由 scripts/run_minimal_demo.sh 设置。

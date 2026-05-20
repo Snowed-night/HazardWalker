@@ -186,6 +186,26 @@ git diff
 - result JSON 格式检查。
 - `/hw/*` 平台适配接口理解。
 
+## 7. 离线算法测试
+
+为了让成员在没有主力机、没有 ROS 2、没有 Gazebo 的情况下也能开发，核心算法应优先写成普通 Python 函数。
+
+当前已提供离线测试入口：
+
+```bash
+python -m pytest tests/offline
+```
+
+对应测试内容：
+
+```text
+tests/offline/test_red_ball_detector.py
+tests/offline/test_waypoint_controller.py
+tests/offline/test_result_builder.py
+```
+
+成员开发算法时，应优先让这些离线测试通过，再把函数接入 ROS 节点。
+
 暂时不建议立刻做：
 
 - YOLO。
