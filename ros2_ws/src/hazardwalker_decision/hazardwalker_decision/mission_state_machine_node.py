@@ -1,3 +1,25 @@
+"""任务状态机与结果写入 ROS 节点。
+
+所属组：决策组。
+文件作用：
+- 订阅导航状态和危险源候选。
+- 在任务结束时调用结果构建函数并写出 JSON。
+- 对外发布任务状态和最终结果话题。
+
+当前职责：
+- 只做最小闭环的状态转发和结果聚合。
+- 把重复危险源按 id 做最基础去重。
+- 在收到 `FINISHED` 时生成结果文件。
+
+后续扩展方式：
+- 将来若补完整 FSM，可在这里增加 `EXPLORING`、`REOBSERVING`、`REPLANNING`、`RETURNING` 等状态转移。
+- 若需要更可靠去重，应把 `self.hazards` 从简单字典改成基于空间距离、时间戳和观测次数的 track 管理。
+- 若结果结构变更，优先改 `result_builder.py`，这里只负责调用。
+
+验证方式：
+- 先用 fake nav 和 perception 输出验证能生成结果文件。
+- 再在最小 demo 中检查 `/hw/mission/state`、`/hw/mission/result` 和 JSON 文件是否同步。
+"""
 import json
 import os
 from datetime import datetime
@@ -6,20 +28,10 @@ import rclpy
 from rclpy.node import Node
 from std_msgs.msg import String
 
+from hazardwalker_decision.result_builder import build_mission_result
+
 
 class MissionStateMachineNode(Node):
-    """第一阶段任务状态机和结果写入节点。
-
-    当前实现是“最小闭环版”，主要负责：
-    1. 订阅导航状态 `/hw/nav/state`；
-    2. 收集感知模块发布的危险源候选；
-    3. 在导航结束时生成 result.json；
-    4. 对外发布 `/hw/mission/state` 和 `/hw/mission/result`。
-
-    后续真正的决策逻辑会在这里扩展，包括 EXPLORING、REOBSERVING、
-    REPLANNING、RETURNING、FAILED 等状态转移。
-    """
-
     def __init__(self):
         super().__init__('mission_state_machine_node')
         self.declare_parameter('result_dir', 'reports/run_results')
@@ -79,25 +91,16 @@ class MissionStateMachineNode(Node):
             self.get_logger().info('Mission result written.')
 
     def build_result(self):
-        # 生成与 docs/interface_spec.md 对齐的结果结构。
+        # 生成与当前文档约定一致的结果结构。
         now = self.get_clock().now()
         duration = (now - self.start_time).nanoseconds / 1e9
-        hazards = list(self.hazards.values())
-        for hazard in hazards:
-            # 当前最小链路只要检测到就临时标记 confirmed。
-            # 正式版本必须由多帧确认/空间聚类决定 status。
-            hazard['status'] = 'confirmed'
-
-        return {
-            'mission_id': self.get_parameter('mission_id').value,
-            'status': 'FINISHED',
-            'hazards': hazards,
-            'metrics': {
-                'duration_sec': duration,
-                'return_success': True,
-                'num_confirmed_hazards': len(hazards),
-            },
-        }
+        return build_mission_result(
+            mission_id=self.get_parameter('mission_id').value,
+            status='FINISHED',
+            hazards=list(self.hazards.values()),
+            duration_sec=duration,
+            return_success=True,
+        )
 
     def write_result(self, result):
         # HAZARDWALKER_ROOT 由 scripts/run_minimal_demo.sh 设置。

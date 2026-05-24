@@ -1,5 +1,5 @@
-# Initial perception parameters for the minimal demo.
-# Values are placeholders and should be tuned with simulator images.
+# 感知参数配置。
+# 这里放红球检测阈值、定位参数和跟踪参数。
 
 perception:
   red_ball_detector:

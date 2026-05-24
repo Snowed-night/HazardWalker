@@ -1,5 +1,5 @@
-# HazardWalker internal topic names.
-# Platform adapters should convert simulator or official platform topics to these names.
+# HazardWalker 内部话题名配置。
+# 平台适配层把外部仿真或官方平台话题转换为这里的名字。
 
 topics:
   camera_image: /hw/camera/image_raw

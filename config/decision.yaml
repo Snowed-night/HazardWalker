@@ -1,4 +1,5 @@
-# Initial mission decision parameters.
+# 决策参数配置。
+# 这里放任务状态、返航约束、重观察和结果输出参数。
 
 decision:
   initial_state: IDLE
