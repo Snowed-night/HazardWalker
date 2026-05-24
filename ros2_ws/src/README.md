@@ -5,9 +5,9 @@
 ## 当前包
 
 - `hazardwalker_platform`：平台适配，统一仿真和官方平台接口。
-- `hazardwalker_nav`：导航、固定航点、返航和后续探索逻辑。
+- `hazardwalker_nav`：固定航点、Frontier/SLAM/Nav2、自主探索、返航和卡死恢复。
 - `hazardwalker_perception`：红球检测、相机雷达融合和三维定位。
-- `hazardwalker_decision`：任务状态机、目标选择和返航约束。
+- `hazardwalker_decision`：任务状态机、目标选择、重观察和返航约束。
 - `hazardwalker_bringup`：一键启动和系统集成。
 - `hazardwalker_msgs`：自定义消息定义。
 
