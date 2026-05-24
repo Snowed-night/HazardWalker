@@ -1,7 +1,24 @@
 """红色球体离线检测函数。
 
-本文件不依赖 ROS。感知组可以直接用普通 Python 单元测试验证这些函数，
-确认算法可用后，再由 `hsv_detector_node.py` 负责接入 ROS topic。
+所属组：感知组。
+文件作用：
+- 提供不依赖 ROS 的红球检测基础函数。
+- 让感知组先用普通 Python 数据构造单测验证颜色阈值、像素筛选和 bbox 输出。
+
+当前函数职责：
+- `rgb_to_hsv_pixel`：把单个 RGB 像素转为 OpenCV 风格 HSV，供阈值判断使用。
+- `is_red_hsv`：判断单个 HSV 像素是否落入红色阈值区间。
+- `detect_red_ball_rgb_bytes`：扫描整张 RGB/BGR 图像字节，输出红色区域的 2D 包围框和像素计数。
+
+后续扩展方式：
+- 先把这里的像素级检测保留为纯函数，再在 `hsv_detector_node.py` 中接入 ROS Image。
+- 当需要真实定位时，再新增 `localize_hazard(...)` 或同类函数，输入 `CameraInfo`、`PointCloud2`、TF 和检测框，输出三维坐标。
+- 当需要更稳的检测时，可在这里增加形态学滤波、连通域筛选和圆形度评估，但保持函数接口稳定。
+
+验证方式：
+- 用 `tests/offline/test_red_ball_detector.py` 构造纯 RGB 字节图像。
+- 验证红球能输出 bbox，随机小噪声不会被误检。
+- 验证 BGR 输入和红色 HSV 边界值处理正确。
 """
 
 from dataclasses import dataclass
@@ -22,9 +39,7 @@ class RedBallDetection2D:
 def rgb_to_hsv_pixel(r, g, b):
     """将单个 RGB 像素转换为 OpenCV 风格 HSV。
 
-    OpenCV 中 H 的范围通常是 [0, 180]，S/V 是 [0, 255]。
-    这里手写转换是为了让离线测试不依赖 OpenCV；后续正式版本可以替换为
-    cv2.cvtColor 加形态学处理。
+    输出用于后面的红色阈值判断，不做整图处理。
     """
 
     r_f = r / 255.0
@@ -52,7 +67,7 @@ def is_red_hsv(h, s, v, lower_h_1=0.0, upper_h_1=10.0, lower_h_2=170.0, upper_h_
                min_s=80.0, min_v=80.0):
     """判断 HSV 像素是否属于红色。
 
-    红色在 HSV 色相上跨越 0 度边界，所以需要两段 hue 范围。
+    这里使用两段 hue 区间，是因为红色跨越 HSV 色相边界。
     """
 
     in_first_range = lower_h_1 <= h <= upper_h_1
@@ -75,6 +90,10 @@ def detect_red_ball_rgb_bytes(data, width, height, step=None, encoding='rgb8',
 
     Returns:
         RedBallDetection2D 或 None。
+
+    说明：
+    - 返回结果只描述 2D 图像范围，不包含真实世界三维坐标。
+    - 如果后续改成连通域或轮廓法，这个函数仍应保留同样的输入输出语义。
     """
 
     normalized_encoding = encoding.lower()

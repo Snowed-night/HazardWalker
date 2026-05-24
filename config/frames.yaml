@@ -1,5 +1,5 @@
-# HazardWalker frame names.
-# Keep algorithm modules independent from simulator-specific frame naming.
+# HazardWalker 坐标系名称配置。
+# 算法模块统一使用这里的 frame 名，不直接依赖仿真器或官方平台命名。
 
 frames:
   map: map

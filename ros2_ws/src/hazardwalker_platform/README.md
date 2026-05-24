@@ -1,21 +1,21 @@
 # hazardwalker_platform
 
-平台适配包，负责屏蔽自建仿真平台和官方平台差异。
+平台适配包，负责把自建仿真平台和官方平台的数据统一成 HazardWalker 内部接口。
 
-职责：
+## 当前职责
 
-- 统一传感器话题
+- 统一传感器话题到 `/hw/*`
 - 统一 TF 坐标系
 - 统一机器人控制接口
-- 提供仿真场景和平台配置
+- 提供仿真场景和平台适配节点
 
 ## 当前最小节点
 
 - `fake_platform_node`：在没有 Gazebo/官方平台时发布最小 `/hw/*` 话题，用于打通集成链路。
 
-## 必须保持的内部接口
+## 需要保持的接口
 
-平台适配层应输出：
+- 输出：
 
 ```text
 /hw/camera/image_raw
@@ -26,10 +26,14 @@
 /tf_static
 ```
 
-平台适配层应接收：
+- 输入：
 
 ```text
 /hw/cmd_vel
 ```
 
-官方平台发布后，优先修改本包和 `config/topics.yaml`、`config/frames.yaml`，不要让算法模块直接依赖官方专有话题名。
+## 后续扩展
+
+- `fake_platform_node.py`：当前占位平台，后续可替换为 Gazebo 或官方平台适配节点。
+- `config/topics.yaml`：统一话题名映射。
+- `config/frames.yaml`：统一坐标系命名。

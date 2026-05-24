@@ -1,8 +1,22 @@
-"""Run offline tests without requiring pytest.
+"""离线测试入口。
 
-This script is intentionally small and dependency-free. It lets new members run
-the current algorithm tests on a normal Python environment before ROS 2/Gazebo
-is available.
+所属组：测试组。
+文件作用：
+- 不依赖 pytest，直接扫描 `tests/offline/` 下的测试函数并运行。
+- 让成员在没有 ROS 2、没有 Gazebo、没有主力机时也能做算法验证。
+
+当前职责：
+- 动态导入离线测试模块。
+- 执行以 `test_` 开头的函数。
+- 汇总通过/失败结果并返回退出码。
+
+后续扩展方式：
+- 如果后面测试量变大，可以在这里增加测试分类、过滤参数和结果导出。
+- 目前优先保持零依赖和简单可读，方便新成员直接跑。
+
+验证方式：
+- 运行 `python scripts/run_offline_tests.py`。
+- 观察每个 `PASS/FAIL` 项和最后的统计结果。
 """
 
 from __future__ import annotations

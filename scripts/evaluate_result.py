@@ -1,7 +1,21 @@
-"""Evaluate a HazardWalker result JSON file.
+"""结果 JSON 检查脚本。
 
-This is a lightweight checker for the first-stage minimal demo. It validates the
-result schema and prints a short summary that can be pasted into weekly reports.
+所属组：测试组 / 决策组。
+文件作用：
+- 检查最小 demo 生成的 result JSON 是否满足当前结构约定。
+- 输出简短摘要，便于人工查看和周报记录。
+
+当前职责：
+- 校验顶层字段和 metrics 字段。
+- 检查 confirmed 危险源数量是否与统计值一致。
+- 给出可直接打印或保存的摘要字典。
+
+后续扩展方式：
+- 如果结果结构增加评测指标，可以把新字段校验集中加在这里。
+- 若之后 result 改成自定义消息或额外 CSV 输出，仍可保留这个脚本做快速结构检查。
+
+验证方式：
+- 对合法 JSON 和字段不一致的 JSON 分别运行，确认返回码和错误列表正确。
 """
 
 from __future__ import annotations

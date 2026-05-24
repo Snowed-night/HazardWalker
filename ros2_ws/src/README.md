@@ -1,10 +1,17 @@
 # ROS 2 Packages
 
-计划包含以下包：
+本目录存放各个 ROS 2 功能包源码。
 
-- `hazardwalker_platform`：官方/自建仿真平台适配
-- `hazardwalker_nav`：SLAM、导航、自主探索、返航
-- `hazardwalker_perception`：红球检测、相机雷达融合、三维定位
-- `hazardwalker_decision`：任务状态机、NBV、重观察、返航约束
-- `hazardwalker_bringup`：一键启动、参数加载、系统集成
-- `hazardwalker_msgs`：自定义消息和服务
+## 当前包
+
+- `hazardwalker_platform`：平台适配，统一仿真和官方平台接口。
+- `hazardwalker_nav`：导航、固定航点、返航和后续探索逻辑。
+- `hazardwalker_perception`：红球检测、相机雷达融合和三维定位。
+- `hazardwalker_decision`：任务状态机、目标选择和返航约束。
+- `hazardwalker_bringup`：一键启动和系统集成。
+- `hazardwalker_msgs`：自定义消息定义。
+
+## 命名约定
+
+- Python 包、ROS 包和消息名继续使用英文小写下划线风格。
+- 文档、README 和配置说明尽量使用中文，文件名可以直接表达用途。

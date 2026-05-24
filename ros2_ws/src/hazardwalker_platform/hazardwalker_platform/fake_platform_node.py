@@ -1,3 +1,24 @@
+"""HazardWalker 最小平台适配节点。
+
+所属组：平台组。
+文件作用：
+- 在没有 Gazebo 或官方平台时，模拟 `/hw/*` 话题输出和简单控制响应。
+- 让感知、导航、决策、结果写入可以先串成一条完整链路。
+
+当前职责：
+- 发布相机图像、CameraInfo、里程计、TF 和空点云。
+- 接收 `/hw/cmd_vel` 并用简化运动学更新位置。
+- 为感知组提供可控红球图像，为导航组提供可控里程计输入。
+
+后续扩展方式：
+- 有真实仿真或官方平台后，这个文件可以替换成 `gazebo_adapter_node.py` 或 `official_adapter_node.py`。
+- 替换时保持 `/hw/camera/image_raw`、`/hw/odom`、`/hw/cmd_vel` 等接口不变，只改数据来源。
+- 如果需要接入真实传感器，可在这里补真实点云、真实外参和更准确的 TF。
+
+验证方式：
+- 启动后确认 `odom -> base_link`、`base_link -> camera_link`、`base_link -> lidar_link` 存在。
+- 确认图像里能切出红球，`/hw/odom` 会随 `/hw/cmd_vel` 改变。
+"""
 import math
 import time
 
@@ -10,13 +31,6 @@ from tf2_ros import TransformBroadcaster
 
 
 class FakePlatformNode(Node):
-    """最小平台适配节点，用于没有 Gazebo/官方平台时做早期集成测试。
-
-    注意：它不是一个真正的物理仿真器，只是用最简单的运动学模型和一张人造图像
-    发布 HazardWalker 内部约定的 `/hw/*` 话题。这样导航、感知、决策节点可以先
-    串起来，后续再把本节点替换为 Gazebo adapter 或官方平台 adapter。
-    """
-
     def __init__(self):
         super().__init__('fake_platform_node')
         self.declare_parameter('image_width', 320)

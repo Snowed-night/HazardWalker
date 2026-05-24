@@ -1,6 +1,21 @@
+"""hazardwalker_decision 打包配置。
+
+所属组：决策组。
+文件作用：
+- 让 ROS 2/colcon 能安装 `hazardwalker_decision` 包。
+- 注册决策相关 console script。
+
+当前入口：
+- `mission_state_machine_node`：任务状态机和结果写入节点。
+
+后续扩展：
+- 新增完整 FSM、目标选择或重观察节点时，需要在 `entry_points` 中补对应命令。
+"""
 from setuptools import find_packages, setup
 
 package_name = 'hazardwalker_decision'
+
+# 该包放任务状态机、结果汇总和后续决策逻辑。
 
 setup(
     name=package_name,

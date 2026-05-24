@@ -1,4 +1,5 @@
-# Initial navigation parameters for the minimal demo.
+# 导航参数配置。
+# 这里放固定航点、前沿点探索和卡死检测参数。
 
 navigation:
   mode: waypoint
@@ -7,7 +8,7 @@ navigation:
   max_goal_retry: 2
 
   waypoint_patrol:
-    # Placeholder waypoints in map/start frame. Replace after simulator scene is built.
+    # 固定航点，使用 start frame。
     frame_id: start
     waypoints:
       - [1.0, 0.0, 0.0]

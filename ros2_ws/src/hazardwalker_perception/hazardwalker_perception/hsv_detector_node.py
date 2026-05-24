@@ -1,3 +1,24 @@
+"""HSV 红球检测 ROS 节点。
+
+所属组：感知组。
+文件作用：
+- 把 `/hw/camera/image_raw` 转为危险源候选 JSON。
+- 作为离线 `red_ball_detector.py` 到 ROS 话题的桥接层。
+
+当前职责：
+- 订阅图像话题并读取参数。
+- 调用离线检测函数得到 2D 红球框。
+- 输出临时占位的 2D/3D 结果，供决策和结果写入先联通。
+
+后续扩展方式：
+- 增加 `CameraInfo`、`PointCloud2` 和 TF 订阅后，补真实 `localize_hazard`。
+- 将当前 JSON 字符串输出替换为 `hazardwalker_msgs/HazardArray`。
+- 增加调试图像发布，方便人工确认阈值和误检情况。
+
+验证方式：
+- 先用 fake platform 的人造红球图像验证能稳定出框。
+- 再在仿真图像上验证阈值、坐标和状态是否正确。
+"""
 import json
 import time
 
@@ -10,17 +31,6 @@ from hazardwalker_perception.red_ball_detector import detect_red_ball_rgb_bytes
 
 
 class HsvDetectorNode(Node):
-    """第一阶段 HSV 红球检测节点。
-
-    当前节点只完成最小链路：
-    - 订阅 `/hw/camera/image_raw`
-    - 找到图像中的红色区域
-    - 发布一个 JSON 格式的危险源候选
-
-    注意：这里的三维 position 是占位值，不是真实定位结果。后续感知组要把
-    点云/深度和 TF 接进来，替换为真实三维坐标。
-    """
-
     def __init__(self):
         super().__init__('hsv_detector_node')
         self.declare_parameter('min_area_px', 80)
@@ -50,8 +60,8 @@ class HsvDetectorNode(Node):
         if detection_2d is None:
             return
 
-        # position 是临时占位，用于让决策节点和结果写入先能工作。
-        # 真正比赛版本必须由 localize_hazard() 根据 CameraInfo、PointCloud2 和 TF 计算。
+        # position 是临时占位，当前只用于让决策和结果写入链路先跑通。
+        # 后续应改成：图像检测框 -> 相机内参 -> 点云/深度 -> TF 变换 -> start/map 坐标。
         detection = {
             'id': 1,
             'frame_id': msg.header.frame_id,
@@ -78,6 +88,10 @@ class HsvDetectorNode(Node):
 
 
 def main():
+    """启动 ROS 节点。
+
+    该节点适合在仿真或 fake platform 下验证图像检测链路。
+    """
     rclpy.init()
     node = HsvDetectorNode()
     try:
