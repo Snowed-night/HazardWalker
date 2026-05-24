@@ -1,11 +1,17 @@
 # Scripts
 
-项目脚本目录。
+本目录存放项目运行、构建和结果检查脚本。
 
-建议包含：
+## 当前文件
 
-- `setup_ubuntu.sh`：Ubuntu 环境安装脚本
-- `run_sim.sh`：启动仿真环境
-- `run_all.sh`：启动完整系统
-- `record_bag.sh`：录制测试数据
-- `evaluate_run.py`：统计测试指标
+- `build.sh`：进入 `ros2_ws` 后执行 `colcon build --symlink-install`，用于构建 ROS 2 工作空间。
+- `setup_env.sh`：主力机环境检查脚本，只检查 NVIDIA 驱动、ROS 2、Gazebo、colcon 等是否存在，不自动安装大型依赖。
+- `run_minimal_demo.sh`：启动最小 demo，自动设置 `HAZARDWALKER_ROOT`，加载 ROS 环境和工作空间后运行 `minimal_demo.launch.py`。
+- `run_offline_tests.py`：不依赖 pytest 的离线测试入口，扫描 `tests/offline/` 并执行测试函数。
+- `evaluate_result.py`：检查 `reports/run_results/<timestamp>_result.json` 的结构和统计字段。
+
+## 约定
+
+- 新增脚本先放这里，再根据用途拆分子目录。
+- 脚本名称应直接表达用途，不保留已经删除或不存在的入口名。
+- 如果新增仿真启动、录包或批处理脚本，README 需要同步更新。

@@ -1,11 +1,22 @@
 # hazardwalker_nav
 
-导航探索包，负责未知环境建图、路径规划、自主探索和返航。
+导航包，负责固定航点、导航、探索和返航。
 
-职责：
+## 当前职责
 
-- SLAM / localization
-- frontier exploration
-- global and local planning
-- stuck recovery
-- return-home behavior
+- 固定航点巡检
+- `Nav2` 入口预留
+- Frontier 目标选择预留
+- 卡死检测和返航控制
+
+## 当前最小节点
+
+- `waypoint_patrol_node`：订阅 `/hw/odom`，发布 `/hw/cmd_vel` 和 `/hw/nav/state`，用于第一阶段固定航点巡检和返航。
+
+当前节点不是完整 `Nav2` 替代品，只用于最小闭环集成。
+
+## 后续扩展
+
+- `waypoint_controller.py`：航点控制纯函数。
+- `waypoint_patrol_node.py`：ROS 节点封装。
+- 后续可新增 `frontier_explorer.py`、`nav2_goal_adapter.py`、`stuck_recovery.py`。

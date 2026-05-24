@@ -1,0 +1,26 @@
+# 感知参数配置。
+# 这里放红球检测阈值、定位参数和跟踪参数。
+
+perception:
+  red_ball_detector:
+    color_space: HSV
+    # Red wraps around the hue boundary, so use two ranges.
+    lower_red_1: [0, 80, 80]
+    upper_red_1: [10, 255, 255]
+    lower_red_2: [170, 80, 80]
+    upper_red_2: [180, 255, 255]
+    min_area_px: 80
+    min_circularity: 0.55
+    min_confidence: 0.5
+
+  localization:
+    use_point_cloud: true
+    max_detection_range_m: 20.0
+    roi_padding_px: 8
+    min_points_in_roi: 5
+    output_frame: start
+
+  tracking:
+    confirm_observation_count: 3
+    reject_after_missed_count: 10
+    merge_distance_m: 0.5

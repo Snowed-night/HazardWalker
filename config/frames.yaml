@@ -1,0 +1,21 @@
+# HazardWalker 坐标系名称配置。
+# 算法模块统一使用这里的 frame 名，不直接依赖仿真器或官方平台命名。
+
+frames:
+  map: map
+  odom: odom
+  base_link: base_link
+  camera_link: camera_link
+  camera_optical_frame: camera_optical_frame
+  lidar_link: lidar_link
+  start: start
+
+transforms:
+  global_chain:
+    - map
+    - odom
+    - base_link
+  sensor_frames:
+    - camera_link
+    - camera_optical_frame
+    - lidar_link

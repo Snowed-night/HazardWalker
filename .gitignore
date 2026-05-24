@@ -197,6 +197,7 @@ ros2_ws/log/
 *.ply
 *.bt
 *.log
+reports/run_results/
 
 # Gazebo / simulation cache
 .gazebo/
