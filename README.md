@@ -11,9 +11,11 @@ HazardWalker 是面向 DG-202602 “基于四足机器人的危险源自主搜�
 ```text
 main                 稳定版本，只放可演示、可提交版本
 dev                  日常集成版本
+feature/offline-algorithm-tests 当前最小 demo 和离线算法测试
 feature/platform     平台与仿真开发
 feature/nav          导航探索开发
 feature/perception   感知定位开发
+feature/decision     决策状态机开发
 feature/test         测试脚本开发
 docs/report          文档材料开发
 fix/xxx              Bug 修复
@@ -40,7 +42,7 @@ HazardWalker/
 hazardwalker_platform     平台适配，统一仿真/官方平台接口
 hazardwalker_nav          SLAM、导航、自主探索和返航
 hazardwalker_perception   红球检测、相机雷达融合和三维定位
-hazardwalker_decision     任务状态机、NBV、重观察和返航约束
+hazardwalker_decision     任务状态机、重观察和返航约束
 hazardwalker_bringup      一键启动和系统集成
 hazardwalker_msgs         自定义消息定义
 ```
@@ -52,6 +54,7 @@ hazardwalker_msgs         自定义消息定义
 ## 当前最小 demo
 
 仓库当前正在实现最小闭环 demo，目标是先把平台、感知、导航、决策和结果输出串起来。
+最小 demo 是接口和启动流程的验证线，不是最终比赛方案。各组从初期就要同步推进 Gazebo/官方平台适配、Frontier/SLAM/Nav2、点云三维定位、完整 FSM 和指标统计；YOLO/NBV、主动重观察等增强模块先做小实验，再按收益接入主流程。
 
 相关文件：
 

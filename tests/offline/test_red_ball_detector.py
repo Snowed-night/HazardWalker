@@ -1,3 +1,20 @@
+"""红球检测离线测试。
+
+所属组：感知组 / 测试组。
+文件作用：
+- 用人工构造的 RGB 图像验证 `red_ball_detector.py`。
+- 不依赖 ROS、OpenCV、Gazebo 或真实相机。
+
+当前验证内容：
+- 红色 RGB 像素能转换到 HSV 红色区间。
+- 足够大的红色区域能输出正确 bbox。
+- 面积太小的红色噪声不会被当成危险源。
+
+后续扩展：
+- 增加 BGR 输入测试。
+- 增加多目标、暗光、低饱和度和边界 hue 测试。
+- 如果检测函数加入圆度或连通域筛选，这里同步补测试。
+"""
 import os
 import sys
 
@@ -8,6 +25,7 @@ from hazardwalker_perception.red_ball_detector import detect_red_ball_rgb_bytes,
 
 
 def make_rgb_image(width, height, background=(30, 30, 30)):
+    """生成一张纯 RGB 字节图像，用作离线测试输入。"""
     data = bytearray(width * height * 3)
     for i in range(0, len(data), 3):
         data[i] = background[0]
@@ -17,6 +35,7 @@ def make_rgb_image(width, height, background=(30, 30, 30)):
 
 
 def draw_red_square(data, width, x_min, y_min, x_max, y_max):
+    """在图像字节中画红色矩形，模拟相机看到红色目标。"""
     for y in range(y_min, y_max + 1):
         for x in range(x_min, x_max + 1):
             index = (y * width + x) * 3
@@ -26,6 +45,7 @@ def draw_red_square(data, width, x_min, y_min, x_max, y_max):
 
 
 def test_rgb_to_hsv_pixel_detects_red_hue():
+    """验证典型红色像素会落在 HSV 红色 hue 区间内。"""
     h, s, v = rgb_to_hsv_pixel(230, 20, 20)
     assert h <= 10.0 or h >= 170.0
     assert s > 80.0
@@ -33,6 +53,7 @@ def test_rgb_to_hsv_pixel_detects_red_hue():
 
 
 def test_detect_red_ball_rgb_bytes_returns_bbox():
+    """验证大面积红色区域能输出正确 2D 包围框。"""
     width = 40
     height = 30
     data = make_rgb_image(width, height)
@@ -49,6 +70,7 @@ def test_detect_red_ball_rgb_bytes_returns_bbox():
 
 
 def test_detect_red_ball_rgb_bytes_ignores_small_noise():
+    """验证小红点噪声会被面积阈值过滤掉。"""
     width = 40
     height = 30
     data = make_rgb_image(width, height)
