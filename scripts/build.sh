@@ -1,14 +1,13 @@
 #!/usr/bin/env bash
-set -euo pipefail
+set -eo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO_ROOT/ros2_ws"
 
+export AMENT_TRACE_SETUP_FILES="${AMENT_TRACE_SETUP_FILES:-}"
 if [ -f /opt/ros/jazzy/setup.bash ]; then
   # shellcheck disable=SC1091
-  set +u
   source /opt/ros/jazzy/setup.bash
-  set -u
 fi
 
 colcon build --symlink-install
