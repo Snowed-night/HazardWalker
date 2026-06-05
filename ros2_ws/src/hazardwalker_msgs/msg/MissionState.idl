@@ -1,0 +1,15 @@
+#include "std_msgs/msg/Header.idl"
+
+module hazardwalker_msgs {
+  module msg {
+    struct MissionState {
+      std_msgs::msg::Header header;
+
+      string state;
+
+      string event;
+
+      double elapsed_time;
+    };
+  };
+};
