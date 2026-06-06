@@ -1,0 +1,322 @@
+<?xml version="1.0" ?>
+<!--
+  HazardWalker Phase 1 — 简化差分驱动机器人模型。
+
+  用途：
+    - 在 Gazebo 场景中提供带传感器的可运动机器人。
+    - 通过 DiffDrive 插件接收 /cmd_vel，发布 /odom 和 /tf。
+
+  传感器：
+    - RGB 相机：640×480 @30Hz，挂载于 camera_link (0.25, 0, 0.35)
+    - GPU LiDAR：16线 360° @10Hz，20m 测距，挂载于 lidar_link (0.15, 0, 0.45)
+    - IMU：100Hz，挂载于底盘中心
+
+  运行要求：
+    - 需要 Gazebo Harmonic + ros_gz_bridge（Linux / Ubuntu 24.04）。
+    - 本文件本身是纯 XML，在 Windows 上可做语法校验（见测试脚本）。
+
+  坐标约定（与 fake_platform_node 保持一致）：
+    - odom → base_link  : DiffDrive 插件发布
+    - base_link → camera_link : (0.25, 0, 0.35) 固定关节
+    - base_link → lidar_link  : (0.15, 0, 0.45) 固定关节
+-->
+<sdf version="1.11">
+  <model name="simple_robot">
+
+    <!-- ================================================================
+        底盘 — 机器人主体
+        尺寸：0.4m(长) × 0.25m(宽) × 0.2m(高)
+        ================================================================ -->
+    <link name="chassis">
+      <pose>0 0 0.15 0 0 0</pose>
+      <inertial>
+        <mass>15.0</mass>
+        <inertia>
+          <ixx>0.4</ixx>  <ixy>0.0</ixy>  <ixz>0.0</ixz>
+          <iyy>0.4</iyy>  <iyz>0.0</iyz>
+          <izz>0.5</izz>
+        </inertia>
+      </inertial>
+      <visual name="chassis_visual">
+        <geometry>
+          <box><size>0.4 0.25 0.2</size></box>
+        </geometry>
+        <material>
+          <ambient>0.2 0.2 0.2</ambient>
+          <diffuse>0.3 0.3 0.3</diffuse>
+          <specular>0.1 0.1 0.1</specular>
+        </material>
+      </visual>
+      <collision name="chassis_collision">
+        <geometry>
+          <box><size>0.4 0.25 0.2</size></box>
+        </geometry>
+      </collision>
+    </link>
+
+    <!-- ================================================================
+        左驱动轮
+        半径 0.08m，宽度 0.04m
+        ================================================================ -->
+    <link name="left_wheel">
+      <pose>0 0.165 0.08 1.5708 0 0</pose>
+      <inertial>
+        <mass>0.5</mass>
+        <inertia>
+          <ixx>0.001</ixx>  <ixy>0</ixy>  <ixz>0</ixz>
+          <iyy>0.001</iyy>  <iyz>0</iyz>
+          <izz>0.001</izz>
+        </inertia>
+      </inertial>
+      <visual name="left_wheel_visual">
+        <geometry>
+          <cylinder><radius>0.08</radius><length>0.04</length></cylinder>
+        </geometry>
+        <material>
+          <ambient>0.1 0.1 0.1</ambient>
+          <diffuse>0.15 0.15 0.15</diffuse>
+        </material>
+      </visual>
+      <collision name="left_wheel_collision">
+        <geometry>
+          <cylinder><radius>0.08</radius><length>0.04</length></cylinder>
+        </geometry>
+      </collision>
+    </link>
+
+    <joint name="left_wheel_joint" type="revolute">
+      <parent>chassis</parent>
+      <child>left_wheel</child>
+      <axis><xyz>0 1 0</xyz></axis>
+      <pose>0 0.165 0 0 0 0</pose>
+    </joint>
+
+    <!-- ================================================================
+        右驱动轮
+        ================================================================ -->
+    <link name="right_wheel">
+      <pose>0 -0.165 0.08 1.5708 0 0</pose>
+      <inertial>
+        <mass>0.5</mass>
+        <inertia>
+          <ixx>0.001</ixx>  <ixy>0</ixy>  <ixz>0</ixz>
+          <iyy>0.001</iyy>  <iyz>0</iyz>
+          <izz>0.001</izz>
+        </inertia>
+      </inertial>
+      <visual name="right_wheel_visual">
+        <geometry>
+          <cylinder><radius>0.08</radius><length>0.04</length></cylinder>
+        </geometry>
+        <material>
+          <ambient>0.1 0.1 0.1</ambient>
+          <diffuse>0.15 0.15 0.15</diffuse>
+        </material>
+      </visual>
+      <collision name="right_wheel_collision">
+        <geometry>
+          <cylinder><radius>0.08</radius><length>0.04</length></cylinder>
+        </geometry>
+      </collision>
+    </link>
+
+    <joint name="right_wheel_joint" type="revolute">
+      <parent>chassis</parent>
+      <child>right_wheel</child>
+      <axis><xyz>0 -1 0</xyz></axis>
+      <pose>0 -0.165 0 0 0 0</pose>
+    </joint>
+
+    <!-- ================================================================
+        万向支撑轮（后方），保持平衡
+        ================================================================ -->
+    <link name="caster_wheel">
+      <pose>-0.15 0 0.04 0 0 0</pose>
+      <inertial>
+        <mass>0.1</mass>
+        <inertia>
+          <ixx>1e-5</ixx>  <ixy>0</ixy>  <ixz>0</ixz>
+          <iyy>1e-5</iyy>  <iyz>0</iyz>
+          <izz>1e-5</izz>
+        </inertia>
+      </inertial>
+      <visual name="caster_visual">
+        <geometry><sphere><radius>0.03</radius></sphere></geometry>
+        <material><ambient>0.1 0.1 0.1</ambient></material>
+      </visual>
+      <collision name="caster_collision">
+        <geometry><sphere><radius>0.03</radius></sphere></geometry>
+      </collision>
+    </link>
+
+    <joint name="caster_joint" type="ball">
+      <parent>chassis</parent>
+      <child>caster_wheel</child>
+    </joint>
+
+    <!-- ================================================================
+        相机挂载连杆 — RGB 相机传感器
+        位置 (0.25, 0, 0.35) 相对底盘，与 fake_platform_node 一致
+        ================================================================ -->
+    <link name="camera_link">
+      <pose>0.25 0 0.35 0 0 0</pose>
+      <inertial>
+        <mass>0.1</mass>
+        <inertia>
+          <ixx>1e-5</ixx>  <ixy>0</ixy>  <ixz>0</ixz>
+          <iyy>1e-5</iyy>  <iyz>0</iyz>
+          <izz>1e-5</izz>
+        </inertia>
+      </inertial>
+      <visual name="camera_visual">
+        <geometry><box><size>0.04 0.04 0.03</size></box></geometry>
+        <material>
+          <ambient>0.05 0.05 0.3</ambient>
+          <diffuse>0.05 0.05 0.5</diffuse>
+        </material>
+      </visual>
+
+      <sensor name="camera" type="camera">
+        <camera>
+          <horizontal_fov>1.047</horizontal_fov>
+          <image>
+            <width>640</width>
+            <height>480</height>
+          </image>
+          <clip>
+            <near>0.05</near>
+            <far>50.0</far>
+          </clip>
+        </camera>
+        <always_on>1</always_on>
+        <update_rate>30.0</update_rate>
+        <visualize>false</visualize>
+        <topic>/camera/image</topic>
+      </sensor>
+    </link>
+
+    <joint name="camera_joint" type="fixed">
+      <parent>chassis</parent>
+      <child>camera_link</child>
+    </joint>
+
+    <!-- ================================================================
+        LiDAR 挂载连杆 — 16线 360° 激光雷达
+        位置 (0.15, 0, 0.45) 相对底盘，与 fake_platform_node 一致
+        ================================================================ -->
+    <link name="lidar_link">
+      <pose>0.15 0 0.45 0 0 0</pose>
+      <inertial>
+        <mass>0.3</mass>
+        <inertia>
+          <ixx>0.001</ixx>  <ixy>0</ixy>  <ixz>0</ixz>
+          <iyy>0.001</iyy>  <iyz>0</iyz>
+          <izz>0.001</izz>
+        </inertia>
+      </inertial>
+      <visual name="lidar_visual">
+        <geometry>
+          <cylinder><radius>0.04</radius><length>0.06</length></cylinder>
+        </geometry>
+        <material>
+          <ambient>0.3 0.3 0.3</ambient>
+          <diffuse>0.4 0.4 0.4</diffuse>
+        </material>
+      </visual>
+
+      <sensor name="lidar" type="gpu_lidar">
+        <ray>
+          <scan>
+            <horizontal>
+              <samples>360</samples>
+              <resolution>1</resolution>
+              <min_angle>-3.14159</min_angle>
+              <max_angle>3.14159</max_angle>
+            </horizontal>
+            <vertical>
+              <samples>16</samples>
+              <resolution>1</resolution>
+              <min_angle>-0.2618</min_angle>
+              <max_angle>0.2618</max_angle>
+            </vertical>
+          </scan>
+          <range>
+            <min>0.1</min>
+            <max>20.0</max>
+            <resolution>0.01</resolution>
+          </range>
+          <noise>
+            <type>gaussian</type>
+            <mean>0.0</mean>
+            <stddev>0.02</stddev>
+          </noise>
+        </ray>
+        <always_on>1</always_on>
+        <update_rate>10.0</update_rate>
+        <visualize>false</visualize>
+        <topic>/lidar/points</topic>
+      </sensor>
+    </link>
+
+    <joint name="lidar_joint" type="fixed">
+      <parent>chassis</parent>
+      <child>lidar_link</child>
+    </joint>
+
+    <!-- ================================================================
+        IMU 传感器 — 挂载于底盘中心
+        ================================================================ -->
+    <link name="imu_link">
+      <pose>0 0 0.1 0 0 0</pose>
+      <sensor name="imu" type="imu">
+        <always_on>1</always_on>
+        <update_rate>100.0</update_rate>
+        <visualize>false</visualize>
+        <topic>/imu</topic>
+      </sensor>
+    </link>
+
+    <joint name="imu_joint" type="fixed">
+      <parent>chassis</parent>
+      <child>imu_link</child>
+    </joint>
+
+  </model>
+
+  <!-- ================================================================
+      差分驱动控制器
+      接收 /cmd_vel (geometry_msgs/Twist)
+      发布 /odom (nav_msgs/Odometry) 和 /tf
+      ================================================================ -->
+  <plugin
+    filename="gz-sim-diff-drive-system"
+    name="gz::sim::systems::DiffDrive">
+    <left_joint>left_wheel_joint</left_joint>
+    <right_joint>right_wheel_joint</right_joint>
+    <wheel_separation>0.33</wheel_separation>
+    <wheel_radius>0.08</wheel_radius>
+    <max_linear_acceleration>2.0</max_linear_acceleration>
+    <max_angular_acceleration>4.0</max_angular_acceleration>
+    <max_linear_velocity>1.0</max_linear_velocity>
+    <max_angular_velocity>3.0</max_angular_velocity>
+    <odom_publish_frequency>30.0</odom_publish_frequency>
+    <topic>/cmd_vel</topic>
+    <odom_topic>/odom</odom_topic>
+    <tf_topic>/tf</tf_topic>
+    <frame_id>odom</frame_id>
+    <child_frame_id>base_link</child_frame_id>
+  </plugin>
+
+  <!-- ================================================================
+      关节状态发布器
+      ================================================================ -->
+  <plugin
+    filename="gz-sim-joint-state-publisher-system"
+    name="gz::sim::systems::JointStatePublisher">
+    <joint_name>left_wheel_joint</joint_name>
+    <joint_name>right_wheel_joint</joint_name>
+    <update_rate>30.0</update_rate>
+    <topic>/joint_states</topic>
+  </plugin>
+
+</sdf>
