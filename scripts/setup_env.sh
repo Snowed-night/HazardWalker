@@ -5,7 +5,7 @@ echo "HazardWalker 主力机环境检查"
 echo
 echo "目标环境：Ubuntu 24.04 + ROS 2 Jazzy + Gazebo Harmonic"
 echo "本脚本只做检查和提示，不自动安装 NVIDIA 驱动、ROS 或 Gazebo。"
-echo "大型依赖请按 docs/主力机环境搭建.md 中的命令手动安装。"
+echo "大型依赖请按 docs/environment/主力机环境使用指南.md 中的说明手动安装。"
 echo
 
 check_cmd() {

@@ -25,7 +25,7 @@ fix/xxx              Bug 修复
 
 ```text
 HazardWalker/
-├─ docs/                 项目背景、初期开发总结、最小 demo 实现
+├─ docs/                 项目文档、环境指南、各组资料和实验记录
 ├─ ros2_ws/              ROS 2 工作空间
 │  └─ src/               ROS 2 功能包源码
 ├─ scripts/              构建、启动和离线测试脚本
@@ -49,7 +49,15 @@ hazardwalker_msgs         自定义消息定义
 
 ## 开发规则
 
-日常开发基于 `dev` 创建功能分支，通过 Pull Request 合并，不直接在 `main` 上开发。文档以 `docs/项目背景介绍.md`、`docs/初期项目开发总结.md`、`docs/最小demo实现.md` 为主。
+日常开发基于 `dev` 创建功能分支，通过 Pull Request 合并，不直接在 `main` 上开发。文档入口见 `docs/README.md`。
+
+各组成员修改文件内容时，需要同步检查并更新相关 README：
+
+- 修改项目总体结构、运行方式、分支规则或公共约定时，同步更新根目录 `README.md`。
+- 修改某个 ROS 2 包、脚本、配置、测试或文档目录时，同步更新对应目录下的 `README.md`。
+- 如果确认 README 不需要改动，需要在提交说明或 PR 中写明原因。
+
+新增代码文件时，需要在文件首部注明本文件的作用，建议包含所属小组、文件职责、当前实现边界和验证方式。重要模块、重要类和重要函数需要有简明注释或 docstring，说明输入、输出、关键逻辑和后续扩展点。注释应帮助成员理解代码，不写重复代码本身含义的空泛说明。
 
 ## 当前最小 demo
 
@@ -58,7 +66,7 @@ hazardwalker_msgs         自定义消息定义
 
 相关文件：
 
-- `docs/最小demo实现.md`
+- `docs/development/最小demo实现.md`
 - `ros2_ws/src/hazardwalker_bringup/launch/minimal_demo.launch.py`
 - `ros2_ws/src/hazardwalker_platform/hazardwalker_platform/fake_platform_node.py`
 - `ros2_ws/src/hazardwalker_perception/hazardwalker_perception/red_ball_detector.py`
