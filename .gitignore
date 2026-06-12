@@ -198,6 +198,22 @@ ros2_ws/log/
 *.bt
 *.log
 reports/run_results/
+reports/perception/result/cases/
+reports/perception/result/annotated/
+reports/perception/result/summary.csv
+reports/perception/result/summary.json
+reports/perception/result/metrics_summary.csv
+reports/perception/result/metrics_summary.json
+reports/perception/result/figures/*
+!reports/perception/result/figures/perception_cases_collage.png
+!reports/perception/result/figures/occlusion_confidence.png
+!reports/perception/result/figures/occlusion_circularity.png
+reports/perception/real_result/annotated/
+reports/perception/real_result/summary.csv
+reports/perception/real_result/summary.json
+reports/perception/real_result/detections.csv
+reports/perception/real_result/figures/*
+!reports/perception/real_result/figures/real_red_ball_collage.png
 
 # Gazebo / simulation cache
 .gazebo/
@@ -221,6 +237,10 @@ reports/run_results/
 
 # Local VS Code settings
 .vscode/settings.json
+
+# Local agent instructions
+agent.md
+AGENT.md
 
 # PyCharm
 #   JetBrains specific template is maintained in a separate JetBrains.gitignore that can

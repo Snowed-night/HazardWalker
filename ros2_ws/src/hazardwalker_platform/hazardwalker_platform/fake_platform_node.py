@@ -1,23 +1,9 @@
-"""HazardWalker 最小平台适配节点。
+﻿"""HazardWalker 最小平台适配节点。
 
 所属组：平台组。
 文件作用：
-- 在没有 Gazebo 或官方平台时，模拟 `/hw/*` 话题输出和简单控制响应。
-- 让感知、导航、决策、结果写入可以先串成一条完整链路。
-
-当前职责：
-- 发布相机图像、CameraInfo、里程计、TF 和空点云。
-- 接收 `/hw/cmd_vel` 并用简化运动学更新位置。
-- 为感知组提供可控红球图像，为导航组提供可控里程计输入。
-
-后续扩展方式：
-- 有真实仿真或官方平台后，这个文件可以替换成 `gazebo_adapter_node.py` 或 `official_adapter_node.py`。
-- 替换时保持 `/hw/camera/image_raw`、`/hw/odom`、`/hw/cmd_vel` 等接口不变，只改数据来源。
-- 如果需要接入真实传感器，可在这里补真实点云、真实外参和更准确的 TF。
-
-验证方式：
-- 启动后确认 `odom -> base_link`、`base_link -> camera_link`、`base_link -> lidar_link` 存在。
-- 确认图像里能切出红球，`/hw/odom` 会随 `/hw/cmd_vel` 改变。
+在没有 Gazebo 或官方平台时模拟 `/hw/*` 传感器话题、TF 和控制响应。
+当前只用于打通最小 demo，真实仿真接入后应替换为 Gazebo 或官方平台 adapter。
 """
 import math
 import time
@@ -25,6 +11,7 @@ import time
 import rclpy
 from geometry_msgs.msg import TransformStamped, Twist
 from nav_msgs.msg import Odometry
+import numpy as np
 from rclpy.node import Node
 from sensor_msgs.msg import CameraInfo, Image, PointCloud2
 from tf2_ros import TransformBroadcaster
@@ -47,6 +34,7 @@ class FakePlatformNode(Node):
         # 不直接依赖 Gazebo、Isaac 或官方平台原始 topic 名。
         self.image_pub = self.create_publisher(Image, '/hw/camera/image_raw', 10)
         self.camera_info_pub = self.create_publisher(CameraInfo, '/hw/camera/camera_info', 10)
+        self.depth_pub = self.create_publisher(Image, '/hw/camera/depth_image', 10)
         self.odom_pub = self.create_publisher(Odometry, '/hw/odom', 10)
         self.cloud_pub = self.create_publisher(PointCloud2, '/hw/lidar/points', 10)
         self.cmd_sub = self.create_subscription(Twist, '/hw/cmd_vel', self.on_cmd_vel, 10)
@@ -89,7 +77,14 @@ class FakePlatformNode(Node):
         self.publish_empty_cloud(stamp)
 
     def publish_tf(self, stamp):
-        # odom -> base_link：描述机器人底盘在里程计坐标系下的位置。
+        # start 到 odom：最小 demo 中把起点坐标系和 odom 对齐，方便感知输出相对起点坐标。
+        start_tf = TransformStamped()
+        start_tf.header.stamp = stamp
+        start_tf.header.frame_id = 'start'
+        start_tf.child_frame_id = 'odom'
+        start_tf.transform.rotation.w = 1.0
+
+        # odom 到 base_link：描述机器人底盘在里程计坐标系下的位置。
         transform = TransformStamped()
         transform.header.stamp = stamp
         transform.header.frame_id = 'odom'
@@ -100,7 +95,7 @@ class FakePlatformNode(Node):
         transform.transform.rotation.z = math.sin(self.yaw / 2.0)
         transform.transform.rotation.w = math.cos(self.yaw / 2.0)
 
-        # base_link -> camera_link：相机相对机器人底盘的安装位置。
+        # base_link 到 camera_link：相机相对机器人底盘的安装位置。
         # 这里的数值是占位外参，后续 Gazebo/官方平台必须替换为真实外参。
         camera_tf = TransformStamped()
         camera_tf.header.stamp = stamp
@@ -111,7 +106,7 @@ class FakePlatformNode(Node):
         camera_tf.transform.translation.z = 0.35
         camera_tf.transform.rotation.w = 1.0
 
-        # base_link -> lidar_link：雷达相对机器人底盘的安装位置。
+        # base_link 到 lidar_link：雷达相对机器人底盘的安装位置。
         # 当前 fake 节点发布空点云，因此只用于保证 TF 链完整。
         lidar_tf = TransformStamped()
         lidar_tf.header.stamp = stamp
@@ -122,7 +117,7 @@ class FakePlatformNode(Node):
         lidar_tf.transform.translation.z = 0.45
         lidar_tf.transform.rotation.w = 1.0
 
-        self.tf_broadcaster.sendTransform([transform, camera_tf, lidar_tf])
+        self.tf_broadcaster.sendTransform([start_tf, transform, camera_tf, lidar_tf])
 
     def publish_odom(self, stamp, vx, wz):
         # /hw/odom 给导航和决策模块使用。真实系统中这个数据可能来自官方平台、
@@ -174,6 +169,7 @@ class FakePlatformNode(Node):
 
         image.data = bytes(data)
         self.image_pub.publish(image)
+        self.publish_depth_image(stamp)
 
         # CameraInfo 提供相机内参。当前数值是占位值，点云投影/三维定位前
         # 必须由平台组替换为仿真相机或官方相机的真实参数。
@@ -187,6 +183,21 @@ class FakePlatformNode(Node):
         info.k = [fx, 0.0, cx, 0.0, fy, cy, 0.0, 0.0, 1.0]
         info.p = [fx, 0.0, cx, 0.0, 0.0, fy, cy, 0.0, 0.0, 0.0, 1.0, 0.0]
         self.camera_info_pub.publish(info)
+
+    def publish_depth_image(self, stamp):
+        # 深度图与 RGB 图像对齐。当前用平面常量深度模拟红球距离，
+        # 用于验证 bbox + CameraInfo + 深度 + TF 的三维定位链路。
+        depth = Image()
+        depth.header.stamp = stamp
+        depth.header.frame_id = 'camera_link'
+        depth.height = self.height
+        depth.width = self.width
+        depth.encoding = '32FC1'
+        depth.is_bigendian = 0
+        depth.step = self.width * 4
+        depth_m = np.full((self.height, self.width), 3.0, dtype=np.float32)
+        depth.data = depth_m.tobytes()
+        self.depth_pub.publish(depth)
 
     def publish_empty_cloud(self, stamp):
         # 当前只发布空 PointCloud2，用来提前固定 `/hw/lidar/points` 接口。
