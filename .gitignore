@@ -257,3 +257,13 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+
+# HazardWalker hxbl ops docs (synced on main machine, do not commit)
+docs/主力机环境搭建.md
+docs/主力机环境搭建总结报告.md
+docs/主力机环境运维手册-集成组.md
+docs/远程桌面使用指南.md
+scripts/deploy_grd_remote_login.sh
+scripts/deploy_sftp_audit_layer1.sh
+scripts/deploy_audit_layer2.sh
