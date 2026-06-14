@@ -198,6 +198,9 @@ ros2_ws/log/
 *.bt
 *.log
 reports/run_results/
+reports/red_ball_gallery/
+reports/gazebo_camera_*.ppm
+reports/gazebo_redball_detection_*.png
 reports/perception/result/cases/
 reports/perception/result/annotated/
 reports/perception/result/summary.csv
