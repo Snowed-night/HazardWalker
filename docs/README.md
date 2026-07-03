@@ -23,6 +23,7 @@
 - [最小 demo 实现](development/最小demo实现.md)
 - [主力机环境使用指南](environment/主力机环境使用指南.md)
 - [远程桌面使用指南](environment/远程桌面使用指南.md)
+- [Gazebo 远程 GUI 分离操作指南](Gazebo远程GUI分离操作指南.md)
 - [各组文档索引](groups/README.md)
 - [Git 提交手册](guidebook/git提交手册.md)
 
