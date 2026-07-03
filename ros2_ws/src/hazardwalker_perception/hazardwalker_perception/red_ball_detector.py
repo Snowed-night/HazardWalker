@@ -3,9 +3,10 @@
 所属组：感知组。
 文件作用：
 提供不依赖 ROS 的红球检测基础函数。
-使用 OpenCV 完成 HSV 分割、连通域提取和圆形度筛选，优先降低红色非球体误检。
+使用 OpenCV 完成 HSV 分割、连通域提取、Hough 圆/Watershed 粘连分离和圆形度筛选，优先降低红色非球体误检。
 当前可输出多个红球候选；兼容旧接口时返回单个最可信候选。
 每个候选包含 2D bbox、红色像素数和形状指标。
+后续可在保持 DetectionBackend 接口不变的前提下接入 YOLO、分割模型或点云辅助检测。
 """
 
 from dataclasses import dataclass
@@ -32,6 +33,37 @@ class RedBallDetection2D:
     circularity: float = 0.0
     aspect_ratio: float = 0.0
     extent: float = 0.0
+
+"""二维检测后端接口，后续 YOLO/分割模型只要实现 detect 即可接入 ROS 节点。"""
+class DetectionBackend:
+    name = 'base'
+
+    def detect(self, data, width, height, step=None, encoding='rgb8', **kwargs):
+        raise NotImplementedError
+
+
+"""当前可展示版本使用的 HSV + OpenCV 检测后端。"""
+class HsvOpenCvDetectionBackend(DetectionBackend):
+    name = 'hsv_opencv'
+
+    def detect(self, data, width, height, step=None, encoding='rgb8', **kwargs):
+        return detect_red_balls_rgb_bytes(
+            data=data,
+            width=width,
+            height=height,
+            step=step,
+            encoding=encoding,
+            **kwargs,
+        )
+
+
+"""根据名称创建检测后端，暂时只内置 HSV，后续模型化方案从这里注册。"""
+def create_detection_backend(name='hsv_opencv'):
+    normalized = (name or 'hsv_opencv').lower()
+    if normalized in ('hsv', 'hsv_opencv'):
+        return HsvOpenCvDetectionBackend()
+    raise ValueError(f'Unsupported detection backend: {name}')
+
 
 """把单个 RGB 像素转为 OpenCV 风格 HSV"""
 def rgb_to_hsv_pixel(r, g, b):
@@ -76,7 +108,8 @@ def is_red_hsv(h, s, v, lower_h_1=0.0, upper_h_1=10.0, lower_h_2=170.0, upper_h_
 def detect_red_balls_rgb_bytes(data, width, height, step=None, encoding='rgb8',
                                min_area_px=80, min_confidence=0.5,
                                min_circularity=0.60, min_aspect_ratio=0.45,
-                               min_extent=0.35, max_extent=0.92, max_detections=None):
+                               min_extent=0.35, max_extent=0.92, max_detections=None,
+                               split_touching=True):
     """
     Args:
         data: 图像原始 bytes/bytearray。
@@ -89,6 +122,7 @@ def detect_red_balls_rgb_bytes(data, width, height, step=None, encoding='rgb8',
         min_extent: 轮廓面积 / bbox 面积下限，用于过滤过碎或过稀疏区域。
         max_extent: 轮廓面积 / bbox 面积上限，用于过滤红色方块等实心矩形。
         max_detections: 最多返回多少个候选，None 表示不限制。
+        split_touching: 是否尝试用距离变换和 watershed 分离粘连红球。
 
     Returns:
         RedBallDetection2D 列表，按 confidence 从高到低排序。
@@ -118,6 +152,7 @@ def detect_red_balls_rgb_bytes(data, width, height, step=None, encoding='rgb8',
             min_aspect_ratio=min_aspect_ratio,
             min_extent=min_extent,
             max_extent=max_extent,
+            split_touching=split_touching,
         )
         if max_detections is not None:
             return detections[:max_detections]
@@ -138,7 +173,7 @@ def detect_red_balls_rgb_bytes(data, width, height, step=None, encoding='rgb8',
 def detect_red_ball_rgb_bytes(data, width, height, step=None, encoding='rgb8',
                               min_area_px=80, min_confidence=0.5,
                               min_circularity=0.60, min_aspect_ratio=0.45,
-                              min_extent=0.35, max_extent=0.92):
+                              min_extent=0.35, max_extent=0.92, split_touching=True):
     detections = detect_red_balls_rgb_bytes(
         data=data,
         width=width,
@@ -151,6 +186,7 @@ def detect_red_ball_rgb_bytes(data, width, height, step=None, encoding='rgb8',
         min_aspect_ratio=min_aspect_ratio,
         min_extent=min_extent,
         max_extent=max_extent,
+        split_touching=split_touching,
         max_detections=1,
     )
     return detections[0] if detections else None
@@ -205,7 +241,8 @@ def _image_bytes_to_array(data, width, height, step):
 
 """用 OpenCV 的 HSV mask、形态学处理和轮廓指标筛选多个红色球体。"""
 def _detect_red_balls_with_opencv(data, width, height, step, encoding, min_area_px, min_confidence,
-                                  min_circularity, min_aspect_ratio, min_extent, max_extent):
+                                  min_circularity, min_aspect_ratio, min_extent, max_extent,
+                                  split_touching):
 
 
     image = _image_bytes_to_array(data, width, height, step)
@@ -229,49 +266,251 @@ def _detect_red_balls_with_opencv(data, width, height, step, encoding, min_area_
     detections = []
 
     for contour in contours:
-        area = float(cv2.contourArea(contour))
-        if area < min_area_px:
+        split_detections = []
+        if split_touching:
+            split_detections = _split_touching_contour_to_detections(
+                contour=contour,
+                mask=mask,
+                min_area_px=min_area_px,
+                min_confidence=min_confidence,
+                min_circularity=min_circularity,
+                min_aspect_ratio=min_aspect_ratio,
+                min_extent=min_extent,
+                max_extent=max_extent,
+            )
+        if len(split_detections) >= 2:
+            detections.extend(split_detections)
             continue
 
-        perimeter = float(cv2.arcLength(contour, True))
-        if perimeter <= 0.0:
+        contour_detections = _contour_to_detections(
+            contour=contour,
+            mask=mask,
+            min_area_px=min_area_px,
+            min_confidence=min_confidence,
+            min_circularity=min_circularity,
+            min_aspect_ratio=min_aspect_ratio,
+            min_extent=min_extent,
+            max_extent=max_extent,
+        )
+        if contour_detections:
+            detections.extend(contour_detections)
             continue
 
-        x, y, box_width, box_height = cv2.boundingRect(contour)
+    detections.sort(key=lambda item: item.confidence, reverse=True)
+    return detections
+
+"""把单个轮廓转为检测结果；不符合球体形状时返回空列表。"""
+def _contour_to_detections(contour, mask, min_area_px, min_confidence,
+                           min_circularity, min_aspect_ratio, min_extent, max_extent):
+
+    area = float(cv2.contourArea(contour))
+    if area < min_area_px:
+        return []
+
+    perimeter = float(cv2.arcLength(contour, True))
+    if perimeter <= 0.0:
+        return []
+
+    x, y, box_width, box_height = cv2.boundingRect(contour)
+    if box_width <= 0 or box_height <= 0:
+        return []
+
+    circularity = 4.0 * math.pi * area / (perimeter * perimeter)
+    aspect_ratio = min(box_width, box_height) / float(max(box_width, box_height))
+    extent = area / float(box_width * box_height)
+
+    # 当前版本优先不误检：红色方块通常 extent 接近 1，不规则物体通常圆度或长宽比较低。
+    if circularity < min_circularity:
+        return []
+    if aspect_ratio < min_aspect_ratio:
+        return []
+    if extent < min_extent or extent > max_extent:
+        return []
+
+    red_pixel_count = int(cv2.countNonZero(mask[y:y + box_height, x:x + box_width]))
+    shape_score = _score_shape(circularity, aspect_ratio, extent)
+    area_score = min(1.0, red_pixel_count / float(max(min_area_px, 1) * 4))
+    confidence = min(1.0, max(float(min_confidence), 0.75 * shape_score + 0.25 * area_score))
+
+    return [RedBallDetection2D(
+        x_min=int(x),
+        y_min=int(y),
+        x_max=int(x + box_width - 1),
+        y_max=int(y + box_height - 1),
+        confidence=confidence,
+        red_pixel_count=red_pixel_count,
+        circularity=circularity,
+        aspect_ratio=aspect_ratio,
+        extent=extent,
+    )]
+
+
+"""对粘连的红色连通域尝试分裂成多个红球候选。"""
+def _split_touching_contour_to_detections(contour, mask, min_area_px, min_confidence,
+                                          min_circularity, min_aspect_ratio, min_extent, max_extent):
+
+    area = float(cv2.contourArea(contour))
+    if area < min_area_px * 2:
+        return []
+
+    x, y, box_width, box_height = cv2.boundingRect(contour)
+    if box_width <= 0 or box_height <= 0:
+        return []
+
+    roi = mask[y:y + box_height, x:x + box_width]
+    if cv2.countNonZero(roi) < min_area_px * 2:
+        return []
+
+    hough_detections = _split_touching_contour_by_hough(
+        roi=roi,
+        offset_x=x,
+        offset_y=y,
+        min_area_px=min_area_px,
+        min_confidence=min_confidence,
+        min_circularity=min_circularity,
+        min_aspect_ratio=min_aspect_ratio,
+        min_extent=min_extent,
+        max_extent=max_extent,
+    )
+    if len(hough_detections) >= 2:
+        return hough_detections
+
+    distance = cv2.distanceTransform(roi, cv2.DIST_L2, 5)
+    max_distance = float(distance.max())
+    if max_distance <= 0.0:
+        return []
+
+    sure_foreground = np.uint8(distance > max_distance * 0.45) * 255
+    kernel = np.ones((3, 3), dtype=np.uint8)
+    sure_foreground = cv2.morphologyEx(sure_foreground, cv2.MORPH_OPEN, kernel)
+    marker_count, markers = cv2.connectedComponents(sure_foreground)
+    if marker_count <= 2:
+        return []
+
+    sure_background = cv2.dilate(roi, kernel, iterations=2)
+    unknown = cv2.subtract(sure_background, sure_foreground)
+    markers = markers + 1
+    markers[unknown == 255] = 0
+    watershed_image = cv2.cvtColor(roi, cv2.COLOR_GRAY2BGR)
+    markers = cv2.watershed(watershed_image, markers)
+
+    split_detections = []
+    for marker_id in range(2, marker_count + 1):
+        segment = np.uint8(markers == marker_id) * 255
+        segment = cv2.bitwise_and(segment, roi)
+        segment_contours, _hierarchy = cv2.findContours(segment, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        for segment_contour in segment_contours:
+            shifted = segment_contour.copy()
+            shifted[:, :, 0] += x
+            shifted[:, :, 1] += y
+            split_detections.extend(_contour_to_detections(
+                contour=shifted,
+                mask=mask,
+                min_area_px=max(10, int(min_area_px * 0.6)),
+                min_confidence=min_confidence,
+                min_circularity=max(0.35, min_circularity * 0.75),
+                min_aspect_ratio=max(0.35, min_aspect_ratio * 0.8),
+                min_extent=min_extent,
+                max_extent=max_extent,
+            ))
+
+    return _deduplicate_detections(split_detections)
+
+
+"""在红色 ROI 内用 Hough 圆检测辅助分离粘连红球。"""
+def _split_touching_contour_by_hough(roi, offset_x, offset_y, min_area_px, min_confidence,
+                                     min_circularity, min_aspect_ratio, min_extent, max_extent):
+
+    blurred = cv2.GaussianBlur(roi, (7, 7), 1.5)
+    min_radius = max(5, int(math.sqrt(min_area_px / math.pi) * 0.7))
+    max_radius = max(min_radius + 2, int(min(roi.shape[0], roi.shape[1]) * 0.55))
+    circles = cv2.HoughCircles(
+        blurred,
+        cv2.HOUGH_GRADIENT,
+        dp=1.2,
+        minDist=max(8, min_radius * 2),
+        param1=80,
+        param2=18,
+        minRadius=min_radius,
+        maxRadius=max_radius,
+    )
+    if circles is None:
+        return []
+
+    detections = []
+    for cx, cy, radius in np.round(circles[0]).astype(int):
+        if cx < 0 or cy < 0 or cx >= roi.shape[1] or cy >= roi.shape[0] or radius <= 0:
+            continue
+        circle_mask = np.zeros_like(roi)
+        cv2.circle(circle_mask, (int(cx), int(cy)), int(radius), 255, thickness=-1)
+        segment = cv2.bitwise_and(roi, circle_mask)
+        red_pixel_count = int(cv2.countNonZero(segment))
+        if red_pixel_count < max(10, int(min_area_px * 0.6)):
+            continue
+
+        x0 = int(max(0, cx - radius) + offset_x)
+        y0 = int(max(0, cy - radius) + offset_y)
+        x1 = int(min(roi.shape[1] - 1, cx + radius) + offset_x)
+        y1 = int(min(roi.shape[0] - 1, cy + radius) + offset_y)
+        box_width = x1 - x0 + 1
+        box_height = y1 - y0 + 1
         if box_width <= 0 or box_height <= 0:
             continue
 
-        circularity = 4.0 * math.pi * area / (perimeter * perimeter)
+        ideal_area = math.pi * float(radius) * float(radius)
+        circularity = 1.0
         aspect_ratio = min(box_width, box_height) / float(max(box_width, box_height))
-        extent = area / float(box_width * box_height)
-
-        # 当前版本优先不误检：红色方块通常 extent 接近 1，不规则物体通常圆度或长宽比较低。
-        if circularity < min_circularity:
+        extent = min(max_extent, ideal_area / float(box_width * box_height))
+        if aspect_ratio < max(0.35, min_aspect_ratio * 0.8):
             continue
-        if aspect_ratio < min_aspect_ratio:
-            continue
-        if extent < min_extent or extent > max_extent:
+        if extent < min_extent:
             continue
 
-        red_pixel_count = int(cv2.countNonZero(mask[y:y + box_height, x:x + box_width]))
         shape_score = _score_shape(circularity, aspect_ratio, extent)
         area_score = min(1.0, red_pixel_count / float(max(min_area_px, 1) * 4))
         confidence = min(1.0, max(float(min_confidence), 0.75 * shape_score + 0.25 * area_score))
-
         detections.append(RedBallDetection2D(
-            x_min=int(x),
-            y_min=int(y),
-            x_max=int(x + box_width - 1),
-            y_max=int(y + box_height - 1),
+            x_min=x0,
+            y_min=y0,
+            x_max=x1,
+            y_max=y1,
             confidence=confidence,
             red_pixel_count=red_pixel_count,
-            circularity=circularity,
+            circularity=max(min_circularity, circularity),
             aspect_ratio=aspect_ratio,
             extent=extent,
         ))
 
-    detections.sort(key=lambda item: item.confidence, reverse=True)
-    return detections
+    return _deduplicate_detections(detections)
+
+
+"""去掉分裂过程产生的重复 bbox。"""
+def _deduplicate_detections(detections):
+    unique = []
+    for detection in sorted(detections, key=lambda item: item.red_pixel_count, reverse=True):
+        duplicate = False
+        for existing in unique:
+            if _bbox_iou_detection(detection, existing) > 0.6:
+                duplicate = True
+                break
+        if not duplicate:
+            unique.append(detection)
+    return unique
+
+
+"""计算两个检测框的 IoU，用于分裂结果去重。"""
+def _bbox_iou_detection(a, b):
+    x0 = max(a.x_min, b.x_min)
+    y0 = max(a.y_min, b.y_min)
+    x1 = min(a.x_max, b.x_max)
+    y1 = min(a.y_max, b.y_max)
+    if x1 < x0 or y1 < y0:
+        return 0.0
+    intersection = float((x1 - x0 + 1) * (y1 - y0 + 1))
+    area_a = float((a.x_max - a.x_min + 1) * (a.y_max - a.y_min + 1))
+    area_b = float((b.x_max - b.x_min + 1) * (b.y_max - b.y_min + 1))
+    return intersection / max(area_a + area_b - intersection, 1.0)
+
 
 """把圆度、bbox 长宽比和面积比例合成 0 到 1 形状分数,用于在多个候选中优先选择更像球体的。"""
 def _score_shape(circularity, aspect_ratio, extent):

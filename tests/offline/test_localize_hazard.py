@@ -24,6 +24,7 @@ from hazardwalker_perception.localize_hazard import (
     pixel_to_camera_point,
     transform_point,
 )
+from hazardwalker_perception.track_hazards import distance_m
 
 
 """验证 CameraInfo K 矩阵能被转换成定位函数使用的内参。"""
@@ -134,3 +135,43 @@ def test_localize_bbox_from_depth_image_rejects_sparse_depth():
     )
 
     assert result is None
+
+
+"""验证多红球 bbox 能分别从深度图定位，并计算相对真值的三维误差。"""
+def test_multiple_bboxes_localize_with_small_position_error():
+    intrinsics = CameraIntrinsics(fx=200.0, fy=200.0, cx=100.0, cy=80.0)
+    depth_image = [[0.0 for _x in range(200)] for _y in range(160)]
+    boxes = [
+        {'x_min': 88, 'y_min': 68, 'x_max': 112, 'y_max': 92},
+        {'x_min': 128, 'y_min': 78, 'x_max': 152, 'y_max': 102},
+    ]
+    depths = [3.0, 4.0]
+    expected_positions = [
+        (0.0, 0.0, 3.0),
+        (0.8, 0.2, 4.0),
+    ]
+    for bbox, depth in zip(boxes, depths):
+        for y in range(int(bbox['y_min']), int(bbox['y_max']) + 1):
+            for x in range(int(bbox['x_min']), int(bbox['x_max']) + 1):
+                depth_image[y][x] = depth
+
+    results = [
+        localize_bbox_from_depth_image(
+            bbox=bbox,
+            intrinsics=intrinsics,
+            depth_image=depth_image,
+            min_points=10,
+            output_frame='start',
+        )
+        for bbox in boxes
+    ]
+    errors = [
+        distance_m(
+            (result.position.x, result.position.y, result.position.z),
+            expected,
+        )
+        for result, expected in zip(results, expected_positions)
+    ]
+
+    assert all(result is not None for result in results)
+    assert max(errors) < 1e-9

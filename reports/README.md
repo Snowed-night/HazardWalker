@@ -20,7 +20,7 @@ python scripts/generate_perception_cases.py
 默认输出到：
 
 ```text
-reports/perception/result/
+reports/perception/2d_detection/synthetic_<timestamp>/
 ```
 
 实物红球图片评估：
@@ -32,5 +32,23 @@ python scripts/evaluate_real_red_ball_images.py --input-dir C:\Users\jiangchen\O
 默认输出到：
 
 ```text
-reports/perception/real_result/
+reports/perception/2d_detection/real_images_<timestamp>/
+```
+
+Gazebo 红球 gallery：
+
+```bash
+python scripts/capture_red_ball_gallery.py
+```
+
+默认输出到：
+
+```text
+reports/perception/simulation/<timestamp>/
+```
+
+测试组表格统一放到：
+
+```text
+reports/perception/test_records/<timestamp>/
 ```

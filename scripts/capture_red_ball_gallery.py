@@ -288,7 +288,7 @@ def main():
 
     detect_red_ball_rgb_bytes = _import_detector()
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-    output_dir = args.output_dir or (REPO_ROOT / 'reports' / 'red_ball_gallery' / timestamp)
+    output_dir = args.output_dir or (REPO_ROOT / 'reports' / 'perception' / 'simulation' / timestamp)
     output_dir.mkdir(parents=True, exist_ok=True)
 
     partition = f'hw_gallery_{timestamp}_{os.getpid()}'
