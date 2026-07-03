@@ -1,0 +1,11 @@
+﻿case_id,source_file,width,height,detection_count,top_confidence,top_circularity,top_aspect_ratio,top_extent,top_bbox
+real_001,alicja-radish-4000891_1920.jpg,1920,1282,0,,,,,
+real_002,elisariva-ball-1906468_1920.png,1920,1920,0,,,,,
+real_003,fernandozhiminaicela-soccer-3568168_1920.jpg,1920,1280,0,,,,,
+real_004,frahyle-card-1101869_1920.jpg,1920,1440,1,0.9609,0.8886,0.9976,0.7814,"[55, 999, 464, 1409]"
+real_005,neelam279-christmas-tree-6870755_1920.jpg,1920,1250,4,0.8307,0.7726,0.9767,0.7207,"[271, 234, 313, 275]"
+real_006,neelam279-red-ball-8398445_1920.jpg,1260,1920,0,,,,,
+real_007,neelam279-red-bauble-7631290_1920.jpg,1920,1212,0,,,,,
+real_008,pexels-ball-1845545_1920.jpg,1920,1280,0,,,,,
+real_009,pixloger-sphere-1705664_1920.png,1920,1576,1,0.9607,0.8841,0.9993,0.7857,"[0, 0, 1449, 1448]"
+real_010,ralphs_fotos-currants-3585286_1920.jpg,1920,1280,1,0.764,0.6021,0.6883,0.6533,"[440, 896, 686, 1065]"

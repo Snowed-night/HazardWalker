@@ -204,10 +204,8 @@ tests/offline/test_detection_metrics.py
 汇报图：
 
 ```text
-reports/perception/result/figures/perception_cases_collage.png
-reports/perception/result/figures/occlusion_confidence.png
-reports/perception/result/figures/occlusion_circularity.png
-reports/perception/real_result/figures/real_red_ball_collage.png
+reports/perception/2d_detection/synthetic_20260620_230333/figures/perception_cases_collage.png
+reports/perception/2d_detection/real_images_20260620_230333/figures/real_red_ball_collage.png
 ```
 
 ## 8. 主要风险

@@ -1,0 +1,16 @@
+{
+  "num_samples": 19,
+  "num_ground_truth": 12,
+  "true_positive": 10,
+  "false_positive": 2,
+  "false_negative": 2,
+  "true_negative": 7,
+  "precision": 0.8333,
+  "recall": 0.8333,
+  "f1_score": 0.8333,
+  "accuracy": 0.8947,
+  "false_positive_rate": 0.2222,
+  "miss_rate": 0.1667,
+  "top1_error": 0.1053,
+  "ap50": 0.6944
+}

@@ -26,7 +26,7 @@ from hazardwalker_perception.localize_hazard import (
     camera_intrinsics_from_k,
     localize_bbox_from_depth_image,
 )
-from hazardwalker_perception.red_ball_detector import detect_red_balls_rgb_bytes
+from hazardwalker_perception.red_ball_detector import create_detection_backend
 from hazardwalker_perception.track_hazards import (
     HazardObservation,
     HazardTracker,
@@ -45,6 +45,8 @@ class HsvDetectorNode(Node):
         self.declare_parameter('min_extent', 0.35)
         self.declare_parameter('max_extent', 0.92)
         self.declare_parameter('max_detections', 20)
+        self.declare_parameter('detector_backend', 'hsv_opencv')
+        self.declare_parameter('split_touching_red_balls', True)
         self.declare_parameter('roi_padding_px', 8)
         self.declare_parameter('min_depth_points_in_roi', 5)
         self.declare_parameter('max_detection_range_m', 20.0)
@@ -57,6 +59,7 @@ class HsvDetectorNode(Node):
         self.latest_depth_image = None
         self.latest_depth_frame_id = ''
         self.latest_depth_stamp = None
+        self.detector_backend = create_detection_backend(str(self.get_parameter('detector_backend').value))
         self.tracker = HazardTracker(HazardTrackerConfig(
             confirm_observation_count=int(self.get_parameter('confirm_observation_count').value),
             reject_after_missed_count=int(self.get_parameter('reject_after_missed_count').value),
@@ -92,7 +95,7 @@ class HsvDetectorNode(Node):
             self.get_logger().warn(f'Unsupported image encoding: {msg.encoding}', throttle_duration_sec=5.0)
             return
 
-        detections_2d = detect_red_balls_rgb_bytes(
+        detections_2d = self.detector_backend.detect(
             data=msg.data,
             width=msg.width,
             height=msg.height,
@@ -105,6 +108,7 @@ class HsvDetectorNode(Node):
             min_extent=float(self.get_parameter('min_extent').value),
             max_extent=float(self.get_parameter('max_extent').value),
             max_detections=int(self.get_parameter('max_detections').value),
+            split_touching=bool(self.get_parameter('split_touching_red_balls').value),
         )
         stamp_sec = _stamp_to_float(msg.header.stamp)
         output_frame = str(self.get_parameter('output_frame').value)
@@ -157,6 +161,7 @@ class HsvDetectorNode(Node):
                 },
                 'localization_status': 'localized' if localization else 'unlocalized',
                 'source': 'hsv_minimal',
+                'detector_backend': self.detector_backend.name,
             })
 
             if localization:

@@ -8,7 +8,7 @@
 
 当前实现边界：
 原始网上图片不复制进仓库，只在本地读取。
-输出结果默认放到 `reports/perception/real_result`，批量图片和表格默认不提交 Git。
+输出结果默认放到 `reports/perception/2d_detection/real_images_<timestamp>`，批量图片和表格默认不提交 Git。
 """
 
 from __future__ import annotations
@@ -17,6 +17,7 @@ import argparse
 import csv
 import json
 import sys
+from datetime import datetime
 from pathlib import Path
 
 import cv2
@@ -286,7 +287,7 @@ def main():
     parser.add_argument('--input-dir', default=str(default_input_dir()), help='Folder containing real red-ball images.')
     parser.add_argument(
         '--output-dir',
-        default=str(REPO_ROOT / 'reports' / 'perception' / 'real_result'),
+        default=None,
         help='Output directory for annotated images and summaries.',
     )
     parser.add_argument('--min-area-px', type=int, default=80, help='Absolute minimum contour area.')
@@ -301,7 +302,11 @@ def main():
 
     rows = evaluate_real_images(
         input_dir=input_dir,
-        output_dir=Path(args.output_dir),
+        output_dir=(
+            Path(args.output_dir)
+            if args.output_dir
+            else REPO_ROOT / 'reports' / 'perception' / '2d_detection' / f'real_images_{datetime.now().strftime("%Y%m%d_%H%M%S")}'
+        ),
         min_area_px=args.min_area_px,
         min_area_ratio=args.min_area_ratio,
         max_detections=args.max_detections,

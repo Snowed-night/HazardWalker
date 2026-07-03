@@ -12,8 +12,8 @@
         640,
         480
       ],
-      "raw_image": "reports/red_ball_gallery/20260614_171740/center_full_raw.png",
-      "boxed_image": "reports/red_ball_gallery/20260614_171740/center_full_boxed.png",
+      "raw_image": null,
+      "boxed_image": "reports/perception/simulation/20260614_171740/center_full_boxed.png",
       "detection": {
         "x_min": 278,
         "y_min": 198,
@@ -41,8 +41,8 @@
         640,
         480
       ],
-      "raw_image": "reports/red_ball_gallery/20260614_171740/edge_partial_raw.png",
-      "boxed_image": "reports/red_ball_gallery/20260614_171740/edge_partial_boxed.png",
+      "raw_image": null,
+      "boxed_image": "reports/perception/simulation/20260614_171740/edge_partial_boxed.png",
       "detection": null,
       "components": [
         {
@@ -63,8 +63,8 @@
         640,
         480
       ],
-      "raw_image": "reports/red_ball_gallery/20260614_171740/top_partial_raw.png",
-      "boxed_image": "reports/red_ball_gallery/20260614_171740/top_partial_boxed.png",
+      "raw_image": null,
+      "boxed_image": "reports/perception/simulation/20260614_171740/top_partial_boxed.png",
       "detection": {
         "x_min": 266,
         "y_min": 0,
@@ -92,8 +92,8 @@
         640,
         480
       ],
-      "raw_image": "reports/red_ball_gallery/20260614_171740/multi_visible_raw.png",
-      "boxed_image": "reports/red_ball_gallery/20260614_171740/multi_visible_boxed.png",
+      "raw_image": null,
+      "boxed_image": "reports/perception/simulation/20260614_171740/multi_visible_boxed.png",
       "detection": {
         "x_min": 353,
         "y_min": 216,

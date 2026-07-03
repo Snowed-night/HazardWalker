@@ -232,3 +232,22 @@ def test_detect_red_balls_rgb_bytes_returns_multiple_candidates():
     assert len(detections) == 2
     assert detection is not None
     assert detections[0].confidence >= detections[1].confidence
+
+
+"""验证两个轻度粘连红球会通过距离变换和 watershed 分裂为多个候选。"""
+def test_touching_red_balls_can_be_split_into_multiple_candidates():
+    if not require_opencv():
+        return
+
+    width = 150
+    height = 100
+    image = np.full((height, width, 3), BACKGROUND, dtype=np.uint8)
+    cv2.circle(image, (62, 50), 28, RED, thickness=-1)
+    cv2.circle(image, (88, 50), 28, RED, thickness=-1)
+    data = bytearray(image.tobytes())
+
+    detections = detect_red_balls_rgb_bytes(data, width, height, min_area_px=80)
+
+    assert len(detections) >= 2
+    centers = sorted((item.x_min + item.x_max) / 2.0 for item in detections[:2])
+    assert centers[1] - centers[0] > 15.0

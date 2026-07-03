@@ -2,13 +2,14 @@
 
 所属组：感知组 / 测试组。
 文件作用：
-生成可控的红球、遮挡、低亮度、低饱和度和红色非球体图像。
-调用 `detect_red_ball_rgb_bytes` 得到检测结果和形状指标。
-输出原图、标注图、summary.csv、summary.json、汇报用拼图和遮挡比例指标折线图。
+生成可控的红球、遮挡、多红球、光照背景干扰和红色非球体图像。
+调用 `detect_red_balls_rgb_bytes` 得到一个或多个检测结果和形状指标。
+输出原图、标注图、summary.csv、summary.json 和汇报用拼图。
 同步输出 detection metrics 汇总，用于汇报 precision、recall、F1、top1 error 和 AP50。
+额外输出 testing_record_perception.csv，字段对齐测试组感知专项指标。
 
 当前实现边界：
-只生成单目标离线案例，不依赖 ROS、Gazebo 或真实相机。
+只生成离线 RGB 合成案例，不依赖 ROS、Gazebo 或真实相机。
 图片是 RGB 合成图，主要用于算法回归、汇报展示和参数解释。
 """
 
@@ -20,6 +21,7 @@ import json
 import os
 import sys
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 
 import cv2
@@ -30,7 +32,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 PERCEPTION_SRC = REPO_ROOT / 'ros2_ws' / 'src' / 'hazardwalker_perception'
 sys.path.insert(0, str(PERCEPTION_SRC))
 
-from hazardwalker_perception.red_ball_detector import detect_red_ball_rgb_bytes
+from hazardwalker_perception.red_ball_detector import detect_red_balls_rgb_bytes
 from hazardwalker_perception.detection_metrics import (
     DetectionSample,
     bbox_iou,
@@ -58,6 +60,7 @@ class CaseSpec:
     expected_detected: bool
     occlusion_ratio: float = 0.0
     note: str = ''
+    objects: tuple = ()
 
 
 """当前合成球体的理论 bbox。遮挡案例使用可见球体区域作为真值 bbox。"""
@@ -74,10 +77,21 @@ def expected_sphere_bbox(occlusion_ratio=0.0):
     return [x_min, center_y - radius, x_max, center_y + radius]
 
 
+"""生成指定中心和半径的圆形真值 bbox。"""
+def sphere_bbox(center_x, center_y, radius, occlusion_ratio=0.0):
+    x_min = int(center_x - radius)
+    x_max = int(center_x + radius)
+    if occlusion_ratio > 0.0:
+        occlusion_width = int((radius * 2 + 1) * occlusion_ratio)
+        x_start = center_x + radius - occlusion_width + 1
+        x_max = min(x_max, int(x_start - 1))
+    return [x_min, int(center_y - radius), x_max, int(center_y + radius)]
+
+
 """生成渐变红色圆形，让二维图像更接近球体外观。"""
-def draw_sphere(image, color=RED, occlusion_ratio=0.0, highlight=True):
-    center = (WIDTH // 2, HEIGHT // 2)
-    radius = 42
+def draw_sphere(image, color=RED, occlusion_ratio=0.0, highlight=True, center=None, radius=42):
+    if center is None:
+        center = (WIDTH // 2, HEIGHT // 2)
     base = np.array(color, dtype=np.float32)
     for y in range(center[1] - radius, center[1] + radius + 1):
         for x in range(center[0] - radius, center[0] + radius + 1):
@@ -127,8 +141,13 @@ def draw_irregular(image, kind, color=RED):
 
 
 """生成复杂背景，背景包含非红色线条和灰色块，用于展示算法抗背景干扰。"""
-def make_background(complex_background=False):
+def make_background(complex_background=False, illumination='normal'):
     image = np.full((HEIGHT, WIDTH, 3), BACKGROUND, dtype=np.uint8)
+    if illumination == 'shadow':
+        gradient = np.linspace(0.45, 1.0, WIDTH, dtype=np.float32)
+        image = np.clip(image.astype(np.float32) * gradient.reshape(1, WIDTH, 1), 0, 255).astype(np.uint8)
+    elif illumination == 'bright':
+        image = np.full((HEIGHT, WIDTH, 3), (70, 70, 70), dtype=np.uint8)
     if not complex_background:
         return image
 
@@ -146,7 +165,12 @@ def make_background(complex_background=False):
 """根据案例参数生成 RGB 图像。"""
 def render_case(spec):
     complex_background = spec.case_type == 'complex_background'
-    image = make_background(complex_background=complex_background)
+    illumination = 'normal'
+    if spec.case_type == 'illumination_shadow':
+        illumination = 'shadow'
+    elif spec.case_type == 'illumination_bright':
+        illumination = 'bright'
+    image = make_background(complex_background=complex_background, illumination=illumination)
     color = {
         'normal_red': RED,
         'bright_red': BRIGHT_RED,
@@ -154,7 +178,17 @@ def render_case(spec):
         'low_saturation_red': LOW_SATURATION_RED,
     }.get(spec.color_type, RED)
 
-    if spec.shape == 'sphere':
+    if spec.objects:
+        for obj in spec.objects:
+            draw_sphere(
+                image,
+                color=color,
+                center=obj['center'],
+                radius=obj['radius'],
+                occlusion_ratio=float(obj.get('occlusion_ratio', 0.0)),
+                highlight=True,
+            )
+    elif spec.shape == 'sphere':
         use_highlight = spec.color_type in ('normal_red', 'bright_red')
         draw_sphere(image, color=color, occlusion_ratio=spec.occlusion_ratio, highlight=use_highlight)
     elif spec.shape == 'cube':
@@ -169,9 +203,15 @@ def render_case(spec):
 """执行检测并整理结果字典。"""
 def evaluate_case(spec, image):
     data = bytearray(image.tobytes())
-    detection = detect_red_ball_rgb_bytes(data, WIDTH, HEIGHT, min_area_px=80)
-    actual_detected = detection is not None
-    passed = actual_detected == spec.expected_detected
+    detections = detect_red_balls_rgb_bytes(data, WIDTH, HEIGHT, min_area_px=80)
+    gt_bboxes = expected_bboxes_for_case(spec)
+    matches = match_detections_to_ground_truth(detections, gt_bboxes, iou_threshold=0.35)
+    actual_detected = len(detections) > 0
+    expected_count = len(gt_bboxes)
+    true_positive = len(matches)
+    false_positive = max(0, len(detections) - true_positive)
+    false_negative = max(0, expected_count - true_positive)
+    passed = false_positive == 0 and false_negative == 0
 
     result = {
         'case_id': spec.case_id,
@@ -181,6 +221,11 @@ def evaluate_case(spec, image):
         'occlusion_ratio': spec.occlusion_ratio,
         'expected_detected': spec.expected_detected,
         'actual_detected': actual_detected,
+        'expected_count': expected_count,
+        'detection_count': len(detections),
+        'true_positive': true_positive,
+        'false_positive': false_positive,
+        'false_negative': false_negative,
         'pass': passed,
         'confidence': None,
         'circularity': None,
@@ -188,29 +233,36 @@ def evaluate_case(spec, image):
         'extent': None,
         'red_pixel_count': 0,
         'bbox': None,
-        'gt_bbox': expected_sphere_bbox(spec.occlusion_ratio) if spec.expected_detected else None,
+        'bboxes': [],
+        'gt_bbox': gt_bboxes[0] if len(gt_bboxes) == 1 else None,
+        'gt_bboxes': gt_bboxes,
         'iou': None,
         'note': spec.note,
     }
-    if detection is not None:
+    if detections:
+        detection = detections[0]
         pred_bbox = [detection.x_min, detection.y_min, detection.x_max, detection.y_max]
         result.update({
             'confidence': round(detection.confidence, 4),
             'circularity': round(detection.circularity, 4),
             'aspect_ratio': round(detection.aspect_ratio, 4),
             'extent': round(detection.extent, 4),
-            'red_pixel_count': detection.red_pixel_count,
+            'red_pixel_count': sum(item.red_pixel_count for item in detections),
             'bbox': pred_bbox,
-            'iou': round(bbox_iou(result['gt_bbox'], pred_bbox), 4) if result['gt_bbox'] else None,
+            'bboxes': [
+                [item.x_min, item.y_min, item.x_max, item.y_max]
+                for item in detections
+            ],
+            'iou': round(best_iou_for_detection(detection, gt_bboxes), 4) if gt_bboxes else None,
         })
-    return result, detection
+    return result, detections
 
 
 """在图像上绘制 bbox、通过状态和关键指标。"""
-def annotate_image(image, spec, result, detection):
+def annotate_image(image, spec, result, detections):
     annotated = image.copy()
     status_color = (30, 210, 60) if result['pass'] else (255, 60, 60)
-    if detection is not None:
+    for index, detection in enumerate(detections, start=1):
         cv2.rectangle(
             annotated,
             (detection.x_min, detection.y_min),
@@ -218,12 +270,14 @@ def annotate_image(image, spec, result, detection):
             status_color,
             thickness=3,
         )
+        cv2.putText(annotated, str(index), (detection.x_min + 4, detection.y_min + 16),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.45, status_color, 1)
 
     expected = 'T' if spec.expected_detected else 'F'
     actual = 'T' if result['actual_detected'] else 'F'
     lines = [
         spec.case_id,
-        f'E:{expected} A:{actual}',
+        f'E:{expected} A:{actual} N:{result["detection_count"]}/{result["expected_count"]}',
         f"C:{_format_metric(result['confidence'])} R:{_format_metric(result['circularity'])}",
     ]
     y = 14
@@ -258,10 +312,49 @@ def build_case_specs():
         CaseSpec('red_elongated', 'false_positive', 'elongated', 'normal_red', False, note='细长不规则物体'),
         CaseSpec('red_fragments', 'false_positive', 'fragments', 'normal_red', False, note='碎片状红色干扰'),
         CaseSpec('complex_bg_sphere', 'background', 'sphere', 'normal_red', True, note='复杂背景红球'),
+        CaseSpec(
+            'multi_three_separate',
+            'multi',
+            'multi_sphere',
+            'normal_red',
+            True,
+            note='三个分离红球',
+            objects=(
+                {'center': (38, 48), 'radius': 20},
+                {'center': (104, 46), 'radius': 18},
+                {'center': (78, 112), 'radius': 22},
+            ),
+        ),
+        CaseSpec(
+            'multi_partial_mix',
+            'multi',
+            'multi_sphere',
+            'normal_red',
+            True,
+            note='多红球和局部遮挡混合',
+            objects=(
+                {'center': (42, 52), 'radius': 24, 'occlusion_ratio': 0.25},
+                {'center': (116, 92), 'radius': 28},
+            ),
+        ),
+        CaseSpec(
+            'multi_touching_pair',
+            'multi_touching',
+            'multi_sphere',
+            'normal_red',
+            True,
+            note='两个相互粘连红球，测试 watershed 分裂',
+            objects=(
+                {'center': (66, 82), 'radius': 32},
+                {'center': (98, 82), 'radius': 32},
+            ),
+        ),
+        CaseSpec('shadow_sphere', 'illumination_shadow', 'sphere', 'normal_red', True, note='阴影渐变环境'),
+        CaseSpec('bright_bg_sphere', 'illumination_bright', 'sphere', 'normal_red', True, note='高亮背景环境'),
     ]
 
 
-"""保存原图、标注图、summary 表、拼图、遮挡指标图和检测指标汇总。"""
+"""保存原图、标注图、summary 表、拼图和检测指标汇总。"""
 def generate_outputs(output_root):
     cases_dir = output_root / 'cases'
     annotated_dir = output_root / 'annotated'
@@ -273,8 +366,8 @@ def generate_outputs(output_root):
     annotated_images = []
     for spec in build_case_specs():
         image = render_case(spec)
-        result, detection = evaluate_case(spec, image)
-        annotated = annotate_image(image, spec, result, detection)
+        result, detections = evaluate_case(spec, image)
+        annotated = annotate_image(image, spec, result, detections)
         rows.append(result)
         annotated_images.append(annotated)
 
@@ -284,11 +377,67 @@ def generate_outputs(output_root):
     _write_summary_csv(output_root / 'summary.csv', rows)
     _write_summary_json(output_root / 'summary.json', rows)
     metrics = write_detection_metrics(output_root, rows)
+    testing_record = write_testing_group_perception_record(output_root, rows)
+    test_records_dir = (
+        REPO_ROOT
+        / 'reports'
+        / 'perception'
+        / 'test_records'
+        / output_root.name.replace('synthetic_', '')
+    )
+    write_testing_group_perception_record(
+        test_records_dir,
+        rows,
+    )
     collage = build_collage(annotated_images)
     collage_path = figures_dir / 'perception_cases_collage.png'
     _write_rgb_png(collage_path, collage)
-    write_occlusion_charts(figures_dir, rows)
-    return rows, collage_path, metrics
+    return rows, collage_path, metrics, testing_record, test_records_dir
+
+
+"""返回案例中所有红球真值 bbox。"""
+def expected_bboxes_for_case(spec):
+    if spec.objects:
+        return [
+            sphere_bbox(
+                obj['center'][0],
+                obj['center'][1],
+                obj['radius'],
+                float(obj.get('occlusion_ratio', 0.0)),
+            )
+            for obj in spec.objects
+        ]
+    if spec.expected_detected:
+        return [expected_sphere_bbox(spec.occlusion_ratio)]
+    return []
+
+
+"""贪心匹配预测框和真值框，用于多目标案例的 TP/FP/FN 统计。"""
+def match_detections_to_ground_truth(detections, gt_bboxes, iou_threshold=0.5):
+    matches = []
+    used_gt = set()
+    candidates = []
+    for det_index, detection in enumerate(detections):
+        pred_bbox = [detection.x_min, detection.y_min, detection.x_max, detection.y_max]
+        for gt_index, gt_bbox in enumerate(gt_bboxes):
+            candidates.append((bbox_iou(gt_bbox, pred_bbox), det_index, gt_index))
+    candidates.sort(reverse=True)
+    used_det = set()
+    for iou, det_index, gt_index in candidates:
+        if iou < iou_threshold or det_index in used_det or gt_index in used_gt:
+            continue
+        matches.append((det_index, gt_index, iou))
+        used_det.add(det_index)
+        used_gt.add(gt_index)
+    return matches
+
+
+"""返回单个预测框对所有真值框的最大 IoU。"""
+def best_iou_for_detection(detection, gt_bboxes):
+    pred_bbox = [detection.x_min, detection.y_min, detection.x_max, detection.y_max]
+    if not gt_bboxes:
+        return 0.0
+    return max(bbox_iou(gt_bbox, pred_bbox) for gt_bbox in gt_bboxes)
 
 
 """把 RGB 图像写成 PNG。"""
@@ -307,6 +456,11 @@ def _write_summary_csv(path, rows):
         'occlusion_ratio',
         'expected_detected',
         'actual_detected',
+        'expected_count',
+        'detection_count',
+        'true_positive',
+        'false_positive',
+        'false_negative',
         'pass',
         'confidence',
         'circularity',
@@ -314,7 +468,9 @@ def _write_summary_csv(path, rows):
         'extent',
         'red_pixel_count',
         'bbox',
+        'bboxes',
         'gt_bbox',
+        'gt_bboxes',
         'iou',
         'note',
     ]
@@ -334,10 +490,11 @@ def _write_summary_json(path, rows):
 def write_detection_metrics(output_root, rows):
     samples = []
     for row in rows:
+        # 旧指标按案例 top1 汇总，便于和前期单目标报告保持可比性。
         samples.append(DetectionSample(
             sample_id=row['case_id'],
-            has_ground_truth=row['expected_detected'],
-            ground_truth_bbox=row['gt_bbox'],
+            has_ground_truth=row['expected_count'] > 0,
+            ground_truth_bbox=row['gt_bbox'] or (row['gt_bboxes'][0] if row['gt_bboxes'] else None),
             predicted_bbox=row['bbox'],
             confidence=0.0 if row['confidence'] is None else float(row['confidence']),
         ))
@@ -369,6 +526,36 @@ def write_detection_metrics(output_root, rows):
     return metrics_row
 
 
+"""按测试组感知专项指标输出一行记录，便于直接填表。"""
+def write_testing_group_perception_record(output_root, rows):
+    output_root.mkdir(parents=True, exist_ok=True)
+    tp = sum(row['true_positive'] for row in rows)
+    fp = sum(row['false_positive'] for row in rows)
+    fn = sum(row['false_negative'] for row in rows)
+    total_detections = tp + fp
+    total_gt = tp + fn
+    detection_accuracy = 0.0 if total_gt == 0 else tp / total_gt * 100.0
+    false_alarm_rate = 0.0 if total_detections == 0 else fp / total_detections * 100.0
+    record = {
+        '检测准确率(%)': round(detection_accuracy, 2),
+        '虚警率(%)': round(false_alarm_rate, 2),
+        '识别数量(个)': tp,
+        '虚警数量(个)': fp,
+        '漏检数量(个)': fn,
+        '定位误差(m)': '未接入仿真深度/TF',
+        '平均检测耗时(ms)': '待 Gazebo/主力机计时',
+        '检测帧率(FPS)': '待 Gazebo/主力机计时',
+        '多帧确认率(%)': '待连续帧测试',
+    }
+    with (output_root / 'testing_record_perception.csv').open('w', encoding='utf-8-sig', newline='') as f:
+        writer = csv.DictWriter(f, fieldnames=list(record.keys()))
+        writer.writeheader()
+        writer.writerow(record)
+    with (output_root / 'testing_record_perception.json').open('w', encoding='utf-8') as f:
+        json.dump(record, f, ensure_ascii=False, indent=2)
+    return record
+
+
 """把多张标注图拼成论文或汇报可用的大图。"""
 def build_collage(images, columns=7, tile_size=160):
     resized = [cv2.resize(image, (tile_size, tile_size), interpolation=cv2.INTER_AREA) for image in images]
@@ -383,95 +570,23 @@ def build_collage(images, columns=7, tile_size=160):
     return canvas
 
 
-"""从合成案例结果中提取遮挡比例和指定指标，用于解释遮挡鲁棒性边界。"""
-def _extract_occlusion_metric(rows, metric_name):
-    pairs = []
-    for row in rows:
-        if row['case_type'] != 'occlusion':
-            continue
-        value = row[metric_name]
-        pairs.append((float(row['occlusion_ratio']), 0.0 if value is None else float(value)))
-    pairs.sort(key=lambda item: item[0])
-    return pairs
-
-
-"""绘制遮挡比例到 confidence / circularity 的折线图。"""
-def write_occlusion_charts(figures_dir, rows):
-    chart_specs = [
-        ('confidence', 'Occlusion ratio - confidence', 'occlusion_confidence.png'),
-        ('circularity', 'Occlusion ratio - circularity', 'occlusion_circularity.png'),
-    ]
-    for metric_name, title, filename in chart_specs:
-        pairs = _extract_occlusion_metric(rows, metric_name)
-        if pairs:
-            chart = _draw_line_chart(pairs, title, y_max=1.0)
-            _write_rgb_png(figures_dir / filename, chart)
-
-
-"""用 OpenCV 绘制简洁折线图，避免为汇报图额外引入 matplotlib 依赖。"""
-def _draw_line_chart(pairs, title, y_max):
-    width = 900
-    height = 460
-    margin_left = 90
-    margin_right = 40
-    margin_top = 70
-    margin_bottom = 80
-    chart = np.full((height, width, 3), 255, dtype=np.uint8)
-
-    plot_left = margin_left
-    plot_right = width - margin_right
-    plot_top = margin_top
-    plot_bottom = height - margin_bottom
-    cv2.putText(chart, title, (margin_left, 38), cv2.FONT_HERSHEY_SIMPLEX, 0.86, (30, 30, 30), 2)
-    cv2.line(chart, (plot_left, plot_top), (plot_left, plot_bottom), (85, 85, 85), 2)
-    cv2.line(chart, (plot_left, plot_bottom), (plot_right, plot_bottom), (85, 85, 85), 2)
-
-    for tick in range(0, 6):
-        value = tick / 5.0
-        y = int(plot_bottom - (plot_bottom - plot_top) * value)
-        cv2.line(chart, (plot_left - 5, y), (plot_left, y), (85, 85, 85), 1)
-        cv2.putText(chart, f'{value:.1f}', (18, y + 5), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (45, 45, 45), 1)
-
-    x_values = [ratio for ratio, _value in pairs]
-    x_min = min(x_values)
-    x_max = max(x_values)
-    x_span = max(x_max - x_min, 1e-6)
-    points = []
-    for ratio, value in pairs:
-        x = int(plot_left + (ratio - x_min) / x_span * (plot_right - plot_left))
-        y = int(plot_bottom - min(max(value, 0.0), y_max) / y_max * (plot_bottom - plot_top))
-        points.append((x, y))
-
-    for start, end in zip(points, points[1:]):
-        cv2.line(chart, start, end, (35, 110, 215), 3)
-
-    for (ratio, value), point in zip(pairs, points):
-        cv2.circle(chart, point, 6, (35, 110, 215), thickness=-1)
-        cv2.putText(chart, f'{value:.2f}', (point[0] - 18, point[1] - 12),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.42, (25, 25, 25), 1)
-        label = f'{int(round(ratio * 100))}%'
-        cv2.putText(chart, label, (point[0] - 14, plot_bottom + 28),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.48, (25, 25, 25), 1)
-
-    cv2.putText(chart, 'Occlusion ratio', (width // 2 - 78, height - 22),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.55, (35, 35, 35), 1)
-    cv2.putText(chart, 'Metric value', (14, margin_top - 18),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.50, (35, 35, 35), 1)
-    return chart
-
-
-"""命令行入口，默认输出到 reports/perception/result。"""
+"""命令行入口，默认输出到 reports/perception/2d_detection/synthetic_<timestamp>。"""
 def main():
     parser = argparse.ArgumentParser(description='Generate perception red-ball visual cases.')
     parser.add_argument(
         '--output-dir',
-        default=str(REPO_ROOT / 'reports' / 'perception' / 'result'),
+        default=None,
         help='Directory for generated perception result images and summaries.',
     )
     args = parser.parse_args()
 
-    output_root = Path(args.output_dir)
-    rows, collage_path, metrics = generate_outputs(output_root)
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    output_root = (
+        Path(args.output_dir)
+        if args.output_dir
+        else REPO_ROOT / 'reports' / 'perception' / '2d_detection' / f'synthetic_{timestamp}'
+    )
+    rows, collage_path, metrics, testing_record, test_records_dir = generate_outputs(output_root)
     total = len(rows)
     passed = sum(1 for row in rows if row['pass'])
     print(f'Generated {total} perception cases, {passed}/{total} passed.')
@@ -483,6 +598,15 @@ def main():
         f"top1_error={metrics['top1_error']:.4f}, "
         f"ap50={metrics['ap50']:.4f}"
     )
+    print(
+        'Testing record: '
+        f"accuracy={testing_record['检测准确率(%)']}%, "
+        f"false_alarm_rate={testing_record['虚警率(%)']}%, "
+        f"tp={testing_record['识别数量(个)']}, "
+        f"fp={testing_record['虚警数量(个)']}, "
+        f"fn={testing_record['漏检数量(个)']}"
+    )
+    print(f'Testing record dir: {test_records_dir}')
     print(f'Collage: {collage_path}')
     return 0 if passed == total else 1
 

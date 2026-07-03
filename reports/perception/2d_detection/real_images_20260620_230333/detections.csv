@@ -1,0 +1,8 @@
+﻿case_id,source_file,detection_index,confidence,circularity,aspect_ratio,extent,red_pixel_count,bbox
+real_004,frahyle-card-1101869_1920.jpg,1,0.9609,0.8886,0.9976,0.7814,131810,"[55, 999, 464, 1409]"
+real_005,neelam279-christmas-tree-6870755_1920.jpg,1,0.8307,0.7726,0.9767,0.7207,1368,"[271, 234, 313, 275]"
+real_005,neelam279-christmas-tree-6870755_1920.jpg,2,0.8125,0.6096,0.9333,0.6149,2070,"[272, 92, 331, 147]"
+real_005,neelam279-christmas-tree-6870755_1920.jpg,3,0.8009,0.6129,0.9455,0.6058,1818,"[218, 203, 269, 257]"
+real_005,neelam279-christmas-tree-6870755_1920.jpg,4,0.6265,0.6024,0.8684,0.549,743,"[1329, 174, 1366, 206]"
+real_009,pixloger-sphere-1705664_1920.png,1,0.9607,0.8841,0.9993,0.7857,1652871,"[0, 0, 1449, 1448]"
+real_010,ralphs_fotos-currants-3585286_1920.jpg,1,0.764,0.6021,0.6883,0.6533,27776,"[440, 896, 686, 1065]"
