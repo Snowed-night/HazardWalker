@@ -126,6 +126,7 @@ SimEnv + HazardWalker **ROS2 主链路**已在 `SimEnv_ROS2` 验收通过。
 
 ## 8. 相关文档
 
+- **`docs/environment/SimEnv话题接口对照表.md`** — 官方 SimEnv / SimEnv_ROS2 / HazardWalker `/hw/*` 三列对照
 - `SimEnv_ROS2/README_ROS2_MIGRATION.md`
 - `SimEnv_ROS1/README_ROS1_DOCKER.md`
 - `docs/environment/主力机环境搭建.md`
