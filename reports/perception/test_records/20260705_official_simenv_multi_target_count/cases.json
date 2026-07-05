@@ -1,0 +1,122 @@
+[
+  {
+    "case_id": "multi_target_count_01_red_balls",
+    "condition": "1 complete red balls",
+    "expected_red_ball_count": 1,
+    "detected_red_ball_count": 1,
+    "true_positive": 1,
+    "false_positive": 0,
+    "false_negative": 0,
+    "result": "pass",
+    "elapsed_ms": 5.754,
+    "annotated_image": "images/official_simenv_multi_target_count_01_red_balls_detected.png"
+  },
+  {
+    "case_id": "multi_target_count_02_red_balls",
+    "condition": "2 complete red balls",
+    "expected_red_ball_count": 2,
+    "detected_red_ball_count": 2,
+    "true_positive": 2,
+    "false_positive": 0,
+    "false_negative": 0,
+    "result": "pass",
+    "elapsed_ms": 6.48,
+    "annotated_image": "images/official_simenv_multi_target_count_02_red_balls_detected.png"
+  },
+  {
+    "case_id": "multi_target_count_03_red_balls",
+    "condition": "3 complete red balls",
+    "expected_red_ball_count": 3,
+    "detected_red_ball_count": 3,
+    "true_positive": 3,
+    "false_positive": 0,
+    "false_negative": 0,
+    "result": "pass",
+    "elapsed_ms": 6.503,
+    "annotated_image": "images/official_simenv_multi_target_count_03_red_balls_detected.png"
+  },
+  {
+    "case_id": "multi_target_count_04_red_balls",
+    "condition": "4 complete red balls",
+    "expected_red_ball_count": 4,
+    "detected_red_ball_count": 4,
+    "true_positive": 4,
+    "false_positive": 0,
+    "false_negative": 0,
+    "result": "pass",
+    "elapsed_ms": 5.999,
+    "annotated_image": "images/official_simenv_multi_target_count_04_red_balls_detected.png"
+  },
+  {
+    "case_id": "multi_target_count_05_red_balls",
+    "condition": "5 complete red balls",
+    "expected_red_ball_count": 5,
+    "detected_red_ball_count": 5,
+    "true_positive": 5,
+    "false_positive": 0,
+    "false_negative": 0,
+    "result": "pass",
+    "elapsed_ms": 6.697,
+    "annotated_image": "images/official_simenv_multi_target_count_05_red_balls_detected.png"
+  },
+  {
+    "case_id": "multi_target_count_06_red_balls",
+    "condition": "6 complete red balls",
+    "expected_red_ball_count": 6,
+    "detected_red_ball_count": 6,
+    "true_positive": 6,
+    "false_positive": 0,
+    "false_negative": 0,
+    "result": "pass",
+    "elapsed_ms": 6.804,
+    "annotated_image": "images/official_simenv_multi_target_count_06_red_balls_detected.png"
+  },
+  {
+    "case_id": "multi_target_count_07_red_balls",
+    "condition": "7 complete red balls",
+    "expected_red_ball_count": 7,
+    "detected_red_ball_count": 7,
+    "true_positive": 7,
+    "false_positive": 0,
+    "false_negative": 0,
+    "result": "pass",
+    "elapsed_ms": 5.994,
+    "annotated_image": "images/official_simenv_multi_target_count_07_red_balls_detected.png"
+  },
+  {
+    "case_id": "multi_target_count_08_red_balls",
+    "condition": "8 complete red balls",
+    "expected_red_ball_count": 8,
+    "detected_red_ball_count": 8,
+    "true_positive": 8,
+    "false_positive": 0,
+    "false_negative": 0,
+    "result": "pass",
+    "elapsed_ms": 6.38,
+    "annotated_image": "images/official_simenv_multi_target_count_08_red_balls_detected.png"
+  },
+  {
+    "case_id": "multi_target_count_09_red_balls",
+    "condition": "9 complete red balls",
+    "expected_red_ball_count": 9,
+    "detected_red_ball_count": 9,
+    "true_positive": 9,
+    "false_positive": 0,
+    "false_negative": 0,
+    "result": "pass",
+    "elapsed_ms": 5.11,
+    "annotated_image": "images/official_simenv_multi_target_count_09_red_balls_detected.png"
+  },
+  {
+    "case_id": "multi_target_count_10_red_balls",
+    "condition": "10 complete red balls",
+    "expected_red_ball_count": 10,
+    "detected_red_ball_count": 10,
+    "true_positive": 10,
+    "false_positive": 0,
+    "false_negative": 0,
+    "result": "pass",
+    "elapsed_ms": 6.638,
+    "annotated_image": "images/official_simenv_multi_target_count_10_red_balls_detected.png"
+  }
+]
