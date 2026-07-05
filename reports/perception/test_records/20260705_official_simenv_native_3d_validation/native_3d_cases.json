@@ -1,0 +1,72 @@
+[
+  {
+    "case_id": "native3d_official_red00_complete",
+    "category": "official_generated",
+    "condition": "official generated red sphere, complete visible",
+    "detection_count": 4,
+    "annotated_image": "images/native3d_official_red00_complete_detected.png",
+    "raw_image_archive": "raw_frames.zip",
+    "raw_image": "raw_frames/native3d_official_red00_complete.ppm",
+    "max_confidence": 0.9604
+  },
+  {
+    "case_id": "native3d_official_red00_fov_left_partial",
+    "category": "official_generated",
+    "condition": "official generated red sphere, partial FOV edge",
+    "detection_count": 2,
+    "annotated_image": "images/native3d_official_red00_fov_left_partial_detected.png",
+    "raw_image_archive": "raw_frames.zip",
+    "raw_image": "raw_frames/native3d_official_red00_fov_left_partial.ppm",
+    "max_confidence": 0.9245
+  },
+  {
+    "case_id": "native3d_official_red00_fov_right_partial",
+    "category": "official_generated",
+    "condition": "official generated red sphere, partial FOV edge",
+    "detection_count": 3,
+    "annotated_image": "images/native3d_official_red00_fov_right_partial_detected.png",
+    "raw_image_archive": "raw_frames.zip",
+    "raw_image": "raw_frames/native3d_official_red00_fov_right_partial.ppm",
+    "max_confidence": 0.923
+  },
+  {
+    "case_id": "native3d_official_red00_fov_top_partial",
+    "category": "official_generated",
+    "condition": "official generated red sphere, vertical FOV edge",
+    "detection_count": 2,
+    "annotated_image": "images/native3d_official_red00_fov_top_partial_detected.png",
+    "raw_image_archive": "raw_frames.zip",
+    "raw_image": "raw_frames/native3d_official_red00_fov_top_partial.ppm",
+    "max_confidence": 0.932
+  },
+  {
+    "case_id": "native3d_official_red_box_distractor",
+    "category": "official_distractor",
+    "condition": "official red box distractor",
+    "detection_count": 2,
+    "annotated_image": "images/native3d_official_red_box_distractor_detected.png",
+    "raw_image_archive": "raw_frames.zip",
+    "raw_image": "raw_frames/native3d_official_red_box_distractor.ppm",
+    "max_confidence": 0.9574
+  },
+  {
+    "case_id": "native3d_spawned_10_red_with_distractors",
+    "category": "native_spawned",
+    "condition": "native Gazebo spawned 10 red spheres with colored spheres and red boxes inside official SimEnv world",
+    "detection_count": 8,
+    "annotated_image": "images/native3d_spawned_10_red_with_distractors_detected.png",
+    "raw_image_archive": "raw_frames.zip",
+    "raw_image": "raw_frames/native3d_spawned_10_red_with_distractors.ppm",
+    "max_confidence": 0.8358
+  },
+  {
+    "case_id": "native3d_spawned_multi_red_oblique_view",
+    "category": "native_spawned",
+    "condition": "oblique view of native spawned multi-red-ball scene",
+    "detection_count": 5,
+    "annotated_image": "images/native3d_spawned_multi_red_oblique_view_detected.png",
+    "raw_image_archive": "raw_frames.zip",
+    "raw_image": "raw_frames/native3d_spawned_multi_red_oblique_view.ppm",
+    "max_confidence": 0.9584
+  }
+]
