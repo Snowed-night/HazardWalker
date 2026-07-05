@@ -70,20 +70,102 @@ RGB-D 一致性过滤：用深度连续性、球面几何或点云聚类进一�
 
 ## 可展示结果和测试组表格
 
-本地先运行：
+### 3.1 Gazebo 仿真检测结果
+
+运行命令：
 
 ```bash
-python scripts/generate_perception_cases.py
-python scripts/run_offline_tests.py
+python3 scripts/capture_red_ball_gallery.py
 ```
 
-合成案例输出：
+输出目录：`reports/perception/simulation/<timestamp>/`
 
-```text
-reports/perception/2d_detection/synthetic_<timestamp>/
+最新结果：`reports/perception/simulation/20260614_171740/`
+
+| 场景 | 是否检测到 | 检测框数量 | 是否完整红球 | 是否局部红球 | 红色像素数量 | 备注 |
+|---|---|---|---:|---|---|---|---|
+| center_full | ✓ | 1 | ✓ | ✗ | 5434 | 中心完整红球，置信度 0.955 |
+| edge_partial | ✗ | 0 | ✗ | ✓ | 4497 | 右侧边缘裁剪，形状筛选拒绝（圆度过低） |
+| top_partial | ✓ | 1 | ✗ | ✓ | 4153 | 顶部裁剪，置信度降至 0.757 |
+| multi_visible | ⚠ 1/2 | 1 | ✓ | ✗ | 3339 | 2 个红球只检出 1 个（components 显示 2 个连通域） |
+
+### 3.2 合成图像检测结果（全部 PASS）
+
+运行命令：
+
+```bash
+python scripts/generate_perception_cases.py    # 生成测试图像
+python -m pytest tests/offline/test_red_ball_detector.py -v   # 运行离线测试
 ```
 
-测试组感知专项指标输出：
+输出目录：`reports/perception/2d_detection/synthetic_<timestamp>/`
+
+最新结果：`reports/perception/2d_detection/synthetic_20260621_150028/`（共 17 例全部 PASS）
+
+| 场景 | 是否检测到 | 检测框数量 | 是否完整红球 | 是否局部红球 | 红色像素数量 | 备注 |
+|---|---|---|---:|---|---|---|---|
+| normal_sphere | ✓ | 1 | ✓ | ✗ | 5521 | 正常红球，置信度 0.967，IoU 0.954 |
+| bright_sphere | ✓ | 1 | ✓ | ✗ | 5521 | 亮红球，置信度 0.967，IoU 0.954 |
+| dark_sphere | ✗ | 0 | — | — | 0 | 低亮度暗红过滤 ✓ |
+| low_sat_sphere | ✗ | 0 | — | — | 0 | 低饱和度红过滤 ✓ |
+| occ_10 | ✓ | 1 | ✗ | ✓ | 5282 | 10% 遮挡，IoU 0.964 |
+| occ_20 | ✓ | 1 | ✗ | ✓ | 4757 | 20% 遮挡，IoU 0.962 |
+| occ_30 | ✓ | 1 | ✗ | ✓ | 4183 | 30% 遮挡，IoU 0.960 |
+| occ_50 | ✓ | 1 | ✗ | ✓ | 2802 | 50% 遮挡，IoU 0.954 |
+| occ_70 | ✗ | 0 | — | — | 0 | 70% 遮挡保守拒绝 ✓ |
+| red_cube | ✗ | 0 | — | — | 0 | 红色方块误检过滤 ✓ |
+| red_triangle | ✗ | 0 | — | — | 0 | 红色三角形误检过滤 ✓ |
+| red_elongated | ✗ | 0 | — | — | 0 | 红色细长物体误检过滤 ✓ |
+| red_fragments | ✗ | 0 | — | — | 0 | 红色碎片干扰过滤 ✓ |
+| complex_bg_sphere | ✓ | 1 | ✓ | ✗ | 5521 | 复杂背景下正常检出 |
+| multi_three_separate | ✓ | 3 | ✓ | ✗ | 3771 | 三个分离红球全部检出 |
+| multi_partial_mix | ✓ | 2 | ✗ | ✓ | 3911 | 多红球+局部遮挡混合 |
+| multi_touching_pair | ✓ | 2 | ✗ | ✓ | 6330 | 粘连红球 watershed 分裂成功 |
+
+### 3.3 真实图片检测结果
+
+运行命令：
+
+```bash
+python scripts/evaluate_real_red_ball_images.py --input-dir <图片目录>
+```
+
+输出目录：`reports/perception/2d_detection/real_images_<timestamp>/`
+
+最新结果：`reports/perception/2d_detection/real_images_20260620_230333/`（共 10 张）
+
+| 场景 | 是否检测到 | 检测框数量 | 是否完整红球 | 是否局部红球 | 红色像素数量 | 备注 |
+|---|---|---|---:|---|---|---|---|
+| real_001 (alicja-radish) | ✗ | 0 | — | — | — | 图片为红色果蔬，非球体 |
+| real_002 (elisariva-ball) | ✗ | 0 | — | — | — | 反光/纹理干扰 |
+| real_003 (soccer-3568168) | ✗ | 0 | — | — | — | 足球纹理+环境干扰 |
+| real_004 (frahyle-card) | ✓ | 1 | ✓ | ✗ | — | 红色球体正确检出，置信度 0.961 |
+| real_005 (christmas-tree) | ✓ | 4 | ✓ | ✗ | — | 圣诞树红球，检出 4 个 |
+| real_006 (red-ball-8398445) | ✗ | 0 | — | — | — | 光照/纹理干扰 |
+| real_007 (red-bauble) | ✗ | 0 | — | — | — | 装饰球材质反光 |
+| real_008 (pexels-ball) | ✗ | 0 | — | — | — | 足球非纯红 |
+| real_009 (pixloger-sphere) | ✓ | 1 | ✗ | ✓ | — | 大红球但边缘超出画布 |
+| real_010 (currants) | ✓ | 1 | ✗ | ✗ | — | 红色果实非球体，出现误检（圆度仅 0.602） |
+
+> **真实图片总结**：10 张中 4 张有检出（40%），3 张正确检出红球，1 张误检（real_010 红醋栗）。HSV 检测器对纯红色球体识别良好，但对复杂纹理、光照变化和非球体红色物体敏感。
+
+### 3.4 离线测试全部通过
+
+```bash
+python -m pytest tests/offline/ -v   # 64 passed
+```
+
+测试覆盖：
+- 红球检测：颜色阈值、面积过滤、形状筛选、BGR 输入、遮挡边界、多候选、粘连分裂（10 项）
+- 三维定位：相机内参、像素反投影、刚体变换、深度估计、ROI 采样（9 项）
+- 多帧跟踪：距离计算、观测合并、确认/拒绝、新目标创建（6 项）
+- 检测指标：IoU、Precision/Recall、mAP 等（5 项）
+- 平台 Phase1：模型 SDF、URDF、World、Bridge 配置文件（22 项）
+- 导航控制：waypoint 控制逻辑（4 项）
+- 结果评估：mission result 校验（2 项）
+- 其余测试（6 项）
+
+测试记录表格（测试组格式）：
 
 ```text
 reports/perception/test_records/<timestamp>/testing_record_perception.csv
@@ -237,28 +319,47 @@ python -m pytest tests/offline/test_red_ball_detector.py -v
 - Q4：当前节点什么时候输出三维坐标，什么时候只输出 2D 结果？
 - Q5：多帧确认中 confirmed 和 rejected 的触发条件分别是什么？
 
-## 7. 后续要做什么（下一阶段）
+## 7. 当前状态与下一阶段任务
 
-### 7.1 检测增强
+### 7.1 已完成 ✓
 
-- BGR 输入测试
-- 暗红色（V < 80）过滤测试
-- 低饱和度（S < 80）过滤测试
-- 小面积噪声过滤测试
-- 红色方块 / 不规则物体误检过滤测试
-- 不同遮挡率（10%~70%）的检测精度测试
+- [x] BGR 输入测试 — `test_detect_red_ball_bgr8_returns_bbox` ✅
+- [x] 暗红色（V < 80）过滤测试 — `test_dark_red_low_value_is_rejected_for_all_shapes` ✅
+- [x] 低饱和度（S < 80）过滤测试 — `test_low_saturation_red_is_rejected_for_all_shapes` ✅
+- [x] 小面积噪声过滤测试 — `test_detect_red_ball_rgb_bytes_ignores_small_noise` ✅
+- [x] 红色方块 / 不规则物体误检过滤测试 — `test_red_non_sphere_shapes_are_rejected` ✅
+- [x] 不同遮挡率（10%~70%）检测精度测试 — `test_partially_occluded_red_balls_keep_expected_detection_boundary` ✅
+- [x] 多红球候选输出 — `test_detect_red_balls_rgb_bytes_returns_multiple_candidates` ✅
+- [x] 粘连红球分裂 — `test_touching_red_balls_can_be_split_into_multiple_candidates` ✅
+- [x] Gazebo 仿真截图 — `capture_red_ball_gallery.py` 已跑通 ✅
+- [x] 合成图像 17 例全部 PASS ✅
+- [x] 真实图片 10 张评估完成 ✅
+- [x] `localize_hazard.py` 离线测试 9/9 PASS ✅
+- [x] `track_hazards.py` 离线测试 6/6 PASS ✅
+- [x] 全部离线测试 64/64 PASS ✅
 
-### 7.2 三维定位验证
+### 7.2 当前不能稳定检测什么
 
-- 在主力机 Gazebo 环境验证 RGB、深度图和 TF 对齐
-- 验证 `localize_hazard.py` 的坐标反投影精度
-- 点云 ROI 定位作为深度图不可用时的备用方案
+1. **边缘/局部裁剪红球**：Gazebo `edge_partial` 场景中，红球被右边缘裁剪后形状筛选拒绝（圆度过低）。`top_partial` 虽然检出但置信度降到 0.757。
+2. **多红球场景漏检**：Gazebo `multi_visible` 有 2 个红球，components 找到 2 个红色连通域，但检测器只输出 1 个候选（第二个可能被形状阈值拒绝）。
+3. **70% 以上遮挡**：按设计保守拒绝，需多帧重观察来补救。
+4. **真实图片中非纯红球体**：有纹理的红球（如足球）、反光材质球（如圣诞装饰球）、暗光环境红球无法稳定检出。10 张真实图片中仅 3 张正确检出。
+5. **红色非球体误检**：real_010（红醋栗果实）产生误检，圆度仅 0.602 但仍通过阈值。
 
-### 7.3 多帧确认与去重
+### 7.3 下一阶段任务
 
-- 验证 `track_hazards.py` 的确认/拒绝逻辑
-- 验证 merge_distance_m 空间合并效果
-- 降低虚警率
+1. **检测增强**：调整边缘/局部裁剪场景的形状阈值，降低 partial 漏检率
+2. **多红球检测**：修复 `multi_visible` 场景中第二个红球的漏检，排查形状筛选阈值是否过严
+3. **三维定位端到端验证**：在主力机 Gazebo 环境验证 RGB、深度图和 TF 对齐；验证 `localize_hazard.py` 坐标反投影精度
+4. **多帧跟踪端到端验证**：验证 `track_hazards.py` 确认/拒绝逻辑在实际传感器数据上的表现
+5. **降低真实场景误检**：结合深度信息或提高形状筛选严格度来压低假阳
+
+### 7.4 后续三维定位需要平台组提供什么
+
+1. **确认 RGB 图像、深度图和 TF 在主力机 Gazebo 中对齐可用** — 当前节点已订阅三个话题，但缺少端到端验证
+2. **相机内参标定结果** — `/hw/camera/camera_info` 话题需要正确的 K 矩阵
+3. **`camera_link → start` 等坐标系的 TF 变换** — 当前代码已接入 TF，需要确认发布正确
+4. **深度图有效性确认** — 需要确认 `/hw/camera/depth_image` 的像素值与真实距离一致
 
 ## 8. 话题接口说明
 
@@ -287,3 +388,74 @@ python -m pytest tests/offline/test_red_ball_detector.py -v
 | **TF** | ROS 坐标变换树，把相机坐标系转换到世界/start 坐标系 |
 | **confirmed** | 同一目标连续 confirm_observation_count 帧检测到，标记为确认 |
 | **rejected** | 已确认目标连续 reject_after_missed_count 帧未检测到，标记为拒绝 |
+
+## 10. 会议验收问答（2026-07-04 前）
+
+### 1. 本组当前能跑什么？
+
+- **离线红球检测**：HSV + OpenCV 形状筛选，支持 RGB/BGR 输入，可检测多个红球、分离粘连红球、过滤红色非球体误检
+- **离线三维定位**：bbox 中心像素 + 相机内参 + 深度 → 世界坐标（纯函数，不依赖 ROS）
+- **离线多帧跟踪**：三维观测合并、确认、去重、拒绝（纯函数，不依赖 ROS）
+- **Gazebo 仿真截图**：启动 Gazebo 红球画廊世界，从 4 个相机 topic 截图并运行检测器
+- **合成图像批量测试**：17 例（颜色/遮挡/误检/多球/光照），全部 PASS
+- **真实图片批量评估**：10 张真实红球图片，生成 CSV/JSON 检测结果
+
+### 2. 运行命令是什么？
+
+```bash
+# 离线测试（全部 64 项）
+python -m pytest tests/offline/ -v
+
+# 只测感知组
+python -m pytest tests/offline/test_red_ball_detector.py tests/offline/test_localize_hazard.py tests/offline/test_track_hazards.py -v
+
+# Gazebo 仿真截图（需要 Gazebo + Linux）
+python3 scripts/capture_red_ball_gallery.py
+
+# 合成图像检测评估
+python scripts/generate_perception_cases.py
+python scripts/evaluate_perception_results.py --results-dir reports/perception/2d_detection/synthetic_<timestamp>/
+
+# 真实图片检测评估
+python scripts/evaluate_real_red_ball_images.py --input-dir <图片目录>
+```
+
+### 3. 结果保存在哪里？
+
+| 类型 | 路径 | 内容 |
+|---|---|---|
+| Gazebo 仿真截图 | `reports/perception/simulation/<timestamp>/` | PNG 截图 + summary.json |
+| 合成图像检测 | `reports/perception/2d_detection/synthetic_<timestamp>/` | summary.json/csv + 拼图 + 指标 |
+| 真实图片检测 | `reports/perception/2d_detection/real_images_<timestamp>/` | summary.json/csv + detections.csv |
+| 测试组记录表格 | `reports/perception/test_records/<timestamp>/` | testing_record_perception.csv/json |
+| 阶段报告 | `reports/perception/docs/` | perception_progress_report_*.md |
+
+### 4. 截图、JSON、日志或表格是什么？
+
+- **截图**：
+  - Gazebo 4 个场景的标注框截图：`center_full_boxed.png`, `edge_partial_boxed.png`, `top_partial_boxed.png`, `multi_visible_boxed.png`
+  - 合成图像拼图：`perception_cases_collage.png`
+  - 真实图片拼图：`real_red_ball_collage.png`
+- **JSON**：每个测试批次都有 `summary.json`（检测结果 + bbox + 置信度 + 形状指标）
+- **CSV**：`testing_record_perception.csv`（测试组标准格式）、`detections.csv`、`metrics_summary.csv`
+- **日志**：Gazebo 仿真运行日志在 console 输出
+
+### 5. 当前最大问题是什么？
+
+1. **缺少主力机 Gazebo 端到端验证**：RGB + 深度 + TF 对齐尚未在真实仿真环境中验证。离线纯函数测试全部通过（64/64），但 ROS 节点 (`hsv_detector_node.py`) 的整体管线在主力机上还没跑通过。
+2. **边缘/局部裁剪漏检**：Gazebo `edge_partial` 场景中右侧裁剪的红球被形状筛选拒绝
+3. **多红球漏检**：Gazebo `multi_visible` 场景中 2 个红球只检出 1 个
+4. **真实图片检出率低**：10 张真实图片仅 3 张正确检出（30%），复杂纹理和光照下表现不佳
+
+### 6. 下一步需要哪个组配合？
+
+- **平台组**：
+  - 确认主力机 Gazebo 环境中 `/hw/camera/image_raw`、`/hw/camera/camera_info`、`/hw/camera/depth_image` 三个话题正常发布
+  - 确认 `camera_link → start` 的 TF 变换正确发布
+  - 提供可用的 Gazebo 仿真环境账号或远程访问方式
+- **决策组**：
+  - 确认 `/hw/perception/hazard_detections` 话题的消息格式需求
+  - 确认危险源三维坐标的坐标系约定（`start` 还是 `map`）
+- **集成测试组**：
+  - 提供感知组专项测试模板和记录表格位置
+  - 协助在主力机上跑通感知 ROS 节点的端到端测试

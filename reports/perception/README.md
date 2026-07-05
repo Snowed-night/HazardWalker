@@ -16,9 +16,9 @@ reports/perception/
 
 ```text
 simulation/20260614_171740/
-2d_detection/synthetic_20260620_230333/
+2d_detection/synthetic_20260621_150028/   ← 最新（17 例全部 PASS）
 2d_detection/real_images_20260620_230333/
-test_records/20260620_230333/
+test_records/20260621_150028/             ← 最新
 docs/perception_progress_report_2026-06-12.md
 ```
 
