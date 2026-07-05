@@ -9,10 +9,10 @@ python scripts/generate_perception_cases.py
 输出结构：
 
 ```text
-reports/perception/result/
+reports/perception/2d_detection/synthetic_<timestamp>/
 ├─ cases/          自动生成的原始测试图，不提交 Git
 ├─ annotated/      带 bbox 和指标的标注图，不提交 Git
-├─ figures/        汇报或论文使用的精选图和遮挡指标图
+├─ figures/        汇报使用的精选拼图
 ├─ summary.csv     每个案例的检测结果表，不提交 Git
 ├─ summary.json    每个案例的结构化结果，不提交 Git
 ├─ metrics_summary.csv   precision、recall、F1、top1 error、AP50 汇总，不提交 Git
@@ -23,12 +23,7 @@ reports/perception/result/
 
 ```text
 figures/perception_cases_collage.png
-figures/occlusion_confidence.png
-figures/occlusion_circularity.png
 ```
-
-其中 `occlusion_confidence.png` 和 `occlusion_circularity.png` 来自 `summary.csv`
-中的遮挡案例，用于说明当前 HSV + 形状筛选方法在 10% 到 70% 遮挡下的置信度和圆度变化。
 
 实验字段说明：
 

@@ -27,6 +27,7 @@ RGB/BGR 图像
   -> HSV 红色阈值
   -> mask 形态学去噪
   -> findContours 连通域/轮廓
+  -> 距离变换 + watershed 分离轻度粘连目标
   -> 面积过滤
   -> 圆度 circularity
   -> bbox 长宽比 aspect_ratio
@@ -42,6 +43,52 @@ RGB/BGR 图像
 - 红色方块和两类红色不规则物体应被当作误检过滤。
 - 10%、20%、30%、50% 遮挡红球应尽量检测。
 - 70% 遮挡红球先按保守策略拒绝，后续可结合多帧确认或重观察再处理。
+- 多个分离红球和轻度粘连红球应输出多个候选。
+- 阴影渐变、高亮背景和复杂背景作为仿真环境影响的边界案例。
+
+## 当前技术选择
+
+当前先选 OpenCV HSV + 轮廓 + watershed 的原因：
+
+```text
+1. 红色球体颜色特征强，HSV 基线可解释、调参快、无需训练数据。
+2. 轮廓圆度、长宽比和 extent 能压低红色方块、细长物体等虚警。
+3. watershed 是成熟的实例分离方法，能处理部分粘连多红球。
+4. 该方案可以在主力机无 GPU 或官方平台刚发布时立即运行。
+```
+
+后续预留方案：
+
+```text
+YOLO 检测：适合复杂光照、遮挡和非理想红球纹理，但需要数据和权重管理。
+实例分割：适合多红球粘连和局部可见目标，输出 mask 后仍可复用三维定位。
+RGB-D 一致性过滤：用深度连续性、球面几何或点云聚类进一步压低虚警。
+主动重观察：低置信度或遮挡目标交给决策/导航换视角确认。
+```
+
+代码接入点是 `red_ball_detector.py` 的 `DetectionBackend`。未来新增模型后端时，应继续输出 `RedBallDetection2D`，这样 `hsv_detector_node.py` 的三维定位、tracking 和 JSON 输出不需要重写。
+
+## 可展示结果和测试组表格
+
+本地先运行：
+
+```bash
+python scripts/generate_perception_cases.py
+python scripts/run_offline_tests.py
+```
+
+合成案例输出：
+
+```text
+reports/perception/2d_detection/synthetic_<timestamp>/
+```
+
+测试组感知专项指标输出：
+
+```text
+reports/perception/test_records/<timestamp>/testing_record_perception.csv
+reports/perception/test_records/<timestamp>/testing_record_perception.json
+```
 
 ## 4. 三维定位与多帧确认
 

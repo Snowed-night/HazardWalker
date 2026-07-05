@@ -1,0 +1,142 @@
+[
+  {
+    "case_id": "real_001",
+    "source_file": "alicja-radish-4000891_1920.jpg",
+    "width": 1920,
+    "height": 1282,
+    "detection_count": 0,
+    "top_confidence": null,
+    "top_circularity": null,
+    "top_aspect_ratio": null,
+    "top_extent": null,
+    "top_bbox": null
+  },
+  {
+    "case_id": "real_002",
+    "source_file": "elisariva-ball-1906468_1920.png",
+    "width": 1920,
+    "height": 1920,
+    "detection_count": 0,
+    "top_confidence": null,
+    "top_circularity": null,
+    "top_aspect_ratio": null,
+    "top_extent": null,
+    "top_bbox": null
+  },
+  {
+    "case_id": "real_003",
+    "source_file": "fernandozhiminaicela-soccer-3568168_1920.jpg",
+    "width": 1920,
+    "height": 1280,
+    "detection_count": 0,
+    "top_confidence": null,
+    "top_circularity": null,
+    "top_aspect_ratio": null,
+    "top_extent": null,
+    "top_bbox": null
+  },
+  {
+    "case_id": "real_004",
+    "source_file": "frahyle-card-1101869_1920.jpg",
+    "width": 1920,
+    "height": 1440,
+    "detection_count": 1,
+    "top_confidence": 0.9609,
+    "top_circularity": 0.8886,
+    "top_aspect_ratio": 0.9976,
+    "top_extent": 0.7814,
+    "top_bbox": [
+      55,
+      999,
+      464,
+      1409
+    ]
+  },
+  {
+    "case_id": "real_005",
+    "source_file": "neelam279-christmas-tree-6870755_1920.jpg",
+    "width": 1920,
+    "height": 1250,
+    "detection_count": 4,
+    "top_confidence": 0.8307,
+    "top_circularity": 0.7726,
+    "top_aspect_ratio": 0.9767,
+    "top_extent": 0.7207,
+    "top_bbox": [
+      271,
+      234,
+      313,
+      275
+    ]
+  },
+  {
+    "case_id": "real_006",
+    "source_file": "neelam279-red-ball-8398445_1920.jpg",
+    "width": 1260,
+    "height": 1920,
+    "detection_count": 0,
+    "top_confidence": null,
+    "top_circularity": null,
+    "top_aspect_ratio": null,
+    "top_extent": null,
+    "top_bbox": null
+  },
+  {
+    "case_id": "real_007",
+    "source_file": "neelam279-red-bauble-7631290_1920.jpg",
+    "width": 1920,
+    "height": 1212,
+    "detection_count": 0,
+    "top_confidence": null,
+    "top_circularity": null,
+    "top_aspect_ratio": null,
+    "top_extent": null,
+    "top_bbox": null
+  },
+  {
+    "case_id": "real_008",
+    "source_file": "pexels-ball-1845545_1920.jpg",
+    "width": 1920,
+    "height": 1280,
+    "detection_count": 0,
+    "top_confidence": null,
+    "top_circularity": null,
+    "top_aspect_ratio": null,
+    "top_extent": null,
+    "top_bbox": null
+  },
+  {
+    "case_id": "real_009",
+    "source_file": "pixloger-sphere-1705664_1920.png",
+    "width": 1920,
+    "height": 1576,
+    "detection_count": 1,
+    "top_confidence": 0.9607,
+    "top_circularity": 0.8841,
+    "top_aspect_ratio": 0.9993,
+    "top_extent": 0.7857,
+    "top_bbox": [
+      0,
+      0,
+      1449,
+      1448
+    ]
+  },
+  {
+    "case_id": "real_010",
+    "source_file": "ralphs_fotos-currants-3585286_1920.jpg",
+    "width": 1920,
+    "height": 1280,
+    "detection_count": 1,
+    "top_confidence": 0.764,
+    "top_circularity": 0.6021,
+    "top_aspect_ratio": 0.6883,
+    "top_extent": 0.6533,
+    "top_bbox": [
+      440,
+      896,
+      686,
+      1065
+    ]
+  }
+]

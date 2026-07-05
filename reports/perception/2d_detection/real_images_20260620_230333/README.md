@@ -26,12 +26,10 @@ real_010
 输出结构：
 
 ```text
-reports/perception/real_result/
+reports/perception/2d_detection/real_images_<timestamp>/
 ├─ annotated/                  多目标标注图，不提交 Git
 ├─ figures/
-│  ├─ real_red_ball_collage.png 可提交的汇报拼图
-│  ├─ real_detection_count.png  检测数量柱状图，不提交 Git
-│  └─ real_top_confidence.png   最高置信度柱状图，不提交 Git
+│  └─ real_red_ball_collage.png 可提交的汇报拼图
 ├─ summary.csv                  每张图片汇总表，不提交 Git
 ├─ detections.csv               每个检测框明细表，不提交 Git
 └─ summary.json                 结构化汇总，不提交 Git
@@ -42,6 +40,4 @@ reports/perception/real_result/
 | 图表 | 用途 |
 |---|---|
 | `real_red_ball_collage.png` | 展示 10 张实物图检测效果 |
-| `real_detection_count.png` | 展示每张图检测到的红球候选数量 |
-| `real_top_confidence.png` | 展示每张图最高置信度 |
 | `detections.csv` | 做 confidence、circularity、extent 的参数统计表 |

@@ -1,0 +1,87 @@
+# ============================================================================
+# HazardWalker Phase 1 — ros_gz_bridge 话题映射配置
+#
+# 用途：
+#   把 Gazebo Harmonic 原生话题转换为 /hw/* 内部接口，
+#   确保算法模块（nav / perception / decision）零修改切换。
+#
+# 话题命名：
+#   本最小 demo 在 SDF 内为传感器和控制插件显式指定短 topic，
+#   例如 /camera/image、/lidar/points、/cmd_vel。
+#   ros_gz_bridge 负责把这些 Gazebo topic 转成算法侧稳定的 /hw/* 接口。
+#
+# Windows 说明：
+#   本文件是纯 YAML，可在 Windows 上做语法校验。
+#   实际运行需要 Ubuntu + ROS 2 Jazzy + ros_gz_bridge。
+# ============================================================================
+
+# ---------------------------------------------------------------------------
+# Gazebo → ROS：传感器数据输出
+# ---------------------------------------------------------------------------
+
+# RGB 相机图像
+- ros_topic_name: "/hw/camera/image_raw"
+  gz_topic_name: "/camera/image"
+  ros_type_name: "sensor_msgs/msg/Image"
+  gz_type_name: "gz.msgs.Image"
+  direction: GZ_TO_ROS
+
+# 相机内参
+- ros_topic_name: "/hw/camera/camera_info"
+  gz_topic_name: "/camera/camera_info"
+  ros_type_name: "sensor_msgs/msg/CameraInfo"
+  gz_type_name: "gz.msgs.CameraInfo"
+  direction: GZ_TO_ROS
+
+# LiDAR 点云
+- ros_topic_name: "/hw/lidar/points"
+  gz_topic_name: "/lidar/points/points"
+  ros_type_name: "sensor_msgs/msg/PointCloud2"
+  gz_type_name: "gz.msgs.PointCloudPacked"
+  direction: GZ_TO_ROS
+
+# LiDAR 扫描（2D 激光扫描，可选）
+- ros_topic_name: "/hw/lidar/scan"
+  gz_topic_name: "/lidar/points"
+  ros_type_name: "sensor_msgs/msg/LaserScan"
+  gz_type_name: "gz.msgs.LaserScan"
+  direction: GZ_TO_ROS
+
+# 里程计（DiffDrive 插件发布）
+- ros_topic_name: "/hw/odom"
+  gz_topic_name: "/odom"
+  ros_type_name: "nav_msgs/msg/Odometry"
+  gz_type_name: "gz.msgs.Odometry"
+  direction: GZ_TO_ROS
+
+# TF 变换（DiffDrive 插件发布 odom -> base_link）
+- ros_topic_name: "/tf"
+  gz_topic_name: "/tf"
+  ros_type_name: "tf2_msgs/msg/TFMessage"
+  gz_type_name: "gz.msgs.Pose_V"
+  direction: GZ_TO_ROS
+
+# 关节状态
+- ros_topic_name: "/joint_states"
+  gz_topic_name: "/joint_states"
+  ros_type_name: "sensor_msgs/msg/JointState"
+  gz_type_name: "gz.msgs.Model"
+  direction: GZ_TO_ROS
+
+# ---------------------------------------------------------------------------
+# ROS → Gazebo：控制命令输入
+# ---------------------------------------------------------------------------
+
+# 速度控制（ROS 导航节点 → Gazebo 机器人）
+# 算法模块只发布 /hw/cmd_vel，bridge 转发给 Gazebo DiffDrive 的 /cmd_vel。
+- ros_topic_name: "/hw/cmd_vel"
+  gz_topic_name: "/cmd_vel"
+  ros_type_name: "geometry_msgs/msg/Twist"
+  gz_type_name: "gz.msgs.Twist"
+  direction: ROS_TO_GZ
+
+# ---------------------------------------------------------------------------
+# 频率配置
+# ---------------------------------------------------------------------------
+# subscriber_creation_interval_sec: 0.1
+# lazy: false
