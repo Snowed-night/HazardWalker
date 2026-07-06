@@ -9,4 +9,4 @@ echo "[ros1_bridge] Loading ROS2 Foxy..."
 source /opt/ros/foxy/setup.bash
 
 echo "[ros1_bridge] Starting dynamic bridge..."
-/opt/ros/foxy/lib/ros1_bridge/dynamic_bridge --bridge-all-topics --params-file /home/ros/simenv_ws/docker/scan_bridge.yaml
+/opt/ros/foxy/lib/ros1_bridge/dynamic_bridge --bridge-all-topics
