@@ -197,6 +197,29 @@ ros2_ws/log/
 *.ply
 *.bt
 *.log
+reports/run_results/
+reports/perception/simulation/*/*_raw.png
+reports/perception/simulation/*/*.ppm
+reports/perception/simulation/*/raw_attempts/
+reports/perception/simulation/*/raw_frames/
+reports/perception/simulation/*/raw_attempts.zip
+reports/perception/simulation/*/raw_frames.zip
+reports/perception/simulation/*/*/*.ppm
+reports/perception/simulation/*/*/raw_attempts/
+reports/perception/simulation/*/*/raw_frames/
+reports/perception/simulation/*/*/raw_attempts.zip
+reports/perception/simulation/*/*/raw_frames.zip
+reports/gazebo_camera_*.ppm
+reports/gazebo_redball_detection_*.png
+!reports/perception/simulation/*/*_boxed.png
+!reports/perception/simulation/*/summary.json
+reports/perception/2d_detection/synthetic_*/cases/
+reports/perception/2d_detection/synthetic_*/annotated/
+reports/perception/2d_detection/synthetic_*/figures/*
+!reports/perception/2d_detection/synthetic_*/figures/perception_cases_collage.png
+reports/perception/2d_detection/real_images_*/annotated/
+reports/perception/2d_detection/real_images_*/figures/*
+!reports/perception/2d_detection/real_images_*/figures/real_red_ball_collage.png
 
 # Gazebo / simulation cache
 .gazebo/
@@ -212,6 +235,9 @@ ros2_ws/log/
 *.7z
 *.tar
 *.tar.gz
+
+!reports/perception/simulation/*/*_demo.mp4
+!reports/perception/simulation/*/*/*_demo.mp4
 *.pt
 *.pth
 *.onnx
@@ -220,6 +246,10 @@ ros2_ws/log/
 
 # Local VS Code settings
 .vscode/settings.json
+
+# Local agent instructions
+agent.md
+AGENT.md
 
 # PyCharm
 #   JetBrains specific template is maintained in a separate JetBrains.gitignore that can

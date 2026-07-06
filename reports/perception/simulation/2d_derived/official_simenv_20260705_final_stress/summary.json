@@ -1,0 +1,17 @@
+{
+  "schema": "hazardwalker_perception_simulation_v1",
+  "run_id": "official_simenv_20260705_final_stress",
+  "purpose": "比赛同类型环境下多红球部分可见、干扰物、低照度和噪声最终压力测试",
+  "case_count": 5,
+  "expected_red_ball_count": 33,
+  "true_positive": 21,
+  "false_positive": 0,
+  "false_negative": 12,
+  "accuracy_percent": 63.6,
+  "false_alarm_rate_percent": 0.0,
+  "average_detection_time_ms_local_python": 6.35,
+  "estimated_detection_fps_local_python": 157.48,
+  "cases_csv": "cases.csv",
+  "cases_json": "cases.json",
+  "collage": "figures/collage.png"
+}

@@ -1,0 +1,17 @@
+{
+  "schema": "hazardwalker_perception_simulation_v1",
+  "run_id": "official_simenv_20260705_multi_target_count",
+  "purpose": "官方仿真背景下 1 到 10 个红球数量递进测试",
+  "case_count": 10,
+  "expected_red_ball_count": 55,
+  "true_positive": 55,
+  "false_positive": 0,
+  "false_negative": 0,
+  "accuracy_percent": 100.0,
+  "false_alarm_rate_percent": 0.0,
+  "average_detection_time_ms_local_python": 6.24,
+  "estimated_detection_fps_local_python": 160.26,
+  "cases_csv": "cases.csv",
+  "cases_json": "cases.json",
+  "collage": "figures/collage.png"
+}

@@ -1,0 +1,26 @@
+#include "geometry_msgs/msg/Point.idl"
+#include "std_msgs/msg/Header.idl"
+
+module hazardwalker_msgs {
+  module msg {
+    struct Hazard {
+      int32 id;
+
+      std_msgs::msg::Header header;
+
+      geometry_msgs::msg::Point position;
+
+      float confidence;
+
+      string status;
+
+      double first_seen_time;
+
+      double last_seen_time;
+
+      int32 observation_count;
+
+      string source;
+    };
+  };
+};

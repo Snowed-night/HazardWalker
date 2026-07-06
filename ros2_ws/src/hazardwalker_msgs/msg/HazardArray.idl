@@ -1,0 +1,12 @@
+#include "hazardwalker_msgs/msg/Hazard.idl"
+#include "std_msgs/msg/Header.idl"
+
+module hazardwalker_msgs {
+  module msg {
+    struct HazardArray {
+      std_msgs::msg::Header header;
+
+      sequence<hazardwalker_msgs::msg::Hazard> hazards;
+    };
+  };
+};

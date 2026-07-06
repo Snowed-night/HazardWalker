@@ -1,0 +1,11 @@
+## 单个危险源的统一数据定义。
+## 用于感知组向决策组和结果写入模块传递候选或确认目标。
+int32 id
+std_msgs/Header header
+geometry_msgs/Point position
+float32 confidence
+string status
+float64 first_seen_time
+float64 last_seen_time
+int32 observation_count
+string source

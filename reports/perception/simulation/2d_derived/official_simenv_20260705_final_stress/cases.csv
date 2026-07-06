@@ -1,0 +1,6 @@
+﻿case_id,condition,expected_red_ball_count,detected_red_ball_count,true_positive,false_positive,false_negative,result,elapsed_ms,annotated_image
+final_stress_01_03_red_partial_distractors,"3 red balls, visible ratios 35%,55%,75%, distractors=3, severity=0.25",3,2,2,0,1,review,6.398,images/official_simenv_final_stress_01_03_red_partial_distractors_detected.png
+final_stress_02_05_red_partial_distractors,"5 red balls, visible ratios 25%,45%,65%,85%,100%, distractors=4, severity=0.35",5,3,3,0,2,review,5.882,images/official_simenv_final_stress_02_05_red_partial_distractors_detected.png
+final_stress_03_07_red_partial_distractors,"7 red balls, visible ratios 20%,35%,50%,65%,80%,90%,100%, distractors=5, severity=0.55",7,5,5,0,2,review,6.296,images/official_simenv_final_stress_03_07_red_partial_distractors_detected.png
+final_stress_04_10_red_partial_distractors,"10 red balls, visible ratios 20%,30%,40%,55%,65%,75%,85%,90%,100%,100%, distractors=6, severity=0.7",10,7,7,0,3,review,6.512,images/official_simenv_final_stress_04_10_red_partial_distractors_detected.png
+final_stress_05_08_red_partial_distractors,"8 red balls, visible ratios 15%,25%,35%,45%,60%,75%,90%,100%, distractors=7, severity=0.85",8,4,4,0,4,review,6.651,images/official_simenv_final_stress_05_08_red_partial_distractors_detected.png

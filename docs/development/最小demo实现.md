@@ -1,0 +1,72 @@
+# HazardWalker 最小 demo 实现
+
+## 1. 目标
+
+最小 demo 用于验证平台、导航、感知、决策和结果输出能串成一条可运行链路。
+
+## 2. 节点组成
+
+| 包 | 节点 | 功能 |
+|---|---|---|
+| `hazardwalker_platform` | `fake_platform_node` | 发布 `/hw/camera/image_raw`、`/hw/camera/camera_info`、`/hw/odom`、`/tf`、`/hw/lidar/points`，接收 `/hw/cmd_vel` |
+| `hazardwalker_perception` | `hsv_detector_node` | 订阅图像，检测红色区域，发布危险源 JSON |
+| `hazardwalker_nav` | `waypoint_patrol_node` | 发布 `/hw/cmd_vel`，执行固定航点巡检和返航 |
+| `hazardwalker_decision` | `mission_state_machine_node` | 订阅导航状态和检测结果，写出结果 JSON |
+| `hazardwalker_bringup` | `minimal_demo.launch.py` | 启动最小链路 |
+
+## 3. 关键话题
+
+- `/hw/camera/image_raw`
+- `/hw/camera/camera_info`
+- `/hw/lidar/points`
+- `/hw/odom`
+- `/hw/cmd_vel`
+- `/hw/nav/state`
+- `/hw/perception/hazard_detections`
+- `/hw/mission/state`
+- `/hw/mission/result`
+
+## 4. 构建与运行
+
+```bash
+./scripts/build.sh
+```
+
+```bash
+./scripts/run_minimal_demo.sh
+```
+
+普通 Python 环境下运行离线测试：
+
+```bash
+python scripts/run_offline_tests.py
+```
+
+检查结果文件：
+
+```bash
+python scripts/evaluate_result.py reports/run_results/<timestamp>_result.json
+```
+
+## 5. 结果输出
+
+结果文件写入：
+
+```text
+reports/run_results/<timestamp>_result.json
+```
+
+结果结构包含：
+
+- `mission_id`
+- `status`
+- `hazards`
+- `metrics`
+
+## 6. 最小验收
+
+- 一条命令可以启动最小流程。
+- 机器人能按固定航点移动。
+- 相机能输出红球检测结果。
+- 系统能写出结果文件。
+- 机器人能返回起点附近。
