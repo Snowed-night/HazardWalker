@@ -37,7 +37,7 @@ class HsvDetectorNode(Node):
         self.declare_parameter('min_confidence', 0.5)
 
         # 只依赖平台层输出的统一图像 topic，不直接依赖 Gazebo/官方平台 topic。
-        self.sub = self.create_subscription(Image, '/hw/camera/image_raw', self.on_image, 10)
+        self.sub = self.create_subscription(Image, '/hw/real_sense/rgb/image_raw', self.on_image, 10)
         # 第一阶段用 String(JSON) 快速打通链路；稳定后迁移到 hazardwalker_msgs/HazardArray。
         self.pub = self.create_publisher(String, '/hw/perception/hazard_detections', 10)
         self.get_logger().info('HSV detector subscribed to /hw/camera/image_raw.')

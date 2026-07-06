@@ -1,0 +1,6 @@
+string door_id
+bool open
+---
+bool accepted
+string state
+string message

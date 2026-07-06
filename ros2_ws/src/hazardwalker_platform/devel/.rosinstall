@@ -1,0 +1,2 @@
+- setup-file:
+    local-name: /home/ros/simenv_ws/devel/setup.sh

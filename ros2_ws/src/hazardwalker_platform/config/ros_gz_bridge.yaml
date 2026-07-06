@@ -1,85 +1,57 @@
-# ============================================================================
-# HazardWalker Phase 1 — ros_gz_bridge 话题映射配置
-#
-# 用途：
-#   把 Gazebo Harmonic 原生话题转换为 /hw/* 内部接口，
-#   确保算法模块（nav / perception / decision）零修改切换。
-#
-# Gazebo 话题名规则（Gazebo Harmonic）：
-#   /world/<world>/model/<model>/link/<link>/sensor/<sensor>/<topic>
-#
-# 实际 Gazebo 话题会在启动时由 ros_gz_bridge 按此映射转发。
-#
-# Windows 说明：
-#   本文件是纯 YAML，可在 Windows 上做语法校验。
-#   实际运行需要 Ubuntu + ROS 2 Jazzy + ros_gz_bridge。
-# ============================================================================
+gz_bridge:
+  ros__parameters:
+    topics:
+      # ===================== Gazebo → ROS 传感器 =====================
+      # RGB相机图像
+      - ros_topic_name: "/hw/camera/image_raw"
+        gz_topic_name: "/world/hazardwalker_world/model/simple_robot/link/camera_link/sensor/camera/image"
+        ros_type_name: "sensor_msgs/msg/Image"
+        gz_type_name: "gz.msgs.Image"
+        direction: GZ_TO_ROS
 
-# ---------------------------------------------------------------------------
-# Gazebo → ROS：传感器数据输出
-# ---------------------------------------------------------------------------
+      # LiDAR 点云
+      - ros_topic_name: "/hw/lidar/points"
+        gz_topic_name: "/world/hazardwalker_world/model/simple_robot/link/lidar_link/sensor/lidar/points"
+        ros_type_name: "sensor_msgs/msg/PointCloud2"
+        gz_type_name: "gz.msgs.PointCloudPacked"
+        direction: GZ_TO_ROS
 
-# RGB 相机图像
-- ros_topic_name: "/hw/camera/image_raw"
-  gz_topic_name: "/world/hazardwalker_world/model/simple_robot/link/camera_link/sensor/camera/image"
-  ros_type_name: "sensor_msgs/msg/Image"
-  gz_type_name: "gz.msgs.Image"
-  direction: GZ_TO_ROS
+      # 2D激光扫描
+      - ros_topic_name: "/hw/lidar/scan"
+        gz_topic_name: "/world/hazardwalker_world/model/simple_robot/link/lidar_link/sensor/lidar/scan"
+        ros_type_name: "sensor_msgs/msg/LaserScan"
+        gz_type_name: "gz.msgs.LaserScan"
+        direction: GZ_TO_ROS
 
-# 相机内参（Gazebo 不自动发布，需由 gazebo_adapter_node 或 bridge 的 camera_info 生成器补发）
-# 此处先占位，Phase 2 gazebo_adapter_node 会负责合成 CameraInfo
-# - ros_topic_name: "/hw/camera/camera_info"
-#   ...
+      # 里程计
+      - ros_topic_name: "/hw/odom"
+        gz_topic_name: "/model/simple_robot/odometry"
+        ros_type_name: "nav_msgs/msg/Odometry"
+        gz_type_name: "gz.msgs.Odometry"
+        direction: GZ_TO_ROS
 
-# LiDAR 点云
-- ros_topic_name: "/hw/lidar/points"
-  gz_topic_name: "/world/hazardwalker_world/model/simple_robot/link/lidar_link/sensor/lidar/points"
-  ros_type_name: "sensor_msgs/msg/PointCloud2"
-  gz_type_name: "gz.msgs.PointCloudPacked"
-  direction: GZ_TO_ROS
+      # TF变换
+      - ros_topic_name: "/tf"
+        gz_topic_name: "/model/simple_robot/tf"
+        ros_type_name: "tf2_msgs/msg/TFMessage"
+        gz_type_name: "gz.msgs.Pose_V"
+        direction: GZ_TO_ROS
 
-# LiDAR 扫描（2D 激光扫描，可选）
-- ros_topic_name: "/hw/lidar/scan"
-  gz_topic_name: "/world/hazardwalker_world/model/simple_robot/link/lidar_link/sensor/lidar/scan"
-  ros_type_name: "sensor_msgs/msg/LaserScan"
-  gz_type_name: "gz.msgs.LaserScan"
-  direction: GZ_TO_ROS
+      # 关节状态
+      - ros_topic_name: "/joint_states"
+        gz_topic_name: "/world/hazardwalker_world/model/simple_robot/joint_state"
+        ros_type_name: "sensor_msgs/msg/JointState"
+        gz_type_name: "gz.msgs.Model"
+        direction: GZ_TO_ROS
 
-# 里程计（DiffDrive 插件发布）
-- ros_topic_name: "/hw/odom"
-  gz_topic_name: "/model/simple_robot/odometry"
-  ros_type_name: "nav_msgs/msg/Odometry"
-  gz_type_name: "gz.msgs.Odometry"
-  direction: GZ_TO_ROS
+      # ===================== ROS → Gazebo 控制指令 =====================
+      # 底盘速度指令
+      - ros_topic_name: "/cmd_vel"
+        gz_topic_name: "/model/simple_robot/cmd_vel"
+        ros_type_name: "geometry_msgs/msg/Twist"
+        gz_type_name: "gz.msgs.Twist"
+        direction: ROS_TO_GZ
 
-# TF 变换（DiffDrive 插件发布 odom -> base_link）
-- ros_topic_name: "/tf"
-  gz_topic_name: "/model/simple_robot/tf"
-  ros_type_name: "tf2_msgs/msg/TFMessage"
-  gz_type_name: "gz.msgs.Pose_V"
-  direction: GZ_TO_ROS
-
-# 关节状态
-- ros_topic_name: "/joint_states"
-  gz_topic_name: "/world/hazardwalker_world/model/simple_robot/joint_state"
-  ros_type_name: "sensor_msgs/msg/JointState"
-  gz_type_name: "gz.msgs.Model"
-  direction: GZ_TO_ROS
-
-# ---------------------------------------------------------------------------
-# ROS → Gazebo：控制命令输入
-# ---------------------------------------------------------------------------
-
-# 速度控制（ROS 导航节点 → Gazebo 机器人）
-# 注意：/cmd_vel 在 bridge 中转发后，Gazebo DiffDrive 插件订阅此话题
-- ros_topic_name: "/cmd_vel"
-  gz_topic_name: "/model/simple_robot/cmd_vel"
-  ros_type_name: "geometry_msgs/msg/Twist"
-  gz_type_name: "gz.msgs.Twist"
-  direction: ROS_TO_GZ
-
-# ---------------------------------------------------------------------------
-# 频率配置
-# ---------------------------------------------------------------------------
-# subscriber_creation_interval_sec: 0.1
-# lazy: false
+    # 全局桥接参数（取消注释按需开启）
+    # subscriber_creation_interval_sec: 0.1
+    # lazy: false

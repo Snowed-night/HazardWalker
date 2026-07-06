@@ -1,0 +1,5 @@
+# 修复 /scan 话题的 ROS1 PointCloud → ROS2 PointCloud 类型映射
+topics:
+ /scan:
+ type: sensor_msgs/PointCloud
+ queue_size: 10

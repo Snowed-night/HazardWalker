@@ -56,11 +56,8 @@ setup(
     entry_points={
         'console_scripts': [
             'fake_platform_node = hazardwalker_platform.fake_platform_node:main',
-            # ================================================================
-            # Phase 2 新增：Gazebo 平台适配节点（当前文件尚未实现）
-            # 入口已预留，Phase 2 完成后取消以下注释：
-            # 'gazebo_adapter_node = hazardwalker_platform.gazebo_adapter_node:main',
-            # ================================================================
+            # 官方平台 ROS1 Docker → /hw/* 话题中继
+            'hw_topic_relay_node = hazardwalker_platform.hw_topic_relay_node:main',
         ],
     },
 )
