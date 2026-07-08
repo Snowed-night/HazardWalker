@@ -32,6 +32,7 @@ pkill -f "junior_ctrl" 2>/dev/null || true
 pkill -f "virtual_joy.py" 2>/dev/null || true
 # 仅启动前清理旧relay，不再设置退出自动杀死
 pkill -f "topic_tools relay" 2>/dev/null || true
+pkill Xvfb 2>/dev/null || true
 
 # Platform devel soft link
 LEGACY_WS="/home/ros/Guoyulun/Competition/SimEnv"
@@ -99,14 +100,7 @@ if [[ "$START_VIRTUAL_JOY" == "1" ]]; then
   echo $! > "$WORKSPACE_DIR/logs/virtual_joy.pid"
 fi
 
-# ---- headless OpenGL: Xvfb虚拟显示（相机/LiDAR渲染必需） ----
-pkill Xvfb 2>/dev/null || true
-Xvfb :99 -screen 0 1280x1024x24 +extension GLX +render &>/dev/null &
-sleep 1
-export DISPLAY=:99
-export LIBGL_ALWAYS_SOFTWARE=1
-echo "Xvfb ready on DISPLAY=$DISPLAY"
-
+Xvfb :99 -screen 0 1024x768x24 +extension GLX +render &>/dev/null & sleep 1; export DISPLAY=:99; export LIBGL_ALWAYS_SOFTWARE=1
 echo "Launching Gazebo Classic + Unitree A1 (gui=$GUI, paused=$PAUSED)..."
 roslaunch unitree_guide multi_floor_gazeboSim.launch \
   gui:="$GUI" \

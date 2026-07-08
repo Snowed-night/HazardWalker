@@ -1,59 +1,102 @@
-# HazardWalker 仿真平台 — 接口桥接测试报告
+# HazardWalker 仿真平台 — 接口测试报告
 
-> 测试日期：2026-07-06  
-> 测试环境：Docker `simenv_ros1_hazard_platform`（ROS1 Noetic + Gazebo Classic headless）  
-> 桥接方案：`docker_pipe.py`（ROS1 JSON 管道）→ `hw_bridge.py`（宿主机 ROS2 Jazzy）
+> 日期：2026-07-08 | Docker：`simenv_ros1:noetic-focal` | Gazebo 11
 
 ---
 
-## 一、测试结果汇总
+## 一、Docker ROS1 源接口
 
-| /hw/* 话题 | 数据 | 频率 | 状态 |
-|-----------|------|------|------|
-| `/hw/Odometry_gazebo` | ✅ | ~85 Hz | 正常 |
-| `/hw/trunk_imu` | ✅ | ~1000 Hz | 正常 |
-| `/hw/livox/imu` | ✅ | ~1000 Hz | 正常 |
-| `/hw/tf` | ✅ | — | 正常 |
-| `/hw/livox/Pointcloud2` | ❌ | — | LiDAR 传感器无输出（headless） |
-| `/hw/real_sense/rgb/image_raw` | ❌ | — | 相机无渲染（headless） |
-| `/hw/real_sense/depth/image_raw` | ❌ | — | 相机无渲染（headless） |
-| `/hw/real_sense/depth/points` | ❌ | — | 相机无渲染（headless） |
-| `/hw/cmd_vel` | ✅ | — | 可订阅/写入 |
+| 接口 | 类型 | 数据 | 说明 |
+|------|------|------|------|
+| `/Odometry_gazebo` | `nav_msgs/Odometry` | ✅ | 里程计 |
+| `/trunk_imu` | `sensor_msgs/Imu` | ✅ | 躯干 IMU |
+| `/livox/imu` | `sensor_msgs/Imu` | ✅ | Livox IMU |
+| `/scan` | `sensor_msgs/LaserScan` | ✅ | 激光雷达（标准插件） |
+| `/real_sense/rgb/image_raw` | `sensor_msgs/Image` | ✅ | RGB 图像 |
+| `/real_sense/depth/image_raw` | `sensor_msgs/Image` | ✅ | 深度图像 |
+| `/real_sense/depth/points` | `sensor_msgs/PointCloud2` | ✅ | 深度点云 |
+| `/tf` | `tf2_msgs/TFMessage` | ✅ | 坐标变换 |
+| `/cmd_vel` | `geometry_msgs/Twist` | ✅ | 速度控制 |
 
 ---
 
-## 二、服务测试
+## 二、宿主机 `/hw/*` 桥接接口
 
-| 服务 | 命令 | 结果 |
+| 接口 | 数据 | 说明 |
 |------|------|------|
-| 开关门 | `hw_service_call.sh door main_entrance true` | `accepted=True state=open` ✅ |
-| 呼叫电梯 | `hw_service_call.sh elevator elevator_main 1 true` | `accepted=True floor=1 state=door_open` ✅ |
+| `/hw/Odometry_gazebo` | ✅ | 里程计桥接正常 |
+| `/hw/livox/imu` | ✅ | Livox IMU 桥接正常 |
+| `/hw/scan` | ✅ | LaserScan 桥接正常 |
+| `/hw/trunk_imu` | ✅ | 躯干 IMU 桥接正常 |
+| `/hw/tf` | ✅ | TF 桥接正常 |
+| `/hw/real_sense/rgb/image_raw` | ✅ | 桥接正常 |
+| `/hw/real_sense/depth/image_raw` | ✅ | 桥接正常 |
+| `/hw/real_sense/depth/points` | ✅ | 桥接正常 |
+| `/hw/cmd_vel` | ✅ | 可发布控制 |
 
 ---
 
-## 三、桥接架构
+## 三、控制接口
+
+| 接口 | 测试结果 |
+|------|----------|
+| `/set_door_state` | `accepted=True state=open` ✅ |
+| `/call_elevator` | `accepted=True floor=0 state=idle` ✅ |
+| `/hw/cmd_vel` | 可发布，机器人响应 ✅ |
+
+---
+
+## 四、桥接架构
 
 ```
 Docker (ROS1 Noetic)              宿主机 (ROS2 Jazzy)
 ─────────────────────              ─────────────────────
 /Odometry_gazebo ──┐
-/trunk_imu ────────┤  docker_pipe.py    hw_bridge.py
-/livox/imu ────────┼──→ JSON stdout → 解析 → /hw/* (ROS2)
-/tf ───────────────┤
-/livox/Pointcloud2 ┤  (无源数据, LiDAR headless限制)
-/real_sense/* ─────┘  (无源数据, 相机headless限制)
+/trunk_imu ────────┤              ┌─→ /hw/Odometry_gazebo
+/livox/imu ────────┤ docker_pipe  ├─→ /hw/trunk_imu
+/scan ─────────────┼──→ JSON ──→  ├─→ /hw/livox/imu
+/real_sense/* ─────┤  stdout      ├─→ /hw/scan
+/tf ───────────────┘              ├─→ /hw/real_sense/*
+                                  └─→ /hw/tf
 ```
-
-- `docker_pipe.py`：Docker 内 ROS1 订阅器，输出 JSON 到 stdout
-- `hw_bridge.py`：宿主机 Python 进程，读 docker pipe、转 ROS2 `/hw/*`
 
 ---
 
-## 四、已知问题
+## 五、使用方式
 
-| # | 问题 | 根因 | 修复方向 |
-|---|------|------|----------|
-| 1 | LiDAR 点云无数据 | Gazebo headless 无 GPU 渲染 | 切换 xvfb 镜像 |
-| 2 | RealSense 相机无数据 | 同上 | 同上 |
-| 3 | `junior_ctrl` 崩溃 | 缺 RL 模型文件 | 获取 `.pt` 模型 |
-| 4 | ros1_bridge DDS 不通 | Foxy/Jazzy 跨版本不兼容 | 改用 docker pipe 方案 |
+```bash
+# 1. Docker 仿真
+cd /home/hazard_platform/HazardWalker/ros2_ws/src/hazardwalker_platform
+./auto_docker.sh up
+
+# 2. 加载环境 + 启动桥接
+cd /tmp
+source /opt/ros/jazzy/setup.zsh
+source ~/HazardWalker/ros2_ws/install/setup.zsh
+nohup python3 ~/HazardWalker/ros2_ws/src/hazardwalker_platform/hw_bridge.py &>/tmp/hw_bridge.log &
+sleep 3
+
+# 3. 验证
+ros2 topic list | grep /hw/
+```
+
+---
+
+## 六、改动的文件
+
+| 文件 | 改动 |
+|------|------|
+| `auto_noetic_headless.sh` | 添加 Xvfb 启动、移除 Docker 内 `/hw/` relay |
+| `docker/ros1_bridge.sh` | 改用直接二进制路径 |
+| `docker/Dockerfile` | 添加 xvfb 包 |
+| `docker/docker-compose.yml` | 镜像切回 `noetic-focal` |
+| `src/.../control_server.py` | 服务名去 `/hw/` 前缀 |
+| `src/.../gazebo.xacro` | LiDAR 改用标准插件 |
+| `hazardwalker_platform/hw_topic_relay_node.py` | 移除 `/scan`、`/livox/lidar2` |
+
+新增：
+| 文件 | 用途 |
+|------|------|
+| `docker_pipe.py` | Docker 内 JSON 管道 |
+| `hw_bridge.py` | 宿主机桥接 |
+| `scripts/hw_service_call.sh` | 门/电梯调用 |

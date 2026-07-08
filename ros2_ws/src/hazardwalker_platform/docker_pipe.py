@@ -2,8 +2,9 @@
 """Docker side: subscribe ROS1, output JSON lines to stdout."""
 import rospy, json, sys, struct
 from nav_msgs.msg import Odometry
-from sensor_msgs.msg import Imu, PointCloud2
+from sensor_msgs.msg import Imu, PointCloud2, LaserScan, Image
 from tf2_msgs.msg import TFMessage
+import base64
 
 def odom(m):
     print(json.dumps({'t':'odom','x':m.pose.pose.position.x,'y':m.pose.pose.position.y,
@@ -19,12 +20,29 @@ def imu_cb(m, fid='imu_link'):
         'wx':m.angular_velocity.x,'wy':m.angular_velocity.y,'wz':m.angular_velocity.z}))
     sys.stdout.flush()
 
-def pc2(m):
-    # For PointCloud2, output point count and raw data as base64
-    import base64
-    print(json.dumps({'t':'pc2','w':m.width,'h':m.height,'ps':m.point_step,
-        'rs':m.row_step,'fid':m.header.frame_id,'fields':[{'n':f.name,'o':f.offset,'d':f.datatype,'c':f.count} for f in m.fields],
-        'data':base64.b64encode(m.data).decode()}))
+CHUNK_SIZE = 512 * 1024  # 512KB per chunk
+
+def pc2(m, fid_override=None):
+    fid = fid_override or m.header.frame_id
+    data_b64 = base64.b64encode(m.data).decode()
+    fields = [{'n':f.name,'o':f.offset,'d':f.datatype,'c':f.count} for f in m.fields]
+    total = (len(data_b64) + CHUNK_SIZE - 1) // CHUNK_SIZE
+    for i in range(total):
+        chunk = data_b64[i*CHUNK_SIZE:(i+1)*CHUNK_SIZE]
+        print(json.dumps({'t':'pc2_c','w':m.width,'h':m.height,'ps':m.point_step,
+            'rs':m.row_step,'fid':fid,'fs':fields,'ci':i,'ct':total,'data':chunk}))
+        sys.stdout.flush()
+
+def scan_cb(m):
+    print(json.dumps({'t':'scan','fid':m.header.frame_id,
+        'angle_min':m.angle_min,'angle_max':m.angle_max,'angle_inc':m.angle_increment,
+        'range_min':m.range_min,'range_max':m.range_max,
+        'ranges':list(m.ranges)[:10],'ranges_len':len(m.ranges)}))
+    sys.stdout.flush()
+
+def img_cb(m, topic_name):
+    print(json.dumps({'t':'img','topic':topic_name,'h':m.height,'w':m.width,
+        'enc':m.encoding,'step':m.step,'data_len':len(m.data)}))
     sys.stdout.flush()
 
 def tf_cb(m):
@@ -38,9 +56,12 @@ def tf_cb(m):
 
 rospy.init_node('pipe_out', anonymous=True, disable_signals=True)
 rospy.Subscriber('/Odometry_gazebo', Odometry, odom)
-rospy.Subscriber('/livox/Pointcloud2', PointCloud2, pc2)
 rospy.Subscriber('/livox/imu', Imu, imu_cb, callback_args='livox_imu_link')
 rospy.Subscriber('/trunk_imu', Imu, imu_cb, callback_args='imu_link')
 rospy.Subscriber('/tf', TFMessage, tf_cb)
+rospy.Subscriber('/scan', LaserScan, scan_cb)
+rospy.Subscriber('/real_sense/rgb/image_raw', Image, img_cb, callback_args='/hw/real_sense/rgb/image_raw')
+rospy.Subscriber('/real_sense/depth/image_raw', Image, img_cb, callback_args='/hw/real_sense/depth/image_raw')
+rospy.Subscriber('/real_sense/depth/points', PointCloud2, pc2, callback_args='real_sense')
 print(json.dumps({'t':'ready'}), flush=True)
 rospy.spin()

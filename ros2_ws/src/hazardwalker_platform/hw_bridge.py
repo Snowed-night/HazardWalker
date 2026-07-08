@@ -4,7 +4,7 @@ import subprocess, json, base64, threading
 import rclpy
 from rclpy.node import Node
 from nav_msgs.msg import Odometry
-from sensor_msgs.msg import Imu, PointCloud2, PointField, Image
+from sensor_msgs.msg import Imu, PointCloud2, PointField, Image, LaserScan
 from geometry_msgs.msg import Twist, TransformStamped
 from tf2_msgs.msg import TFMessage
 
@@ -16,6 +16,8 @@ class HwBridge(Node):
         self._pub = {}
         self._lock = threading.Lock()
         self._cmd_sub = self.create_subscription(Twist, '/hw/cmd_vel', lambda m: None, 10)
+        # Pre-create depth/points publisher (data too large for JSON pipe, created empty)
+        self._pub['/hw/real_sense/depth/points'] = self.create_publisher(PointCloud2, '/hw/real_sense/depth/points', 10)
         self._pipe_thread = threading.Thread(target=self._run_pipe, daemon=True)
         self._pipe_thread.start()
         self.get_logger().info('Bridge started, waiting for Docker pipe...')
@@ -35,7 +37,6 @@ class HwBridge(Node):
                      'source /opt/ros/noetic/setup.bash && source devel/setup.bash && python3'],
                     stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                     stderr=subprocess.DEVNULL, text=True)
-                # Send pipe script
                 pipe_script = open('/home/hazard_platform/HazardWalker/ros2_ws/src/hazardwalker_platform/docker_pipe.py').read()
                 proc.stdin.write(pipe_script)
                 proc.stdin.close()
@@ -92,6 +93,68 @@ class HwBridge(Node):
                 ts.transform.rotation.z = tf['rz']; ts.transform.rotation.w = tf['rw']
                 msg.transforms.append(ts)
             self._pub['/hw/tf'].publish(msg)
+        elif t == 'pc2_c':
+            fid = m.get('fid','')
+            ci = m['ci']; ct = m['ct']
+            chunk_key = f'{fid}_{int(m["w"])}_{int(m["h"])}'
+            if not hasattr(self, '_pc2_chunks'):
+                self._pc2_chunks = {}
+            if chunk_key not in self._pc2_chunks:
+                self._pc2_chunks[chunk_key] = {'data':'','ct':ct,'m':m}
+            self._pc2_chunks[chunk_key]['data'] += m['data']
+            if ci == ct - 1:
+                # Last chunk: assemble and publish
+                saved = self._pc2_chunks.pop(chunk_key)
+                mm = saved['m']
+                if fid == 'real_sense':
+                    self._ensure_pub('/hw/real_sense/depth/points', PointCloud2)
+                    msg = PointCloud2()
+                    msg.header.frame_id = fid
+                    msg.height = mm['h']; msg.width = mm['w']
+                    msg.point_step = mm['ps']; msg.row_step = mm['rs']
+                    msg.is_dense = True
+                    msg.fields = [PointField(name=f['n'],offset=f['o'],datatype=f['d'],count=f['c']) for f in mm['fs']]
+                    msg.data = base64.b64decode(saved['data'])
+                    self._pub['/hw/real_sense/depth/points'].publish(msg)
+        elif t == 'scan':
+            self._ensure_pub('/hw/scan', LaserScan)
+            msg = LaserScan()
+            msg.header.frame_id = m.get('fid','laser_livox')
+            msg.angle_min = m['angle_min']; msg.angle_max = m['angle_max']
+            msg.angle_increment = m['angle_inc']
+            msg.range_min = m['range_min']; msg.range_max = m['range_max']
+            msg.ranges = [float(r) for r in m.get('ranges',[])]
+            self._pub['/hw/scan'].publish(msg)
+        elif t == 'img':
+            hw_topic = m.get('topic','/hw/real_sense/rgb/image_raw')
+            self._ensure_pub(hw_topic, Image)
+            msg = Image()
+            msg.header.frame_id = 'real_sense'
+            msg.height = m['h']; msg.width = m['w']
+            msg.encoding = m['enc']; msg.step = m['step']
+            self._pub[hw_topic].publish(msg)
+        elif t == 'pc2':
+            fid = m.get('fid','')
+            if fid == 'real_sense':
+                self._ensure_pub('/hw/real_sense/depth/points', PointCloud2)
+                msg = PointCloud2()
+                msg.header.frame_id = fid
+                msg.height = m['h']; msg.width = m['w']
+                msg.point_step = m['ps']; msg.row_step = m['rs']
+                msg.is_dense = True
+                msg.fields = [PointField(name=f['n'],offset=f['o'],datatype=f['d'],count=f['c']) for f in m['fields']]
+                msg.data = base64.b64decode(m['data']) if m.get('data') else b''
+                self._pub['/hw/real_sense/depth/points'].publish(msg)
+            else:
+                self._ensure_pub('/hw/livox/Pointcloud2', PointCloud2)
+                msg = PointCloud2()
+                msg.header.frame_id = fid
+                msg.height = m['h']; msg.width = m['w']
+                msg.point_step = m['ps']; msg.row_step = m['rs']
+                msg.is_dense = True
+                msg.fields = [PointField(name=f['n'],offset=f['o'],datatype=f['d'],count=f['c']) for f in m['fields']]
+                msg.data = base64.b64decode(m['data'])
+                self._pub['/hw/livox/Pointcloud2'].publish(msg)
 
 def main():
     rclpy.init()

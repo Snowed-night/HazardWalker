@@ -21,7 +21,7 @@ RUN apt-get update -qq \
       ros-noetic-effort-controllers \
       ros-noetic-robot-state-publisher \
       ros-noetic-xacro \
-      ros-noetic-move-base-msgs \
+      ros-noetic-move-base-msgs xvfb \
       liblcm-dev \
       libeigen3-dev \
       libyaml-cpp-dev \
