@@ -133,18 +133,35 @@ if [[ "$START_BUILDING_CONTROL" == "1" ]]; then
     > "$WORKSPACE_DIR/logs/building_control.log" 2>&1 &
   echo $! > "$WORKSPACE_DIR/logs/building_control.pid"
 fi
-
-# 机器人控制器
+# 机器人控制器 (headless 自动站立 + RL模式)
 if [[ "$START_CONTROLLER" == "1" ]]; then
-  if [[ "$CONTROLLER_FOREGROUND" == "1" ]]; then
-    echo "Starting junior_ctrl in foreground (2=stand, 6=RL mode)."
-    "$WORKSPACE_DIR/devel/lib/unitree_guide/junior_ctrl"
-  else
-    echo "Starting junior_ctrl in background..."
-    "$WORKSPACE_DIR/devel/lib/unitree_guide/junior_ctrl" \
-      > "$WORKSPACE_DIR/logs/junior_ctrl.log" 2>&1 &
-    echo $! > "$WORKSPACE_DIR/logs/junior_ctrl.pid"
+  echo "Starting junior_ctrl with auto-stand and RL mode (headless expect)..."
+  MODEL_DIR="$WORKSPACE_DIR/src/unitree_guide/logs"
+  mkdir -p "$MODEL_DIR"
+  if [[ ! -f "$MODEL_DIR/policy_act_inference_stair.pt" ]]; then
+    SIMENV_MODEL="/home/ros/Guoyulun/Competition/SimEnv/src/unitree_guide/logs/policy_act_inference_stair.pt"
+    if [[ -f "$SIMENV_MODEL" ]]; then
+      cp "$SIMENV_MODEL" "$MODEL_DIR/"
+      echo "RL model copied from SimEnv"
+    else
+      echo "WARNING: RL model not found"
+    fi
   fi
+  apt-get update -qq 2>/dev/null
+  apt-get install -y -qq expect 2>/dev/null
+  expect -c "
+    set timeout -1
+    spawn $WORKSPACE_DIR/devel/lib/unitree_guide/junior_ctrl
+    sleep 5
+    send "2\r"
+    sleep 2
+    send "6\r"
+    sleep 2
+    expect eof
+  " > "$WORKSPACE_DIR/logs/junior_ctrl.log" 2>&1 &
+  echo $! > "$WORKSPACE_DIR/logs/junior_ctrl.pid"
+  echo "junior_ctrl started with auto RL mode"
+fi
 fi
 
 echo "Noetic simulation startup completed, script keep running to hold gazebo and control services."

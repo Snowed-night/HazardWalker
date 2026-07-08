@@ -7,11 +7,19 @@
 ## 一、启动平台
 
 ```bash
-# 第 1 步：启动 Docker 仿真环境（约 60 秒，含场景生成 + Gazebo + 传感器初始化）
+# 第 1 步：启动 Docker 仿真（约 60 秒）
 cd /home/hazard_platform/HazardWalker/ros2_ws/src/hazardwalker_platform
+
+# 仅传感器（无控制器）：
 ./auto_docker.sh up
 
-# 第 2 步：加载 ROS2 环境（注意 shell 是 zsh，用 .zsh 后缀）
+# 传感器 + 机器人控制器（自动站立 + RL 模式，/cmd_vel 可用）：
+START_CONTROLLER=1 ./auto_docker.sh up
+
+# 固定场景种子：
+SEED=77 ./auto_docker.sh up
+
+# 第 2 步：加载 ROS2 环境（注意：shell 为 zsh，用 .zsh）
 cd /tmp
 source /opt/ros/jazzy/setup.zsh
 source ~/HazardWalker/ros2_ws/install/setup.zsh
@@ -21,11 +29,18 @@ pkill -f hw_bridge 2>/dev/null
 nohup python3 ~/HazardWalker/ros2_ws/src/hazardwalker_platform/hw_bridge.py > /tmp/hw_bridge.log 2>&1 &
 sleep 4
 
-# 第 4 步：验证
+# 第 4 步：验证（应输出 9 个 /hw/ 话题）
 ros2 topic list | grep /hw/
 ```
 
-应输出 9 个 `/hw/` 话题。**停止**：`./auto_docker.sh down`
+**停止**：`./auto_docker.sh down`
+
+| 常用参数 | 默认 | 说明 |
+|----------|------|------|
+| `START_CONTROLLER=1` | 0 | 启动机器人控制器（自动 RL 模式，/cmd_vel 可用） |
+| `SEED=77` | 随机 | 固定场景种子 |
+| `FLOOR_COUNT=3` | 3 | 楼层数 |
+| `ROOMS_PER_FLOOR=4` | 4 | 每层房间数 |
 
 ---
 
