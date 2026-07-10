@@ -64,8 +64,10 @@ class HsvDetectorNode(Node):
         self.declare_parameter('merge_distance_m', 0.5)
         self.declare_parameter('emit_partial_candidates', True)
         self.declare_parameter('partial_min_area_px', 30)
-        self.declare_parameter('partial_min_circularity', 0.30)
-        self.declare_parameter('partial_min_aspect_ratio', 0.30)
+        # 遮挡到 5%--15% 时球面投影会变成很窄的弓形，仍需输出“待复查”
+        # 而非静默漏检。该阈值只作用于不可确认候选，最终确认仍保持严格门槛。
+        self.declare_parameter('partial_min_circularity', 0.18)
+        self.declare_parameter('partial_min_aspect_ratio', 0.12)
         self.declare_parameter('partial_min_value', 50)
         # 深度曲率仅否决“明确平面”的候选；缺深度/遮挡一律进入重观察而非直接漏检。
         self.declare_parameter('min_sphere_depth_curvature_m', 0.008)
@@ -190,6 +192,8 @@ class HsvDetectorNode(Node):
             detections_2d_payload.append({
                 'id': index,
                 'frame_id': msg.header.frame_id,
+                # 量化后的相机世界位姿标签用于后续多视角确认与实验审计。
+                'view_id': view_id,
                 'stamp': {
                     'sec': msg.header.stamp.sec,
                     'nanosec': msg.header.stamp.nanosec,
