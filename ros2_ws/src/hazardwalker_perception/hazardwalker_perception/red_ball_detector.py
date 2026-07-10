@@ -33,6 +33,41 @@ class RedBallDetection2D:
     circularity: float = 0.0
     aspect_ratio: float = 0.0
     extent: float = 0.0
+    is_partial: bool = False
+    requires_reobservation: bool = False
+    may_be_merged: bool = False
+    quality_reason: str = 'stable_shape'
+
+"""二维检测后端接口，后续 YOLO/分割模型只要实现 detect 即可接入 ROS 节点。"""
+class DetectionBackend:
+    name = 'base'
+
+    def detect(self, data, width, height, step=None, encoding='rgb8', **kwargs):
+        raise NotImplementedError
+
+
+"""当前可展示版本使用的 HSV + OpenCV 检测后端。"""
+class HsvOpenCvDetectionBackend(DetectionBackend):
+    name = 'hsv_opencv'
+
+    def detect(self, data, width, height, step=None, encoding='rgb8', **kwargs):
+        return detect_red_balls_rgb_bytes(
+            data=data,
+            width=width,
+            height=height,
+            step=step,
+            encoding=encoding,
+            **kwargs,
+        )
+
+
+"""根据名称创建检测后端，暂时只内置 HSV，后续模型化方案从这里注册。"""
+def create_detection_backend(name='hsv_opencv'):
+    normalized = (name or 'hsv_opencv').lower()
+    if normalized in ('hsv', 'hsv_opencv'):
+        return HsvOpenCvDetectionBackend()
+    raise ValueError(f'Unsupported detection backend: {name}')
+
 
 """二维检测后端接口，后续 YOLO/分割模型只要实现 detect 即可接入 ROS 节点。"""
 class DetectionBackend:
@@ -456,6 +491,8 @@ def _split_touching_contour_by_hough(roi, offset_x, offset_y, min_area_px, min_c
         box_height = y1 - y0 + 1
         if box_width <= 0 or box_height <= 0:
             continue
+        candidates.append(candidate)
+    return candidates
 
         ideal_area = math.pi * float(radius) * float(radius)
         circularity = 1.0

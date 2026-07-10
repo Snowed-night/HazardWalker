@@ -159,6 +159,34 @@ def estimate_depth_from_bbox(depth_image, bbox, padding_px=0, max_depth_m=20.0, 
     return (values[mid - 1] + values[mid]) / 2.0, len(values)
 
 
+"""由完整圆形投影和已知球半径反推球心的相机 z 深度。"""
+def estimate_sphere_center_depth_from_bbox(bbox, intrinsics, image_width, image_height,
+                                           sphere_radius_m, min_radius_px=3.0):
+    radius_m = float(sphere_radius_m)
+    if radius_m <= 0.0 or image_width <= 0 or image_height <= 0:
+        return None
+
+    x_min, y_min, x_max, y_max = _read_bbox(bbox)
+    # 边框截断会显著缩小表观半径，只能交给深度 ROI 的保守回退路径。
+    if x_min <= 0.0 or y_min <= 0.0 or x_max >= image_width - 1 or y_max >= image_height - 1:
+        return None
+
+    radius_x = (x_max - x_min) / 2.0
+    radius_y = (y_max - y_min) / 2.0
+    if min(radius_x, radius_y) < float(min_radius_px):
+        return None
+
+    # 对光轴附近的球，投影半径 r=fR/sqrt(z²-R²)，反解 z。
+    estimates = []
+    if intrinsics.fx > 0.0:
+        estimates.append(math.sqrt((intrinsics.fx * radius_m / radius_x) ** 2 + radius_m ** 2))
+    if intrinsics.fy > 0.0:
+        estimates.append(math.sqrt((intrinsics.fy * radius_m / radius_y) ** 2 + radius_m ** 2))
+    if not estimates:
+        return None
+    return sum(estimates) / len(estimates)
+
+
 """使用 bbox 中心像素和深度估计危险源三维坐标。"""
 def localize_bbox_with_depth(bbox, intrinsics, depth_m, camera_to_output=None, output_frame='camera_link'):
     pixel_u, pixel_v = bbox_center_pixel(bbox)
@@ -177,7 +205,9 @@ def localize_bbox_with_depth(bbox, intrinsics, depth_m, camera_to_output=None, o
 """从深度图中采样 bbox ROI 深度，并输出目标坐标系下的三维定位。"""
 def localize_bbox_from_depth_image(bbox, intrinsics, depth_image, camera_to_output=None,
                                    output_frame='camera_link', roi_padding_px=0,
-                                   max_depth_m=20.0, min_points=5):
+                                   max_depth_m=20.0, min_points=5,
+                                   sphere_radius_m=0.0,
+                                   use_sphere_projection_geometry=True):
     depth_m, points_used = estimate_depth_from_bbox(
         depth_image=depth_image,
         bbox=bbox,
@@ -187,6 +217,22 @@ def localize_bbox_from_depth_image(bbox, intrinsics, depth_image, camera_to_outp
     )
     if depth_m is None:
         return None
+
+    # 深度相机看到的是可见球面的前沿，而比赛目标是红球球心的位置。
+    # 完整球形优先利用表观投影半径反解球心；被边框截断或过小时才保守地
+    # 沿光轴补回一个半径。默认关闭，避免把该先验误用于未知尺寸物体。
+    radius_m = float(sphere_radius_m)
+    if math.isfinite(radius_m) and radius_m > 0.0:
+        sphere_depth_m = None
+        if use_sphere_projection_geometry:
+            sphere_depth_m = estimate_sphere_center_depth_from_bbox(
+                bbox=bbox,
+                intrinsics=intrinsics,
+                image_width=len(depth_image[0]),
+                image_height=len(depth_image),
+                sphere_radius_m=radius_m,
+            )
+        depth_m = sphere_depth_m if sphere_depth_m is not None else depth_m + radius_m
 
     localization = localize_bbox_with_depth(
         bbox=bbox,

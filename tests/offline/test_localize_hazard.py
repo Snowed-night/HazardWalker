@@ -18,6 +18,7 @@ from hazardwalker_perception.localize_hazard import (
     RigidTransform3D,
     camera_intrinsics_from_k,
     estimate_depth_from_bbox,
+    estimate_sphere_center_depth_from_bbox,
     localize_bbox_from_depth_image,
     localize_bbox_with_depth,
     make_yaw_transform,

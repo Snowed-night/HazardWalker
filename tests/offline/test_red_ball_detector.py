@@ -214,6 +214,37 @@ def test_partially_occluded_red_balls_keep_expected_detection_boundary():
         else:
             assert detection is None, f'occlusion_ratio={occlusion_ratio}'
 
+
+"""验证高遮挡红球不会放宽为最终检出，但会输出触发重观察的候选。"""
+def test_heavily_occluded_red_ball_emits_reobservation_candidate():
+    if not require_opencv():
+        return
+
+    data = draw_circle_image(80, 80, occlusion_ratio=0.70)
+    detections = detect_red_balls_rgb_bytes(
+        data, 80, 80, min_area_px=20, include_partial_candidates=True,
+    )
+
+    assert len(detections) == 1
+    assert detections[0].is_partial is True
+    assert detections[0].requires_reobservation is True
+    assert detections[0].confidence < 0.5
+
+
+"""验证暗红目标仅以低质量候选形式出现，不绕过严格 HSV 最终判定。"""
+def test_dim_red_ball_emits_reobservation_candidate_only():
+    if not require_opencv():
+        return
+
+    data = draw_circle_image(80, 80, color=DARK_RED)
+    detections = detect_red_balls_rgb_bytes(
+        data, 80, 80, min_area_px=20, include_partial_candidates=True,
+    )
+
+    assert len(detections) == 1
+    assert detections[0].requires_reobservation is True
+    assert detections[0].quality_reason == 'partial_or_low_light'
+
 """验证多个分离红球会输出多个候选，且旧接口仍只返回最高置信度候选。"""
 def test_detect_red_balls_rgb_bytes_returns_multiple_candidates():
     if not require_opencv():

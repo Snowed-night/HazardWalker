@@ -50,10 +50,22 @@ class HsvDetectorNode(Node):
         self.declare_parameter('roi_padding_px', 8)
         self.declare_parameter('min_depth_points_in_roi', 5)
         self.declare_parameter('max_detection_range_m', 20.0)
+        # 官方标准红球为半径 0.15 m；该先验只在严格球形候选的定位阶段使用。
+        self.declare_parameter('sphere_radius_m', 0.15)
+        self.declare_parameter('use_sphere_projection_geometry', True)
+        # PoseInfo/相机帧来自不同桥接线程时可能只有数毫秒滞后；允许使用最新 TF
+        # 能避免“未来外推”导致整帧定位被丢弃。高速运动平台可显式关闭该兜底。
+        self.declare_parameter('allow_latest_tf_fallback', True)
         self.declare_parameter('output_frame', 'start')
         self.declare_parameter('confirm_observation_count', 3)
+        self.declare_parameter('confirm_distinct_views', 2)
         self.declare_parameter('reject_after_missed_count', 10)
         self.declare_parameter('merge_distance_m', 0.5)
+        self.declare_parameter('emit_partial_candidates', True)
+        self.declare_parameter('partial_min_area_px', 30)
+        self.declare_parameter('partial_min_circularity', 0.30)
+        self.declare_parameter('partial_min_aspect_ratio', 0.30)
+        self.declare_parameter('partial_min_value', 50)
 
         self.camera_intrinsics = None
         self.latest_depth_image = None
@@ -62,6 +74,7 @@ class HsvDetectorNode(Node):
         self.detector_backend = create_detection_backend(str(self.get_parameter('detector_backend').value))
         self.tracker = HazardTracker(HazardTrackerConfig(
             confirm_observation_count=int(self.get_parameter('confirm_observation_count').value),
+            min_distinct_views=int(self.get_parameter('confirm_distinct_views').value),
             reject_after_missed_count=int(self.get_parameter('reject_after_missed_count').value),
             merge_distance_m=float(self.get_parameter('merge_distance_m').value),
         ))
@@ -121,6 +134,7 @@ class HsvDetectorNode(Node):
             return
 
         camera_to_output = self._lookup_camera_to_output(msg.header.frame_id, output_frame, msg.header.stamp)
+        view_id = _view_id_from_transform(camera_to_output)
         observations = []
         detections_2d_payload = []
 
@@ -142,6 +156,10 @@ class HsvDetectorNode(Node):
                     roi_padding_px=int(self.get_parameter('roi_padding_px').value),
                     max_depth_m=float(self.get_parameter('max_detection_range_m').value),
                     min_points=int(self.get_parameter('min_depth_points_in_roi').value),
+                    sphere_radius_m=float(self.get_parameter('sphere_radius_m').value),
+                    use_sphere_projection_geometry=bool(
+                        self.get_parameter('use_sphere_projection_geometry').value
+                    ),
                 )
 
             source_id = f'{msg.header.stamp.sec}.{msg.header.stamp.nanosec}:{index}'
@@ -154,6 +172,11 @@ class HsvDetectorNode(Node):
                 },
                 'bbox': bbox,
                 'confidence': detection_2d.confidence,
+                'red_pixel_count': detection_2d.red_pixel_count,
+                'is_partial': detection_2d.is_partial,
+                'requires_reobservation': detection_2d.requires_reobservation,
+                'may_be_merged': detection_2d.may_be_merged,
+                'quality_reason': detection_2d.quality_reason,
                 'shape': {
                     'circularity': detection_2d.circularity,
                     'aspect_ratio': detection_2d.aspect_ratio,
@@ -164,7 +187,8 @@ class HsvDetectorNode(Node):
                 'detector_backend': self.detector_backend.name,
             })
 
-            if localization:
+            # 宽松候选只用于主动重观察；只有严格形状检测才可进入三维多帧确认。
+            if localization and not detection_2d.requires_reobservation:
                 observations.append(HazardObservation(
                     position=(
                         localization.position.x,
@@ -174,6 +198,7 @@ class HsvDetectorNode(Node):
                     confidence=detection_2d.confidence,
                     stamp_sec=stamp_sec,
                     source_id=source_id,
+                    view_id=view_id,
                 ))
 
         active_tracks = self.tracker.update(observations, stamp_sec=stamp_sec)
@@ -212,6 +237,16 @@ class HsvDetectorNode(Node):
         try:
             transform = self.tf_buffer.lookup_transform(output_frame, camera_frame, Time.from_msg(stamp))
         except TransformException as exc:
+            if bool(self.get_parameter('allow_latest_tf_fallback').value):
+                try:
+                    latest_transform = self.tf_buffer.lookup_transform(output_frame, camera_frame, Time())
+                    self.get_logger().warn(
+                        f'TF at image stamp unavailable from {camera_frame} to {output_frame}; using latest TF: {exc}',
+                        throttle_duration_sec=5.0,
+                    )
+                    return _transform_msg_to_rigid(latest_transform.transform)
+                except TransformException:
+                    pass
             self.get_logger().warn(
                 f'TF lookup failed from {camera_frame} to {output_frame}: {exc}',
                 throttle_duration_sec=5.0,
@@ -275,6 +310,21 @@ def _transform_msg_to_rigid(transform):
 """把 ROS 时间戳转成浮点秒，供跟踪器记录观测时间。"""
 def _stamp_to_float(stamp):
     return float(stamp.sec) + float(stamp.nanosec) * 1e-9
+
+
+"""将相机位姿量化为多视角确认使用的稳定标签。"""
+def _view_id_from_transform(transform):
+    if transform is None:
+        return ''
+    forward_x = float(transform.rotation[0][2])
+    forward_y = float(transform.rotation[1][2])
+    yaw_deg = math.degrees(math.atan2(forward_y, forward_x))
+    return 'pos:{:.1f}:{:.1f}:{:.1f}|yaw:{:.0f}'.format(
+        round(float(transform.translation.x) / 0.4) * 0.4,
+        round(float(transform.translation.y) / 0.4) * 0.4,
+        round(float(transform.translation.z) / 0.4) * 0.4,
+        round(yaw_deg / 30.0) * 30.0,
+    )
 
 
 """启动 ROS 节点,用于在仿真或 fake platform 下验证图像检测链路。"""

@@ -22,6 +22,7 @@ class HazardObservation:
     confidence: float
     stamp_sec: float = 0.0
     source_id: str = ''
+    view_id: str = ''
 
 
 @dataclass
@@ -37,6 +38,7 @@ class HazardTrack:
     first_seen_sec: float = 0.0
     last_seen_sec: float = 0.0
     source_ids: list = field(default_factory=list)
+    view_ids: list = field(default_factory=list)
 
 
 @dataclass
@@ -46,6 +48,7 @@ class HazardTrackerConfig:
     confirm_observation_count: int = 3
     reject_after_missed_count: int = 10
     merge_distance_m: float = 0.5
+    min_distinct_views: int = 1
 
 
 class HazardTracker:
@@ -113,6 +116,7 @@ class HazardTracker:
             first_seen_sec=float(observation.stamp_sec),
             last_seen_sec=float(observation.stamp_sec),
             source_ids=[observation.source_id] if observation.source_id else [],
+            view_ids=[observation.view_id] if observation.view_id else [],
         )
         self._next_track_id += 1
         self.tracks.append(track)
@@ -122,7 +126,8 @@ class HazardTracker:
         for track in self.tracks:
             if track.missed_count >= self.config.reject_after_missed_count:
                 track.status = 'rejected'
-            elif track.observation_count >= self.config.confirm_observation_count:
+            elif (track.observation_count >= self.config.confirm_observation_count
+                  and _distinct_view_count(track) >= self.config.min_distinct_views):
                 track.status = 'confirmed'
             else:
                 track.status = 'tentative'
@@ -152,6 +157,8 @@ def track_to_hazard_dict(track):
         'first_seen_sec': track.first_seen_sec,
         'last_seen_sec': track.last_seen_sec,
         'source_ids': list(track.source_ids),
+        'distinct_view_count': _distinct_view_count(track),
+        'view_ids': list(track.view_ids),
     }
 
 
@@ -164,6 +171,7 @@ def _normalize_observation(observation, default_stamp_sec):
             confidence=float(observation.confidence),
             stamp_sec=float(stamp),
             source_id=observation.source_id,
+            view_id=observation.view_id,
         )
 
     position = observation.get('position')
@@ -175,6 +183,7 @@ def _normalize_observation(observation, default_stamp_sec):
         confidence=float(observation.get('confidence', 0.0)),
         stamp_sec=float(stamp),
         source_id=str(observation.get('source_id', observation.get('id', ''))),
+        view_id=str(observation.get('view_id', '')),
     )
 
 
@@ -192,3 +201,10 @@ def _merge_observation_into_track(track, observation):
     track.last_seen_sec = float(observation.stamp_sec)
     if observation.source_id and observation.source_id not in track.source_ids:
         track.source_ids.append(observation.source_id)
+    if observation.view_id and observation.view_id not in track.view_ids:
+        track.view_ids.append(observation.view_id)
+
+
+"""没有提供视角标识时按兼容旧链路的单一视角计数。"""
+def _distinct_view_count(track):
+    return len(track.view_ids) if track.view_ids else 1
