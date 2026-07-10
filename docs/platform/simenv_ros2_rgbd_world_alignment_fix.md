@@ -103,3 +103,7 @@ ros2 run tf2_ros tf2_echo world hazardwalker_camera
 前三项均应显示 `Publisher count: 1`。受控红球复测显示：未修正 z 外参时，world XY 误差为 `0.0116 m`、Z 偏低约 `0.18 m`；安装本修复、重建并重启后，完整三维误差为 `0.0423 m`。直接 PoseInfo TF 的动态伪转向验证中，世界坐标漂移为 `0.0025 m` 且不会误增视角计数。
 
 对应感知素材与测试表位于 `reports/perception/simulation/3d_native/official_simenv_20260710_rgbd_world_validation/`。
+
+## 尚未解决的平台依赖
+
+当前 ROS2 迁移日志已经标注 `unitree_guide / junior_ctrl` 未完成。实测也显示：`/hw/cmd_vel` 会使 `Odometry_gazebo` 改变，但公开 `a1_gazebo` 模型世界位姿不随之变化。不要把该里程计变化作为真实视角或真实位姿；在控制迁移完成前，感知多视角策略应保持保守的未确认状态。

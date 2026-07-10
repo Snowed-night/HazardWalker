@@ -50,6 +50,12 @@
     "world_3d_error_m": 0.0132,
     "comparison": "完整球形使用投影半径反推球心后，远距离误差由约 0.0947 m 降至 0.0132 m。"
   },
+  "known_platform_limit": {
+    "name": "ROS2 A1 physical motion is not available",
+    "evidence": "向 /hw/cmd_vel 发布转向后，Odometry_gazebo 朝向变化，但公开 Gazebo a1_gazebo 模型世界姿态未发生对应变化。",
+    "impact": "无法在当前 ROS2 迁移平台证明真实相机第二视角；多视角确认门控只能正确保持 tentative，不能获得真实 confirmed 样本。",
+    "required_external_action": "平台组需完成 unitree_guide / junior_ctrl 或等效的真实 A1 运动控制迁移。"
+  },
   "findings": [
     "RGB、深度、相机内参和 TF 已在 headless 官方平台形成真实运行链路。",
     "标准红球球面深度到球心的 0.15 m 补偿已进入感知分支并在运行输出中生效。",
