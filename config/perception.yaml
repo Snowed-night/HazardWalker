@@ -21,6 +21,8 @@ perception:
     max_detection_range_m: 20.0
     # 官方标准红球半径；设为 0 可禁用球面深度到球心的几何补偿。
     sphere_radius_m: 0.15
+    # 完整球形候选使用投影半径反推球心；贴边/遮挡候选自动回退深度补偿。
+    use_sphere_projection_geometry: true
     # world PoseInfo 与相机桥接存在毫秒级滞后时，允许回退至最新 TF。
     allow_latest_tf_fallback: true
     roi_padding_px: 8

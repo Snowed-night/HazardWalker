@@ -52,6 +52,7 @@ class HsvDetectorNode(Node):
         self.declare_parameter('max_detection_range_m', 20.0)
         # 官方标准红球为半径 0.15 m；该先验只在严格球形候选的定位阶段使用。
         self.declare_parameter('sphere_radius_m', 0.15)
+        self.declare_parameter('use_sphere_projection_geometry', True)
         # PoseInfo/相机帧来自不同桥接线程时可能只有数毫秒滞后；允许使用最新 TF
         # 能避免“未来外推”导致整帧定位被丢弃。高速运动平台可显式关闭该兜底。
         self.declare_parameter('allow_latest_tf_fallback', True)
@@ -161,6 +162,9 @@ class HsvDetectorNode(Node):
                     max_depth_m=float(self.get_parameter('max_detection_range_m').value),
                     min_points=int(self.get_parameter('min_depth_points_in_roi').value),
                     sphere_radius_m=float(self.get_parameter('sphere_radius_m').value),
+                    use_sphere_projection_geometry=bool(
+                        self.get_parameter('use_sphere_projection_geometry').value
+                    ),
                 )
 
             source_id = f'{msg.header.stamp.sec}.{msg.header.stamp.nanosec}:{index}'

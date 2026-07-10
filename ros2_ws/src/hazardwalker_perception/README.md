@@ -17,6 +17,8 @@
 
 对官方半径 0.15 m 的标准红球，`sphere_radius_m` 默认启用球面前沿到球心的深度补偿；若接入未知尺寸或非球形目标，应将该参数设为 `0.0`。
 
+对未贴边的完整球形候选，`use_sphere_projection_geometry` 默认根据 bbox 的投影半径反推球心深度，减少远距离场景中“固定加半径”的过补偿；贴边、遮挡或过小候选自动退回保守深度补偿。
+
 `allow_latest_tf_fallback` 默认开启：相机帧时间比公开 world TF 新数毫秒时，节点会回退到最新变换而非丢弃整帧定位；对高速运动且要求严格时序的硬件平台可关闭它。
 - `dynamic_detection_recorder_node`：订阅 `/hw/camera/image_raw`、`/hw/odom` 和 `/hw/perception/hazard_detections`，写入逐帧记录、精选截图、`summary.json` 与测试组 CSV/JSON；发布建议动作到 `/hw/perception/view_recommendation`，但不直接控制机器人。
 
