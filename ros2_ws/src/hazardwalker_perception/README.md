@@ -14,6 +14,8 @@
 ## 当前最小节点
 
 - `hsv_detector_node`：订阅 `/hw/camera/image_raw`、`/hw/camera/camera_info` 和 `/hw/camera/depth_image`，用 HSV 检测红色区域，结合深度和 TF 输出危险源三维定位 JSON。
+
+对官方半径 0.15 m 的标准红球，`sphere_radius_m` 默认启用球面前沿到球心的深度补偿；若接入未知尺寸或非球形目标，应将该参数设为 `0.0`。
 - `dynamic_detection_recorder_node`：订阅 `/hw/camera/image_raw`、`/hw/odom` 和 `/hw/perception/hazard_detections`，写入逐帧记录、精选截图、`summary.json` 与测试组 CSV/JSON；发布建议动作到 `/hw/perception/view_recommendation`，但不直接控制机器人。
 
 当前检测链路已经引入 OpenCV：

@@ -177,7 +177,8 @@ def localize_bbox_with_depth(bbox, intrinsics, depth_m, camera_to_output=None, o
 """从深度图中采样 bbox ROI 深度，并输出目标坐标系下的三维定位。"""
 def localize_bbox_from_depth_image(bbox, intrinsics, depth_image, camera_to_output=None,
                                    output_frame='camera_link', roi_padding_px=0,
-                                   max_depth_m=20.0, min_points=5):
+                                   max_depth_m=20.0, min_points=5,
+                                   sphere_radius_m=0.0):
     depth_m, points_used = estimate_depth_from_bbox(
         depth_image=depth_image,
         bbox=bbox,
@@ -187,6 +188,13 @@ def localize_bbox_from_depth_image(bbox, intrinsics, depth_image, camera_to_outp
     )
     if depth_m is None:
         return None
+
+    # 深度相机看到的是可见球面的前沿，而比赛目标是红球球心的位置。
+    # 对已知标准球半径的严格球形目标，沿光轴补回一个半径，可消除近距离时
+    # 明显的系统性距离低估。默认关闭，避免把该先验误用于未知尺寸物体。
+    radius_m = float(sphere_radius_m)
+    if math.isfinite(radius_m) and radius_m > 0.0:
+        depth_m += radius_m
 
     localization = localize_bbox_with_depth(
         bbox=bbox,

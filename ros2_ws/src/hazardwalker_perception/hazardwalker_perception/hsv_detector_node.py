@@ -50,6 +50,8 @@ class HsvDetectorNode(Node):
         self.declare_parameter('roi_padding_px', 8)
         self.declare_parameter('min_depth_points_in_roi', 5)
         self.declare_parameter('max_detection_range_m', 20.0)
+        # 官方标准红球为半径 0.15 m；该先验只在严格球形候选的定位阶段使用。
+        self.declare_parameter('sphere_radius_m', 0.15)
         self.declare_parameter('output_frame', 'start')
         self.declare_parameter('confirm_observation_count', 3)
         self.declare_parameter('confirm_distinct_views', 2)
@@ -155,6 +157,7 @@ class HsvDetectorNode(Node):
                     roi_padding_px=int(self.get_parameter('roi_padding_px').value),
                     max_depth_m=float(self.get_parameter('max_detection_range_m').value),
                     min_points=int(self.get_parameter('min_depth_points_in_roi').value),
+                    sphere_radius_m=float(self.get_parameter('sphere_radius_m').value),
                 )
 
             source_id = f'{msg.header.stamp.sec}.{msg.header.stamp.nanosec}:{index}'
