@@ -44,11 +44,18 @@
     "verified_at_sim_time_sec": 152.164,
     "behavior": "精确图像时间 TF 不可用时回退到最新公开 PoseInfo TF，避免周期性丢弃定位帧。"
   },
+  "sphere_projection_geometry_validation": {
+    "controlled_target_world_position_m": [0.0, 0.0, 0.3],
+    "world_position_m": [0.0004, -0.0125, 0.3043],
+    "world_3d_error_m": 0.0132,
+    "comparison": "完整球形使用投影半径反推球心后，远距离误差由约 0.0947 m 降至 0.0132 m。"
+  },
   "findings": [
     "RGB、深度、相机内参和 TF 已在 headless 官方平台形成真实运行链路。",
     "标准红球球面深度到球心的 0.15 m 补偿已进入感知分支并在运行输出中生效。",
     "平台 relay 的 camera z 外参已从 0.17 m 修正为 0.32 m、重建并重启；本用例三维误差降至 0.0423 m。",
-    "动态 world TF 直接订阅公开 Gazebo PoseInfo，转向期间坐标漂移仅 0.0025 m，避免 Odometry_gazebo 伪转向破坏定位。"
+    "动态 world TF 直接订阅公开 Gazebo PoseInfo，转向期间坐标漂移仅 0.0025 m，避免 Odometry_gazebo 伪转向破坏定位。",
+    "完整球形采用投影半径反推球心，远距离受控球三维误差降至 0.0132 m。"
   ],
   "status": "pass"
 }

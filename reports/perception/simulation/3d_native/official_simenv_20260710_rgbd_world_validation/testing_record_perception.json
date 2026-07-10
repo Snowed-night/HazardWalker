@@ -50,5 +50,18 @@
     "world_3d_error_m": 0.0948,
     "status": "pass",
     "notes": "图像时间比公开 PoseInfo TF 新数毫秒时，allow_latest_tf_fallback 保持当前帧 localization_status=localized。"
+  },
+  {
+    "case_id": "SIMENV-RGBD-WORLD-004",
+    "scenario": "official_ros2_headless_sphere_projection_geometry",
+    "target_type": "controlled_red_sphere",
+    "detected": true,
+    "localized": true,
+    "confidence": 0.9528,
+    "output_frame": "world",
+    "world_xy_error_m": 0.0125,
+    "world_3d_error_m": 0.0132,
+    "status": "pass",
+    "notes": "完整球形候选采用 bbox 投影半径反推球心，替代远距离固定加半径补偿。"
   }
 ]

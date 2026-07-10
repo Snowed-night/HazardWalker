@@ -18,6 +18,10 @@
 - 截图见 [controlled_red_ball_far_dynamic_world.png](controlled_red_ball_far_dynamic_world.png)。
 - 图像时间比 PoseInfo TF 新数毫秒时，`allow_latest_tf_fallback` 仍使最终帧保持 `localized`。
 
+## 球心几何补偿
+
+远距离完整球形 bbox 的投影半径可直接反推球心深度。启用该方法后，受控球 world 输出为 `(0.0004, -0.0125, 0.3043)`，完整三维误差为 `0.0132 m`，相比固定半径补偿的约 `0.0947 m` 明显下降。
+
 ## 已定位问题与后续动作
 
 历史基线中世界坐标 Z 误差约 `0.18 m`，根因是平台 relay 将内部 `base_link` 当作里程计原点。已将相机 `z` 外参由 `0.17 m` 修正为模型坐标中的 `0.32 m`，重建并重启后复测通过。平台补丁的操作说明见 `docs/platform/simenv_ros2_rgbd_world_alignment_fix.md`。
