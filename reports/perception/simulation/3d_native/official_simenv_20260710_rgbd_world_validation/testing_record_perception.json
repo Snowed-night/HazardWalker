@@ -1,0 +1,15 @@
+[
+  {
+    "case_id": "SIMENV-RGBD-WORLD-001",
+    "scenario": "official_ros2_headless_controlled_target",
+    "target_type": "controlled_red_sphere",
+    "detected": true,
+    "localized": true,
+    "confidence": 0.8695,
+    "output_frame": "world",
+    "world_xy_error_m": 0.0116,
+    "world_3d_error_m": 0.1814,
+    "status": "partial_pass",
+    "notes": "受控球用于链路标定；未读取任何官方危险源真值。Z 误差已定位为平台 camera z 外参基准错误，待修复复测。"
+  }
+]

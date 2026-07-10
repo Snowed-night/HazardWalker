@@ -1,0 +1,2 @@
+case_id,scenario,target_type,detected,localized,confidence,output_frame,world_xy_error_m,world_3d_error_m,status,notes
+SIMENV-RGBD-WORLD-001,official_ros2_headless_controlled_target,controlled_red_sphere,true,true,0.8695,world,0.0116,0.1814,partial_pass,XY 达标；待将 relay camera_offset_z_m 从 0.17 修正到 0.32 后复测 Z
