@@ -24,6 +24,7 @@ from hazardwalker_perception.localize_hazard import (
     Point3D,
     RigidTransform3D,
     camera_intrinsics_from_k,
+    evaluate_sphere_depth_shape,
     localize_bbox_from_depth_image,
 )
 from hazardwalker_perception.red_ball_detector import create_detection_backend
@@ -66,6 +67,9 @@ class HsvDetectorNode(Node):
         self.declare_parameter('partial_min_circularity', 0.30)
         self.declare_parameter('partial_min_aspect_ratio', 0.30)
         self.declare_parameter('partial_min_value', 50)
+        # 深度曲率仅否决“明确平面”的候选；缺深度/遮挡一律进入重观察而非直接漏检。
+        self.declare_parameter('min_sphere_depth_curvature_m', 0.008)
+        self.declare_parameter('min_sphere_depth_shape_points', 8)
 
         self.camera_intrinsics = None
         self.latest_depth_image = None
@@ -122,6 +126,11 @@ class HsvDetectorNode(Node):
             max_extent=float(self.get_parameter('max_extent').value),
             max_detections=int(self.get_parameter('max_detections').value),
             split_touching=bool(self.get_parameter('split_touching_red_balls').value),
+            include_partial_candidates=bool(self.get_parameter('emit_partial_candidates').value),
+            partial_min_area_px=int(self.get_parameter('partial_min_area_px').value),
+            partial_min_circularity=float(self.get_parameter('partial_min_circularity').value),
+            partial_min_aspect_ratio=float(self.get_parameter('partial_min_aspect_ratio').value),
+            partial_min_value=int(self.get_parameter('partial_min_value').value),
         )
         stamp_sec = _stamp_to_float(msg.header.stamp)
         output_frame = str(self.get_parameter('output_frame').value)
@@ -146,6 +155,21 @@ class HsvDetectorNode(Node):
                 'y_max': detection_2d.y_max,
             }
             localization = None
+            depth_shape = None
+            if self.latest_depth_image is not None:
+                depth_shape = evaluate_sphere_depth_shape(
+                    depth_image=self.latest_depth_image,
+                    bbox=bbox,
+                    max_depth_m=float(self.get_parameter('max_detection_range_m').value),
+                    min_points_per_region=int(self.get_parameter('min_sphere_depth_shape_points').value),
+                    min_curvature_m=float(self.get_parameter('min_sphere_depth_curvature_m').value),
+                )
+            depth_shape_status = depth_shape.status if depth_shape else 'unknown'
+            # 圆柱端面、立方体/平板等在单帧可能都有近圆形红色投影。只有深度明确
+            # 显示平面时才抑制确认；unknown 保留给多视角策略，避免遮挡球被误杀。
+            confirmation_eligible = (
+                not detection_2d.requires_reobservation and depth_shape_status != 'flat'
+            )
             if self.camera_intrinsics and self.latest_depth_image is not None and camera_to_output:
                 localization = localize_bbox_from_depth_image(
                     bbox=bbox,
@@ -182,13 +206,25 @@ class HsvDetectorNode(Node):
                     'aspect_ratio': detection_2d.aspect_ratio,
                     'extent': detection_2d.extent,
                 },
-                'localization_status': 'localized' if localization else 'unlocalized',
+                'depth_shape': {
+                    'status': depth_shape_status,
+                    'center_depth_m': depth_shape.center_depth_m if depth_shape else None,
+                    'outer_depth_m': depth_shape.outer_depth_m if depth_shape else None,
+                    'curvature_m': depth_shape.curvature_m if depth_shape else None,
+                    'center_points': depth_shape.center_points if depth_shape else 0,
+                    'outer_points': depth_shape.outer_points if depth_shape else 0,
+                },
+                'confirmation_eligible': confirmation_eligible,
+                'localization_status': (
+                    'suppressed_flat_depth_shape' if depth_shape_status == 'flat'
+                    else 'localized' if localization else 'unlocalized'
+                ),
                 'source': 'hsv_minimal',
                 'detector_backend': self.detector_backend.name,
             })
 
             # 宽松候选只用于主动重观察；只有严格形状检测才可进入三维多帧确认。
-            if localization and not detection_2d.requires_reobservation:
+            if localization and confirmation_eligible:
                 observations.append(HazardObservation(
                     position=(
                         localization.position.x,

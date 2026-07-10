@@ -53,6 +53,22 @@ class HazardLocalization3D:
     points_used: int = 1
 
 
+@dataclass(frozen=True)
+class DepthShapeEvidence:
+    """目标 ROI 的深度曲率证据。
+
+    球面中心比边缘更靠近相机，平面板和圆柱正面则近似等深。该证据只用于
+    抑制明显平面误报；深度稀疏时返回 unknown，交给多视角复查而不是误杀目标。
+    """
+
+    status: str
+    center_depth_m: float | None
+    outer_depth_m: float | None
+    curvature_m: float | None
+    center_points: int
+    outer_points: int
+
+
 """从 ROS CameraInfo 风格的 K 矩阵提取针孔相机内参。"""
 def camera_intrinsics_from_k(k):
     if len(k) < 6:
@@ -157,6 +173,62 @@ def estimate_depth_from_bbox(depth_image, bbox, padding_px=0, max_depth_m=20.0, 
     if len(values) % 2 == 1:
         return values[mid], len(values)
     return (values[mid - 1] + values[mid]) / 2.0, len(values)
+
+
+def evaluate_sphere_depth_shape(depth_image, bbox, max_depth_m=20.0,
+                                min_points_per_region=8,
+                                min_curvature_m=0.008):
+    """用 bbox 内椭圆的中心/外环深度差区分球面与近似平面。
+
+    返回 ``spherical``、``flat`` 或 ``unknown``。这是保守过滤：只有中心与
+    外环都有足够有效点且深度差很小时才判为 ``flat``；遮挡、过小目标和深度
+    缺失均不作负判定，仍可进入主动重观察流程。
+    """
+
+    height = len(depth_image)
+    if height <= 0 or len(depth_image[0]) <= 0:
+        return DepthShapeEvidence('unknown', None, None, None, 0, 0)
+    width = len(depth_image[0])
+    x_min, y_min, x_max, y_max = _read_bbox(bbox)
+    x0 = max(0, int(math.floor(x_min)))
+    y0 = max(0, int(math.floor(y_min)))
+    x1 = min(width - 1, int(math.ceil(x_max)))
+    y1 = min(height - 1, int(math.ceil(y_max)))
+    radius_x = (x1 - x0 + 1) / 2.0
+    radius_y = (y1 - y0 + 1) / 2.0
+    if radius_x < 2.0 or radius_y < 2.0:
+        return DepthShapeEvidence('unknown', None, None, None, 0, 0)
+    center_x = (x0 + x1) / 2.0
+    center_y = (y0 + y1) / 2.0
+    center_values = []
+    outer_values = []
+    for y in range(y0, y1 + 1):
+        row = depth_image[y]
+        for x in range(x0, x1 + 1):
+            radial = math.sqrt(((x - center_x) / radius_x) ** 2 + ((y - center_y) / radius_y) ** 2)
+            if radial > 0.90:
+                continue
+            value = float(row[x])
+            if not math.isfinite(value) or value <= 0.0 or value > max_depth_m:
+                continue
+            if radial <= 0.35:
+                center_values.append(value)
+            elif 0.60 <= radial <= 0.88:
+                outer_values.append(value)
+    required = max(1, int(min_points_per_region))
+    if len(center_values) < required or len(outer_values) < required:
+        return DepthShapeEvidence(
+            'unknown', _median(center_values), _median(outer_values), None,
+            len(center_values), len(outer_values),
+        )
+    center_depth = _median(center_values)
+    outer_depth = _median(outer_values)
+    curvature = outer_depth - center_depth
+    status = 'spherical' if curvature >= float(min_curvature_m) else 'flat'
+    return DepthShapeEvidence(
+        status, center_depth, outer_depth, curvature,
+        len(center_values), len(outer_values),
+    )
 
 
 """由完整圆形投影和已知球半径反推球心的相机 z 深度。"""
@@ -266,3 +338,15 @@ def _read_bbox(bbox):
         float(bbox.x_max),
         float(bbox.y_max),
     )
+
+
+def _median(values):
+    """返回数值中位数；空列表保持 None，供深度缺失分支显式处理。"""
+
+    if not values:
+        return None
+    ordered = sorted(float(value) for value in values)
+    mid = len(ordered) // 2
+    if len(ordered) % 2:
+        return ordered[mid]
+    return (ordered[mid - 1] + ordered[mid]) / 2.0
