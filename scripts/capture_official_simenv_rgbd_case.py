@@ -56,7 +56,7 @@ def _compact_detection(item: dict) -> dict:
     return {
         key: item[key]
         for key in (
-            'id', 'frame_id', 'stamp', 'bbox', 'confidence', 'red_pixel_count',
+            'id', 'frame_id', 'view_id', 'stamp', 'bbox', 'confidence', 'red_pixel_count',
             'is_partial', 'requires_reobservation', 'may_be_merged',
             'quality_reason', 'shape', 'depth_shape', 'confirmation_eligible',
             'localization_status', 'source',

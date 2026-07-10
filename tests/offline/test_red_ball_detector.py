@@ -231,6 +231,22 @@ def test_heavily_occluded_red_ball_emits_reobservation_candidate():
     assert detections[0].confidence < 0.5
 
 
+"""验证只露出约 10% 的球面仍输出不可确认的重观察候选。"""
+def test_extremely_occluded_red_ball_keeps_reobservation_candidate():
+    if not require_opencv():
+        return
+
+    data = draw_circle_image(100, 100, occlusion_ratio=0.90)
+    detections = detect_red_balls_rgb_bytes(
+        data, 100, 100, min_area_px=20, include_partial_candidates=True,
+        partial_min_circularity=0.18, partial_min_aspect_ratio=0.12,
+    )
+
+    assert len(detections) == 1
+    assert detections[0].is_partial is True
+    assert detections[0].requires_reobservation is True
+
+
 """验证暗红目标仅以低质量候选形式出现，不绕过严格 HSV 最终判定。"""
 def test_dim_red_ball_emits_reobservation_candidate_only():
     if not require_opencv():
@@ -282,3 +298,18 @@ def test_touching_red_balls_can_be_split_into_multiple_candidates():
     assert len(detections) >= 2
     centers = sorted((item.x_min + item.x_max) / 2.0 for item in detections[:2])
     assert centers[1] - centers[0] > 15.0
+
+
+"""单个大球的 Hough 内嵌小圆不能导致重复报球。"""
+def test_single_large_red_ball_is_not_duplicated_by_hough_split():
+    if not require_opencv():
+        return
+
+    width = 220
+    height = 180
+    image = np.full((height, width, 3), BACKGROUND, dtype=np.uint8)
+    cv2.circle(image, (110, 90), 62, RED, thickness=-1)
+
+    detections = detect_red_balls_rgb_bytes(bytearray(image.tobytes()), width, height, min_area_px=80)
+
+    assert len(detections) == 1

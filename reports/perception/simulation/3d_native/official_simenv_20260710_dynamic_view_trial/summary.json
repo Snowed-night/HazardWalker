@@ -1,0 +1,26 @@
+{
+  "scenario": "official_simenv_dynamic_view_trial",
+  "official_truth_files_read": false,
+  "cmd_vel": {
+    "angular_z": 0.2,
+    "duration_sec": 2.0
+  },
+  "before_view_ids": [
+    "pos:0.0:-2.0:0.4|yaw:90"
+  ],
+  "after_view_ids": [
+    "pos:0.0:-2.0:0.4|yaw:90"
+  ],
+  "distinct_view_count_after": 1,
+  "track_status_after": [
+    "tentative"
+  ],
+  "result": "platform_control_blocked",
+  "world_camera_pose_delta_observed": {
+    "translation_m": 0.003,
+    "rotation_rad_approx": 0.004
+  },
+  "before_snapshot": "before_turn_snapshot.json",
+  "after_snapshot": "after_turn_snapshot.json",
+  "interpretation": "只有前后 view_id 不同且 distinct_view_count >= 2 时，才可声称平台提供了真实第二视角。"
+}

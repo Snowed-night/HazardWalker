@@ -2,6 +2,8 @@
 
 官方 SimEnv ROS2 Harmonic headless 平台的 RGB-D 感知完整回归测试，日期为 `2026-07-10`。图像由运行中的 `/hw/camera/image_raw` 和当前感知节点实际输出生成；所有临时模型通过公开 Gazebo EntityFactory 服务生成，并按公开 PoseInfo 实体 ID 清理。
 
+> 本目录现定位为 RGB-D 链路烟测，不再单独作为“局部球、圆柱、多球已充分解决”的结论依据。用户指出的遮挡比例、圆柱多视角和重复计数问题已由后续充分矩阵复测，见 `official_simenv_20260710_rgbd_partial_visibility`、`official_simenv_20260710_rgbd_shape_multiview`、`official_simenv_20260710_rgbd_multi_count` 和 `perception_progress_report_2026-07-10_evidence_matrix.md`。
+
 本套件不读取 `danger_truth.json`、场景布局或裁判真值。受控红球/干扰物的位置仅用于定义本次回归用例的预期行为，不是比赛危险源。
 
 ## 内容

@@ -588,16 +588,37 @@ def _split_touching_contour_by_hough(roi, offset_x, offset_y, min_area_px, min_c
 
 """去掉分裂过程产生的重复 bbox。"""
 def _deduplicate_detections(detections):
+    """去重 Hough/分水岭的嵌套候选，防止单个大球被重复计数。"""
+
     unique = []
     for detection in sorted(detections, key=lambda item: item.red_pixel_count, reverse=True):
         duplicate = False
         for existing in unique:
-            if _bbox_iou_detection(detection, existing) > 0.6:
+            # Hough 在单个较大球上偶尔会同时给出“整球圆”和“内嵌小圆”。
+            # 两框 IoU 约为 0.47 时仍是同一球，原 0.6 阈值会造成重复计数；
+            # 相切双球的 IoU 明显更低，仍保留给后续分离逻辑。
+            if (_bbox_iou_detection(detection, existing) > 0.45
+                    or _bbox_contains_detection(detection, existing, min_ratio=0.80)):
                 duplicate = True
                 break
         if not duplicate:
             unique.append(detection)
     return unique
+
+
+def _bbox_contains_detection(first, second, min_ratio=0.80):
+    """判断较小框是否大比例被另一个框包含，用于消除嵌套圆重复。"""
+
+    x0 = max(first.x_min, second.x_min)
+    y0 = max(first.y_min, second.y_min)
+    x1 = min(first.x_max, second.x_max)
+    y1 = min(first.y_max, second.y_max)
+    if x1 < x0 or y1 < y0:
+        return False
+    intersection = float((x1 - x0 + 1) * (y1 - y0 + 1))
+    first_area = float((first.x_max - first.x_min + 1) * (first.y_max - first.y_min + 1))
+    second_area = float((second.x_max - second.x_min + 1) * (second.y_max - second.y_min + 1))
+    return intersection / max(min(first_area, second_area), 1.0) >= float(min_ratio)
 
 
 """计算两个检测框的 IoU，用于分裂结果去重。"""

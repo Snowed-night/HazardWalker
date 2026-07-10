@@ -1,0 +1,65 @@
+{
+  "case_id": "native3d_rgbd_localization_01",
+  "image_stamp": {
+    "sec": 50,
+    "nanosec": 325000000
+  },
+  "localization_ready": true,
+  "detections_2d": [
+    {
+      "id": 1,
+      "frame_id": "hazardwalker_camera",
+      "view_id": "pos:0.0:-2.0:0.4|yaw:90",
+      "stamp": {
+        "sec": 50,
+        "nanosec": 293000000
+      },
+      "bbox": {
+        "x_min": 267,
+        "y_min": 51,
+        "x_max": 373,
+        "y_max": 160
+      },
+      "confidence": 0.9539906389061659,
+      "red_pixel_count": 9223,
+      "is_partial": false,
+      "requires_reobservation": false,
+      "may_be_merged": false,
+      "quality_reason": "stable_shape",
+      "shape": {
+        "circularity": 0.8923831590861822,
+        "aspect_ratio": 0.9727272727272728,
+        "extent": 0.7705182667799491
+      },
+      "depth_shape": {
+        "status": "spherical",
+        "center_depth_m": 1.4220009446144104,
+        "outer_depth_m": 1.4621240496635437,
+        "curvature_m": 0.0401231050491333,
+        "center_points": 1134,
+        "outer_points": 3822
+      },
+      "confirmation_eligible": true,
+      "localization_status": "localized",
+      "source": "hsv_minimal",
+      "detector_backend": "hsv_opencv"
+    }
+  ],
+  "hazards": [
+    {
+      "status": "tentative",
+      "position": [
+        -0.0,
+        -0.2103,
+        0.3044
+      ],
+      "position_frame_id": "world",
+      "confidence": 0.954,
+      "observation_count": 8,
+      "distinct_view_count": 1,
+      "source": "hsv_depth_tf"
+    }
+  ],
+  "raw_image": "native3d_rgbd_localization_01_raw.png",
+  "annotated_image": "native3d_rgbd_localization_01_annotated.png"
+}

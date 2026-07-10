@@ -1,0 +1,11 @@
+{
+  "scenario": "official_simenv_20260710_dynamic_view_trial",
+  "cmd_angular_z": 0.2,
+  "cmd_duration_sec": 2.0,
+  "before_view_id": "pos:0.0:-2.0:0.4|yaw:90",
+  "after_view_id": "pos:0.0:-2.0:0.4|yaw:90",
+  "distinct_view_count_after": 1,
+  "confirmed_count": 0,
+  "result": "platform_control_blocked",
+  "note": "真实 /hw/cmd_vel 转向未提供可信第二视角；多视角 confirmed 与最佳观测策略动态验收待稳定 A1 控制链路后复跑。"
+}
