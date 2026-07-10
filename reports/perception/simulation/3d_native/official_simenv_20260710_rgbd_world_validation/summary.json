@@ -39,6 +39,11 @@
     "track_status": "tentative",
     "interpretation": "Gazebo 模型公开世界位姿未改变，算法未把里程计伪转向误当成真实第二视角。"
   },
+  "tf_time_fallback_validation": {
+    "latest_output_localization_status": "localized",
+    "verified_at_sim_time_sec": 152.164,
+    "behavior": "精确图像时间 TF 不可用时回退到最新公开 PoseInfo TF，避免周期性丢弃定位帧。"
+  },
   "findings": [
     "RGB、深度、相机内参和 TF 已在 headless 官方平台形成真实运行链路。",
     "标准红球球面深度到球心的 0.15 m 补偿已进入感知分支并在运行输出中生效。",

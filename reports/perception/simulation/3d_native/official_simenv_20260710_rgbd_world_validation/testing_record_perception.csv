@@ -2,3 +2,4 @@ case_id,scenario,target_type,detected,localized,confidence,output_frame,world_xy
 SIMENV-RGBD-WORLD-001A,official_ros2_headless_controlled_target_before_fix,controlled_red_sphere,true,true,0.8695,world,0.0116,0.1814,diagnostic_baseline,relay camera_offset_z_m=0.17 导致 Z 系统性偏低
 SIMENV-RGBD-WORLD-001B,official_ros2_headless_controlled_target_after_fix,controlled_red_sphere,true,true,0.8735,world,0.0255,0.0423,pass,relay camera_offset_z_m=0.32；完整三维误差低于 0.05 m
 SIMENV-RGBD-WORLD-002,official_ros2_headless_dynamic_odom_turn,controlled_red_sphere,true,true,0.9910,world,0.0946,0.0947,pass,直接公开 PoseInfo world TF；里程计伪转向前后坐标漂移 0.0025 m 且保持 tentative
+SIMENV-RGBD-WORLD-003,official_ros2_headless_tf_timestamp_fallback,controlled_red_sphere,true,true,0.9528,world,0.0947,0.0948,pass,图像时间比 PoseInfo TF 新数毫秒时回退最新 TF；最终帧 localization_status=localized

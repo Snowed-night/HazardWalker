@@ -16,6 +16,7 @@
 - 远距离受控球转向前后的输出坐标漂移仅 `0.0025 m`。
 - 该场景没有真实相机视角变化，故轨迹保持 `tentative`、`distinct_view_count=1`，未被错误确认。
 - 截图见 [controlled_red_ball_far_dynamic_world.png](controlled_red_ball_far_dynamic_world.png)。
+- 图像时间比 PoseInfo TF 新数毫秒时，`allow_latest_tf_fallback` 仍使最终帧保持 `localized`。
 
 ## 已定位问题与后续动作
 
