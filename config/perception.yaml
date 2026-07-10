@@ -25,5 +25,15 @@ perception:
 
   tracking:
     confirm_observation_count: 3
+    # 正式确认要求至少两个离散视角，避免圆柱/圆盘单视角投影直接确认为红球。
+    confirm_distinct_views: 2
     reject_after_missed_count: 10
     merge_distance_m: 0.5
+
+  active_reobservation:
+    # 宽松候选只触发换视角，不进入危险源确认轨迹。
+    emit_partial_candidates: true
+    partial_min_area_px: 30
+    partial_min_circularity: 0.30
+    partial_min_aspect_ratio: 0.30
+    partial_min_value: 50

@@ -82,6 +82,32 @@ def test_tracker_keeps_two_same_frame_observations_as_separate_tracks():
     assert tracks[0].track_id != tracks[1].track_id
 
 
+"""验证启用多视角门槛后，同一视角重复观测不会直接确认红球。"""
+def test_tracker_requires_distinct_views_before_confirmation():
+    tracker = HazardTracker(HazardTrackerConfig(
+        confirm_observation_count=3,
+        min_distinct_views=2,
+        merge_distance_m=0.5,
+    ))
+    for stamp in (1.0, 2.0, 3.0):
+        tracks = tracker.update([
+            HazardObservation(
+                position=(1.0, 0.0, 0.5), confidence=0.8,
+                stamp_sec=stamp, view_id='pos:0.0:0.0:0.0|yaw:0',
+            )
+        ])
+    assert tracks[0].status == 'tentative'
+
+    tracks = tracker.update([
+        HazardObservation(
+            position=(1.1, 0.0, 0.5), confidence=0.85,
+            stamp_sec=4.0, view_id='pos:0.4:0.0:0.0|yaw:30',
+        )
+    ])
+    assert tracks[0].status == 'confirmed'
+    assert tracks[0].view_ids == ['pos:0.0:0.0:0.0|yaw:0', 'pos:0.4:0.0:0.0|yaw:30']
+
+
 """验证轨迹可以转换为结果 JSON 使用的危险源字段。"""
 def test_track_to_hazard_dict_preserves_confirmation_fields():
     tracker = HazardTracker(HazardTrackerConfig(confirm_observation_count=1))

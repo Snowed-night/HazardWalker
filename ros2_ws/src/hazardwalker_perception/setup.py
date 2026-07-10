@@ -29,6 +29,7 @@ setup(
     entry_points={
         'console_scripts': [
             'hsv_detector_node = hazardwalker_perception.hsv_detector_node:main',
+            'dynamic_detection_recorder_node = hazardwalker_perception.dynamic_detection_recorder_node:main',
         ],
     },
 )
