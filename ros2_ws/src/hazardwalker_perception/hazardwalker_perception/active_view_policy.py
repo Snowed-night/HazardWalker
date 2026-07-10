@@ -63,6 +63,12 @@ def choose_active_view_action(detections, image_width, image_height, config=None
     if edge_action:
         return edge_action
 
+    if target['depth_shape_status'] == 'flat':
+        return ViewRecommendation(
+            'move_laterally', '深度轮廓近似平面，疑似红色非球体；建议侧向复查后再决定是否丢弃。',
+            94, target['id'],
+        )
+
     if target['requires_reobservation']:
         return ViewRecommendation('move_laterally', '候选可能由密集目标合并，建议横移后分离复查。', 92, target['id'])
 
@@ -119,6 +125,7 @@ def _normalize_detection(item, index):
         'circularity': float(shape.get('circularity', item.get('circularity', 0.0))),
         'confidence': float(item.get('confidence', 0.0)),
         'depth_m': float(depth) if depth is not None else None,
+        'depth_shape_status': str(item.get('depth_shape', {}).get('status', 'unknown')),
         'requires_reobservation': bool(item.get('requires_reobservation', False)),
     }
 

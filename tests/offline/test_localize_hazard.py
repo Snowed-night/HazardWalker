@@ -19,6 +19,7 @@ from hazardwalker_perception.localize_hazard import (
     camera_intrinsics_from_k,
     estimate_depth_from_bbox,
     estimate_sphere_center_depth_from_bbox,
+    evaluate_sphere_depth_shape,
     localize_bbox_from_depth_image,
     localize_bbox_with_depth,
     make_yaw_transform,
@@ -101,6 +102,38 @@ def test_estimate_depth_from_bbox_uses_valid_roi_median():
 
     assert points_used == 3
     assert math.isclose(depth_m, 2.0)
+
+
+"""验证球面中心比外环更近时会通过深度形状检查。"""
+def test_depth_shape_accepts_spherical_curvature():
+    depth_image = [[0.0 for _x in range(41)] for _y in range(41)]
+    for y in range(5, 36):
+        for x in range(5, 36):
+            dx = (x - 20) / 15.5
+            dy = (y - 20) / 15.5
+            if dx * dx + dy * dy <= 0.90 * 0.90:
+                depth_image[y][x] = 2.00 + 0.08 * (dx * dx + dy * dy)
+
+    evidence = evaluate_sphere_depth_shape(
+        depth_image, {'x_min': 5, 'y_min': 5, 'x_max': 35, 'y_max': 35},
+        min_points_per_region=8, min_curvature_m=0.008,
+    )
+
+    assert evidence.status == 'spherical'
+    assert evidence.curvature_m is not None and evidence.curvature_m > 0.02
+
+
+"""验证红色圆柱端面等近似平面会被明确抑制，而非作为已确认红球。"""
+def test_depth_shape_marks_flat_surface_as_non_spherical():
+    depth_image = [[2.0 for _x in range(41)] for _y in range(41)]
+
+    evidence = evaluate_sphere_depth_shape(
+        depth_image, {'x_min': 5, 'y_min': 5, 'x_max': 35, 'y_max': 35},
+        min_points_per_region=8, min_curvature_m=0.008,
+    )
+
+    assert evidence.status == 'flat'
+    assert evidence.curvature_m is not None and abs(evidence.curvature_m) < 1e-9
 
 
 """验证 bbox + 固定深度能输出目标坐标系下三维定位。"""

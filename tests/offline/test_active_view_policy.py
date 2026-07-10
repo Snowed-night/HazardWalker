@@ -81,3 +81,14 @@ def test_bbox_iou_returns_overlap_ratio():
     first = {'x_min': 0, 'y_min': 0, 'x_max': 9, 'y_max': 9}
     second = {'x_min': 5, 'y_min': 0, 'x_max': 14, 'y_max': 9}
     assert bbox_iou(first, second) == 50.0 / 150.0
+
+
+"""深度近似平面的红色圆形候选必须优先侧向复查，避免单视角圆柱误确认。"""
+def test_flat_depth_candidate_requests_lateral_shape_recheck():
+    candidate = _detection(identifier='cylinder_like', x_min=200, y_min=150, x_max=300, y_max=250)
+    candidate['depth_shape'] = {'status': 'flat'}
+
+    action = choose_active_view_action([candidate], 640, 480)
+
+    assert action.action == 'move_laterally'
+    assert '非球体' in action.reason
