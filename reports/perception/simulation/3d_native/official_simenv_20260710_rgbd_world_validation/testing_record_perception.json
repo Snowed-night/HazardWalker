@@ -1,7 +1,7 @@
 [
   {
-    "case_id": "SIMENV-RGBD-WORLD-001",
-    "scenario": "official_ros2_headless_controlled_target",
+    "case_id": "SIMENV-RGBD-WORLD-001A",
+    "scenario": "official_ros2_headless_controlled_target_before_fix",
     "target_type": "controlled_red_sphere",
     "detected": true,
     "localized": true,
@@ -9,7 +9,33 @@
     "output_frame": "world",
     "world_xy_error_m": 0.0116,
     "world_3d_error_m": 0.1814,
-    "status": "partial_pass",
-    "notes": "受控球用于链路标定；未读取任何官方危险源真值。Z 误差已定位为平台 camera z 外参基准错误，待修复复测。"
+    "status": "diagnostic_baseline",
+    "notes": "受控球用于链路标定；未读取任何官方危险源真值。Z 误差已定位为平台 camera z 外参基准错误。"
+  },
+  {
+    "case_id": "SIMENV-RGBD-WORLD-001B",
+    "scenario": "official_ros2_headless_controlled_target_after_fix",
+    "target_type": "controlled_red_sphere",
+    "detected": true,
+    "localized": true,
+    "confidence": 0.8735,
+    "output_frame": "world",
+    "world_xy_error_m": 0.0255,
+    "world_3d_error_m": 0.0423,
+    "status": "pass",
+    "notes": "relay camera_offset_z_m 已修正为 0.32 m 并重建重启；完整三维误差低于 0.05 m。"
+  },
+  {
+    "case_id": "SIMENV-RGBD-WORLD-002",
+    "scenario": "official_ros2_headless_dynamic_odom_turn",
+    "target_type": "controlled_red_sphere",
+    "detected": true,
+    "localized": true,
+    "confidence": 0.9910,
+    "output_frame": "world",
+    "world_xy_error_m": 0.0946,
+    "world_3d_error_m": 0.0947,
+    "status": "pass",
+    "notes": "world TF 直接来自公开 Gazebo PoseInfo。里程计伪转向前后定位坐标漂移 0.0025 m，distinct_view_count 保持 1，未发生错误确认。"
   }
 ]

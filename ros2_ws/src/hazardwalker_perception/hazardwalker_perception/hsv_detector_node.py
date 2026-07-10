@@ -52,6 +52,9 @@ class HsvDetectorNode(Node):
         self.declare_parameter('max_detection_range_m', 20.0)
         # 官方标准红球为半径 0.15 m；该先验只在严格球形候选的定位阶段使用。
         self.declare_parameter('sphere_radius_m', 0.15)
+        # PoseInfo/相机帧来自不同桥接线程时可能只有数毫秒滞后；允许使用最新 TF
+        # 能避免“未来外推”导致整帧定位被丢弃。高速运动平台可显式关闭该兜底。
+        self.declare_parameter('allow_latest_tf_fallback', True)
         self.declare_parameter('output_frame', 'start')
         self.declare_parameter('confirm_observation_count', 3)
         self.declare_parameter('confirm_distinct_views', 2)
@@ -235,6 +238,16 @@ class HsvDetectorNode(Node):
         try:
             transform = self.tf_buffer.lookup_transform(output_frame, camera_frame, Time.from_msg(stamp))
         except TransformException as exc:
+            if bool(self.get_parameter('allow_latest_tf_fallback').value):
+                try:
+                    latest_transform = self.tf_buffer.lookup_transform(output_frame, camera_frame, Time())
+                    self.get_logger().warn(
+                        f'TF at image stamp unavailable from {camera_frame} to {output_frame}; using latest TF: {exc}',
+                        throttle_duration_sec=5.0,
+                    )
+                    return _transform_msg_to_rigid(latest_transform.transform)
+                except TransformException:
+                    pass
             self.get_logger().warn(
                 f'TF lookup failed from {camera_frame} to {output_frame}: {exc}',
                 throttle_duration_sec=5.0,

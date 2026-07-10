@@ -24,12 +24,26 @@
     "localized": true,
     "world_position_m_before_camera_z_fix": [0.0001, -1.4116, 0.119],
     "world_xy_error_m_before_camera_z_fix": 0.0116,
-    "world_3d_error_m_before_camera_z_fix": 0.1814
+    "world_3d_error_m_before_camera_z_fix": 0.1814,
+    "world_position_m_after_camera_z_fix": [0.0, -1.3745, 0.2662],
+    "world_xy_error_m_after_camera_z_fix": 0.0255,
+    "world_3d_error_m_after_camera_z_fix": 0.0423
+  },
+  "dynamic_world_pose_validation": {
+    "controlled_target_world_position_m": [0.0, 0.0, 0.3],
+    "position_before_odom_turn_m": [-0.0013, 0.0927, 0.3039],
+    "position_after_odom_turn_m": [0.0003, 0.0946, 0.3038],
+    "position_drift_m": 0.0025,
+    "world_3d_error_m_after_odom_turn": 0.0947,
+    "distinct_view_count": 1,
+    "track_status": "tentative",
+    "interpretation": "Gazebo 模型公开世界位姿未改变，算法未把里程计伪转向误当成真实第二视角。"
   },
   "findings": [
     "RGB、深度、相机内参和 TF 已在 headless 官方平台形成真实运行链路。",
     "标准红球球面深度到球心的 0.15 m 补偿已进入感知分支并在运行输出中生效。",
-    "平台 relay 将模型原点误当作 SDF 内部 base_link，camera z 外参少了 0.15 m；修正为 0.32 m 后需重新跑本用例。"
+    "平台 relay 的 camera z 外参已从 0.17 m 修正为 0.32 m、重建并重启；本用例三维误差降至 0.0423 m。",
+    "动态 world TF 直接订阅公开 Gazebo PoseInfo，转向期间坐标漂移仅 0.0025 m，避免 Odometry_gazebo 伪转向破坏定位。"
   ],
-  "status": "partial_pass_pending_platform_camera_z_retest"
+  "status": "pass"
 }

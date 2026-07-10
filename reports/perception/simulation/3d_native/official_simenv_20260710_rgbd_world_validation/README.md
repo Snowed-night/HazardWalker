@@ -5,12 +5,20 @@
 ## 已验证结果
 
 - `/hw/camera/image_raw`、`/hw/camera/depth_image`、`/hw/camera/camera_info` 均有单一稳定发布者。
-- 当前 HSV + 深度 + TF 分支检出受控球，置信度为 `0.8695`，并输出 `world` 坐标。
-- 输出 XY 为 `(0.0001, -1.4116)`，相对受控生成位置 `(0, -1.4)` 的平面误差为 `0.0116 m`。
-- 截图见 [controlled_red_ball_rgb.png](controlled_red_ball_rgb.png)。
+- 当前 HSV + 深度 + TF 分支检出受控球，置信度为 `0.8735`，并输出 `world` 坐标。
+- 修正后输出为 `(-0.0000, -1.3745, 0.2662)`，相对受控生成位置 `(0, -1.4, 0.3)` 的完整三维误差为 `0.0423 m`。
+- 修正后截图见 [controlled_red_ball_rgb_after_z_fix.png](controlled_red_ball_rgb_after_z_fix.png)。
+
+## 动态坐标稳定性
+
+平台 A1 控制器当前会让 `Odometry_gazebo` 发生朝向变化，但 Gazebo 公开模型世界位姿并未同步改变。为避免这种伪运动污染定位，平台新增 `world_pose_tf_node`，直接基于公开 `/world/generated_world/pose/info` 发布 `world -> hazardwalker_camera`。
+
+- 远距离受控球转向前后的输出坐标漂移仅 `0.0025 m`。
+- 该场景没有真实相机视角变化，故轨迹保持 `tentative`、`distinct_view_count=1`，未被错误确认。
+- 截图见 [controlled_red_ball_far_dynamic_world.png](controlled_red_ball_far_dynamic_world.png)。
 
 ## 已定位问题与后续动作
 
-当前世界坐标 Z 误差为约 `0.18 m`，根因已定位为平台 relay：其里程计原点对应模型原点，故相机 `z` 外参应使用模型坐标中的 `0.32 m`，而不是内部 `base_link` 相对差值 `0.17 m`。平台端补丁已准备且原文件已备份；完成重启后必须复跑本用例，才可将该项标记为通过。
+历史基线中世界坐标 Z 误差约 `0.18 m`，根因是平台 relay 将内部 `base_link` 当作里程计原点。已将相机 `z` 外参由 `0.17 m` 修正为模型坐标中的 `0.32 m`，重建并重启后复测通过。平台补丁的操作说明见 `docs/platform/simenv_ros2_rgbd_world_alignment_fix.md`。
 
 详细数值见 `summary.json` 与测试组格式的 `testing_record_perception.csv/json`。
