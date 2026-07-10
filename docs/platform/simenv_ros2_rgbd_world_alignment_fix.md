@@ -106,4 +106,4 @@ ros2 run tf2_ros tf2_echo world hazardwalker_camera
 
 ## 尚未解决的平台依赖
 
-当前 ROS2 迁移日志已经标注 `unitree_guide / junior_ctrl` 未完成。实测也显示：`/hw/cmd_vel` 会使 `Odometry_gazebo` 改变，但公开 `a1_gazebo` 模型世界位姿不随之变化。不要把该里程计变化作为真实视角或真实位姿；在控制迁移完成前，感知多视角策略应保持保守的未确认状态。
+当前 ROS2 迁移日志已经标注 `unitree_guide / junior_ctrl` 未完成。实测表明 `/cmd_vel` 已到达 DiffDrive、轮速可达约 `2.125 rad/s`，但轮式占位模型的公开世界位姿存在迟滞/滑移，且不稳定地偏离 `Odometry_gazebo`。不要把该里程计变化作为真实四足视角或真实位姿；在真实 A1 控制迁移完成前，感知多视角策略应保持保守的未确认状态。

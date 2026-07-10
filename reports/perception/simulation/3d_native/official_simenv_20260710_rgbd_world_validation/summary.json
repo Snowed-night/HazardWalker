@@ -51,10 +51,10 @@
     "comparison": "完整球形使用投影半径反推球心后，远距离误差由约 0.0947 m 降至 0.0132 m。"
   },
   "known_platform_limit": {
-    "name": "ROS2 A1 physical motion is not available",
-    "evidence": "向 /hw/cmd_vel 发布转向后，Odometry_gazebo 朝向变化，但公开 Gazebo a1_gazebo 模型世界姿态未发生对应变化。",
-    "impact": "无法在当前 ROS2 迁移平台证明真实相机第二视角；多视角确认门控只能正确保持 tentative，不能获得真实 confirmed 样本。",
-    "required_external_action": "平台组需完成 unitree_guide / junior_ctrl 或等效的真实 A1 运动控制迁移。"
+    "name": "ROS2 placeholder drive is not a stable A1 motion stack",
+    "evidence": "原生 /cmd_vel 已使 DiffDrive 左右轮达到约 2.125 rad/s，但模型世界位姿存在迟滞/滑移，且与 Odometry_gazebo 不稳定地不一致。",
+    "impact": "无法把当前占位轮式模型视为比赛四足的真实相机第二视角；多视角确认门控只能作为保守安全检查，不能获得可信动态 confirmed 样本。",
+    "required_external_action": "平台组需完成 ROS1 unitree_guide / junior_ctrl 的真实 A1 控制迁移，或提供官方等效运动控制实现。"
   },
   "findings": [
     "RGB、深度、相机内参和 TF 已在 headless 官方平台形成真实运行链路。",
