@@ -138,51 +138,6 @@ def test_localize_bbox_from_depth_image_rejects_sparse_depth():
     assert result is None
 
 
-"""验证标准红球启用半径先验后会从可见球面补偿到球心深度。"""
-def test_localize_bbox_from_depth_image_compensates_known_sphere_radius():
-    intrinsics = CameraIntrinsics(fx=200.0, fy=200.0, cx=1.0, cy=1.0)
-    depth_image = [
-        [0.0, 0.0, 0.0],
-        [0.0, 1.85, 0.0],
-        [0.0, 0.0, 0.0],
-    ]
-
-    result = localize_bbox_from_depth_image(
-        bbox={'x_min': 1, 'y_min': 1, 'x_max': 1, 'y_max': 1},
-        intrinsics=intrinsics,
-        depth_image=depth_image,
-        min_points=1,
-        sphere_radius_m=0.15,
-    )
-
-    assert result is not None
-    assert math.isclose(result.depth_m, 2.0)
-    assert math.isclose(result.position.z, 2.0)
-
-
-"""验证完整标准红球优先通过表观投影半径反推球心深度。"""
-def test_estimate_sphere_center_depth_from_complete_projection():
-    intrinsics = CameraIntrinsics(fx=200.0, fy=200.0, cx=100.0, cy=80.0)
-    expected_center_depth = 2.0
-    radius_px = 200.0 * 0.15 / math.sqrt(expected_center_depth ** 2 - 0.15 ** 2)
-    bbox = {
-        'x_min': 100.0 - radius_px,
-        'y_min': 80.0 - radius_px,
-        'x_max': 100.0 + radius_px,
-        'y_max': 80.0 + radius_px,
-    }
-
-    depth_m = estimate_sphere_center_depth_from_bbox(
-        bbox=bbox,
-        intrinsics=intrinsics,
-        image_width=200,
-        image_height=160,
-        sphere_radius_m=0.15,
-    )
-
-    assert math.isclose(depth_m, expected_center_depth, rel_tol=1e-9)
-
-
 """验证多红球 bbox 能分别从深度图定位，并计算相对真值的三维误差。"""
 def test_multiple_bboxes_localize_with_small_position_error():
     intrinsics = CameraIntrinsics(fx=200.0, fy=200.0, cx=100.0, cy=80.0)

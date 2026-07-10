@@ -122,11 +122,6 @@ class HsvDetectorNode(Node):
             max_extent=float(self.get_parameter('max_extent').value),
             max_detections=int(self.get_parameter('max_detections').value),
             split_touching=bool(self.get_parameter('split_touching_red_balls').value),
-            include_partial_candidates=bool(self.get_parameter('emit_partial_candidates').value),
-            partial_min_area_px=int(self.get_parameter('partial_min_area_px').value),
-            partial_min_circularity=float(self.get_parameter('partial_min_circularity').value),
-            partial_min_aspect_ratio=float(self.get_parameter('partial_min_aspect_ratio').value),
-            partial_min_value=int(self.get_parameter('partial_min_value').value),
         )
         stamp_sec = _stamp_to_float(msg.header.stamp)
         output_frame = str(self.get_parameter('output_frame').value)

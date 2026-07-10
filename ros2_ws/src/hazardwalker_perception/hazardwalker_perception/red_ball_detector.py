@@ -69,6 +69,37 @@ def create_detection_backend(name='hsv_opencv'):
     raise ValueError(f'Unsupported detection backend: {name}')
 
 
+"""二维检测后端接口，后续 YOLO/分割模型只要实现 detect 即可接入 ROS 节点。"""
+class DetectionBackend:
+    name = 'base'
+
+    def detect(self, data, width, height, step=None, encoding='rgb8', **kwargs):
+        raise NotImplementedError
+
+
+"""当前可展示版本使用的 HSV + OpenCV 检测后端。"""
+class HsvOpenCvDetectionBackend(DetectionBackend):
+    name = 'hsv_opencv'
+
+    def detect(self, data, width, height, step=None, encoding='rgb8', **kwargs):
+        return detect_red_balls_rgb_bytes(
+            data=data,
+            width=width,
+            height=height,
+            step=step,
+            encoding=encoding,
+            **kwargs,
+        )
+
+
+"""根据名称创建检测后端，暂时只内置 HSV，后续模型化方案从这里注册。"""
+def create_detection_backend(name='hsv_opencv'):
+    normalized = (name or 'hsv_opencv').lower()
+    if normalized in ('hsv', 'hsv_opencv'):
+        return HsvOpenCvDetectionBackend()
+    raise ValueError(f'Unsupported detection backend: {name}')
+
+
 """把单个 RGB 像素转为 OpenCV 风格 HSV"""
 def rgb_to_hsv_pixel(r, g, b):
     """将单个 RGB 像素转换为 OpenCV 风格 HSV。
@@ -113,9 +144,7 @@ def detect_red_balls_rgb_bytes(data, width, height, step=None, encoding='rgb8',
                                min_area_px=80, min_confidence=0.5,
                                min_circularity=0.60, min_aspect_ratio=0.45,
                                min_extent=0.35, max_extent=0.92, max_detections=None,
-                               split_touching=True, include_partial_candidates=False,
-                               partial_min_area_px=None, partial_min_circularity=0.30,
-                               partial_min_aspect_ratio=0.30, partial_min_value=50):
+                               split_touching=True):
     """
     Args:
         data: 图像原始 bytes/bytearray。
@@ -129,8 +158,6 @@ def detect_red_balls_rgb_bytes(data, width, height, step=None, encoding='rgb8',
         max_extent: 轮廓面积 / bbox 面积上限，用于过滤红色方块等实心矩形。
         max_detections: 最多返回多少个候选，None 表示不限制。
         split_touching: 是否尝试用距离变换和 watershed 分离粘连红球。
-        include_partial_candidates: 是否额外输出低可见或弱光的“需复查候选”。这类候选
-            不应单帧确认为危险源，只用于触发主动视角调整。
 
     Returns:
         RedBallDetection2D 列表，按 confidence 从高到低排序。
@@ -161,11 +188,6 @@ def detect_red_balls_rgb_bytes(data, width, height, step=None, encoding='rgb8',
             min_extent=min_extent,
             max_extent=max_extent,
             split_touching=split_touching,
-            include_partial_candidates=include_partial_candidates,
-            partial_min_area_px=partial_min_area_px,
-            partial_min_circularity=partial_min_circularity,
-            partial_min_aspect_ratio=partial_min_aspect_ratio,
-            partial_min_value=partial_min_value,
         )
         if max_detections is not None:
             return detections[:max_detections]
@@ -255,8 +277,7 @@ def _image_bytes_to_array(data, width, height, step):
 """用 OpenCV 的 HSV mask、形态学处理和轮廓指标筛选多个红色球体。"""
 def _detect_red_balls_with_opencv(data, width, height, step, encoding, min_area_px, min_confidence,
                                   min_circularity, min_aspect_ratio, min_extent, max_extent,
-                                  split_touching, include_partial_candidates, partial_min_area_px,
-                                  partial_min_circularity, partial_min_aspect_ratio, partial_min_value):
+                                  split_touching):
 
 
     image = _image_bytes_to_array(data, width, height, step)
@@ -311,90 +332,7 @@ def _detect_red_balls_with_opencv(data, width, height, step, encoding, min_area_
             continue
 
     detections.sort(key=lambda item: item.confidence, reverse=True)
-    if include_partial_candidates:
-        detections.extend(_detect_partial_candidates(
-            hsv=hsv,
-            strict_detections=detections,
-            min_area_px=min_area_px,
-            min_confidence=min_confidence,
-            partial_min_area_px=partial_min_area_px,
-            partial_min_circularity=partial_min_circularity,
-            partial_min_aspect_ratio=partial_min_aspect_ratio,
-            partial_min_value=partial_min_value,
-        ))
-        detections.sort(key=lambda item: item.confidence, reverse=True)
     return detections
-
-
-"""提取低可见/弱光红色候选，只交给主动重观察，不降低最终确认门槛。"""
-def _detect_partial_candidates(hsv, strict_detections, min_area_px, min_confidence,
-                               partial_min_area_px, partial_min_circularity,
-                               partial_min_aspect_ratio, partial_min_value):
-    candidate_min_area = int(partial_min_area_px or max(20, int(min_area_px * 0.35)))
-    lower_red_1 = np.array([0, 60, max(0, int(partial_min_value))], dtype=np.uint8)
-    upper_red_1 = np.array([10, 255, 255], dtype=np.uint8)
-    lower_red_2 = np.array([170, 60, max(0, int(partial_min_value))], dtype=np.uint8)
-    upper_red_2 = np.array([180, 255, 255], dtype=np.uint8)
-    mask = cv2.bitwise_or(
-        cv2.inRange(hsv, lower_red_1, upper_red_1),
-        cv2.inRange(hsv, lower_red_2, upper_red_2),
-    )
-    kernel = np.ones((3, 3), dtype=np.uint8)
-    mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
-    mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
-    contours, _hierarchy = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-    candidates = []
-    for contour in contours:
-        candidate = _partial_contour_to_detection(
-            contour=contour,
-            mask=mask,
-            min_area_px=candidate_min_area,
-            min_confidence=min_confidence,
-            min_circularity=partial_min_circularity,
-            min_aspect_ratio=partial_min_aspect_ratio,
-        )
-        if candidate is None:
-            continue
-        if any(_bbox_iou_detection(candidate, stable) > 0.6 for stable in strict_detections):
-            continue
-        if any(_bbox_iou_detection(candidate, existing) > 0.6 for existing in candidates):
-            continue
-        candidates.append(candidate)
-    return candidates
-
-
-"""把宽松形状阈值下的红色连通域转为“需复查”候选。"""
-def _partial_contour_to_detection(contour, mask, min_area_px, min_confidence,
-                                  min_circularity, min_aspect_ratio):
-    area = float(cv2.contourArea(contour))
-    if area < min_area_px:
-        return None
-    perimeter = float(cv2.arcLength(contour, True))
-    if perimeter <= 0.0:
-        return None
-    x, y, box_width, box_height = cv2.boundingRect(contour)
-    if box_width <= 0 or box_height <= 0:
-        return None
-    circularity = 4.0 * math.pi * area / (perimeter * perimeter)
-    aspect_ratio = min(box_width, box_height) / float(max(box_width, box_height))
-    if circularity < min_circularity or aspect_ratio < min_aspect_ratio:
-        return None
-    red_pixel_count = int(cv2.countNonZero(mask[y:y + box_height, x:x + box_width]))
-    confidence = min(0.49, max(0.05, float(min_confidence) * 0.75 * min(1.0, circularity)))
-    return RedBallDetection2D(
-        x_min=int(x),
-        y_min=int(y),
-        x_max=int(x + box_width - 1),
-        y_max=int(y + box_height - 1),
-        confidence=confidence,
-        red_pixel_count=red_pixel_count,
-        circularity=circularity,
-        aspect_ratio=aspect_ratio,
-        extent=area / float(box_width * box_height),
-        is_partial=True,
-        requires_reobservation=True,
-        quality_reason='partial_or_low_light',
-    )
 
 """把单个轮廓转为检测结果；不符合球体形状时返回空列表。"""
 def _contour_to_detections(contour, mask, min_area_px, min_confidence,
@@ -425,7 +363,6 @@ def _contour_to_detections(contour, mask, min_area_px, min_confidence,
         return []
 
     red_pixel_count = int(cv2.countNonZero(mask[y:y + box_height, x:x + box_width]))
-    may_be_merged = _has_multiple_distance_peaks(mask[y:y + box_height, x:x + box_width])
     shape_score = _score_shape(circularity, aspect_ratio, extent)
     area_score = min(1.0, red_pixel_count / float(max(min_area_px, 1) * 4))
     confidence = min(1.0, max(float(min_confidence), 0.75 * shape_score + 0.25 * area_score))
@@ -440,9 +377,6 @@ def _contour_to_detections(contour, mask, min_area_px, min_confidence,
         circularity=circularity,
         aspect_ratio=aspect_ratio,
         extent=extent,
-        requires_reobservation=may_be_merged,
-        may_be_merged=may_be_merged,
-        quality_reason='possible_merged_targets' if may_be_merged else 'stable_shape',
     )]
 
 
@@ -557,6 +491,8 @@ def _split_touching_contour_by_hough(roi, offset_x, offset_y, min_area_px, min_c
         box_height = y1 - y0 + 1
         if box_width <= 0 or box_height <= 0:
             continue
+        candidates.append(candidate)
+    return candidates
 
         ideal_area = math.pi * float(radius) * float(radius)
         circularity = 1.0
@@ -583,20 +519,6 @@ def _split_touching_contour_by_hough(roi, offset_x, offset_y, min_area_px, min_c
         ))
 
     return _deduplicate_detections(detections)
-
-
-"""判断单个红色连通域是否仍保留多个中心峰，提示分离失败风险。"""
-def _has_multiple_distance_peaks(roi):
-    if roi.size == 0 or cv2.countNonZero(roi) == 0:
-        return False
-    distance = cv2.distanceTransform(roi, cv2.DIST_L2, 5)
-    max_distance = float(distance.max())
-    if max_distance <= 0.0:
-        return False
-    peaks = np.uint8(distance >= max_distance * 0.65) * 255
-    peak_count, _labels = cv2.connectedComponents(peaks)
-    # connectedComponents 的背景标签为 0，两个以上前景区域说明有多个候选中心。
-    return peak_count >= 3
 
 
 """去掉分裂过程产生的重复 bbox。"""

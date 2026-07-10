@@ -103,6 +103,29 @@ reports/perception/test_records/<timestamp>/testing_record_perception.csv
 reports/perception/test_records/<timestamp>/testing_record_perception.json
 ```
 
+## 可展示离线结果
+
+本地没有 Gazebo 时先运行：
+
+```bash
+python scripts/generate_perception_cases.py
+python scripts/run_offline_tests.py
+```
+
+`generate_perception_cases.py` 会覆盖正常红球、遮挡、多红球、粘连多红球、复杂背景、阴影/高亮环境和红色非球体干扰。
+输出目录：
+
+```text
+reports/perception/2d_detection/synthetic_<timestamp>/
+```
+
+测试组表格可直接参考：
+
+```text
+reports/perception/test_records/<timestamp>/testing_record_perception.csv
+reports/perception/test_records/<timestamp>/testing_record_perception.json
+```
+
 ## 三维定位和去重边界
 
 `localize_hazard.py` 和 `track_hazards.py` 当前都是纯 Python 算法模块，不直接依赖 ROS 消息类型。
