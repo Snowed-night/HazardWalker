@@ -1,9 +1,27 @@
-﻿"""HazardWalker 最小平台适配节点。
+"""HazardWalker 平台适配节点（官方平台规格版）。
 
 所属组：平台组。
 文件作用：
-在没有 Gazebo 或官方平台时模拟 `/hw/*` 传感器话题、TF 和控制响应。
-当前只用于打通最小 demo，真实仿真接入后应替换为 Gazebo 或官方平台 adapter。
+- 在没有真实 Gazebo 或官方平台时，模拟 /hw/* 话题输出和简单控制响应。
+- 传感器规格对齐官方比赛平台（SimEnv）：800x800 前视相机、IMU、深度点云、Livox 雷达。
+
+当前职责：
+- 发布相机图像、CameraInfo、里程计、IMU、深度点云和空雷达点云。
+- 接收 /hw/cmd_vel 并用简化运动学更新位置。
+- 为感知组提供可控红球图像，为导航组提供可控里程计输入。
+
+官方平台参考：
+- ROS 1 Noetic + Gazebo Classic + Unitree A1
+- 前视相机: /camera/image_raw, 800x800, 30Hz
+- Livox Mid-360: /scan, 360°x57°, 10Hz
+- RealSense D415: /real_sense/depth/points, 640x480, 10Hz
+- IMU: /trunk_imu, 1000Hz
+- 里程计: /Odometry_gazebo, 100Hz
+- 控制: /cmd_vel (RL 模式下生效)
+
+后续扩展方式：
+- 有真实仿真或官方平台后，替换成 gazebo_adapter_node.py 或 official_adapter_node.py。
+- 替换时保持 /hw/* 话题名不变，只改数据来源。
 """
 import math
 import time
@@ -11,57 +29,63 @@ import time
 import rclpy
 from geometry_msgs.msg import TransformStamped, Twist
 from nav_msgs.msg import Odometry
-import numpy as np
 from rclpy.node import Node
-from sensor_msgs.msg import CameraInfo, Image, PointCloud2
+from sensor_msgs.msg import Image, Imu, PointCloud2
 from tf2_ros import TransformBroadcaster
 
 
 class FakePlatformNode(Node):
     def __init__(self):
         super().__init__('fake_platform_node')
-        self.declare_parameter('image_width', 320)
-        self.declare_parameter('image_height', 240)
+
+        # ---- 相机参数（对齐官方前视相机: 800x800） ----
+        self.declare_parameter('image_width', 800)
+        self.declare_parameter('image_height', 800)
         self.declare_parameter('publish_rate_hz', 20.0)
         self.declare_parameter('red_ball_visible', True)
 
-        # 图像尺寸和发布频率都做成 ROS 参数，后续可以在 launch/yaml 里覆盖。
         self.width = int(self.get_parameter('image_width').value)
         self.height = int(self.get_parameter('image_height').value)
         rate = float(self.get_parameter('publish_rate_hz').value)
 
-        # 这些 topic 是项目内部接口。算法模块只依赖这些 `/hw/*` topic，
-        # 不直接依赖 Gazebo、Isaac 或官方平台原始 topic 名。
-        self.image_pub = self.create_publisher(Image, '/hw/camera/image_raw', 10)
-        self.camera_info_pub = self.create_publisher(CameraInfo, '/hw/camera/camera_info', 10)
-        self.depth_pub = self.create_publisher(Image, '/hw/camera/depth_image', 10)
-        self.odom_pub = self.create_publisher(Odometry, '/hw/odom', 10)
-        self.cloud_pub = self.create_publisher(PointCloud2, '/hw/lidar/points', 10)
+        # ---- 话题发布（全部使用 /hw/* 内部接口） ----
+        # 传感器输出
+        self.image_pub = self.create_publisher(Image, '/hw/real_sense/rgb/image_raw', 10)
+        self.imu_pub = self.create_publisher(Imu, '/hw/trunk_imu', 10)
+        self.scan_pub = self.create_publisher(PointCloud2, '/hw/scan', 10)
+        self.livox_pub = self.create_publisher(PointCloud2, '/hw/livox/Pointcloud2', 10)
+        self.depth_cloud_pub = self.create_publisher(PointCloud2, '/hw/real_sense/depth/points', 10)
+        self.odom_pub = self.create_publisher(Odometry, '/hw/Odometry_gazebo', 10)
+        # 控制输入
         self.cmd_sub = self.create_subscription(Twist, '/hw/cmd_vel', self.on_cmd_vel, 10)
+        # TF 广播
         self.tf_broadcaster = TransformBroadcaster(self)
 
-        # 用一个极简的 2D 位姿表示机器人状态：x/y 是平面位置，yaw 是朝向。
-        # 当前模型只根据 /hw/cmd_vel 做积分，不考虑碰撞、打滑、动力学约束。
+        # ---- 机器人位姿（简化2D模型） ----
         self.x = 0.0
         self.y = 0.0
         self.yaw = 0.0
         self.cmd = Twist()
         self.last_time = time.monotonic()
         self.timer = self.create_timer(1.0 / rate, self.on_timer)
-        self.get_logger().info('Fake platform publishing /hw sensor and odom topics.')
+        self.get_logger().info(
+            f'Fake platform (official spec): camera={self.width}x{self.height}, '
+            f'publishing /hw sensor and odom topics.'
+        )
+
+    # =====================================================================
+    # 回调
+    # =====================================================================
 
     def on_cmd_vel(self, msg: Twist):
-        # 导航节点发布的速度命令会被保存下来，在定时器中用于更新简化位姿。
         self.cmd = msg
 
     def on_timer(self):
-        # 所有传感器和里程计都在同一个 timer 中发布，方便保证时间戳一致。
         now_monotonic = time.monotonic()
         dt = max(0.0, now_monotonic - self.last_time)
         self.last_time = now_monotonic
 
-        # 极简差速/全向抽象：linear.x 表示前进速度，angular.z 表示角速度。
-        # 这只用于测试接口，不代表真实四足机器人的运动控制。
+        # 简化运动学：linear.x 前进，angular.z 转向
         vx = float(self.cmd.linear.x)
         wz = float(self.cmd.angular.z)
         self.x += math.cos(self.yaw) * vx * dt
@@ -69,22 +93,24 @@ class FakePlatformNode(Node):
         self.yaw += wz * dt
 
         stamp = self.get_clock().now().to_msg()
-        # 按固定顺序发布 TF、里程计、相机和空点云。后续真实平台接入时，
-        # 这些函数应被官方/仿真数据源替换，但输出 topic 和 frame 尽量不变。
         self.publish_tf(stamp)
         self.publish_odom(stamp, vx, wz)
+        self.publish_imu(stamp)
         self.publish_camera(stamp)
-        self.publish_empty_cloud(stamp)
+        self.publish_depth_cloud(stamp)
+        self.publish_lidar_cloud(stamp)
+
+    # =====================================================================
+    # TF 链（对齐官方 A1 坐标系）
+    #
+    # odom ──→ base_link ──→ trunk ──→ imu_link
+    #                    ├──→ front_camera    (0.25, 0, 0.35)  前视RGB
+    #                    ├──→ laser_livox     (0.20, 0, 0.08)  Livox雷达
+    #                    └──→ real_sense      (0.28, 0, 0.043) 深度相机
+    # =====================================================================
 
     def publish_tf(self, stamp):
-        # start 到 odom：最小 demo 中把起点坐标系和 odom 对齐，方便感知输出相对起点坐标。
-        start_tf = TransformStamped()
-        start_tf.header.stamp = stamp
-        start_tf.header.frame_id = 'start'
-        start_tf.child_frame_id = 'odom'
-        start_tf.transform.rotation.w = 1.0
-
-        # odom 到 base_link：描述机器人底盘在里程计坐标系下的位置。
+        # odom → base_link
         transform = TransformStamped()
         transform.header.stamp = stamp
         transform.header.frame_id = 'odom'
@@ -95,33 +121,69 @@ class FakePlatformNode(Node):
         transform.transform.rotation.z = math.sin(self.yaw / 2.0)
         transform.transform.rotation.w = math.cos(self.yaw / 2.0)
 
-        # base_link 到 camera_link：相机相对机器人底盘的安装位置。
-        # 这里的数值是占位外参，后续 Gazebo/官方平台必须替换为真实外参。
+        # base_link → trunk（躯干/质心，略高于底盘中心）
+        trunk_tf = TransformStamped()
+        trunk_tf.header.stamp = stamp
+        trunk_tf.header.frame_id = 'base_link'
+        trunk_tf.child_frame_id = 'trunk'
+        trunk_tf.transform.translation.x = 0.0
+        trunk_tf.transform.translation.y = 0.0
+        trunk_tf.transform.translation.z = 0.05
+        trunk_tf.transform.rotation.w = 1.0
+
+        # trunk → imu_link（IMU在躯干中心）
+        imu_tf = TransformStamped()
+        imu_tf.header.stamp = stamp
+        imu_tf.header.frame_id = 'trunk'
+        imu_tf.child_frame_id = 'imu_link'
+        imu_tf.transform.translation.x = 0.0
+        imu_tf.transform.translation.y = 0.0
+        imu_tf.transform.translation.z = 0.0
+        imu_tf.transform.rotation.w = 1.0
+
+        # base_link → front_camera（前视RGB相机）
         camera_tf = TransformStamped()
         camera_tf.header.stamp = stamp
         camera_tf.header.frame_id = 'base_link'
-        camera_tf.child_frame_id = 'camera_link'
+        camera_tf.child_frame_id = 'front_camera'
         camera_tf.transform.translation.x = 0.25
         camera_tf.transform.translation.y = 0.0
         camera_tf.transform.translation.z = 0.35
         camera_tf.transform.rotation.w = 1.0
 
-        # base_link 到 lidar_link：雷达相对机器人底盘的安装位置。
-        # 当前 fake 节点发布空点云，因此只用于保证 TF 链完整。
+        # base_link → laser_livox（Livox雷达，前上方）
         lidar_tf = TransformStamped()
         lidar_tf.header.stamp = stamp
         lidar_tf.header.frame_id = 'base_link'
-        lidar_tf.child_frame_id = 'lidar_link'
-        lidar_tf.transform.translation.x = 0.15
+        lidar_tf.child_frame_id = 'laser_livox'
+        lidar_tf.transform.translation.x = 0.20
         lidar_tf.transform.translation.y = 0.0
-        lidar_tf.transform.translation.z = 0.45
-        lidar_tf.transform.rotation.w = 1.0
+        lidar_tf.transform.translation.z = 0.08
+        # 官方: 绕 Y 轴倾斜 45°(0.785 rad)，优化前方及地面覆盖
+        half_45 = math.sin(0.785 / 2.0)
+        lidar_tf.transform.rotation.y = half_45
+        lidar_tf.transform.rotation.w = math.cos(0.785 / 2.0)
 
-        self.tf_broadcaster.sendTransform([start_tf, transform, camera_tf, lidar_tf])
+        # base_link → real_sense（深度相机，最前端）
+        depth_tf = TransformStamped()
+        depth_tf.header.stamp = stamp
+        depth_tf.header.frame_id = 'base_link'
+        depth_tf.child_frame_id = 'real_sense'
+        depth_tf.transform.translation.x = 0.28
+        depth_tf.transform.translation.y = 0.0
+        depth_tf.transform.translation.z = 0.043
+        depth_tf.transform.rotation.w = 1.0
+
+        self.tf_broadcaster.sendTransform(
+            [transform, trunk_tf, imu_tf, camera_tf, lidar_tf, depth_tf]
+        )
+
+    # =====================================================================
+    # 传感器数据发布
+    # =====================================================================
 
     def publish_odom(self, stamp, vx, wz):
-        # /hw/odom 给导航和决策模块使用。真实系统中这个数据可能来自官方平台、
-        # SLAM、轮速计/IMU 融合或 robot_localization。
+        """里程计（官方: /Odometry_gazebo, 100Hz）。"""
         odom = Odometry()
         odom.header.stamp = stamp
         odom.header.frame_id = 'odom'
@@ -134,12 +196,30 @@ class FakePlatformNode(Node):
         odom.twist.twist.angular.z = wz
         self.odom_pub.publish(odom)
 
+    def publish_imu(self, stamp):
+        """躯干 IMU（官方: /trunk_imu, 1000Hz）。
+
+        当前简化版只输出重力方向加速度，角速度跟随转向指令变化。
+        真实数据应由 Gazebo IMU 传感器提供。
+        """
+        imu = Imu()
+        imu.header.stamp = stamp
+        imu.header.frame_id = 'imu_link'
+        # 重力加速度（静止时只有 Z 方向 -9.81）
+        imu.linear_acceleration.z = 9.81
+        # 角速度（简化：只有绕 Z 轴的旋转）
+        imu.angular_velocity.z = float(self.cmd.angular.z)
+        # 协方差暂不填充（真实传感器会提供）
+        self.imu_pub.publish(imu)
+
     def publish_camera(self, stamp):
-        # 生成一张 RGB 图像：灰色背景 + 可选红色圆形区域。
-        # 这样感知组即使没有相机和仿真器，也可以测试 HSV 检测链路。
+        """RGB 相机（RealSense RGB, 640×480, 10Hz）。
+
+        生成灰色背景 + 可选红色圆形区域，模拟相机看到红色球体危险源。
+        """
         image = Image()
         image.header.stamp = stamp
-        image.header.frame_id = 'camera_link'
+        image.header.frame_id = 'real_sense'
         image.height = self.height
         image.width = self.width
         image.encoding = 'rgb8'
@@ -147,14 +227,12 @@ class FakePlatformNode(Node):
         image.step = self.width * 3
 
         data = bytearray(self.width * self.height * 3)
-        # 背景填成暗灰色，避免整个图像都是黑色导致调试不直观。
         for i in range(0, len(data), 3):
             data[i] = 30
             data[i + 1] = 30
             data[i + 2] = 30
 
         if bool(self.get_parameter('red_ball_visible').value):
-            # 在图像中偏右位置画一个红色圆，模拟相机看到红色球体危险源。
             cx = int(self.width * 0.55)
             cy = int(self.height * 0.48)
             radius = int(min(self.width, self.height) * 0.08)
@@ -169,46 +247,33 @@ class FakePlatformNode(Node):
 
         image.data = bytes(data)
         self.image_pub.publish(image)
-        self.publish_depth_image(stamp)
 
-        # CameraInfo 提供相机内参。当前数值是占位值，点云投影/三维定位前
-        # 必须由平台组替换为仿真相机或官方相机的真实参数。
-        info = CameraInfo()
-        info.header = image.header
-        info.height = self.height
-        info.width = self.width
-        fx = fy = 260.0
-        cx = self.width / 2.0
-        cy = self.height / 2.0
-        info.k = [fx, 0.0, cx, 0.0, fy, cy, 0.0, 0.0, 1.0]
-        info.p = [fx, 0.0, cx, 0.0, 0.0, fy, cy, 0.0, 0.0, 0.0, 1.0, 0.0]
-        self.camera_info_pub.publish(info)
+    def publish_depth_cloud(self, stamp):
+        """深度相机点云（官方: /real_sense/depth/points, 640x480, 10Hz）。
 
-    def publish_depth_image(self, stamp):
-        # 深度图与 RGB 图像对齐。当前用平面常量深度模拟红球距离，
-        # 用于验证 bbox + CameraInfo + 深度 + TF 的三维定位链路。
-        depth = Image()
-        depth.header.stamp = stamp
-        depth.header.frame_id = 'camera_link'
-        depth.height = self.height
-        depth.width = self.width
-        depth.encoding = '32FC1'
-        depth.is_bigendian = 0
-        depth.step = self.width * 4
-        depth_m = np.full((self.height, self.width), 3.0, dtype=np.float32)
-        depth.data = depth_m.tobytes()
-        self.depth_pub.publish(depth)
-
-    def publish_empty_cloud(self, stamp):
-        # 当前只发布空 PointCloud2，用来提前固定 `/hw/lidar/points` 接口。
-        # 后续 Gazebo/官方平台接入后，应发布真实点云。
+        当前发布空点云占位，后续由 Gazebo RealSense 插件填充真实数据。
+        """
         cloud = PointCloud2()
         cloud.header.stamp = stamp
-        cloud.header.frame_id = 'lidar_link'
+        cloud.header.frame_id = 'real_sense'
         cloud.height = 1
         cloud.width = 0
         cloud.is_dense = False
-        self.cloud_pub.publish(cloud)
+        self.depth_cloud_pub.publish(cloud)
+
+    def publish_lidar_cloud(self, stamp):
+        """LiDAR 点云（官方: /scan, Livox Mid-360, 360°x57°, 10Hz）。
+
+        当前发布空点云占位，后续由 Gazebo LiDAR 插件填充真实数据。
+        """
+        cloud = PointCloud2()
+        cloud.header.stamp = stamp
+        cloud.header.frame_id = 'laser_livox'
+        cloud.height = 1
+        cloud.width = 0
+        cloud.is_dense = False
+        self.scan_pub.publish(cloud)
+        self.livox_pub.publish(cloud)
 
 
 def main():

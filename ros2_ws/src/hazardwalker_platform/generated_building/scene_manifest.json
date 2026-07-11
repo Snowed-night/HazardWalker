@@ -1,0 +1,27 @@
+{
+  "building_config": "/home/ros/simenv_ws/generated_building/building_config.json",
+  "competition_interfaces": {
+    "odometry_topic": "/Odometry_gazebo",
+    "team_detection_file": "/home/ros/simenv_ws/results/detected_danger.json",
+    "truth_file_for_referee": "/home/ros/simenv_ws/results/danger_truth.json",
+    "velocity_command_topic": "/cmd_vel"
+  },
+  "danger_count": 6,
+  "distractor_count": 7,
+  "door_config": "/home/ros/simenv_ws/generated_building/door_config.yaml",
+  "elevator_config": "/home/ros/simenv_ws/generated_building/elevator_config.yaml",
+  "layout_metadata": "/home/ros/simenv_ws/generated_building/layout_metadata.json",
+  "output_truth_file": "/home/ros/simenv_ws/generated_building/danger_truth.json",
+  "robot_start": {
+    "x": 0.0,
+    "y": -2.2,
+    "yaw": 1.5708,
+    "z": 0.6
+  },
+  "schema": "competition_scene_manifest_v1",
+  "seed": 77,
+  "source_count": 13,
+  "truth_file": "/home/ros/simenv_ws/results/danger_truth.json",
+  "validation_report": "/home/ros/simenv_ws/generated_building/generation_checks.json",
+  "world_file": "/home/ros/simenv_ws/generated_building/competition_scene.world"
+}

@@ -8,10 +8,13 @@
 
 当前入口：
 - `fake_platform_node`：最小 demo 使用的平台占位节点。
-- Gazebo 最小仿真通过 `gazebo_minimal.launch.py` 启动。
+- `gazebo_adapter_node`：[Phase 2] Gazebo 平台适配节点（占位，待实现）。
 
-后续扩展：
-- 新增 Gazebo 或官方平台节点时，需要在 `entry_points` 中补对应命令。
+Phase 1 安装内容：
+- worlds/hazardwalker_minimal.sdf → share/hazardwalker_platform/worlds/
+- models/{red_ball,simple_robot}/model.sdf → share/hazardwalker_platform/models/
+- config/ros_gz_bridge.yaml → share/hazardwalker_platform/config/
+- launch/gazebo_minimal.launch.py → share/hazardwalker_platform/launch/
 """
 import glob
 import os
@@ -19,13 +22,8 @@ from setuptools import find_packages, setup
 
 package_name = 'hazardwalker_platform'
 
-# 该包提供平台适配节点，核心是把外部传感器/控制接口转换成 `/hw/*` 内部接口。
-
-# 收集模型文件：models/ 下所有 .sdf 和 model.config 文件
-_model_files = (
-    glob.glob('models/**/*.sdf', recursive=True)
-    + glob.glob('models/**/model.config', recursive=True)
-)
+# 收集模型文件：models/ 下所有 .sdf 文件
+_model_files = glob.glob('models/**/*.sdf', recursive=True)
 _model_entries = []
 for f in _model_files:
     dest_dir = os.path.join(f'share/{package_name}', os.path.dirname(f))
@@ -52,12 +50,14 @@ setup(
     zip_safe=True,
     maintainer='HazardWalker Team',
     maintainer_email='todo@example.com',
-    description='Platform adapters for HazardWalker — fake, Gazebo, and official platform layers.',
+    description='Platform adapters for HazardWalker — Gazebo, official platform, and minimal demo.',
     license='Apache-2.0',
     tests_require=['pytest'],
     entry_points={
         'console_scripts': [
             'fake_platform_node = hazardwalker_platform.fake_platform_node:main',
+            # 官方平台 ROS1 Docker → /hw/* 话题中继
+            'hw_topic_relay_node = hazardwalker_platform.hw_topic_relay_node:main',
         ],
     },
 )

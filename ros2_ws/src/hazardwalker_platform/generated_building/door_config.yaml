@@ -1,0 +1,209 @@
+doors:
+- id: main_entrance
+  floor_index: 0
+  kind: main_entrance
+  pose:
+  - 0.0
+  - 0.0
+  - 1.2
+  - 0.0
+  - 0.0
+  - 1.5707963267948966
+  width: 2.0
+  height: 2.4
+  initial_open: true
+  dynamic: true
+  model_name: dynamic_main_entrance
+  panel_poses:
+    left_closed:
+    - 0.0
+    - -0.5
+    - 0.0
+    - 0.0
+    - 0.0
+    - 0.0
+    right_closed:
+    - 0.0
+    - 0.5
+    - 0.0
+    - 0.0
+    - 0.0
+    - 0.0
+    left_open:
+    - 0.0
+    - -1.06
+    - 0.0
+    - 0.0
+    - 0.0
+    - 0.0
+    right_open:
+    - 0.0
+    - 1.06
+    - 0.0
+    - 0.0
+    - 0.0
+    - 0.0
+  closed_pose:
+  - 0.0
+  - 0.0
+  - 1.2
+  - 0.0
+  - 0.0
+  - 1.5707963267948966
+- id: elevator_floor_0
+  floor_index: 0
+  kind: elevator
+  pose:
+  - 1.6500000000000001
+  - 2.6
+  - 1.2
+  - 0.0
+  - 0.0
+  - 3.141592653589793
+  width: 1.4
+  height: 2.2
+  initial_open: true
+  dynamic: true
+  model_name: dynamic_elevator_floor_0
+  motion_duration: 60.0
+  panel_poses:
+    left_closed:
+    - 0.0
+    - -0.35
+    - 0.0
+    - 0.0
+    - 0.0
+    - 0.0
+    right_closed:
+    - 0.0
+    - 0.35
+    - 0.0
+    - 0.0
+    - 0.0
+    - 0.0
+    left_open:
+    - -0.12
+    - -1.1999999999999997
+    - 0.0
+    - 0.0
+    - 0.0
+    - 0.0
+    right_open:
+    - -0.12
+    - 1.1999999999999997
+    - 0.0
+    - 0.0
+    - 0.0
+    - 0.0
+  closed_pose:
+  - 1.6500000000000001
+  - 2.6
+  - 1.2
+  - 0.0
+  - 0.0
+  - 3.141592653589793
+- id: elevator_floor_1
+  floor_index: 1
+  kind: elevator
+  pose:
+  - 1.6500000000000001
+  - 2.6
+  - 3.8
+  - 0.0
+  - 0.0
+  - 3.141592653589793
+  width: 1.4
+  height: 2.2
+  initial_open: false
+  dynamic: true
+  model_name: dynamic_elevator_floor_1
+  motion_duration: 60.0
+  panel_poses:
+    left_closed:
+    - 0.0
+    - -0.35
+    - 0.0
+    - 0.0
+    - 0.0
+    - 0.0
+    right_closed:
+    - 0.0
+    - 0.35
+    - 0.0
+    - 0.0
+    - 0.0
+    - 0.0
+    left_open:
+    - -0.12
+    - -1.1999999999999997
+    - 0.0
+    - 0.0
+    - 0.0
+    - 0.0
+    right_open:
+    - -0.12
+    - 1.1999999999999997
+    - 0.0
+    - 0.0
+    - 0.0
+    - 0.0
+  closed_pose:
+  - 1.6500000000000001
+  - 2.6
+  - 3.8
+  - 0.0
+  - 0.0
+  - 3.141592653589793
+- id: elevator_floor_2
+  floor_index: 2
+  kind: elevator
+  pose:
+  - 1.6500000000000001
+  - 2.6
+  - 6.4
+  - 0.0
+  - 0.0
+  - 3.141592653589793
+  width: 1.4
+  height: 2.2
+  initial_open: false
+  dynamic: true
+  model_name: dynamic_elevator_floor_2
+  motion_duration: 60.0
+  panel_poses:
+    left_closed:
+    - 0.0
+    - -0.35
+    - 0.0
+    - 0.0
+    - 0.0
+    - 0.0
+    right_closed:
+    - 0.0
+    - 0.35
+    - 0.0
+    - 0.0
+    - 0.0
+    - 0.0
+    left_open:
+    - -0.12
+    - -1.1999999999999997
+    - 0.0
+    - 0.0
+    - 0.0
+    - 0.0
+    right_open:
+    - -0.12
+    - 1.1999999999999997
+    - 0.0
+    - 0.0
+    - 0.0
+    - 0.0
+  closed_pose:
+  - 1.6500000000000001
+  - 2.6
+  - 6.4
+  - 0.0
+  - 0.0
+  - 3.141592653589793
+signature: 1b3ec605fc19f367
