@@ -10,7 +10,7 @@
 - `compute_waypoint_command`：根据当前位姿、航点列表和容差，输出线速度、角速度、状态和目标下标。
 
 后续扩展方式：
-- 目前这个文件是“控制决策层”，不是 Nav2 包装层。
+- 目前这个文件是「控制决策层」，不是 Nav2 包装层。
 - 后续可新增一个 `nav2_goal_adapter.py` 或在 ROS 节点中加入 action client，把这里的航点结果转换成 Nav2 goal。
 - 若要做 Frontier 或更复杂导航，可新增 `frontier_controller.py`，复用这里的状态枚举和航点完成判定。
 
@@ -63,7 +63,7 @@ def compute_waypoint_command(x, y, yaw, waypoints, goal_index, completed=False,
         WaypointCommand。
 
     说明：
-    - 该函数只处理二维平面上的“朝向 -> 前进 -> 结束”逻辑。
+    - 该函数只处理二维平面上的「朝向 -> 前进 -> 结束」逻辑。
     - 当前返回的 `state` 只用于最小 demo；未来若接 Nav2，可以保留这个函数作为航点策略层。
     """
 
