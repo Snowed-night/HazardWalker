@@ -4,6 +4,7 @@
 topics:
   camera_image: /hw/camera/image_raw
   camera_info: /hw/camera/camera_info
+  camera_depth_image: /hw/camera/depth_image
   lidar_points: /hw/lidar/points
   odom: /hw/odom
   map: /hw/map

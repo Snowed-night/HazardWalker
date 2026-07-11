@@ -427,7 +427,7 @@ VirtualGL 将 OpenGL 应用重定向到 NVIDIA GPU 渲染，再通过 VNC 把画
 | 场景 | 推荐方案 |
 | --- | --- |
 | 日常开发、联调、比赛仿真 | **方案一** Headless |
-| 平台组调场景、需完整 Gazebo 3D（远程） | **方案二** 本机 `gz sim -g` |
+| 平台组调场景、需完整 Gazebo 3D（远程） | **方案二** 本机 `gz sim -g`（见 [Gazebo远程GUI分离操作指南.md](Gazebo远程GUI分离操作指南.md)） |
 | 导航 / 感知看传感器与位姿 | **方案三** RViz2 |
 | 相机仿真出图 | **方案四** Headless Rendering（需实测） |
 | 必须服务器侧 3D 且本机无法装 Gazebo | **方案五** VirtualGL + VNC（慎重） |

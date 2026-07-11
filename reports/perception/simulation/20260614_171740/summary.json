@@ -1,0 +1,123 @@
+{
+  "created_at": "20260614_171740",
+  "world": "/home/hxbl/桌面/HazardWalker/ros2_ws/install/hazardwalker_platform/share/hazardwalker_platform/worlds/hazardwalker_red_ball_gallery.sdf",
+  "partition": "hw_gallery_20260614_171740_2041407",
+  "cases": [
+    {
+      "name": "center_full",
+      "topic": "/gallery/center_full/image",
+      "description": "Single red ball centered and fully visible.",
+      "pixel_format": "RGB_INT8",
+      "image_size": [
+        640,
+        480
+      ],
+      "raw_image": null,
+      "boxed_image": "reports/perception/simulation/20260614_171740/center_full_boxed.png",
+      "detection": {
+        "x_min": 278,
+        "y_min": 198,
+        "x_max": 361,
+        "y_max": 280,
+        "confidence": 0.95517505258531,
+        "red_pixel_count": 5434
+      },
+      "components": [
+        {
+          "x_min": 278,
+          "y_min": 198,
+          "x_max": 361,
+          "y_max": 280,
+          "red_pixel_count": 5434
+        }
+      ]
+    },
+    {
+      "name": "edge_partial",
+      "topic": "/gallery/left_partial/image",
+      "description": "Single red ball clipped by an image edge; useful for partial-visibility checks.",
+      "pixel_format": "RGB_INT8",
+      "image_size": [
+        640,
+        480
+      ],
+      "raw_image": null,
+      "boxed_image": "reports/perception/simulation/20260614_171740/edge_partial_boxed.png",
+      "detection": null,
+      "components": [
+        {
+          "x_min": 589,
+          "y_min": 181,
+          "x_max": 639,
+          "y_max": 298,
+          "red_pixel_count": 4497
+        }
+      ]
+    },
+    {
+      "name": "top_partial",
+      "topic": "/gallery/top_partial/image",
+      "description": "Single red ball clipped by the top edge.",
+      "pixel_format": "RGB_INT8",
+      "image_size": [
+        640,
+        480
+      ],
+      "raw_image": null,
+      "boxed_image": "reports/perception/simulation/20260614_171740/top_partial_boxed.png",
+      "detection": {
+        "x_min": 266,
+        "y_min": 0,
+        "x_max": 373,
+        "y_max": 49,
+        "confidence": 0.7569238734145949,
+        "red_pixel_count": 4153
+      },
+      "components": [
+        {
+          "x_min": 265,
+          "y_min": 0,
+          "x_max": 374,
+          "y_max": 49,
+          "red_pixel_count": 4155
+        }
+      ]
+    },
+    {
+      "name": "multi_visible",
+      "topic": "/gallery/multi_visible/image",
+      "description": "Multiple red balls in one frame.",
+      "pixel_format": "RGB_INT8",
+      "image_size": [
+        640,
+        480
+      ],
+      "raw_image": null,
+      "boxed_image": "reports/perception/simulation/20260614_171740/multi_visible_boxed.png",
+      "detection": {
+        "x_min": 353,
+        "y_min": 216,
+        "x_max": 417,
+        "y_max": 280,
+        "confidence": 0.9629992011867053,
+        "red_pixel_count": 3339
+      },
+      "components": [
+        {
+          "x_min": 353,
+          "y_min": 216,
+          "x_max": 417,
+          "y_max": 280,
+          "red_pixel_count": 3339
+        },
+        {
+          "x_min": 220,
+          "y_min": 187,
+          "x_max": 278,
+          "y_max": 244,
+          "red_pixel_count": 2660
+        }
+      ]
+    }
+  ]
+}

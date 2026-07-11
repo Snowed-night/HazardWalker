@@ -1,0 +1,12 @@
+{
+  "case_id": "native3d_rgbd_shape_flat_panel",
+  "image_stamp": {
+    "sec": 110,
+    "nanosec": 418000000
+  },
+  "localization_ready": true,
+  "detections_2d": [],
+  "hazards": [],
+  "raw_image": "native3d_rgbd_shape_flat_panel_raw.png",
+  "annotated_image": "native3d_rgbd_shape_flat_panel_annotated.png"
+}

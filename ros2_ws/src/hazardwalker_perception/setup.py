@@ -1,15 +1,9 @@
-"""hazardwalker_perception 打包配置。
+﻿"""hazardwalker_perception 打包配置。
 
 所属组：感知组。
 文件作用：
-- 让 ROS 2/colcon 能安装 `hazardwalker_perception` 包。
-- 注册感知相关 console script。
-
-当前入口：
-- `hsv_detector_node`：HSV 红球检测节点。
-
-后续扩展：
-- 新增三维定位、跟踪或调试图像节点时，需要在 `entry_points` 中补对应命令。
+安装感知包并注册 `hsv_detector_node` 入口。
+新增定位、跟踪或调试图像节点时，在 `entry_points` 中补入口。
 """
 from setuptools import find_packages, setup
 
@@ -35,6 +29,7 @@ setup(
     entry_points={
         'console_scripts': [
             'hsv_detector_node = hazardwalker_perception.hsv_detector_node:main',
+            'dynamic_detection_recorder_node = hazardwalker_perception.dynamic_detection_recorder_node:main',
         ],
     },
 )

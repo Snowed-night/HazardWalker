@@ -1,0 +1,817 @@
+[
+  {
+    "case_id": "normal_sphere",
+    "case_type": "color",
+    "shape": "sphere",
+    "color_type": "normal_red",
+    "occlusion_ratio": 0.0,
+    "expected_detected": true,
+    "actual_detected": true,
+    "expected_count": 1,
+    "detection_count": 1,
+    "true_positive": 1,
+    "false_positive": 0,
+    "false_negative": 0,
+    "pass": true,
+    "confidence": 0.9671,
+    "circularity": 0.9035,
+    "aspect_ratio": 1.0,
+    "extent": 0.7841,
+    "red_pixel_count": 5521,
+    "bbox": [
+      39,
+      39,
+      121,
+      121
+    ],
+    "bboxes": [
+      [
+        39,
+        39,
+        121,
+        121
+      ]
+    ],
+    "gt_bbox": [
+      38,
+      38,
+      122,
+      122
+    ],
+    "gt_bboxes": [
+      [
+        38,
+        38,
+        122,
+        122
+      ]
+    ],
+    "iou": 0.9535,
+    "note": "正常红球"
+  },
+  {
+    "case_id": "bright_sphere",
+    "case_type": "color",
+    "shape": "sphere",
+    "color_type": "bright_red",
+    "occlusion_ratio": 0.0,
+    "expected_detected": true,
+    "actual_detected": true,
+    "expected_count": 1,
+    "detection_count": 1,
+    "true_positive": 1,
+    "false_positive": 0,
+    "false_negative": 0,
+    "pass": true,
+    "confidence": 0.9671,
+    "circularity": 0.9035,
+    "aspect_ratio": 1.0,
+    "extent": 0.7841,
+    "red_pixel_count": 5521,
+    "bbox": [
+      39,
+      39,
+      121,
+      121
+    ],
+    "bboxes": [
+      [
+        39,
+        39,
+        121,
+        121
+      ]
+    ],
+    "gt_bbox": [
+      38,
+      38,
+      122,
+      122
+    ],
+    "gt_bboxes": [
+      [
+        38,
+        38,
+        122,
+        122
+      ]
+    ],
+    "iou": 0.9535,
+    "note": "亮红球"
+  },
+  {
+    "case_id": "dark_sphere",
+    "case_type": "color",
+    "shape": "sphere",
+    "color_type": "dark_red",
+    "occlusion_ratio": 0.0,
+    "expected_detected": false,
+    "actual_detected": false,
+    "expected_count": 0,
+    "detection_count": 0,
+    "true_positive": 0,
+    "false_positive": 0,
+    "false_negative": 0,
+    "pass": true,
+    "confidence": null,
+    "circularity": null,
+    "aspect_ratio": null,
+    "extent": null,
+    "red_pixel_count": 0,
+    "bbox": null,
+    "bboxes": [],
+    "gt_bbox": null,
+    "gt_bboxes": [],
+    "iou": null,
+    "note": "低亮度暗红"
+  },
+  {
+    "case_id": "low_sat_sphere",
+    "case_type": "color",
+    "shape": "sphere",
+    "color_type": "low_saturation_red",
+    "occlusion_ratio": 0.0,
+    "expected_detected": false,
+    "actual_detected": false,
+    "expected_count": 0,
+    "detection_count": 0,
+    "true_positive": 0,
+    "false_positive": 0,
+    "false_negative": 0,
+    "pass": true,
+    "confidence": null,
+    "circularity": null,
+    "aspect_ratio": null,
+    "extent": null,
+    "red_pixel_count": 0,
+    "bbox": null,
+    "bboxes": [],
+    "gt_bbox": null,
+    "gt_bboxes": [],
+    "iou": null,
+    "note": "低饱和度红"
+  },
+  {
+    "case_id": "occ_10",
+    "case_type": "occlusion",
+    "shape": "sphere",
+    "color_type": "normal_red",
+    "occlusion_ratio": 0.1,
+    "expected_detected": true,
+    "actual_detected": true,
+    "expected_count": 1,
+    "detection_count": 1,
+    "true_positive": 1,
+    "false_positive": 0,
+    "false_negative": 0,
+    "pass": true,
+    "confidence": 0.9398,
+    "circularity": 0.9012,
+    "aspect_ratio": 0.9157,
+    "extent": 0.8185,
+    "red_pixel_count": 5282,
+    "bbox": [
+      39,
+      39,
+      114,
+      121
+    ],
+    "bboxes": [
+      [
+        39,
+        39,
+        114,
+        121
+      ]
+    ],
+    "gt_bbox": [
+      38,
+      38,
+      114,
+      122
+    ],
+    "gt_bboxes": [
+      [
+        38,
+        38,
+        114,
+        122
+      ]
+    ],
+    "iou": 0.9638,
+    "note": "10%遮挡"
+  },
+  {
+    "case_id": "occ_20",
+    "case_type": "occlusion",
+    "shape": "sphere",
+    "color_type": "normal_red",
+    "occlusion_ratio": 0.2,
+    "expected_detected": true,
+    "actual_detected": true,
+    "expected_count": 1,
+    "detection_count": 1,
+    "true_positive": 1,
+    "false_positive": 0,
+    "false_negative": 0,
+    "pass": true,
+    "confidence": 0.8992,
+    "circularity": 0.8645,
+    "aspect_ratio": 0.8072,
+    "extent": 0.8342,
+    "red_pixel_count": 4757,
+    "bbox": [
+      39,
+      39,
+      105,
+      121
+    ],
+    "bboxes": [
+      [
+        39,
+        39,
+        105,
+        121
+      ]
+    ],
+    "gt_bbox": [
+      38,
+      38,
+      105,
+      122
+    ],
+    "gt_bboxes": [
+      [
+        38,
+        38,
+        105,
+        122
+      ]
+    ],
+    "iou": 0.9621,
+    "note": "20%遮挡"
+  },
+  {
+    "case_id": "occ_30",
+    "case_type": "occlusion",
+    "shape": "sphere",
+    "color_type": "normal_red",
+    "occlusion_ratio": 0.3,
+    "expected_detected": true,
+    "actual_detected": true,
+    "expected_count": 1,
+    "detection_count": 1,
+    "true_positive": 1,
+    "false_positive": 0,
+    "false_negative": 0,
+    "pass": true,
+    "confidence": 0.8637,
+    "circularity": 0.8209,
+    "aspect_ratio": 0.7108,
+    "extent": 0.8307,
+    "red_pixel_count": 4183,
+    "bbox": [
+      39,
+      39,
+      97,
+      121
+    ],
+    "bboxes": [
+      [
+        39,
+        39,
+        97,
+        121
+      ]
+    ],
+    "gt_bbox": [
+      38,
+      38,
+      97,
+      122
+    ],
+    "gt_bboxes": [
+      [
+        38,
+        38,
+        97,
+        122
+      ]
+    ],
+    "iou": 0.9602,
+    "note": "30%遮挡"
+  },
+  {
+    "case_id": "occ_50",
+    "case_type": "occlusion",
+    "shape": "sphere",
+    "color_type": "normal_red",
+    "occlusion_ratio": 0.5,
+    "expected_detected": true,
+    "actual_detected": true,
+    "expected_count": 1,
+    "detection_count": 1,
+    "true_positive": 1,
+    "false_positive": 0,
+    "false_negative": 0,
+    "pass": true,
+    "confidence": 0.7876,
+    "circularity": 0.7073,
+    "aspect_ratio": 0.506,
+    "extent": 0.7748,
+    "red_pixel_count": 2802,
+    "bbox": [
+      39,
+      39,
+      80,
+      121
+    ],
+    "bboxes": [
+      [
+        39,
+        39,
+        80,
+        121
+      ]
+    ],
+    "gt_bbox": [
+      38,
+      38,
+      80,
+      122
+    ],
+    "gt_bboxes": [
+      [
+        38,
+        38,
+        80,
+        122
+      ]
+    ],
+    "iou": 0.9538,
+    "note": "50%遮挡"
+  },
+  {
+    "case_id": "occ_70",
+    "case_type": "occlusion",
+    "shape": "sphere",
+    "color_type": "normal_red",
+    "occlusion_ratio": 0.7,
+    "expected_detected": false,
+    "actual_detected": false,
+    "expected_count": 0,
+    "detection_count": 0,
+    "true_positive": 0,
+    "false_positive": 0,
+    "false_negative": 0,
+    "pass": true,
+    "confidence": null,
+    "circularity": null,
+    "aspect_ratio": null,
+    "extent": null,
+    "red_pixel_count": 0,
+    "bbox": null,
+    "bboxes": [],
+    "gt_bbox": null,
+    "gt_bboxes": [],
+    "iou": null,
+    "note": "70%遮挡保守拒绝"
+  },
+  {
+    "case_id": "red_cube",
+    "case_type": "false_positive",
+    "shape": "cube",
+    "color_type": "normal_red",
+    "occlusion_ratio": 0.0,
+    "expected_detected": false,
+    "actual_detected": false,
+    "expected_count": 0,
+    "detection_count": 0,
+    "true_positive": 0,
+    "false_positive": 0,
+    "false_negative": 0,
+    "pass": true,
+    "confidence": null,
+    "circularity": null,
+    "aspect_ratio": null,
+    "extent": null,
+    "red_pixel_count": 0,
+    "bbox": null,
+    "bboxes": [],
+    "gt_bbox": null,
+    "gt_bboxes": [],
+    "iou": null,
+    "note": "红色立方体投影"
+  },
+  {
+    "case_id": "red_triangle",
+    "case_type": "false_positive",
+    "shape": "triangle",
+    "color_type": "normal_red",
+    "occlusion_ratio": 0.0,
+    "expected_detected": false,
+    "actual_detected": false,
+    "expected_count": 0,
+    "detection_count": 0,
+    "true_positive": 0,
+    "false_positive": 0,
+    "false_negative": 0,
+    "pass": true,
+    "confidence": null,
+    "circularity": null,
+    "aspect_ratio": null,
+    "extent": null,
+    "red_pixel_count": 0,
+    "bbox": null,
+    "bboxes": [],
+    "gt_bbox": null,
+    "gt_bboxes": [],
+    "iou": null,
+    "note": "三角形不规则物体"
+  },
+  {
+    "case_id": "red_elongated",
+    "case_type": "false_positive",
+    "shape": "elongated",
+    "color_type": "normal_red",
+    "occlusion_ratio": 0.0,
+    "expected_detected": false,
+    "actual_detected": false,
+    "expected_count": 0,
+    "detection_count": 0,
+    "true_positive": 0,
+    "false_positive": 0,
+    "false_negative": 0,
+    "pass": true,
+    "confidence": null,
+    "circularity": null,
+    "aspect_ratio": null,
+    "extent": null,
+    "red_pixel_count": 0,
+    "bbox": null,
+    "bboxes": [],
+    "gt_bbox": null,
+    "gt_bboxes": [],
+    "iou": null,
+    "note": "细长不规则物体"
+  },
+  {
+    "case_id": "red_fragments",
+    "case_type": "false_positive",
+    "shape": "fragments",
+    "color_type": "normal_red",
+    "occlusion_ratio": 0.0,
+    "expected_detected": false,
+    "actual_detected": false,
+    "expected_count": 0,
+    "detection_count": 0,
+    "true_positive": 0,
+    "false_positive": 0,
+    "false_negative": 0,
+    "pass": true,
+    "confidence": null,
+    "circularity": null,
+    "aspect_ratio": null,
+    "extent": null,
+    "red_pixel_count": 0,
+    "bbox": null,
+    "bboxes": [],
+    "gt_bbox": null,
+    "gt_bboxes": [],
+    "iou": null,
+    "note": "碎片状红色干扰"
+  },
+  {
+    "case_id": "complex_bg_sphere",
+    "case_type": "background",
+    "shape": "sphere",
+    "color_type": "normal_red",
+    "occlusion_ratio": 0.0,
+    "expected_detected": true,
+    "actual_detected": true,
+    "expected_count": 1,
+    "detection_count": 1,
+    "true_positive": 1,
+    "false_positive": 0,
+    "false_negative": 0,
+    "pass": true,
+    "confidence": 0.9671,
+    "circularity": 0.9035,
+    "aspect_ratio": 1.0,
+    "extent": 0.7841,
+    "red_pixel_count": 5521,
+    "bbox": [
+      39,
+      39,
+      121,
+      121
+    ],
+    "bboxes": [
+      [
+        39,
+        39,
+        121,
+        121
+      ]
+    ],
+    "gt_bbox": [
+      38,
+      38,
+      122,
+      122
+    ],
+    "gt_bboxes": [
+      [
+        38,
+        38,
+        122,
+        122
+      ]
+    ],
+    "iou": 0.9535,
+    "note": "复杂背景红球"
+  },
+  {
+    "case_id": "multi_three_separate",
+    "case_type": "multi",
+    "shape": "multi_sphere",
+    "color_type": "normal_red",
+    "occlusion_ratio": 0.0,
+    "expected_detected": true,
+    "actual_detected": true,
+    "expected_count": 3,
+    "detection_count": 3,
+    "true_positive": 3,
+    "false_positive": 0,
+    "false_negative": 0,
+    "pass": true,
+    "confidence": 0.9691,
+    "circularity": 0.9092,
+    "aspect_ratio": 1.0,
+    "extent": 0.7863,
+    "red_pixel_count": 3771,
+    "bbox": [
+      19,
+      29,
+      57,
+      67
+    ],
+    "bboxes": [
+      [
+        19,
+        29,
+        57,
+        67
+      ],
+      [
+        87,
+        29,
+        121,
+        63
+      ],
+      [
+        57,
+        91,
+        99,
+        133
+      ]
+    ],
+    "gt_bbox": null,
+    "gt_bboxes": [
+      [
+        18,
+        28,
+        58,
+        68
+      ],
+      [
+        86,
+        28,
+        122,
+        64
+      ],
+      [
+        56,
+        90,
+        100,
+        134
+      ]
+    ],
+    "iou": 0.9048,
+    "note": "三个分离红球"
+  },
+  {
+    "case_id": "multi_partial_mix",
+    "case_type": "multi",
+    "shape": "multi_sphere",
+    "color_type": "normal_red",
+    "occlusion_ratio": 0.0,
+    "expected_detected": true,
+    "actual_detected": true,
+    "expected_count": 2,
+    "detection_count": 2,
+    "true_positive": 2,
+    "false_positive": 0,
+    "false_negative": 0,
+    "pass": true,
+    "confidence": 0.9694,
+    "circularity": 0.9106,
+    "aspect_ratio": 1.0,
+    "extent": 0.7835,
+    "red_pixel_count": 3911,
+    "bbox": [
+      89,
+      65,
+      143,
+      119
+    ],
+    "bboxes": [
+      [
+        89,
+        65,
+        143,
+        119
+      ],
+      [
+        19,
+        29,
+        54,
+        75
+      ]
+    ],
+    "gt_bbox": null,
+    "gt_bboxes": [
+      [
+        18,
+        28,
+        54,
+        76
+      ],
+      [
+        88,
+        64,
+        144,
+        120
+      ]
+    ],
+    "iou": 0.9311,
+    "note": "多红球和局部遮挡混合"
+  },
+  {
+    "case_id": "multi_touching_pair",
+    "case_type": "multi_touching",
+    "shape": "multi_sphere",
+    "color_type": "normal_red",
+    "occlusion_ratio": 0.0,
+    "expected_detected": true,
+    "actual_detected": true,
+    "expected_count": 2,
+    "detection_count": 2,
+    "true_positive": 2,
+    "false_positive": 0,
+    "false_negative": 0,
+    "pass": true,
+    "confidence": 1.0,
+    "circularity": 1.0,
+    "aspect_ratio": 1.0,
+    "extent": 0.7854,
+    "red_pixel_count": 6330,
+    "bbox": [
+      68,
+      52,
+      129,
+      113
+    ],
+    "bboxes": [
+      [
+        68,
+        52,
+        129,
+        113
+      ],
+      [
+        35,
+        51,
+        101,
+        113
+      ]
+    ],
+    "gt_bbox": null,
+    "gt_bboxes": [
+      [
+        34,
+        50,
+        98,
+        114
+      ],
+      [
+        66,
+        50,
+        130,
+        114
+      ]
+    ],
+    "iou": 0.9098,
+    "note": "两个相互粘连红球，测试 watershed 分裂"
+  },
+  {
+    "case_id": "shadow_sphere",
+    "case_type": "illumination_shadow",
+    "shape": "sphere",
+    "color_type": "normal_red",
+    "occlusion_ratio": 0.0,
+    "expected_detected": true,
+    "actual_detected": true,
+    "expected_count": 1,
+    "detection_count": 1,
+    "true_positive": 1,
+    "false_positive": 0,
+    "false_negative": 0,
+    "pass": true,
+    "confidence": 0.9671,
+    "circularity": 0.9035,
+    "aspect_ratio": 1.0,
+    "extent": 0.7841,
+    "red_pixel_count": 5521,
+    "bbox": [
+      39,
+      39,
+      121,
+      121
+    ],
+    "bboxes": [
+      [
+        39,
+        39,
+        121,
+        121
+      ]
+    ],
+    "gt_bbox": [
+      38,
+      38,
+      122,
+      122
+    ],
+    "gt_bboxes": [
+      [
+        38,
+        38,
+        122,
+        122
+      ]
+    ],
+    "iou": 0.9535,
+    "note": "阴影渐变环境"
+  },
+  {
+    "case_id": "bright_bg_sphere",
+    "case_type": "illumination_bright",
+    "shape": "sphere",
+    "color_type": "normal_red",
+    "occlusion_ratio": 0.0,
+    "expected_detected": true,
+    "actual_detected": true,
+    "expected_count": 1,
+    "detection_count": 1,
+    "true_positive": 1,
+    "false_positive": 0,
+    "false_negative": 0,
+    "pass": true,
+    "confidence": 0.9671,
+    "circularity": 0.9035,
+    "aspect_ratio": 1.0,
+    "extent": 0.7841,
+    "red_pixel_count": 5521,
+    "bbox": [
+      39,
+      39,
+      121,
+      121
+    ],
+    "bboxes": [
+      [
+        39,
+        39,
+        121,
+        121
+      ]
+    ],
+    "gt_bbox": [
+      38,
+      38,
+      122,
+      122
+    ],
+    "gt_bboxes": [
+      [
+        38,
+        38,
+        122,
+        122
+      ]
+    ],
+    "iou": 0.9535,
+    "note": "高亮背景环境"
+  }
+]

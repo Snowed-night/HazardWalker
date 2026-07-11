@@ -1,0 +1,20 @@
+﻿case_id,case_type,shape,color_type,occlusion_ratio,expected_detected,actual_detected,expected_count,detection_count,true_positive,false_positive,false_negative,pass,confidence,circularity,aspect_ratio,extent,red_pixel_count,bbox,bboxes,gt_bbox,gt_bboxes,iou,note
+normal_sphere,color,sphere,normal_red,0.0,True,True,1,1,1,0,0,True,0.9671,0.9035,1.0,0.7841,5521,"[39, 39, 121, 121]","[[39, 39, 121, 121]]","[38, 38, 122, 122]","[[38, 38, 122, 122]]",0.9535,正常红球
+bright_sphere,color,sphere,bright_red,0.0,True,True,1,1,1,0,0,True,0.9671,0.9035,1.0,0.7841,5521,"[39, 39, 121, 121]","[[39, 39, 121, 121]]","[38, 38, 122, 122]","[[38, 38, 122, 122]]",0.9535,亮红球
+dark_sphere,color,sphere,dark_red,0.0,False,False,0,0,0,0,0,True,,,,,0,,[],,[],,低亮度暗红
+low_sat_sphere,color,sphere,low_saturation_red,0.0,False,False,0,0,0,0,0,True,,,,,0,,[],,[],,低饱和度红
+occ_10,occlusion,sphere,normal_red,0.1,True,True,1,1,1,0,0,True,0.9398,0.9012,0.9157,0.8185,5282,"[39, 39, 114, 121]","[[39, 39, 114, 121]]","[38, 38, 114, 122]","[[38, 38, 114, 122]]",0.9638,10%遮挡
+occ_20,occlusion,sphere,normal_red,0.2,True,True,1,1,1,0,0,True,0.8992,0.8645,0.8072,0.8342,4757,"[39, 39, 105, 121]","[[39, 39, 105, 121]]","[38, 38, 105, 122]","[[38, 38, 105, 122]]",0.9621,20%遮挡
+occ_30,occlusion,sphere,normal_red,0.3,True,True,1,1,1,0,0,True,0.8637,0.8209,0.7108,0.8307,4183,"[39, 39, 97, 121]","[[39, 39, 97, 121]]","[38, 38, 97, 122]","[[38, 38, 97, 122]]",0.9602,30%遮挡
+occ_50,occlusion,sphere,normal_red,0.5,True,True,1,1,1,0,0,True,0.7876,0.7073,0.506,0.7748,2802,"[39, 39, 80, 121]","[[39, 39, 80, 121]]","[38, 38, 80, 122]","[[38, 38, 80, 122]]",0.9538,50%遮挡
+occ_70,occlusion,sphere,normal_red,0.7,False,False,0,0,0,0,0,True,,,,,0,,[],,[],,70%遮挡保守拒绝
+red_cube,false_positive,cube,normal_red,0.0,False,False,0,0,0,0,0,True,,,,,0,,[],,[],,红色立方体投影
+red_triangle,false_positive,triangle,normal_red,0.0,False,False,0,0,0,0,0,True,,,,,0,,[],,[],,三角形不规则物体
+red_elongated,false_positive,elongated,normal_red,0.0,False,False,0,0,0,0,0,True,,,,,0,,[],,[],,细长不规则物体
+red_fragments,false_positive,fragments,normal_red,0.0,False,False,0,0,0,0,0,True,,,,,0,,[],,[],,碎片状红色干扰
+complex_bg_sphere,background,sphere,normal_red,0.0,True,True,1,1,1,0,0,True,0.9671,0.9035,1.0,0.7841,5521,"[39, 39, 121, 121]","[[39, 39, 121, 121]]","[38, 38, 122, 122]","[[38, 38, 122, 122]]",0.9535,复杂背景红球
+multi_three_separate,multi,multi_sphere,normal_red,0.0,True,True,3,3,3,0,0,True,0.9691,0.9092,1.0,0.7863,3771,"[19, 29, 57, 67]","[[19, 29, 57, 67], [87, 29, 121, 63], [57, 91, 99, 133]]",,"[[18, 28, 58, 68], [86, 28, 122, 64], [56, 90, 100, 134]]",0.9048,三个分离红球
+multi_partial_mix,multi,multi_sphere,normal_red,0.0,True,True,2,2,2,0,0,True,0.9694,0.9106,1.0,0.7835,3911,"[89, 65, 143, 119]","[[89, 65, 143, 119], [19, 29, 54, 75]]",,"[[18, 28, 54, 76], [88, 64, 144, 120]]",0.9311,多红球和局部遮挡混合
+multi_touching_pair,multi_touching,multi_sphere,normal_red,0.0,True,True,2,2,2,0,0,True,1.0,1.0,1.0,0.7854,6330,"[68, 52, 129, 113]","[[68, 52, 129, 113], [35, 51, 101, 113]]",,"[[34, 50, 98, 114], [66, 50, 130, 114]]",0.9098,两个相互粘连红球，测试 watershed 分裂
+shadow_sphere,illumination_shadow,sphere,normal_red,0.0,True,True,1,1,1,0,0,True,0.9671,0.9035,1.0,0.7841,5521,"[39, 39, 121, 121]","[[39, 39, 121, 121]]","[38, 38, 122, 122]","[[38, 38, 122, 122]]",0.9535,阴影渐变环境
+bright_bg_sphere,illumination_bright,sphere,normal_red,0.0,True,True,1,1,1,0,0,True,0.9671,0.9035,1.0,0.7841,5521,"[39, 39, 121, 121]","[[39, 39, 121, 121]]","[38, 38, 122, 122]","[[38, 38, 122, 122]]",0.9535,高亮背景环境

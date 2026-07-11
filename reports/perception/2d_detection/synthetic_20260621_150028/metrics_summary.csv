@@ -1,0 +1,2 @@
+﻿num_samples,num_ground_truth,true_positive,false_positive,false_negative,true_negative,precision,recall,f1_score,accuracy,false_positive_rate,miss_rate,top1_error,ap50
+19,12,10,2,2,7,0.8333,0.8333,0.8333,0.8947,0.2222,0.1667,0.1053,0.6944
