@@ -1,39 +1,33 @@
-﻿"""HSV 红球检测 ROS 节点。
+"""HSV 红球检测 ROS 节点。
 
 所属组：感知组。
 文件作用：
-把 `/hw/camera/image_raw` 转为危险源候选 JSON。
-调用离线红球检测函数得到 2D bbox。
-结合 `/hw/camera/camera_info`、`/hw/camera/depth_image` 和 TF 输出三维危险源坐标。
-当前实现边界：
-深度图支持 `32FC1` 米和 `16UC1` 毫米编码；点云 ROI 定位后续再接。
+- 把 `/hw/camera/image_raw` 转为危险源候选 JSON。
+- 作为离线 `red_ball_detector.py` 到 ROS 话题的桥接层。
+
+当前职责：
+- 订阅图像话题并读取参数。
+- 调用离线检测函数得到 2D 红球框。
+- 输出临时占位的 2D/3D 结果，供决策和结果写入先联通。
+
+后续扩展方式：
+- 增加 `CameraInfo`、`PointCloud2` 和 TF 订阅后，补真实 `localize_hazard`。
+- 将当前 JSON 字符串输出替换为 `hazardwalker_msgs/HazardArray`。
+- 增加调试图像发布，方便人工确认阈值和误检情况。
+
+验证方式：
+- 先用 fake platform 的人造红球图像验证能稳定出框。
+- 再在仿真图像上验证阈值、坐标和状态是否正确。
 """
 import json
-import math
 import time
 
-import numpy as np
 import rclpy
 from rclpy.node import Node
-from rclpy.time import Time
-from sensor_msgs.msg import CameraInfo, Image
+from sensor_msgs.msg import Image
 from std_msgs.msg import String
-from tf2_ros import Buffer, TransformException, TransformListener
 
-from hazardwalker_perception.localize_hazard import (
-    Point3D,
-    RigidTransform3D,
-    camera_intrinsics_from_k,
-    evaluate_sphere_depth_shape,
-    localize_bbox_from_depth_image,
-)
-from hazardwalker_perception.red_ball_detector import create_detection_backend
-from hazardwalker_perception.track_hazards import (
-    HazardObservation,
-    HazardTracker,
-    HazardTrackerConfig,
-    track_to_hazard_dict,
-)
+from hazardwalker_perception.red_ball_detector import detect_red_ball_rgb_bytes
 
 
 class HsvDetectorNode(Node):
@@ -41,72 +35,12 @@ class HsvDetectorNode(Node):
         super().__init__('hsv_detector_node')
         self.declare_parameter('min_area_px', 80)
         self.declare_parameter('min_confidence', 0.5)
-        self.declare_parameter('min_circularity', 0.60)
-        self.declare_parameter('min_aspect_ratio', 0.45)
-        self.declare_parameter('min_extent', 0.35)
-        self.declare_parameter('max_extent', 0.92)
-        self.declare_parameter('max_detections', 20)
-        self.declare_parameter('detector_backend', 'hsv_opencv')
-        self.declare_parameter('split_touching_red_balls', True)
-        self.declare_parameter('roi_padding_px', 8)
-        self.declare_parameter('min_depth_points_in_roi', 5)
-        self.declare_parameter('max_detection_range_m', 20.0)
-        # 官方标准红球为半径 0.15 m；该先验只在严格球形候选的定位阶段使用。
-        self.declare_parameter('sphere_radius_m', 0.15)
-        self.declare_parameter('use_sphere_projection_geometry', True)
-        # PoseInfo/相机帧来自不同桥接线程时可能只有数毫秒滞后；允许使用最新 TF
-        # 能避免“未来外推”导致整帧定位被丢弃。高速运动平台可显式关闭该兜底。
-        self.declare_parameter('allow_latest_tf_fallback', True)
-        self.declare_parameter('output_frame', 'start')
-        self.declare_parameter('confirm_observation_count', 3)
-        self.declare_parameter('confirm_distinct_views', 2)
-        self.declare_parameter('reject_after_missed_count', 10)
-        self.declare_parameter('merge_distance_m', 0.5)
-        self.declare_parameter('emit_partial_candidates', True)
-        self.declare_parameter('partial_min_area_px', 30)
-        # 遮挡到 5%--15% 时球面投影会变成很窄的弓形，仍需输出“待复查”
-        # 而非静默漏检。该阈值只作用于不可确认候选，最终确认仍保持严格门槛。
-        self.declare_parameter('partial_min_circularity', 0.18)
-        self.declare_parameter('partial_min_aspect_ratio', 0.12)
-        self.declare_parameter('partial_min_value', 50)
-        # 深度曲率仅否决“明确平面”的候选；缺深度/遮挡一律进入重观察而非直接漏检。
-        self.declare_parameter('min_sphere_depth_curvature_m', 0.008)
-        self.declare_parameter('min_sphere_depth_shape_points', 8)
 
-        self.camera_intrinsics = None
-        self.latest_depth_image = None
-        self.latest_depth_frame_id = ''
-        self.latest_depth_stamp = None
-        self.detector_backend = create_detection_backend(str(self.get_parameter('detector_backend').value))
-        self.tracker = HazardTracker(HazardTrackerConfig(
-            confirm_observation_count=int(self.get_parameter('confirm_observation_count').value),
-            min_distinct_views=int(self.get_parameter('confirm_distinct_views').value),
-            reject_after_missed_count=int(self.get_parameter('reject_after_missed_count').value),
-            merge_distance_m=float(self.get_parameter('merge_distance_m').value),
-        ))
-
-        self.tf_buffer = Buffer()
-        self.tf_listener = TransformListener(self.tf_buffer, self)
-
-        # 只依赖平台层输出的统一 `/hw/*` topic，不直接依赖 Gazebo/官方平台 topic。
-        self.sub = self.create_subscription(Image, '/hw/camera/image_raw', self.on_image, 10)
-        self.camera_info_sub = self.create_subscription(CameraInfo, '/hw/camera/camera_info', self.on_camera_info, 10)
-        self.depth_sub = self.create_subscription(Image, '/hw/camera/depth_image', self.on_depth_image, 10)
+        # 只依赖平台层输出的统一图像 topic，不直接依赖 Gazebo/官方平台 topic。
+        self.sub = self.create_subscription(Image, '/hw/real_sense/rgb/image_raw', self.on_image, 10)
         # 第一阶段用 String(JSON) 快速打通链路；稳定后迁移到 hazardwalker_msgs/HazardArray。
         self.pub = self.create_publisher(String, '/hw/perception/hazard_detections', 10)
-        self.get_logger().info('HSV detector subscribed to camera image, camera info and depth image.')
-
-    def on_camera_info(self, msg: CameraInfo):
-        self.camera_intrinsics = camera_intrinsics_from_k(msg.k)
-
-    def on_depth_image(self, msg: Image):
-        depth_image = _depth_image_to_meters(msg)
-        if depth_image is None:
-            self.get_logger().warn(f'Unsupported depth encoding: {msg.encoding}', throttle_duration_sec=5.0)
-            return
-        self.latest_depth_image = depth_image
-        self.latest_depth_frame_id = msg.header.frame_id
-        self.latest_depth_stamp = msg.header.stamp
+        self.get_logger().info('HSV detector subscribed to /hw/camera/image_raw.')
 
     def on_image(self, msg: Image):
         # 当前只支持最常见的 rgb8/bgr8。正式版本应通过 cv_bridge 支持更多编码。
@@ -114,7 +48,7 @@ class HsvDetectorNode(Node):
             self.get_logger().warn(f'Unsupported image encoding: {msg.encoding}', throttle_duration_sec=5.0)
             return
 
-        detections_2d = self.detector_backend.detect(
+        detection_2d = detect_red_ball_rgb_bytes(
             data=msg.data,
             width=msg.width,
             height=msg.height,
@@ -122,253 +56,42 @@ class HsvDetectorNode(Node):
             encoding=msg.encoding,
             min_area_px=int(self.get_parameter('min_area_px').value),
             min_confidence=float(self.get_parameter('min_confidence').value),
-            min_circularity=float(self.get_parameter('min_circularity').value),
-            min_aspect_ratio=float(self.get_parameter('min_aspect_ratio').value),
-            min_extent=float(self.get_parameter('min_extent').value),
-            max_extent=float(self.get_parameter('max_extent').value),
-            max_detections=int(self.get_parameter('max_detections').value),
-            split_touching=bool(self.get_parameter('split_touching_red_balls').value),
-            include_partial_candidates=bool(self.get_parameter('emit_partial_candidates').value),
-            partial_min_area_px=int(self.get_parameter('partial_min_area_px').value),
-            partial_min_circularity=float(self.get_parameter('partial_min_circularity').value),
-            partial_min_aspect_ratio=float(self.get_parameter('partial_min_aspect_ratio').value),
-            partial_min_value=int(self.get_parameter('partial_min_value').value),
         )
-        stamp_sec = _stamp_to_float(msg.header.stamp)
-        output_frame = str(self.get_parameter('output_frame').value)
-        if not detections_2d:
-            active_tracks = self.tracker.update([], stamp_sec=stamp_sec)
-            self._publish_detection_payload(
-                hazards=self._tracks_to_hazards(active_tracks, output_frame),
-                detections_2d=[],
-            )
+        if detection_2d is None:
             return
 
-        camera_to_output = self._lookup_camera_to_output(msg.header.frame_id, output_frame, msg.header.stamp)
-        view_id = _view_id_from_transform(camera_to_output)
-        observations = []
-        detections_2d_payload = []
-
-        for index, detection_2d in enumerate(detections_2d, start=1):
-            bbox = {
+        # position 是临时占位，当前只用于让决策和结果写入链路先跑通。
+        # 后续应改成：图像检测框 -> 相机内参 -> 点云/深度 -> TF 变换 -> start/map 坐标。
+        detection = {
+            'id': 1,
+            'frame_id': msg.header.frame_id,
+            'stamp': {
+                'sec': msg.header.stamp.sec,
+                'nanosec': msg.header.stamp.nanosec,
+            },
+            'bbox': {
                 'x_min': detection_2d.x_min,
                 'y_min': detection_2d.y_min,
                 'x_max': detection_2d.x_max,
                 'y_max': detection_2d.y_max,
-            }
-            localization = None
-            depth_shape = None
-            if self.latest_depth_image is not None:
-                depth_shape = evaluate_sphere_depth_shape(
-                    depth_image=self.latest_depth_image,
-                    bbox=bbox,
-                    max_depth_m=float(self.get_parameter('max_detection_range_m').value),
-                    min_points_per_region=int(self.get_parameter('min_sphere_depth_shape_points').value),
-                    min_curvature_m=float(self.get_parameter('min_sphere_depth_curvature_m').value),
-                )
-            depth_shape_status = depth_shape.status if depth_shape else 'unknown'
-            # 圆柱端面、立方体/平板等在单帧可能都有近圆形红色投影。只有深度明确
-            # 显示平面时才抑制确认；unknown 保留给多视角策略，避免遮挡球被误杀。
-            confirmation_eligible = (
-                not detection_2d.requires_reobservation and depth_shape_status != 'flat'
-            )
-            if self.camera_intrinsics and self.latest_depth_image is not None and camera_to_output:
-                localization = localize_bbox_from_depth_image(
-                    bbox=bbox,
-                    intrinsics=self.camera_intrinsics,
-                    depth_image=self.latest_depth_image,
-                    camera_to_output=camera_to_output,
-                    output_frame=output_frame,
-                    roi_padding_px=int(self.get_parameter('roi_padding_px').value),
-                    max_depth_m=float(self.get_parameter('max_detection_range_m').value),
-                    min_points=int(self.get_parameter('min_depth_points_in_roi').value),
-                    sphere_radius_m=float(self.get_parameter('sphere_radius_m').value),
-                    use_sphere_projection_geometry=bool(
-                        self.get_parameter('use_sphere_projection_geometry').value
-                    ),
-                )
-
-            source_id = f'{msg.header.stamp.sec}.{msg.header.stamp.nanosec}:{index}'
-            detections_2d_payload.append({
-                'id': index,
-                'frame_id': msg.header.frame_id,
-                # 量化后的相机世界位姿标签用于后续多视角确认与实验审计。
-                'view_id': view_id,
-                'stamp': {
-                    'sec': msg.header.stamp.sec,
-                    'nanosec': msg.header.stamp.nanosec,
-                },
-                'bbox': bbox,
-                'confidence': detection_2d.confidence,
-                'red_pixel_count': detection_2d.red_pixel_count,
-                'is_partial': detection_2d.is_partial,
-                'requires_reobservation': detection_2d.requires_reobservation,
-                'may_be_merged': detection_2d.may_be_merged,
-                'quality_reason': detection_2d.quality_reason,
-                'shape': {
-                    'circularity': detection_2d.circularity,
-                    'aspect_ratio': detection_2d.aspect_ratio,
-                    'extent': detection_2d.extent,
-                },
-                'depth_shape': {
-                    'status': depth_shape_status,
-                    'center_depth_m': depth_shape.center_depth_m if depth_shape else None,
-                    'outer_depth_m': depth_shape.outer_depth_m if depth_shape else None,
-                    'curvature_m': depth_shape.curvature_m if depth_shape else None,
-                    'center_points': depth_shape.center_points if depth_shape else 0,
-                    'outer_points': depth_shape.outer_points if depth_shape else 0,
-                },
-                'confirmation_eligible': confirmation_eligible,
-                'localization_status': (
-                    'suppressed_flat_depth_shape' if depth_shape_status == 'flat'
-                    else 'localized' if localization else 'unlocalized'
-                ),
-                'source': 'hsv_minimal',
-                'detector_backend': self.detector_backend.name,
-            })
-
-            # 宽松候选只用于主动重观察；只有严格形状检测才可进入三维多帧确认。
-            if localization and confirmation_eligible:
-                observations.append(HazardObservation(
-                    position=(
-                        localization.position.x,
-                        localization.position.y,
-                        localization.position.z,
-                    ),
-                    confidence=detection_2d.confidence,
-                    stamp_sec=stamp_sec,
-                    source_id=source_id,
-                    view_id=view_id,
-                ))
-
-        active_tracks = self.tracker.update(observations, stamp_sec=stamp_sec)
-        self._publish_detection_payload(
-            hazards=self._tracks_to_hazards(active_tracks, output_frame),
-            detections_2d=detections_2d_payload,
-        )
-
-    def _tracks_to_hazards(self, tracks, output_frame):
-        hazards = []
-        for track in tracks:
-            item = track_to_hazard_dict(track)
-            item['position_frame_id'] = output_frame
-            item['source'] = 'hsv_depth_tf'
-            item['observation_time'] = time.time()
-            hazards.append(item)
-        return hazards
-
-    def _publish_detection_payload(self, hazards, detections_2d):
+            },
+            'position': [2.0, 0.0, 0.6],
+            'position_frame_id': 'start',
+            'confidence': detection_2d.confidence,
+            'status': 'tentative',
+            'observation_time': time.time(),
+            'source': 'hsv_minimal',
+        }
         out = String()
-        out.data = json.dumps({
-            'hazards': hazards,
-            'detections_2d': detections_2d,
-            'localization_ready': self.camera_intrinsics is not None and self.latest_depth_image is not None,
-        }, ensure_ascii=False)
+        out.data = json.dumps({'hazards': [detection]}, ensure_ascii=False)
         self.pub.publish(out)
 
-    def _lookup_camera_to_output(self, camera_frame, output_frame, stamp):
-        if not camera_frame:
-            return None
-        if camera_frame == output_frame:
-            return RigidTransform3D(
-                translation=Point3D(0.0, 0.0, 0.0),
-                rotation=((1.0, 0.0, 0.0), (0.0, 1.0, 0.0), (0.0, 0.0, 1.0)),
-            )
-        try:
-            transform = self.tf_buffer.lookup_transform(output_frame, camera_frame, Time.from_msg(stamp))
-        except TransformException as exc:
-            if bool(self.get_parameter('allow_latest_tf_fallback').value):
-                try:
-                    latest_transform = self.tf_buffer.lookup_transform(output_frame, camera_frame, Time())
-                    self.get_logger().warn(
-                        f'TF at image stamp unavailable from {camera_frame} to {output_frame}; using latest TF: {exc}',
-                        throttle_duration_sec=5.0,
-                    )
-                    return _transform_msg_to_rigid(latest_transform.transform)
-                except TransformException:
-                    pass
-            self.get_logger().warn(
-                f'TF lookup failed from {camera_frame} to {output_frame}: {exc}',
-                throttle_duration_sec=5.0,
-            )
-            return None
-        return _transform_msg_to_rigid(transform.transform)
 
-
-"""把 ROS 深度图转换为米单位二维数组。"""
-def _depth_image_to_meters(msg: Image):
-    encoding = msg.encoding.upper()
-    if encoding == '32FC1':
-        dtype = np.float32
-        scale = 1.0
-    elif encoding == '16UC1':
-        dtype = np.uint16
-        scale = 0.001
-    else:
-        return None
-
-    item_size = np.dtype(dtype).itemsize
-    row_values = msg.step // item_size
-    if row_values < msg.width:
-        return None
-
-    raw = np.frombuffer(bytes(msg.data), dtype=dtype)
-    expected_values = row_values * msg.height
-    if raw.size < expected_values:
-        return None
-    image = raw[:expected_values].reshape((msg.height, row_values))[:, :msg.width]
-    return image.astype(np.float32) * scale
-
-
-"""把 ROS Transform 转成定位纯函数使用的刚体变换。"""
-def _transform_msg_to_rigid(transform):
-    qx = float(transform.rotation.x)
-    qy = float(transform.rotation.y)
-    qz = float(transform.rotation.z)
-    qw = float(transform.rotation.w)
-    norm = math.sqrt(qx * qx + qy * qy + qz * qz + qw * qw)
-    if norm <= 0.0:
-        qx, qy, qz, qw = 0.0, 0.0, 0.0, 1.0
-    else:
-        qx, qy, qz, qw = qx / norm, qy / norm, qz / norm, qw / norm
-
-    rotation = (
-        (1.0 - 2.0 * (qy * qy + qz * qz), 2.0 * (qx * qy - qz * qw), 2.0 * (qx * qz + qy * qw)),
-        (2.0 * (qx * qy + qz * qw), 1.0 - 2.0 * (qx * qx + qz * qz), 2.0 * (qy * qz - qx * qw)),
-        (2.0 * (qx * qz - qy * qw), 2.0 * (qy * qz + qx * qw), 1.0 - 2.0 * (qx * qx + qy * qy)),
-    )
-    return RigidTransform3D(
-        translation=Point3D(
-            float(transform.translation.x),
-            float(transform.translation.y),
-            float(transform.translation.z),
-        ),
-        rotation=rotation,
-    )
-
-
-"""把 ROS 时间戳转成浮点秒，供跟踪器记录观测时间。"""
-def _stamp_to_float(stamp):
-    return float(stamp.sec) + float(stamp.nanosec) * 1e-9
-
-
-"""将相机位姿量化为多视角确认使用的稳定标签。"""
-def _view_id_from_transform(transform):
-    if transform is None:
-        return ''
-    forward_x = float(transform.rotation[0][2])
-    forward_y = float(transform.rotation[1][2])
-    yaw_deg = math.degrees(math.atan2(forward_y, forward_x))
-    return 'pos:{:.1f}:{:.1f}:{:.1f}|yaw:{:.0f}'.format(
-        round(float(transform.translation.x) / 0.4) * 0.4,
-        round(float(transform.translation.y) / 0.4) * 0.4,
-        round(float(transform.translation.z) / 0.4) * 0.4,
-        round(yaw_deg / 30.0) * 30.0,
-    )
-
-
-"""启动 ROS 节点,用于在仿真或 fake platform 下验证图像检测链路。"""
 def main():
+    """启动 ROS 节点。
+
+    该节点适合在仿真或 fake platform 下验证图像检测链路。
+    """
     rclpy.init()
     node = HsvDetectorNode()
     try:

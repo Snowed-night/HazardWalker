@@ -1,0 +1,48 @@
+# ROS 1 Noetic in Ubuntu 20.04 container (Gazebo Classic + unitree_guide).
+# Host: Ubuntu 24.04 — run via ./auto_docker.sh from SimEnv_ROS1 root.
+#
+# Per-user container name avoids clashes when multiple hazard_* accounts run sim.
+
+services:
+  simenv_noetic:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      network: host
+    image: simenv_ros1:noetic-focal
+    container_name: simenv_ros1_${DOCKER_SIMENV_USER:-default}
+    network_mode: host
+    working_dir: /home/ros/simenv_ws
+    volumes:
+      - ${SIMENV_HOST_PATH:-./}:/home/ros/simenv_ws
+    environment:
+      ROS_DISTRO: noetic
+      DOCKER_SIMENV_USER: ${DOCKER_SIMENV_USER:-default}
+      LIBTORCH_ROOT: /home/ros/Guoyulun/Download/libtorch
+      LD_LIBRARY_PATH: /home/ros/Guoyulun/Download/libtorch/lib
+      LIBGL_ALWAYS_SOFTWARE: ${LIBGL_ALWAYS_SOFTWARE:-1}
+      GUI: ${GUI:-false}
+      PAUSED: ${PAUSED:-false}
+      SEED: ${SEED:-}
+      FLOOR_COUNT: ${FLOOR_COUNT:-3}
+      ROOMS_PER_FLOOR: ${ROOMS_PER_FLOOR:-4}
+      DANGER_COUNT: ${DANGER_COUNT:-3:6}
+      DISTRACTOR_COUNT: ${DISTRACTOR_COUNT:-4:8}
+      ROBOT_X: ${ROBOT_X:-0}
+      ROBOT_Y: ${ROBOT_Y:--2.2}
+      ROBOT_Z: ${ROBOT_Z:-0.6}
+      ROBOT_YAW: ${ROBOT_YAW:-1.5708}
+      START_CONTROLLER: ${START_CONTROLLER:-0}
+      START_BUILDING_CONTROL: ${START_BUILDING_CONTROL:-1}
+      START_VIRTUAL_JOY: ${START_VIRTUAL_JOY:-0}
+      CONTROLLER_FOREGROUND: ${CONTROLLER_FOREGROUND:-0}
+      UNITREE_CTRL_DT: ${UNITREE_CTRL_DT:-0.004}
+    command: >
+      bash -lc "
+        chmod +x /home/ros/simenv_ws/docker/ros1_bridge.sh
+        /home/ros/simenv_ws/docker/ros1_bridge.sh &
+        sleep 5
+        ./auto_noetic_headless.sh
+        tail -f /dev/null
+      "
+    restart: unless-stopped

@@ -57,7 +57,7 @@ class WaypointPatrolNode(Node):
         self.cmd_pub = self.create_publisher(Twist, '/hw/cmd_vel', 10)
         # 输出导航状态给决策层。当前只发布 IDLE/NAVIGATING/RETURNING/FINISHED。
         self.state_pub = self.create_publisher(String, '/hw/nav/state', 10)
-        self.odom_sub = self.create_subscription(Odometry, '/hw/odom', self.on_odom, 10)
+        self.odom_sub = self.create_subscription(Odometry, '/hw/Odometry_gazebo', self.on_odom, 10)
         # 10Hz 控制循环。真实 Nav2 接入后，这里可以改成 action/result 驱动，而不是定时轮询。
         self.timer = self.create_timer(0.1, self.on_timer)
         self.get_logger().info(f'Waypoint patrol loaded {len(self.waypoints)} goals.')

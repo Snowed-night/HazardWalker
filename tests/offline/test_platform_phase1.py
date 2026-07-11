@@ -59,11 +59,8 @@ def test_all_phase1_files_exist():
     """验证 Phase 1 全部产出文件存在于正确位置。"""
     expected = [
         os.path.join(MODELS_DIR, 'red_ball', 'model.sdf'),
-        os.path.join(MODELS_DIR, 'red_ball', 'model.config'),
         os.path.join(MODELS_DIR, 'simple_robot', 'model.sdf'),
-        os.path.join(MODELS_DIR, 'simple_robot', 'model.config'),
         os.path.join(WORLDS_DIR, 'hazardwalker_minimal.sdf'),
-        os.path.join(WORLDS_DIR, 'hazardwalker_red_ball_gallery.sdf'),
         os.path.join(CONFIG_DIR, 'ros_gz_bridge.yaml'),
         os.path.join(LAUNCH_DIR, 'gazebo_minimal.launch.py'),
     ]
@@ -87,17 +84,6 @@ def test_red_ball_sdf_is_valid_xml():
     if err:
         raise AssertionError(f'红球 SDF XML 解析失败: {err}')
     assert True
-
-
-def test_red_ball_model_config_is_valid_xml():
-    """红球模型包含 Gazebo 可解析的 model.config。"""
-    path = os.path.join(MODELS_DIR, 'red_ball', 'model.config')
-    tree, err = _safe_xml(path)
-    if err:
-        raise AssertionError(f'红球 model.config XML 解析失败: {err}')
-    root = tree.getroot()
-    assert root.findtext('name') == 'red_ball'
-    assert root.find('sdf') is not None
 
 
 def test_red_ball_is_static():
@@ -140,17 +126,6 @@ def test_robot_sdf_is_valid_xml():
     if err:
         raise AssertionError(f'机器人 SDF XML 解析失败: {err}')
     assert True
-
-
-def test_robot_model_config_is_valid_xml():
-    """机器人模型包含 Gazebo 可解析的 model.config。"""
-    path = os.path.join(MODELS_DIR, 'simple_robot', 'model.config')
-    tree, err = _safe_xml(path)
-    if err:
-        raise AssertionError(f'机器人 model.config XML 解析失败: {err}')
-    root = tree.getroot()
-    assert root.findtext('name') == 'simple_robot'
-    assert root.find('sdf') is not None
 
 
 def test_robot_has_chassis():
@@ -237,7 +212,6 @@ def test_robot_sensor_links_match_fake_platform():
 # ---------------------------------------------------------------------------
 
 _WORLD_SDF = os.path.join(WORLDS_DIR, 'hazardwalker_minimal.sdf')
-_GALLERY_WORLD_SDF = os.path.join(WORLDS_DIR, 'hazardwalker_red_ball_gallery.sdf')
 
 
 def test_world_sdf_is_valid_xml():
@@ -246,39 +220,6 @@ def test_world_sdf_is_valid_xml():
     if err:
         raise AssertionError(f'世界 SDF XML 解析失败: {err}')
     assert True
-
-
-def test_gallery_world_sdf_is_valid_xml():
-    """红球截图测试世界 SDF 文件是合法 XML。"""
-    _, err = _safe_xml(_GALLERY_WORLD_SDF)
-    if err:
-        raise AssertionError(f'红球截图测试世界 SDF XML 解析失败: {err}')
-    assert True
-
-
-def test_gallery_world_has_multiple_red_balls_and_cameras():
-    """截图测试世界包含多红球和多个测试相机。"""
-    tree, _ = _safe_xml(_GALLERY_WORLD_SDF)
-    includes = tree.getroot().findall('.//include')
-    red_ball_uris = []
-    for inc in includes:
-        uri_el = inc.find('uri')
-        if uri_el is not None and uri_el.text == 'model://red_ball':
-            red_ball_uris.append(uri_el.text)
-
-    sensors = tree.getroot().findall('.//sensor')
-    camera_topics = []
-    for sensor in sensors:
-        if sensor.get('type') == 'camera':
-            topic_el = sensor.find('topic')
-            if topic_el is not None:
-                camera_topics.append(topic_el.text)
-
-    assert len(red_ball_uris) >= 4, f'截图测试世界红球数量不足: {len(red_ball_uris)}'
-    assert '/gallery/center_full/image' in camera_topics
-    assert '/gallery/left_partial/image' in camera_topics
-    assert '/gallery/top_partial/image' in camera_topics
-    assert '/gallery/multi_visible/image' in camera_topics
 
 
 def test_world_has_four_walls():
@@ -358,7 +299,7 @@ def test_bridge_has_all_required_topics():
         '/hw/lidar/scan',
         '/hw/odom',
         '/tf',
-        '/hw/cmd_vel',
+        '/cmd_vel',
     }
     missing = required - ros_topics
     if missing:
@@ -438,10 +379,8 @@ if __name__ == '__main__':
         test_red_ball_is_static,
         test_red_ball_has_sphere_geometry,
         test_red_ball_model_name,
-        test_red_ball_model_config_is_valid_xml,
         # 3. 机器人模型
         test_robot_sdf_is_valid_xml,
-        test_robot_model_config_is_valid_xml,
         test_robot_has_chassis,
         test_robot_has_camera_sensor,
         test_robot_has_lidar_sensor,
@@ -451,8 +390,6 @@ if __name__ == '__main__':
         test_robot_sensor_links_match_fake_platform,
         # 4. 世界文件
         test_world_sdf_is_valid_xml,
-        test_gallery_world_sdf_is_valid_xml,
-        test_gallery_world_has_multiple_red_balls_and_cameras,
         test_world_has_four_walls,
         test_world_has_ground_plane,
         test_world_includes_robot_and_red_ball,

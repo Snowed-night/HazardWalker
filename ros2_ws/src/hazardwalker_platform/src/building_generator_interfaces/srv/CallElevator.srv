@@ -1,0 +1,8 @@
+string elevator_id
+int32 target_floor
+bool open_doors
+---
+bool accepted
+int32 current_floor
+string state
+string message
