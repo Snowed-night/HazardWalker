@@ -10,6 +10,7 @@
     "turn_pass": true,
     "ros1_nonzero_and_zero_commands_observed": true
   },
-  "full_rgbd_control_soak": "pending: image fragmentation fix requires sustained regression",
+  "full_rgbd_sensor_soak": "pass: 35s full RGB-D relay with zero adapter errors after fragment fix",
+  "full_rgbd_control_soak": "pending: simultaneous long-run RGB-D and control regression",
   "business_loop": "not_run"
 }
