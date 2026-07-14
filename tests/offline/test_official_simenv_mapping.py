@@ -86,3 +86,10 @@ def test_stack_keeps_adapter_alive_while_business_launch_runs():
     assert 'ADAPTER_PID=$!' in source
     assert 'trap cleanup_adapter EXIT INT TERM' in source
     assert 'ros2 launch hazardwalker_bringup official_simenv_business.launch.py' in source
+
+
+def test_legacy_json_bridge_fails_closed_in_official_profile():
+    source = (REPO_ROOT / 'ros2_ws' / 'src' / 'hazardwalker_platform' / 'hw_bridge.py').read_text(
+        encoding='utf-8')
+    assert 'HAZARDWALKER_ENABLE_LEGACY_JSON_BRIDGE' in source
+    assert 'run_official_simenv_rosbridge_adapter.sh' in source

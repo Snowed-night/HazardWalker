@@ -13,6 +13,10 @@ ROS1 `rosbridge_websocket`，再由安装 ROS2 的主机运行本仓库的 rosbr
 `docs/environment/官方SimEnv_ROS1_ROS2双向适配整改_20260714.md` 完成 ROS1 直连控制、传感器和跨栈控制
 的逐段验收后，才运行业务闭环。
 
+历史 `hw_bridge.py`/`docker_pipe.py` JSON 管道已默认停用：它无法完整承载 RGB-D 字节且没有真实控制
+回传。不要按旧 `PLATFORM_MANUAL.md` 启动它；如需追溯历史录包，必须显式设置
+`HAZARDWALKER_ENABLE_LEGACY_JSON_BRIDGE=1`，且不得把结果作为官方验收证据。
+
 ## 选手快速入口
 
 | 你要做什么 | 推荐阅读 |
