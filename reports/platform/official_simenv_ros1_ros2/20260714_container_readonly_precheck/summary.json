@@ -11,6 +11,7 @@
     "physics_paused": false,
     "real_sense_sensor_configured_in_source": true,
     "headless_launch_argument_passed_by_auto_sh": false,
+    "rosbridge_host_network_reachable": true,
     "camera_or_realsense_topic_count": 0,
     "external_cmd_vel_publishers_present": true
   },

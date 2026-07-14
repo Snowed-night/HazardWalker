@@ -14,6 +14,8 @@
   模型配置了 `real_sense` 深度相机与 `/real_sense/rgb/image_raw`、深度、内参话题；但 `auto.sh` 未将
   `GUI=false` 转为 launch 的 `headless:=true`，而当前运行命令也没有该参数。这与相机话题缺失一致，需在
   独立副本应用并编译 headless 渲染候选补丁后复测。
+- 容器使用 Docker `host` 网络，宿主机 `127.0.0.1:9090` 端口可达；ROS2 主机 rosbridge 适配器的默认
+  WebSocket 地址有效，当前不需要额外端口映射。
 
 ## 结论
 
