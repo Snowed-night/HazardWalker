@@ -71,6 +71,22 @@ OFFICIAL_SIMENV_ENABLE_CONTROL=1 ./scripts/run_official_simenv_ros1_adapter.sh
 `unitree_gazebo_servo` 后才允许设置 `OFFICIAL_SIMENV_ENABLE_CONTROL=1`；中继以墙钟在断流后发送
 零速度，避免 `/clock` 暂停导致看门狗失效。
 
+### 官方 headless 控制器的必要启动约束
+
+官方 `auto.sh` 不是“设为 `PAUSED=false` 就可控”的入口。实测中，未暂停启动会在 Gazebo 服务和
+首个关节状态尚未就绪时直接退出控制器启动；手动补启又必须带上 libtorch 运行库和 headless 状态，
+否则分别出现 `libcublas.so.11` 缺失或“收到 `/cmd_vel` 却不运动”。官方容器的可复现顺序为：
+
+1. 使用 `PAUSED=true`、`START_CONTROLLER=1`、`CONTROLLER_FOREGROUND=0`、
+   `SIMENV_AUTO_RL=1`、`AUTO_UNPAUSE_AFTER_CONTROLLER=0` 启动；同时令
+   `LD_LIBRARY_PATH` 包含 `/opt/libtorch/lib`。
+2. 等待 `/gazebo/unpause_physics`、`/unitree_gazebo_servo`、`/rosbridge_websocket` 都出现，检查
+   `rostopic info /cmd_vel` 的真实订阅者是 `unitree_gazebo_servo`。
+3. 再显式执行一次 `rosservice call /gazebo/unpause_physics`，随后才启动 ROS2 适配与业务层。
+
+不要在共享 host network 中做控制验收；遗留容器会向同一 ROS master 注入速度。验收容器应采用独立
+Docker 网络和端口映射，例如 `127.0.0.1:9091 -> 9090`，同时设置前述 Host 头。
+
 ROS1 直连控制必须先于双向适配执行，并需预约独占场景：
 
 ~~~bash
@@ -113,9 +129,18 @@ OFFICIAL_SIMENV_VIDEO_REFERENCE='共享盘/20260714_ros1_direct.mp4' \
 中的遗留容器持续向同一 ROS master 发布 `angular.z=-0.8`；这会污染停止、变速和桥接试验。因此所有
 控制验收必须独占 ROS master 或使用隔离 Docker 网络，并记录 `/cmd_vel` 发布者。
 
-这只完成了**ROS1 原生控制和传感器前置门**。官方容器仍没有可运行的 ROS2 `rclpy` 环境，尚未产生
-ROS2 `/hw/*` 的逐段数据/控制证据；`rosbridge` 适配器、ROS2 导航感知决策闭环和复杂楼宇任务仍为
-`not_run`，不得宣称双向桥接或整任务已通过。
+在上述受控启动顺序下，宿主 ROS2 Jazzy 已产生逐段运行证据：ROS1 `/Odometry_gazebo`、RGB、深度和
+双 CameraInfo 均稳定进入 `/hw/*`；全量 RGB-D 同时转发时，ROS2 `/hw/cmd_vel` 经 rosbridge 和
+ROS1 `/cmd_vel` 驱动官方 A1 连续移动 **0.5118 m**，随后零速度保持，适配器无重连、无坏帧。详细
+JSON、测试表与 README 位于
+`reports/platform/official_simenv_ros1_ros2/20260714_ros2_rosbridge_runtime_acceptance/`。
+
+为防止原始大图像分片覆盖，适配器默认将 RGB、深度订阅节流为 500 ms，并在状态中记录
+`image_throttle_rate_ms` 与 `dropped_invalid_image_frames`。该设置已在并发轮次得到验证；调高帧率必须
+重做同结构回归，不能只凭订阅数宣称稳定。
+
+这证明双向平台链路可用，但**不等于完整比赛任务通过**：ROS2 导航自主探索、感知多视角确认、红色
+非球体排除、三维定位和决策结果文件尚未在官方复杂楼宇场景联调，仍为 `not_run`。
 
 另外，隔离验收所用官方 SimEnv 副本在诊断阶段存在人工源码改动；候选补丁目录尚未覆盖其全部精确差异。
 下一位维护者不能直接复制共享运行目录或盲目应用旧补丁，应先在干净官方副本导出、审查、编译这些差异，

@@ -8,6 +8,7 @@ RGB、深度、内参和里程计，完整重组 fragment 后发布稳定 /hw/*�
 """
 
 import base64
+import binascii
 import json
 import threading
 import time
@@ -38,6 +39,9 @@ class RosbridgeHwAdapter(Node):
         self.host_header = self.declare_parameter('rosbridge_host_header', '').value
         # 控制逐段验收可暂时停掉高带宽图像，避免图像重组故障掩盖 /cmd_vel 链路；默认保持完整 RGB-D 转发。
         self.enable_image_relay = bool(self.declare_parameter('enable_image_relay', True).value)
+        # 原始 640x480 RGB-D 通过 rosbridge 时，前一帧未收全又开始下一帧会造成分片混杂。
+        # 默认节流到 2 Hz；平台带宽验证充足后可按毫秒调小此参数。
+        self.image_throttle_rate_ms = int(self.declare_parameter('image_throttle_rate_ms', 500).value)
         self.enable_control = bool(self.declare_parameter('enable_cmd_vel_relay', False).value)
         self.timeout_sec = float(self.declare_parameter('cmd_vel_timeout_sec', 0.5).value)
         # 官方版本相机命名有差异；源话题可配，但稳定的 ROS2 /hw 输出不变。
@@ -52,6 +56,9 @@ class RosbridgeHwAdapter(Node):
         self._send_lock = threading.Lock()
         self._assembler = FragmentAssembler()
         self._counts = {}
+        # rosbridge 在高带宽订阅下偶发给出不完整的 base64 图像；只丢弃坏帧，不能让整条
+        # WebSocket 接收循环重连，否则 /hw/odom 与 /hw/cmd_vel 也会被一起中断。
+        self._dropped_image_frames = {}
         self.odom_pub = self.create_publisher(Odometry, '/hw/odom', 10)
         self.rgb_pub = self.create_publisher(Image, '/hw/camera/image_raw', 1)
         self.depth_pub = self.create_publisher(Image, '/hw/camera/depth_image', 1)
@@ -91,8 +98,11 @@ class RosbridgeHwAdapter(Node):
                     subscriptions.extend(((self.rgb_topic, 'sensor_msgs/Image'),
                                           (self.depth_topic, 'sensor_msgs/Image')))
                 for topic, msg_type in subscriptions:
-                    self._send({'op': 'subscribe', 'id': 'hw:' + topic, 'topic': topic, 'type': msg_type,
-                                'queue_length': 1, 'fragment_size': 60000, 'compression': 'none'})
+                    request = {'op': 'subscribe', 'id': 'hw:' + topic, 'topic': topic, 'type': msg_type,
+                               'queue_length': 1, 'fragment_size': 60000, 'compression': 'none'}
+                    if topic in (self.rgb_topic, self.depth_topic):
+                        request['throttle_rate'] = self.image_throttle_rate_ms
+                    self._send(request)
                 while rclpy.ok():
                     packet = decode_packet(self._socket.recv(), self._assembler)
                     if packet and packet.get('op') == 'publish':
@@ -122,7 +132,12 @@ class RosbridgeHwAdapter(Node):
             message = Image(); _stamp(message.header.stamp, header.get('stamp')); message.header.frame_id = header.get('frame_id', '')
             message.height = int(source.get('height', 0)); message.width = int(source.get('width', 0))
             message.encoding = source.get('encoding', ''); message.is_bigendian = int(source.get('is_bigendian', 0)); message.step = int(source.get('step', 0))
-            message.data = base64.b64decode(source.get('data', ''))
+            try:
+                message.data = base64.b64decode(source.get('data', ''), validate=True)
+            except (binascii.Error, ValueError) as error:
+                self._dropped_image_frames[topic] = self._dropped_image_frames.get(topic, 0) + 1
+                self.get_logger().warn('丢弃无效图像帧：%s（%s）' % (topic, error))
+                return
             (self.rgb_pub if topic == self.rgb_topic else self.depth_pub).publish(message)
         elif topic in (self.rgb_info_topic, self.depth_info_topic):
             message = CameraInfo(); _stamp(message.header.stamp, header.get('stamp')); message.header.frame_id = header.get('frame_id', '')
@@ -157,12 +172,14 @@ class RosbridgeHwAdapter(Node):
             'adapter': 'rosbridge_ros2', 'url': self.url,
             'rosbridge_host_header': self.host_header or None,
             'enable_cmd_vel_relay': self.enable_control, 'received': self._counts,
+            'dropped_invalid_image_frames': self._dropped_image_frames,
             'forwarded_cmd_count': self._forwarded_cmd_count,
             'last_forwarded_cmd': self._last_forwarded_cmd,
             'sources': {'rgb': self.rgb_topic, 'depth': self.depth_topic,
                         'rgb_camera_info': self.rgb_info_topic,
                         'depth_camera_info': self.depth_info_topic},
             'enable_image_relay': self.enable_image_relay,
+            'image_throttle_rate_ms': self.image_throttle_rate_ms,
         }, sort_keys=True)))
 
 

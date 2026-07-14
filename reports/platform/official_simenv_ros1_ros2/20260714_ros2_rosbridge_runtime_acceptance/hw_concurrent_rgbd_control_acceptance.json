@@ -1,0 +1,102 @@
+{
+  "before": {
+    "t": 27.052,
+    "x": 0.45419461202993244,
+    "y": -1.8706039342516654,
+    "yaw": 1.26253951740245
+  },
+  "after_motion": {
+    "t": 28.764,
+    "x": 0.6095635396132104,
+    "y": -1.3829775376795885,
+    "yaw": 1.3110110536220476
+  },
+  "after_stop": {
+    "t": 30.768,
+    "x": 0.6264033901562577,
+    "y": -1.3333452686994185,
+    "yaw": 1.3533790168982593
+  },
+  "distance_m": 0.5117802324164604,
+  "zero_drift_m": 0.05241128399907903,
+  "wall_motion_s": 35.912891290994594,
+  "rgbd_samples": {
+    "rgb": {
+      "width": 640,
+      "height": 480,
+      "encoding": "rgb8",
+      "bytes": 921600
+    },
+    "depth": {
+      "width": 640,
+      "height": 480,
+      "encoding": "32FC1",
+      "bytes": 1228800
+    },
+    "rgb_info": {
+      "width": 640,
+      "height": 480,
+      "k": [
+        554.5940455214144,
+        0.0,
+        320.5,
+        0.0,
+        554.5940455214144,
+        240.5,
+        0.0,
+        0.0,
+        1.0
+      ]
+    },
+    "depth_info": {
+      "width": 640,
+      "height": 480,
+      "k": [
+        554.5940455214144,
+        0.0,
+        320.5,
+        0.0,
+        554.5940455214144,
+        240.5,
+        0.0,
+        0.0,
+        1.0
+      ]
+    }
+  },
+  "adapter_status": {
+    "adapter": "rosbridge_ros2",
+    "dropped_invalid_image_frames": {},
+    "enable_cmd_vel_relay": true,
+    "enable_image_relay": true,
+    "forwarded_cmd_count": 684,
+    "image_throttle_rate_ms": 500,
+    "last_forwarded_cmd": {
+      "angular": {
+        "x": 0.0,
+        "y": 0.0,
+        "z": 0.0
+      },
+      "linear": {
+        "x": 0.0,
+        "y": 0.0,
+        "z": 0.0
+      }
+    },
+    "received": {
+      "/Odometry_gazebo": 3104,
+      "/real_sense/depth/camera_info": 61,
+      "/real_sense/depth/image_raw": 119,
+      "/real_sense/rgb/camera_info": 61,
+      "/real_sense/rgb/image_raw": 120
+    },
+    "rosbridge_host_header": "127.0.0.1:9090",
+    "sources": {
+      "depth": "/real_sense/depth/image_raw",
+      "depth_camera_info": "/real_sense/depth/camera_info",
+      "rgb": "/real_sense/rgb/image_raw",
+      "rgb_camera_info": "/real_sense/rgb/camera_info"
+    },
+    "url": "ws://127.0.0.1:9091"
+  }
+}
