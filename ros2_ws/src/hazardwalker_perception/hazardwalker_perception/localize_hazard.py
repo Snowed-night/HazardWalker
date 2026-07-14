@@ -12,6 +12,7 @@
 
 from dataclasses import dataclass
 import math
+from typing import Optional
 
 
 @dataclass(frozen=True)
@@ -62,9 +63,10 @@ class DepthShapeEvidence:
     """
 
     status: str
-    center_depth_m: float | None
-    outer_depth_m: float | None
-    curvature_m: float | None
+    # 保持 Python 3.8 兼容，官方 SimEnv 的 ROS1 Noetic 默认 Python 运行时可复用。
+    center_depth_m: Optional[float]
+    outer_depth_m: Optional[float]
+    curvature_m: Optional[float]
     center_points: int
     outer_points: int
 

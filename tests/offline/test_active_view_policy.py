@@ -42,7 +42,7 @@ def test_overlapping_candidates_request_lateral_motion():
     first = _detection(identifier='first', x_min=200, y_min=100, x_max=280, y_max=180)
     second = _detection(identifier='second', x_min=240, y_min=120, x_max=320, y_max=200)
     action = choose_active_view_action([first, second], 640, 480)
-    assert action.action == 'move_laterally'
+    assert action.action == 'move_left'
     assert action.priority == 90
 
 
@@ -61,20 +61,33 @@ def test_small_candidate_requests_approach():
 
 def test_unstable_roundness_requests_side_view():
     action = choose_active_view_action([_detection(circularity=0.65)], 640, 480)
-    assert action.action == 'move_laterally'
+    assert action.action == 'move_left'
 
 
 def test_explicit_merged_candidate_requests_lateral_reobservation():
     candidate = _detection()
     candidate['requires_reobservation'] = True
     action = choose_active_view_action([candidate], 640, 480)
-    assert action.action == 'move_laterally'
+    assert action.action == 'move_left'
     assert action.priority == 92
 
 
-def test_stable_candidate_holds_for_multi_frame_confirmation():
+def test_stable_candidate_requests_independent_side_view_before_confirmation():
     action = choose_active_view_action([_detection()], 640, 480)
-    assert action.action == 'hold_observation'
+    assert action.action == 'move_left'
+    assert '圆柱' in action.reason
+
+
+def test_excessive_normalized_depth_curvature_prioritizes_side_view():
+    candidate = _detection()
+    candidate['apparent_diameter_m'] = 0.30
+    candidate['depth_shape'] = {'status': 'spherical', 'curvature_m': 0.15}
+
+    action = choose_active_view_action([candidate], 640, 480)
+
+    assert action.action == 'move_left'
+    assert action.priority == 93
+    assert '曲率' in action.reason
 
 
 def test_bbox_iou_returns_overlap_ratio():
@@ -90,5 +103,15 @@ def test_flat_depth_candidate_requests_lateral_shape_recheck():
 
     action = choose_active_view_action([candidate], 640, 480)
 
-    assert action.action == 'move_laterally'
+    assert action.action == 'move_left'
     assert '非球体' in action.reason
+
+
+def test_lateral_recheck_chooses_right_for_right_side_candidate():
+    candidate = _detection(identifier='right', x_min=430, y_min=150, x_max=530, y_max=250)
+    candidate['depth_shape'] = {'status': 'flat'}
+
+    action = choose_active_view_action([candidate], 640, 480)
+
+    assert action.action == 'move_right'
+    assert '向右横移' in action.reason

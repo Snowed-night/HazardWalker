@@ -36,6 +36,7 @@ class RedBallDetection2D:
     is_partial: bool = False
     requires_reobservation: bool = False
     may_be_merged: bool = False
+    from_merged_split: bool = False
     quality_reason: str = 'stable_shape'
 
 """二维检测后端接口，后续 YOLO/分割模型只要实现 detect 即可接入 ROS 节点。"""
@@ -145,7 +146,7 @@ def detect_red_balls_rgb_bytes(data, width, height, step=None, encoding='rgb8',
                                min_circularity=0.60, min_aspect_ratio=0.45,
                                min_extent=0.35, max_extent=0.92, max_detections=None,
                                split_touching=True, include_partial_candidates=False,
-                               partial_min_area_px=30, partial_min_circularity=0.30,
+                               partial_min_area_px=20, partial_min_circularity=0.30,
                                partial_min_aspect_ratio=0.30, partial_min_value=50):
     """
     Args:
@@ -168,7 +169,8 @@ def detect_red_balls_rgb_bytes(data, width, height, step=None, encoding='rgb8',
 
     说明：
     返回结果只描述 2D 图像范围，不包含真实世界三维坐标。
-    当前版本优先压低红色方块和不规则物体误检，因此 70% 以上遮挡目标可能被拒绝。
+    严格球形筛选仍优先压低红色方块和不规则物体误检；高遮挡目标最多输出
+    `requires_reobservation` 候选，不能据此直接确认危险源。
     """
 
     normalized_encoding = encoding.lower()
@@ -460,6 +462,19 @@ def _split_touching_contour_to_detections(contour, mask, min_area_px, min_confid
     if box_width <= 0 or box_height <= 0:
         return []
 
+    # 三球三角团的外接框也可能接近正方形，不能用细长度决定是否允许分裂。
+    # 这里统一依赖连接腰部的凸缺陷深度；椭球、圆锥等凸物体仍会被挡住。
+    hull_indices = cv2.convexHull(contour, returnPoints=False)
+    defects = cv2.convexityDefects(contour, hull_indices) if len(hull_indices) >= 3 else None
+    max_defect_depth = 0.0
+    if defects is not None:
+        max_defect_depth = max(float(item[0][3]) / 256.0 for item in defects)
+    normalized_defect_depth = max_defect_depth / float(max(1, min(box_width, box_height)))
+    # 圆锥侧视、长椭球和胶囊属于凸轮廓，即使被拉长也不能拆成多球；
+    # 相互粘连的球在连接腰部会形成相对于短边足够深的凹陷。
+    if normalized_defect_depth < 0.02:
+        return []
+
     roi = mask[y:y + box_height, x:x + box_width]
     if cv2.countNonZero(roi) < min_area_px * 2:
         return []
@@ -476,6 +491,7 @@ def _split_touching_contour_to_detections(contour, mask, min_area_px, min_confid
         max_extent=max_extent,
     )
     if len(hough_detections) >= 2:
+        _mark_split_candidates(hough_detections)
         return hough_detections
 
     distance = cv2.distanceTransform(roi, cv2.DIST_L2, 5)
@@ -517,7 +533,19 @@ def _split_touching_contour_to_detections(contour, mask, min_area_px, min_confid
                 max_extent=max_extent,
             ))
 
-    return _deduplicate_detections(split_detections)
+    split_detections = _deduplicate_detections(split_detections)
+    _mark_split_candidates(split_detections)
+    return split_detections
+
+
+def _mark_split_candidates(detections):
+    """同一连通域拆出的圆必须等待独立轮廓视角，不能直接作为确认正证据。"""
+
+    for detection in detections:
+        detection.from_merged_split = True
+        detection.may_be_merged = True
+        detection.requires_reobservation = True
+        detection.quality_reason = 'split_candidate_requires_independent_view'
 
 
 """在红色 ROI 内用 Hough 圆检测辅助分离粘连红球。"""
@@ -541,6 +569,10 @@ def _split_touching_contour_by_hough(roi, offset_x, offset_y, min_area_px, min_c
         return []
 
     detections = []
+    covered_red = np.zeros_like(roi)
+    # 三球三角团中单球半径约为连通域短边的 25%--35%；凸缺陷门已经
+    # 排除了椭球/圆锥，因此这里无需继续使用会漏掉三球团的 40% 过严门槛。
+    minimum_supported_radius = max(5.0, min(roi.shape[0], roi.shape[1]) * 0.25)
     for cx, cy, radius in np.round(circles[0]).astype(int):
         if cx < 0 or cy < 0 or cx >= roi.shape[1] or cy >= roi.shape[0] or radius <= 0:
             continue
@@ -549,6 +581,13 @@ def _split_touching_contour_by_hough(roi, offset_x, offset_y, min_area_px, min_c
         segment = cv2.bitwise_and(roi, circle_mask)
         red_pixel_count = int(cv2.countNonZero(segment))
         if red_pixel_count < max(10, int(min_area_px * 0.6)):
+            continue
+        ideal_area = math.pi * float(radius) * float(radius)
+        # 椭球/胶囊常在两端产生很小的“帽状圆”，但这些圆无法覆盖主体。
+        # 真正粘连球的圆半径接近连通域短边的一半，且圆内红色填充充分。
+        if radius < minimum_supported_radius:
+            continue
+        if red_pixel_count / max(ideal_area, 1.0) < 0.90:
             continue
 
         x0 = int(max(0, cx - radius) + offset_x)
@@ -559,7 +598,6 @@ def _split_touching_contour_by_hough(roi, offset_x, offset_y, min_area_px, min_c
         box_height = y1 - y0 + 1
         if box_width <= 0 or box_height <= 0:
             continue
-        ideal_area = math.pi * float(radius) * float(radius)
         circularity = 1.0
         aspect_ratio = min(box_width, box_height) / float(max(box_width, box_height))
         extent = min(max_extent, ideal_area / float(box_width * box_height))
@@ -582,8 +620,15 @@ def _split_touching_contour_by_hough(roi, offset_x, offset_y, min_area_px, min_c
             aspect_ratio=aspect_ratio,
             extent=extent,
         ))
+        covered_red = cv2.bitwise_or(covered_red, segment)
 
-    return _deduplicate_detections(detections)
+    detections = _deduplicate_detections(detections)
+    if len(detections) < 2:
+        return detections
+    coverage = cv2.countNonZero(covered_red) / float(max(cv2.countNonZero(roi), 1))
+    if coverage < 0.82:
+        return []
+    return detections
 
 
 """去掉分裂过程产生的重复 bbox。"""

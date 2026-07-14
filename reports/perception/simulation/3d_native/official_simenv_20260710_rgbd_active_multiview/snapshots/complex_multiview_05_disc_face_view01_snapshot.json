@@ -1,0 +1,79 @@
+{
+  "case_id": "complex_multiview_05_disc_face_view01",
+  "image_stamp": {
+    "sec": 2050,
+    "nanosec": 654000000
+  },
+  "localization_ready": true,
+  "camera_stable": true,
+  "stable_view_frame_count": 76,
+  "detections_2d": [
+    {
+      "id": 1,
+      "frame_id": "hazardwalker_camera",
+      "view_id": "pos:3.2:9.2:3.2|yaw:90",
+      "stamp": {
+        "sec": 2050,
+        "nanosec": 620000000
+      },
+      "bbox": {
+        "x_min": 166,
+        "y_min": 52,
+        "x_max": 473,
+        "y_max": 360
+      },
+      "confidence": 0.9606266777546427,
+      "red_pixel_count": 74216,
+      "is_partial": false,
+      "requires_reobservation": false,
+      "may_be_merged": false,
+      "from_merged_split": false,
+      "quality_reason": "stable_shape",
+      "shape": {
+        "circularity": 0.8926897149421413,
+        "aspect_ratio": 0.9967637540453075,
+        "extent": 0.775228008237717
+      },
+      "depth_shape": {
+        "status": "flat",
+        "center_depth_m": 0.6472089290618896,
+        "outer_depth_m": 0.6472089290618896,
+        "curvature_m": 0.0,
+        "center_points": 9156,
+        "outer_points": 30984
+      },
+      "confirmation_eligible": false,
+      "apparent_diameter_m": 0.3128,
+      "localization_status": "suppressed_flat_depth_shape",
+      "source": "hsv_minimal",
+      "detector_backend": "hsv_opencv"
+    }
+  ],
+  "hazards": [
+    {
+      "status": "tentative",
+      "position": [
+        3.2995,
+        9.8973,
+        3.3089
+      ],
+      "position_frame_id": "world",
+      "confidence": 0.9637,
+      "observation_count": 73,
+      "distinct_view_count": 0,
+      "source": "hsv_depth_tf",
+      "eligible_observation_count": 0,
+      "eligible_view_ids": [],
+      "flat_view_ids": [
+        "pos:3.2:9.2:3.2|yaw:90"
+      ],
+      "apparent_diameter_cv": 0.0,
+      "min_multiview_aspect_ratio": 1.0,
+      "depth_curvature_cv": 0.0,
+      "median_normalized_depth_curvature": 0.0,
+      "evidence_status": "collecting_views"
+    }
+  ],
+  "raw_image": "complex_multiview_05_disc_face_view01_raw.png",
+  "annotated_image": "complex_multiview_05_disc_face_view01_annotated.png"
+}

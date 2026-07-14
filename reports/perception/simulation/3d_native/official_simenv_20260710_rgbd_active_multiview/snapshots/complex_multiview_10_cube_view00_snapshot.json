@@ -1,0 +1,14 @@
+{
+  "case_id": "complex_multiview_10_cube_view00",
+  "image_stamp": {
+    "sec": 2173,
+    "nanosec": 678000000
+  },
+  "localization_ready": true,
+  "camera_stable": true,
+  "stable_view_frame_count": 31,
+  "detections_2d": [],
+  "hazards": [],
+  "raw_image": "complex_multiview_10_cube_view00_raw.png",
+  "annotated_image": "complex_multiview_10_cube_view00_annotated.png"
+}

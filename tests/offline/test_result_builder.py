@@ -19,7 +19,10 @@ import sys
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
 sys.path.insert(0, os.path.join(REPO_ROOT, 'ros2_ws', 'src', 'hazardwalker_decision'))
 
-from hazardwalker_decision.result_builder import build_mission_result
+from hazardwalker_decision.result_builder import (
+    build_mission_result,
+    build_official_detected_danger_result,
+)
 
 
 def test_build_mission_result_counts_confirmed_hazards():
@@ -42,3 +45,32 @@ def test_build_mission_result_counts_confirmed_hazards():
     assert result['hazards'][1]['status'] == 'tentative'
     assert result['metrics']['num_confirmed_hazards'] == 1
     assert result['metrics']['return_success'] is True
+
+
+def test_official_result_only_exports_confirmed_world_frame_unique_sources():
+    """候选、非 world 坐标和重复轨迹均不得进入官方危险源输出。"""
+    result = build_official_detected_danger_result(
+        hazards=[
+            {'id': 1, 'status': 'confirmed', 'position_frame_id': 'world',
+             'position': [1.0, 2.0, 0.3], 'confidence': 0.90},
+            {'id': 2, 'status': 'confirmed', 'position_frame_id': 'world',
+             'position': [1.12, 2.02, 0.30], 'confidence': 0.60},
+            {'id': 3, 'status': 'tentative', 'position_frame_id': 'world',
+             'position': [3.0, 2.0, 0.3], 'confidence': 0.99},
+            {'id': 4, 'status': 'rejected_non_spherical', 'position_frame_id': 'world',
+             'position': [4.0, 2.0, 0.3], 'confidence': 0.99},
+            {'id': 5, 'status': 'confirmed', 'position_frame_id': 'start',
+             'position': [5.0, 2.0, 0.3], 'confidence': 0.99},
+            {'id': 6, 'status': 'confirmed', 'position_frame_id': 'world',
+             'position': [6.0, 2.0, 0.3], 'confidence': 0.80},
+        ],
+        exploration_time_sec=98.7654,
+    )
+
+    assert result == {
+        'exploration_time': 98.765,
+        'detected_danger_sources': [
+            {'position': [1.0, 2.0, 0.3]},
+            {'position': [6.0, 2.0, 0.3]},
+        ],
+    }
