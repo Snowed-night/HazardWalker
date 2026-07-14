@@ -89,9 +89,20 @@ OFFICIAL_SIMENV_VIDEO_REFERENCE='共享盘/20260714_ros1_direct.mp4' \
 
 ## 当前结论与风险
 
-截至本次提交，离线映射契约和安全控制门已实现；**ROS1 原生 1 m 运动、传感器进 ROS2、跨栈控制和
-完整任务闭环均尚未通过实测**。此前共享环境只观察到 `/ros_bridge` 订阅 `/cmd_vel`，未观察到有效
-四足控制器；headless 环境还出现渲染关闭导致深度相机不发布。
+截至 2026-07-14 的容器复测，官方 ROS1 原始传感器已恢复：`/Odometry_gazebo` 约 499 Hz、`/scan`
+约 10 Hz、RGB 约 21 Hz、深度约 20 Hz，深度点云与两组相机内参均可读取。因此此前“话题存在但均
+无数据”不是 TCPROS/rosbridge 根因，而是启动时使用了不完整工作空间、未稳定启用 headless 渲染与
+物理运行状态的组合问题。
+
+同日已在独立运行容器内应用 headless RL 入口与 IOROS 回调执行器补丁，并重启 `junior_ctrl`：策略
+模型加载成功，持续 `/cmd_vel` 使 `/Odometry_gazebo` 产生前进和转向变化。该轮仅记录到 0.0632 m
+（0.12 m/s、3 s）、0.0253 m（0.24 m/s、3 s）和 0.0646 rad（0.35 rad/s、3 s），低于 1 m/0.2 rad
+验收阈值，且第二段可能受当前位置的障碍或接触状态影响。故**控制入口已不再完全失效，但 ROS1 原生
+1 m 连续直行、清场变速、跨 ROS2 控制和完整任务闭环仍未通过，必须在空旷安全位置复测**。
+
+本轮原始数值、补丁状态和未通过原因见
+`reports/platform/official_simenv_ros1_ros2/20260714_headless_controller_repair_trial/`。不得将本轮
+“有位移”表述为“平台控制验收通过”。
 
 候选补丁位于 `patches/`：分别修复 headless 渲染、显式 headless RL 模式和 IOROS 回调执行器生命周期。
 补丁必须在官方 SimEnv 独立副本审查、编译、备份后由平台组应用；失败可通过 `git apply -R` 回滚，
