@@ -10,6 +10,10 @@
 - `rostopic list` 中 `/camera/*` 与 `/real_sense/*` 数量为 0；不能启动 RGB-D 适配或三维定位验收。
 - `/cmd_vel` 当时已有多路外部发布者。为避免干扰共享仿真，本次没有发送任何控制命令，故没有 1m 前进、转向
   或停止的真实运动结论。
+- `get_physics_properties` 返回 `pause: False`，因此当前不运动不能归因于 Gazebo 暂停。源码已确认 A1
+  模型配置了 `real_sense` 深度相机与 `/real_sense/rgb/image_raw`、深度、内参话题；但 `auto.sh` 未将
+  `GUI=false` 转为 launch 的 `headless:=true`，而当前运行命令也没有该参数。这与相机话题缺失一致，需在
+  独立副本应用并编译 headless 渲染候选补丁后复测。
 
 ## 结论
 
