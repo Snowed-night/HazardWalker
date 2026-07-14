@@ -39,8 +39,9 @@ export OFFICIAL_SIMENV_RGB_CAMERA_INFO_TOPIC=/camera/camera_info
 
 ## 文件与运行
 
-- `scripts/official_simenv_ros1_adapter_node.py`：容器内 ROS1 中继、安全速度门和状态审计。
+- `scripts/official_simenv_rosbridge_ros2_adapter_node.py`：ROS2 主机 WebSocket 适配、分片重组、安全速度门和状态审计。
 - `scripts/run_official_simenv_rosbridge_adapter.sh`：在 ROS2 主机启动 rosbridge 双向适配器。
+- `scripts/run_official_simenv_ros1_adapter.sh`：兼容旧入口，转发到前一启动脚本，不再假设容器内存在 dynamic_bridge。
 - `scripts/verify_official_simenv_ros1_adapter.sh`：逐段检查原始 ROS1 与 ROS2 `/hw/*`。
 - `scripts/run_official_simenv_ros1_ros2_stack.sh`：官方容器已启动后的 ROS2 业务入口。
 - `ros2_ws/src/hazardwalker_bringup/launch/official_simenv_business.launch.py`：只启动业务节点，不启动

@@ -67,6 +67,8 @@ def test_rosbridge_fragment_contract_is_bounded_and_adapter_keeps_image_bytes():
     assert "'fragment_size': 60000" in adapter
     assert 'base64.b64decode' in adapter
     assert "'/hw/cmd_vel'" in adapter and "'/cmd_vel'" in adapter
+    legacy_launcher = (REPO_ROOT / 'scripts' / 'run_official_simenv_ros1_adapter.sh').read_text(encoding='utf-8')
+    assert 'run_official_simenv_rosbridge_adapter.sh' in legacy_launcher
 
 
 def test_official_business_launch_never_starts_fake_platform_by_default():

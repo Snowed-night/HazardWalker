@@ -11,8 +11,8 @@
 - `evaluate_result.py`：检查 `reports/run_results/<timestamp>_result.json` 的结构和统计字段。
 - `generate_perception_cases.py`：生成红球检测可视化案例、标注图、summary 表、precision/recall/AP50 指标和汇报拼图。
 - `evaluate_real_red_ball_images.py`：读取本地实物红球图片，统一编号并生成多目标检测标注图和参数图。
-- `run_official_simenv_ros1_adapter.sh`：将官方容器内 ROS1 原始话题中继为 `/hw/*`，并通过
-  `ros1_bridge dynamic_bridge` 送入 ROS2；速度中继默认关闭。
+- `run_official_simenv_ros1_adapter.sh`：旧启动入口的兼容转发，实际执行 ROS2 主机 rosbridge 适配器；
+  官方 Docker 不需要也不具备 `dynamic_bridge`。
 - `verify_official_simenv_ros1_adapter.sh`：检查 ROS1 原话题、ROS2 `/hw/*` 与控制器订阅；仅显式
   `--control` 才发送低速速度命令，仍需以视频和里程计证明真实运动。
 - `verify_official_simenv_ros1_direct_control.sh`：绕过适配层直接验收官方 ROS1 `/cmd_vel`，要求平台组

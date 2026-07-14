@@ -40,7 +40,9 @@ done
 
 echo '[verify] ROS1 控制器订阅审计：'
 docker exec "$CONTAINER" bash -lc \
-  "source /opt/ros/noetic/setup.bash; rostopic info /cmd_vel; timeout 5 rostopic echo -n 1 /hw/platform/official_simenv_adapter_status"
+  "source /opt/ros/noetic/setup.bash; rostopic info /cmd_vel"
+echo '[verify] ROS2 rosbridge 适配器状态：'
+timeout 5 ros2 topic echo --once /hw/platform/official_simenv_adapter_status
 
 if [[ "$RUN_CONTROL" -eq 1 ]]; then
   echo '[verify] 发布 20 Hz 低速前进 4 秒，再发送零速度。请确保场景无障碍且机器人已站稳。'
