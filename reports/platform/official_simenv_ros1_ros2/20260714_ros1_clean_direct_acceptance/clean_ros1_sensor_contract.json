@@ -1,0 +1,49 @@
+{
+  "camera_info": {
+    "K": [
+      554.5940455214144,
+      0.0,
+      320.5,
+      0.0,
+      554.5940455214144,
+      240.5,
+      0.0,
+      0.0,
+      1.0
+    ],
+    "distortion_model": "plumb_bob",
+    "height": 480,
+    "stamp": 42.302,
+    "width": 640
+  },
+  "complete": true,
+  "depth": {
+    "bytes": 1228800,
+    "encoding": "32FC1",
+    "height": 480,
+    "stamp": 42.352,
+    "width": 640
+  },
+  "odom": {
+    "child_frame_id": "base",
+    "frame_id": "odom",
+    "stamp": 42.404
+  },
+  "rgb": {
+    "bytes": 921600,
+    "encoding": "rgb8",
+    "height": 480,
+    "stamp": 42.352,
+    "width": 640
+  },
+  "scan": {
+    "finite_ratio": 0.55,
+    "finite_samples": 198,
+    "observed_max_m": 20.424741744995117,
+    "observed_min_m": 0.5794456601142883,
+    "range_max": 40.0,
+    "range_min": 0.10000000149011612,
+    "samples": 360,
+    "stamp": 42.401
+  }
+}

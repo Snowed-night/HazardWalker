@@ -36,7 +36,14 @@ class RosbridgeHwAdapter(Node):
         self.url = self.declare_parameter('rosbridge_url', 'ws://127.0.0.1:9090').value
         self.enable_control = bool(self.declare_parameter('enable_cmd_vel_relay', False).value)
         self.timeout_sec = float(self.declare_parameter('cmd_vel_timeout_sec', 0.5).value)
+        # 官方版本相机命名有差异；源话题可配，但稳定的 ROS2 /hw 输出不变。
+        self.rgb_topic = self.declare_parameter('rgb_topic', '/real_sense/rgb/image_raw').value
+        self.depth_topic = self.declare_parameter('depth_topic', '/real_sense/depth/image_raw').value
+        self.rgb_info_topic = self.declare_parameter('rgb_camera_info_topic', '/real_sense/rgb/camera_info').value
+        self.depth_info_topic = self.declare_parameter('depth_camera_info_topic', '/real_sense/depth/camera_info').value
         self._last_cmd = None
+        self._last_forwarded_cmd = None
+        self._forwarded_cmd_count = 0
         self._socket = None
         self._send_lock = threading.Lock()
         self._assembler = FragmentAssembler()
@@ -57,6 +64,8 @@ class RosbridgeHwAdapter(Node):
         with self._send_lock:
             if self._socket is not None:
                 self._socket.send(json.dumps(packet, separators=(',', ':')))
+                return True
+        return False
 
     def _receive_loop(self):
         try:
@@ -70,10 +79,10 @@ class RosbridgeHwAdapter(Node):
                 self._send({'op': 'advertise', 'topic': '/cmd_vel', 'type': 'geometry_msgs/Twist'})
                 for topic, msg_type in (
                     ('/Odometry_gazebo', 'nav_msgs/Odometry'),
-                    ('/real_sense/rgb/image_raw', 'sensor_msgs/Image'),
-                    ('/real_sense/depth/image_raw', 'sensor_msgs/Image'),
-                    ('/real_sense/rgb/camera_info', 'sensor_msgs/CameraInfo'),
-                    ('/real_sense/depth/camera_info', 'sensor_msgs/CameraInfo'),
+                    (self.rgb_topic, 'sensor_msgs/Image'),
+                    (self.depth_topic, 'sensor_msgs/Image'),
+                    (self.rgb_info_topic, 'sensor_msgs/CameraInfo'),
+                    (self.depth_info_topic, 'sensor_msgs/CameraInfo'),
                 ):
                     self._send({'op': 'subscribe', 'id': 'hw:' + topic, 'topic': topic, 'type': msg_type,
                                 'queue_length': 1, 'fragment_size': 60000, 'compression': 'none'})
@@ -99,20 +108,20 @@ class RosbridgeHwAdapter(Node):
                 setattr(message.pose.pose.orientation, name, float(pose.get('orientation', {}).get(name, 0.0)))
                 setattr(message.twist.twist.angular, name, float(twist.get('angular', {}).get(name, 0.0)))
             self.odom_pub.publish(message)
-        elif topic in ('/real_sense/rgb/image_raw', '/real_sense/depth/image_raw'):
+        elif topic in (self.rgb_topic, self.depth_topic):
             message = Image(); _stamp(message.header.stamp, header.get('stamp')); message.header.frame_id = header.get('frame_id', '')
             message.height = int(source.get('height', 0)); message.width = int(source.get('width', 0))
             message.encoding = source.get('encoding', ''); message.is_bigendian = int(source.get('is_bigendian', 0)); message.step = int(source.get('step', 0))
             message.data = base64.b64decode(source.get('data', ''))
-            (self.rgb_pub if topic.endswith('rgb/image_raw') else self.depth_pub).publish(message)
-        elif topic in ('/real_sense/rgb/camera_info', '/real_sense/depth/camera_info'):
+            (self.rgb_pub if topic == self.rgb_topic else self.depth_pub).publish(message)
+        elif topic in (self.rgb_info_topic, self.depth_info_topic):
             message = CameraInfo(); _stamp(message.header.stamp, header.get('stamp')); message.header.frame_id = header.get('frame_id', '')
             message.height = int(source.get('height', 0)); message.width = int(source.get('width', 0))
             message.k = [float(value) for value in source.get('K', source.get('k', []))]
             message.d = [float(value) for value in source.get('D', source.get('d', []))]
             message.r = [float(value) for value in source.get('R', source.get('r', []))]
             message.p = [float(value) for value in source.get('P', source.get('p', []))]
-            (self.info_pub if topic.endswith('rgb/camera_info') else self.depth_info_pub).publish(message)
+            (self.info_pub if topic == self.rgb_info_topic else self.depth_info_pub).publish(message)
         else:
             return
         self._counts[topic] = self._counts.get(topic, 0) + 1
@@ -120,10 +129,12 @@ class RosbridgeHwAdapter(Node):
     def _on_cmd(self, message):
         if not self.enable_control:
             return
-        self._send({'op': 'publish', 'topic': '/cmd_vel', 'msg': {
-            'linear': {'x': message.linear.x, 'y': message.linear.y, 'z': message.linear.z},
-            'angular': {'x': message.angular.x, 'y': message.angular.y, 'z': message.angular.z}}})
-        self._last_cmd = time.monotonic()
+        payload = {'linear': {'x': message.linear.x, 'y': message.linear.y, 'z': message.linear.z},
+                   'angular': {'x': message.angular.x, 'y': message.angular.y, 'z': message.angular.z}}
+        if self._send({'op': 'publish', 'topic': '/cmd_vel', 'msg': payload}):
+            self._forwarded_cmd_count += 1
+            self._last_forwarded_cmd = payload
+            self._last_cmd = time.monotonic()
 
     def _watchdog(self):
         if self.enable_control and self._last_cmd and time.monotonic() - self._last_cmd > self.timeout_sec:
@@ -131,7 +142,15 @@ class RosbridgeHwAdapter(Node):
             self._last_cmd = None
 
     def _status(self):
-        self.status_pub.publish(String(data=json.dumps({'adapter': 'rosbridge_ros2', 'url': self.url, 'enable_cmd_vel_relay': self.enable_control, 'received': self._counts}, sort_keys=True)))
+        self.status_pub.publish(String(data=json.dumps({
+            'adapter': 'rosbridge_ros2', 'url': self.url,
+            'enable_cmd_vel_relay': self.enable_control, 'received': self._counts,
+            'forwarded_cmd_count': self._forwarded_cmd_count,
+            'last_forwarded_cmd': self._last_forwarded_cmd,
+            'sources': {'rgb': self.rgb_topic, 'depth': self.depth_topic,
+                        'rgb_camera_info': self.rgb_info_topic,
+                        'depth_camera_info': self.depth_info_topic},
+        }, sort_keys=True)))
 
 
 def main():

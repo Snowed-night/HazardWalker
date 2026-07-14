@@ -1,0 +1,35 @@
+{
+  "owner": "姜晨",
+  "test_date": "2026-07-14",
+  "environment": {
+    "container": "simenv_clean_acceptance",
+    "network": "isolated Docker bridge network",
+    "controller": "official junior_ctrl with SIMENV_AUTO_RL=1",
+    "external_cmd_vel_before_test": false
+  },
+  "ros1_direct_control": {
+    "forward_distance_m": 1.0013545409108273,
+    "forward_at_least_1m": true,
+    "turn_yaw_delta_rad": 0.2539969697037576,
+    "turn_at_least_0_25rad": true,
+    "zero_hold_after_settle": {
+      "window_1_distance_m": 0.00031425711810850743,
+      "window_1_yaw_delta_rad": -0.0001536140363036509,
+      "window_2_distance_m": 0.00031155880519587886,
+      "window_2_yaw_delta_rad": -0.00017846004555210904,
+      "pass": true
+    },
+    "conclusion": "pass"
+  },
+  "ros1_sensors": {
+    "rgb": "640x480 rgb8",
+    "depth": "640x480 32FC1",
+    "camera_info": true,
+    "odom": true,
+    "scan_finite_ratio": 0.55,
+    "conclusion": "pass"
+  },
+  "ros2_adapter": "not run: the available official container is ROS1-only and lacks a runnable ROS2 rclpy environment",
+  "business_loop": "not run",
+  "evidence_integrity": "raw numeric evidence is preserved in clean_ros1_direct_acceptance.json, clean_ros1_stop_hold.json and clean_ros1_sensor_contract.json"
+}

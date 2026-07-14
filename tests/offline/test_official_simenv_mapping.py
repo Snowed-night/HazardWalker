@@ -42,13 +42,14 @@ def test_official_mapping_is_internally_valid():
     assert validate_mapping() == ()
 
 
-def test_ros1_control_relay_defaults_to_safe_and_uses_wall_clock_watchdog():
-    source = (REPO_ROOT / 'scripts' / 'official_simenv_ros1_adapter_node.py').read_text(encoding='utf-8')
-    assert "get_param('~enable_cmd_vel_relay', False)" in source
-    assert "get_param('~allow_unknown_controller', False)" in source
+def test_rosbridge_control_relay_defaults_to_safe_and_uses_wall_clock_watchdog():
+    source = (REPO_ROOT / 'scripts' / 'official_simenv_rosbridge_ros2_adapter_node.py').read_text(
+        encoding='utf-8')
+    assert "declare_parameter('enable_cmd_vel_relay', False)" in source
     assert 'time.monotonic()' in source
-    assert "'~rgb_topic'" in source
-    assert "('/Odometry_gazebo', '/hw/odom', Odometry)" in source
+    assert "declare_parameter('rgb_topic'" in source
+    assert "'/Odometry_gazebo'" in source
+    assert "'forwarded_cmd_count'" in source
 
 
 def test_direct_ros1_control_verifier_requires_exclusive_session_and_records_odometry():
@@ -77,3 +78,11 @@ def test_official_business_launch_never_starts_fake_platform_by_default():
     assert "DeclareLaunchArgument('start_navigation', default_value='false')" in source
     assert "package='hazardwalker_platform'" not in source
     compile(source, 'official_simenv_business.launch.py', 'exec')
+
+
+def test_stack_keeps_adapter_alive_while_business_launch_runs():
+    source = (REPO_ROOT / 'scripts' / 'run_official_simenv_ros1_ros2_stack.sh').read_text(
+        encoding='utf-8')
+    assert 'ADAPTER_PID=$!' in source
+    assert 'trap cleanup_adapter EXIT INT TERM' in source
+    assert 'ros2 launch hazardwalker_bringup official_simenv_business.launch.py' in source

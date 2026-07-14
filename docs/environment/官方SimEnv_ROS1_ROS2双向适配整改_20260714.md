@@ -22,7 +22,7 @@ ROS2，仅使用稳定 `/hw/*`。本整改新增的不是第二套业务系统�
 | 输入 ROS2 | RGB/深度 `camera_info` | `/hw/camera/*camera_info` | `sensor_msgs/CameraInfo` | 内参输入 |
 | 输入 ROS2 | 深度点云、Livox 点云 | `/hw/camera/depth_points`、`/hw/lidar/points` | `sensor_msgs/PointCloud2` | 可选增强输入 |
 | 输出 ROS1 | `/hw/cmd_vel` | `/cmd_vel` | `geometry_msgs/Twist` | 默认拒绝，需显式启用 |
-| 双向 | `/tf`、`/tf_static` | 同名 | `tf2_msgs/TFMessage` | 由 dynamic_bridge 直接桥接 |
+| 规划中 | `/tf`、`/tf_static` | 同名 | `tf2_msgs/TFMessage` | 当前 rosbridge 适配器未实现；不能当作可用输入 |
 
 官方有些版本将前视 RGB 发布为 `/camera/image_raw`；运行前必须用 `rostopic list` 确认实际源话题，
 然后用环境变量设置对应 RGB 与 CameraInfo 源。不能同时把两个物理相机混到一个
@@ -33,9 +33,9 @@ export OFFICIAL_SIMENV_RGB_TOPIC=/camera/image_raw
 export OFFICIAL_SIMENV_RGB_CAMERA_INFO_TOPIC=/camera/camera_info
 ~~~
 
-深度源、深度内参、容器 ROS1 setup 和既有 dynamic bridge 启动入口也可分别通过
-`OFFICIAL_SIMENV_DEPTH_TOPIC`、`OFFICIAL_SIMENV_DEPTH_CAMERA_INFO_TOPIC`、`SIMENV_ROS1_SETUP` 和
-`SIMENV_ROS1_BRIDGE_COMMAND` 覆盖。未发现实际源话题时不得把验证失败归因于 ROS2 算法。
+深度源、深度内参和 ROS2 环境脚本可分别通过
+`OFFICIAL_SIMENV_DEPTH_TOPIC`、`OFFICIAL_SIMENV_DEPTH_CAMERA_INFO_TOPIC` 和
+`OFFICIAL_SIMENV_ROS2_SETUP` 覆盖。未发现实际源话题时不得把验证失败归因于 ROS2 算法。
 
 ## 文件与运行
 
@@ -89,20 +89,25 @@ OFFICIAL_SIMENV_VIDEO_REFERENCE='共享盘/20260714_ros1_direct.mp4' \
 
 ## 当前结论与风险
 
-截至 2026-07-14 的容器复测，官方 ROS1 原始传感器已恢复：`/Odometry_gazebo` 约 499 Hz、`/scan`
-约 10 Hz、RGB 约 21 Hz、深度约 20 Hz，深度点云与两组相机内参均可读取。因此此前“话题存在但均
-无数据”不是 TCPROS/rosbridge 根因，而是启动时使用了不完整工作空间、未稳定启用 headless 渲染与
-物理运行状态的组合问题。
+截至 2026-07-14，已经在独立 Docker 网络的官方 ROS1 容器中完成无污染直连验收：
 
-同日已在独立运行容器内应用 headless RL 入口与 IOROS 回调执行器补丁，并重启 `junior_ctrl`：策略
-模型加载成功，持续 `/cmd_vel` 使 `/Odometry_gazebo` 产生前进和转向变化。该轮仅记录到 0.0632 m
-（0.12 m/s、3 s）、0.0253 m（0.24 m/s、3 s）和 0.0646 rad（0.35 rad/s、3 s），低于 1 m/0.2 rad
-验收阈值，且第二段可能受当前位置的障碍或接触状态影响。故**控制入口已不再完全失效，但 ROS1 原生
-1 m 连续直行、清场变速、跨 ROS2 控制和完整任务闭环仍未通过，必须在空旷安全位置复测**。
+- `/Odometry_gazebo`、`/real_sense/rgb/image_raw`（640×480 `rgb8`）、
+  `/real_sense/depth/image_raw`（640×480 `32FC1`）、RealSense 内参和 `/scan` 都有真实消息；
+  本轮 `/scan` 为 360 个样本，其中 198 个有限量程值。
+- 通过官方 `junior_ctrl` 的 `SIMENV_AUTO_RL=1` 入口直接发布 ROS1 `/cmd_vel`，前进
+  **1.0014 m**、转向 **0.2540 rad**。连续零速度收敛后两个 3 s 观察窗口均仅约 0.00031 m 位移、
+  0.00018 rad 偏航变化，满足原生停止保持的验收记录。
+- 完整原始数据、RGB-D 截图和测试表见
+  `reports/platform/official_simenv_ros1_ros2/20260714_ros1_clean_direct_acceptance/`。
 
-本轮原始数值、补丁状态和未通过原因见
-`reports/platform/official_simenv_ros1_ros2/20260714_headless_controller_repair_trial/`。不得将本轮
-“有位移”表述为“平台控制验收通过”。
+此前“传感器话题存在但无数据”不能归结为 TCPROS 或 rosbridge：已知启动错误包括把不完整的项目目录
+挂到官方 SimEnv 路径，以及 LiDAR 的标准 Gazebo `<ray>` 配置层级错误。另一个独立问题是共享 host 网络
+中的遗留容器持续向同一 ROS master 发布 `angular.z=-0.8`；这会污染停止、变速和桥接试验。因此所有
+控制验收必须独占 ROS master 或使用隔离 Docker 网络，并记录 `/cmd_vel` 发布者。
+
+这只完成了**ROS1 原生控制和传感器前置门**。官方容器仍没有可运行的 ROS2 `rclpy` 环境，尚未产生
+ROS2 `/hw/*` 的逐段数据/控制证据；`rosbridge` 适配器、ROS2 导航感知决策闭环和复杂楼宇任务仍为
+`not_run`，不得宣称双向桥接或整任务已通过。
 
 候选补丁位于 `patches/`：分别修复 headless 渲染、显式 headless RL 模式和 IOROS 回调执行器生命周期。
 补丁必须在官方 SimEnv 独立副本审查、编译、备份后由平台组应用；失败可通过 `git apply -R` 回滚，

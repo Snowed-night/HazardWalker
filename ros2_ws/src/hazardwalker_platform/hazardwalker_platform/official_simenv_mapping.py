@@ -3,8 +3,9 @@
 所属组：平台与仿真组。负责人：姜晨。
 文件作用：集中保存官方 ROS1 Noetic + Gazebo Classic profile 的话题约定，供启动脚本、
 离线测试和文档共同引用，避免把 Gazebo Harmonic 的 ``ros_gz_bridge`` 配置误作官方适配。
-当前边界：跨 ROS 版本由官方容器内 ``ros1_bridge dynamic_bridge`` 完成；本项目的 ROS1
-中继只负责官方原始话题和稳定 ``/hw/*`` 名称之间的转换。
+当前边界：跨 ROS 版本由运行在 ROS2 主机上的 ``rosbridge_websocket`` 适配器完成；官方 Docker
+只有 ROS1，不能假设其中存在 ``ros1_bridge dynamic_bridge``。保留的 ROS1 中继脚本仅作应急
+诊断入口，不是当前官方 profile 的默认传输路径。
 验证方式：``python scripts/run_offline_tests.py`` 及
 ``scripts/verify_official_simenv_ros1_adapter.sh``。
 """
@@ -24,7 +25,7 @@ class TopicMapping:
     required: bool = True
 
 
-# 传感器和里程计必须先在 ROS1 内改名为稳定 /hw 接口，再由 ros1_bridge 原样送入 ROS2 DDS。
+# 传感器和里程计由 ROS2 主机的 rosbridge 适配器反序列化后发布为稳定 /hw 接口。
 OFFICIAL_ROS1_TO_HW: Tuple[TopicMapping, ...] = (
     TopicMapping('/Odometry_gazebo', '/hw/odom', 'nav_msgs/Odometry', 'ros1_to_ros2'),
     TopicMapping('/real_sense/rgb/image_raw', '/hw/camera/image_raw', 'sensor_msgs/Image', 'ros1_to_ros2'),
@@ -42,7 +43,7 @@ OFFICIAL_RGB_TOPIC_CANDIDATES = (
     '/camera/image_raw',
 )
 
-# TF 在 ROS1/ROS2 两侧保持 ROS 标准名称，由 dynamic_bridge 直接桥接，不经重新发布以免回环。
+# TF 是后续增强映射的契约候选，当前 rosbridge 适配器尚未订阅/发布它，不能将本常量误作运行证据。
 TF_PASSTHROUGH: Tuple[TopicMapping, ...] = (
     TopicMapping('/tf', '/tf', 'tf2_msgs/TFMessage', 'ros1_to_ros2'),
     TopicMapping('/tf_static', '/tf_static', 'tf2_msgs/TFMessage', 'ros1_to_ros2'),

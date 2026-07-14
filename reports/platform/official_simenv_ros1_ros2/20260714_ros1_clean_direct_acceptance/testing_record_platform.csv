@@ -1,0 +1,9 @@
+record_id,test_item,expected_evidence,status,observed_result,notes
+ROS1-CLEAN-01,ROS1原生前进至少1米,cmd_vel与Odometry同轮记录,pass,1.0013545409108273m,独立Docker网络且测试前无外部cmd_vel
+ROS1-CLEAN-02,ROS1原生转向,cmd_vel与Odometry同轮记录,pass,0.2539969697037576rad,官方junior_ctrl的RL入口
+ROS1-CLEAN-03,ROS1原生停止,连续零速度与Odometry保持窗口,pass,3秒窗口位移约0.00031m且偏航变化小于0.00018rad,初始策略尾迹已单独记录不混入判定
+ROS1-CLEAN-04,RGB输入,Image消息尺寸编码与截图,pass,640x480 rgb8,clean_ros1_rgb.png
+ROS1-CLEAN-05,深度和内参输入,Image/CameraInfo实际消息,pass,640x480 32FC1及K矩阵,clean_ros1_sensor_contract.json
+ROS1-CLEAN-06,雷达输入,LaserScan有效量程,pass,360样本中198个有限值,clean_ros1_sensor_contract.json
+ROS2-ADAPTER-01,ROS2双向适配,ROS2/hw与ROS1同窗证据,not_run,缺少可运行ROS2环境,不可宣称通过
+BUSINESS-LOOP-01,复杂场景闭环,导航感知决策与结果证据,not_run,待ROS2适配实测后执行,不可宣称通过
