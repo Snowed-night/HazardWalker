@@ -37,6 +37,14 @@ export OFFICIAL_SIMENV_RGB_CAMERA_INFO_TOPIC=/camera/camera_info
 `OFFICIAL_SIMENV_DEPTH_TOPIC`、`OFFICIAL_SIMENV_DEPTH_CAMERA_INFO_TOPIC` 和
 `OFFICIAL_SIMENV_ROS2_SETUP` 覆盖。未发现实际源话题时不得把验证失败归因于 ROS2 算法。
 
+若官方容器通过 Docker 端口映射暴露 rosbridge（例如宿主机 `9091` 映射到容器内 `9090`），部分
+rosbridge 会校验 WebSocket `Host` 头。此时 URL 使用宿主机端口，额外设置容器监听端口对应的头：
+
+~~~bash
+export OFFICIAL_SIMENV_ROSBRIDGE_URL=ws://127.0.0.1:9091
+export OFFICIAL_SIMENV_ROSBRIDGE_HOST_HEADER=127.0.0.1:9090
+~~~
+
 ## 文件与运行
 
 - `scripts/official_simenv_rosbridge_ros2_adapter_node.py`：ROS2 主机 WebSocket 适配、分片重组、安全速度门和状态审计。

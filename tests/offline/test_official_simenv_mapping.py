@@ -50,6 +50,7 @@ def test_rosbridge_control_relay_defaults_to_safe_and_uses_wall_clock_watchdog()
     assert "declare_parameter('rgb_topic'" in source
     assert "'/Odometry_gazebo'" in source
     assert "'forwarded_cmd_count'" in source
+    assert "rosbridge_host_header" in source
 
 
 def test_direct_ros1_control_verifier_requires_exclusive_session_and_records_odometry():
@@ -68,6 +69,8 @@ def test_rosbridge_fragment_contract_is_bounded_and_adapter_keeps_image_bytes():
     assert "'fragment_size': 60000" in adapter
     assert 'base64.b64decode' in adapter
     assert "'/hw/cmd_vel'" in adapter and "'/cmd_vel'" in adapter
+    assert "for name in ('x', 'y', 'z', 'w')" in adapter
+    assert "for name in ('x', 'y', 'z'):" in adapter
     legacy_launcher = (REPO_ROOT / 'scripts' / 'run_official_simenv_ros1_adapter.sh').read_text(encoding='utf-8')
     assert 'run_official_simenv_rosbridge_adapter.sh' in legacy_launcher
 

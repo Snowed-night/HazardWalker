@@ -34,6 +34,10 @@ class RosbridgeHwAdapter(Node):
     def __init__(self):
         super().__init__('hazardwalker_official_rosbridge_adapter')
         self.url = self.declare_parameter('rosbridge_url', 'ws://127.0.0.1:9090').value
+        # Docker 端口映射可使外部 URL 端口不同于容器内 rosbridge 监听端口；部分 rosbridge 会校验 Host。
+        self.host_header = self.declare_parameter('rosbridge_host_header', '').value
+        # 控制逐段验收可暂时停掉高带宽图像，避免图像重组故障掩盖 /cmd_vel 链路；默认保持完整 RGB-D 转发。
+        self.enable_image_relay = bool(self.declare_parameter('enable_image_relay', True).value)
         self.enable_control = bool(self.declare_parameter('enable_cmd_vel_relay', False).value)
         self.timeout_sec = float(self.declare_parameter('cmd_vel_timeout_sec', 0.5).value)
         # 官方版本相机命名有差异；源话题可配，但稳定的 ROS2 /hw 输出不变。
@@ -75,15 +79,18 @@ class RosbridgeHwAdapter(Node):
             return
         while rclpy.ok():
             try:
-                self._socket = websocket.create_connection(self.url, timeout=5)
+                connection_options = {}
+                if self.host_header:
+                    connection_options['host'] = self.host_header
+                self._socket = websocket.create_connection(self.url, timeout=5, **connection_options)
                 self._send({'op': 'advertise', 'topic': '/cmd_vel', 'type': 'geometry_msgs/Twist'})
-                for topic, msg_type in (
-                    ('/Odometry_gazebo', 'nav_msgs/Odometry'),
-                    (self.rgb_topic, 'sensor_msgs/Image'),
-                    (self.depth_topic, 'sensor_msgs/Image'),
-                    (self.rgb_info_topic, 'sensor_msgs/CameraInfo'),
-                    (self.depth_info_topic, 'sensor_msgs/CameraInfo'),
-                ):
+                subscriptions = [('/Odometry_gazebo', 'nav_msgs/Odometry'),
+                                 (self.rgb_info_topic, 'sensor_msgs/CameraInfo'),
+                                 (self.depth_info_topic, 'sensor_msgs/CameraInfo')]
+                if self.enable_image_relay:
+                    subscriptions.extend(((self.rgb_topic, 'sensor_msgs/Image'),
+                                          (self.depth_topic, 'sensor_msgs/Image')))
+                for topic, msg_type in subscriptions:
                     self._send({'op': 'subscribe', 'id': 'hw:' + topic, 'topic': topic, 'type': msg_type,
                                 'queue_length': 1, 'fragment_size': 60000, 'compression': 'none'})
                 while rclpy.ok():
@@ -104,8 +111,11 @@ class RosbridgeHwAdapter(Node):
             for name in ('x', 'y', 'z'):
                 setattr(message.pose.pose.position, name, float(pose.get('position', {}).get(name, 0.0)))
                 setattr(message.twist.twist.linear, name, float(twist.get('linear', {}).get(name, 0.0)))
+            # Pose 使用四元数 (x/y/z/w)，Twist.angular 是三维 Vector3，不能把 w 写入其中。
+            # 这里若混写会在首个 Odometry 包抛 AttributeError，使整个 rosbridge 收帧循环重连。
             for name in ('x', 'y', 'z', 'w'):
                 setattr(message.pose.pose.orientation, name, float(pose.get('orientation', {}).get(name, 0.0)))
+            for name in ('x', 'y', 'z'):
                 setattr(message.twist.twist.angular, name, float(twist.get('angular', {}).get(name, 0.0)))
             self.odom_pub.publish(message)
         elif topic in (self.rgb_topic, self.depth_topic):
@@ -129,8 +139,9 @@ class RosbridgeHwAdapter(Node):
     def _on_cmd(self, message):
         if not self.enable_control:
             return
-        payload = {'linear': {'x': message.linear.x, 'y': message.linear.y, 'z': message.linear.z},
-                   'angular': {'x': message.angular.x, 'y': message.angular.y, 'z': message.angular.z}}
+        # rosbridge JSON 与 ROS2 Python 绑定均要求数值是浮点；显式转换避免上游整数字面量造成类型断言。
+        payload = {'linear': {'x': float(message.linear.x), 'y': float(message.linear.y), 'z': float(message.linear.z)},
+                   'angular': {'x': float(message.angular.x), 'y': float(message.angular.y), 'z': float(message.angular.z)}}
         if self._send({'op': 'publish', 'topic': '/cmd_vel', 'msg': payload}):
             self._forwarded_cmd_count += 1
             self._last_forwarded_cmd = payload
@@ -144,12 +155,14 @@ class RosbridgeHwAdapter(Node):
     def _status(self):
         self.status_pub.publish(String(data=json.dumps({
             'adapter': 'rosbridge_ros2', 'url': self.url,
+            'rosbridge_host_header': self.host_header or None,
             'enable_cmd_vel_relay': self.enable_control, 'received': self._counts,
             'forwarded_cmd_count': self._forwarded_cmd_count,
             'last_forwarded_cmd': self._last_forwarded_cmd,
             'sources': {'rgb': self.rgb_topic, 'depth': self.depth_topic,
                         'rgb_camera_info': self.rgb_info_topic,
                         'depth_camera_info': self.depth_info_topic},
+            'enable_image_relay': self.enable_image_relay,
         }, sort_keys=True)))
 
 

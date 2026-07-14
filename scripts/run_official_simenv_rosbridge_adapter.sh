@@ -6,11 +6,13 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CONTAINER="${SIMENV_CONTAINER:-simenv_run}"
 ROSBRIDGE_URL="${OFFICIAL_SIMENV_ROSBRIDGE_URL:-ws://127.0.0.1:9090}"
+ROSBRIDGE_HOST_HEADER="${OFFICIAL_SIMENV_ROSBRIDGE_HOST_HEADER:-}"
 ENABLE_CONTROL="${OFFICIAL_SIMENV_ENABLE_CONTROL:-0}"
 RGB_TOPIC="${OFFICIAL_SIMENV_RGB_TOPIC:-/real_sense/rgb/image_raw}"
 DEPTH_TOPIC="${OFFICIAL_SIMENV_DEPTH_TOPIC:-/real_sense/depth/image_raw}"
 RGB_INFO_TOPIC="${OFFICIAL_SIMENV_RGB_CAMERA_INFO_TOPIC:-/real_sense/rgb/camera_info}"
 DEPTH_INFO_TOPIC="${OFFICIAL_SIMENV_DEPTH_CAMERA_INFO_TOPIC:-/real_sense/depth/camera_info}"
+ENABLE_IMAGE_RELAY="${OFFICIAL_SIMENV_ENABLE_IMAGE_RELAY:-1}"
 ROS2_SETUP="${OFFICIAL_SIMENV_ROS2_SETUP:-/opt/ros/jazzy/setup.bash}"
 
 if [[ ! -f "$ROS2_SETUP" ]]; then
@@ -31,7 +33,9 @@ if ! docker exec "$CONTAINER" bash -lc 'source /opt/ros/noetic/setup.bash; rosno
 fi
 exec python3 "$ROOT/scripts/official_simenv_rosbridge_ros2_adapter_node.py" --ros-args \
   -p rosbridge_url:="$ROSBRIDGE_URL" \
+  -p rosbridge_host_header:="$ROSBRIDGE_HOST_HEADER" \
   -p enable_cmd_vel_relay:="$ENABLE_CONTROL" \
   -p rgb_topic:="$RGB_TOPIC" -p depth_topic:="$DEPTH_TOPIC" \
   -p rgb_camera_info_topic:="$RGB_INFO_TOPIC" \
-  -p depth_camera_info_topic:="$DEPTH_INFO_TOPIC"
+  -p depth_camera_info_topic:="$DEPTH_INFO_TOPIC" \
+  -p enable_image_relay:="$ENABLE_IMAGE_RELAY"

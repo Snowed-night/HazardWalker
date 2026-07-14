@@ -60,3 +60,14 @@ def test_fragment_total_change_discards_corrupted_frame():
     assert assembler.accept(_fragment('same', 0, 2, '{')) is None
     assert assembler.accept(_fragment('same', 0, 3, '{')) is None
     assert 'same' not in assembler._parts
+
+
+def test_new_frame_zero_fragment_discards_incomplete_previous_frame():
+    """同一订阅 id 的高频下一帧不能混入上一帧尚未收齐的 base64 数据。"""
+    assembler = FragmentAssembler()
+    assert assembler.accept(_fragment('rgb-subscription', 0, 3, 'old-0')) is None
+    assert assembler.accept(_fragment('rgb-subscription', 1, 3, 'old-1')) is None
+
+    assert assembler.accept(_fragment('rgb-subscription', 0, 3, 'new-0')) is None
+    assert assembler.accept(_fragment('rgb-subscription', 1, 3, 'new-1')) is None
+    assert assembler.accept(_fragment('rgb-subscription', 2, 3, 'new-2')) == 'new-0new-1new-2'
