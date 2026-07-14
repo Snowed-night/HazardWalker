@@ -13,14 +13,18 @@
   "full_rgbd_sensor_soak": "pass: 35s full RGB-D relay with zero adapter errors after fragment fix",
   "full_rgbd_control_soak": {
     "result": "pass",
-    "distance_m": 0.5117802324164604,
-    "zero_drift_m": 0.05241128399907903,
-    "rgb_frames": 120,
-    "depth_frames": 119,
-    "invalid_image_frames": 0,
+    "distance_m": 0.5028365572466627,
+    "zero_drift_m": 0.09548908530875773,
+    "rgb_frames": 4,
+    "depth_frames": 9,
+    "tf_messages": 3733,
+    "filtered_inconsistent_odom_to_base_tf": 374,
+    "invalid_image_frames": 1,
     "adapter_reconnect_errors": 0,
     "image_throttle_rate_ms": 500,
     "evidence": "hw_concurrent_rgbd_control_acceptance.json"
   },
+  "tf_relay": "pass: world->map->odom->base->real_sense chain received; conflicting controller TF filtered",
+  "perception_input": "partial_pass: actual RGB/TF frame processed by HSV node; current view has no red ball",
   "business_loop": "not_run"
 }

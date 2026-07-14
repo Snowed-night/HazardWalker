@@ -22,7 +22,7 @@ ROS2，仅使用稳定 `/hw/*`。本整改新增的不是第二套业务系统�
 | 输入 ROS2 | RGB/深度 `camera_info` | `/hw/camera/*camera_info` | `sensor_msgs/CameraInfo` | 内参输入 |
 | 输入 ROS2 | 深度点云、Livox 点云 | `/hw/camera/depth_points`、`/hw/lidar/points` | `sensor_msgs/PointCloud2` | 可选增强输入 |
 | 输出 ROS1 | `/hw/cmd_vel` | `/cmd_vel` | `geometry_msgs/Twist` | 默认拒绝，需显式启用 |
-| 规划中 | `/tf`、`/tf_static` | 同名 | `tf2_msgs/TFMessage` | 当前 rosbridge 适配器未实现；不能当作可用输入 |
+| 输入 ROS2 | `/tf`、`/tf_static` | 同名 | `tf2_msgs/TFMessage` | 已转发；过滤与 `/Odometry_gazebo` 冲突的 `odom→base` 估计 TF |
 
 官方有些版本将前视 RGB 发布为 `/camera/image_raw`；运行前必须用 `rostopic list` 确认实际源话题，
 然后用环境变量设置对应 RGB 与 CameraInfo 源。不能同时把两个物理相机混到一个
@@ -131,9 +131,11 @@ OFFICIAL_SIMENV_VIDEO_REFERENCE='共享盘/20260714_ros1_direct.mp4' \
 
 在上述受控启动顺序下，宿主 ROS2 Jazzy 已产生逐段运行证据：ROS1 `/Odometry_gazebo`、RGB、深度和
 双 CameraInfo 均稳定进入 `/hw/*`；全量 RGB-D 同时转发时，ROS2 `/hw/cmd_vel` 经 rosbridge 和
-ROS1 `/cmd_vel` 驱动官方 A1 连续移动 **0.5118 m**，随后零速度保持，适配器无重连、无坏帧。详细
-JSON、测试表与 README 位于
-`reports/platform/official_simenv_ros1_ros2/20260714_ros2_rosbridge_runtime_acceptance/`。
+ROS1 `/cmd_vel` 驱动官方 A1 连续移动 **0.5028 m**，随后零速度保持；ROS1 动态/静态 TF 也已进入
+ROS2，且 `world→map→odom→base→real_sense` 可实际查询。一个无效深度分片被安全丢弃、未发生重连；
+详细 JSON、测试表与 README 位于
+`reports/platform/official_simenv_ros1_ros2/20260714_ros2_rosbridge_runtime_acceptance/`。适配器的 WebSocket 线程只缓存最新消息，
+由 ROS2 执行器发布，避免大图像长期运行时跨线程 DDS 投递失效。
 
 为防止原始大图像分片覆盖，适配器默认将 RGB、深度订阅节流为 500 ms，并在状态中记录
 `image_throttle_rate_ms` 与 `dropped_invalid_image_frames`。该设置已在并发轮次得到验证；调高帧率必须

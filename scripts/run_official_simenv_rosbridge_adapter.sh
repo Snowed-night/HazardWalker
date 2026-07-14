@@ -14,6 +14,7 @@ RGB_INFO_TOPIC="${OFFICIAL_SIMENV_RGB_CAMERA_INFO_TOPIC:-/real_sense/rgb/camera_
 DEPTH_INFO_TOPIC="${OFFICIAL_SIMENV_DEPTH_CAMERA_INFO_TOPIC:-/real_sense/depth/camera_info}"
 ENABLE_IMAGE_RELAY="${OFFICIAL_SIMENV_ENABLE_IMAGE_RELAY:-1}"
 IMAGE_THROTTLE_RATE_MS="${OFFICIAL_SIMENV_IMAGE_THROTTLE_RATE_MS:-500}"
+TF_THROTTLE_RATE_MS="${OFFICIAL_SIMENV_TF_THROTTLE_RATE_MS:-20}"
 ROS2_SETUP="${OFFICIAL_SIMENV_ROS2_SETUP:-/opt/ros/jazzy/setup.bash}"
 
 if [[ ! -f "$ROS2_SETUP" ]]; then
@@ -40,4 +41,5 @@ exec python3 "$ROOT/scripts/official_simenv_rosbridge_ros2_adapter_node.py" --ro
   -p rgb_camera_info_topic:="$RGB_INFO_TOPIC" \
   -p depth_camera_info_topic:="$DEPTH_INFO_TOPIC" \
   -p enable_image_relay:="$ENABLE_IMAGE_RELAY" \
-  -p image_throttle_rate_ms:="$IMAGE_THROTTLE_RATE_MS"
+  -p image_throttle_rate_ms:="$IMAGE_THROTTLE_RATE_MS" \
+  -p tf_throttle_rate_ms:="$TF_THROTTLE_RATE_MS"

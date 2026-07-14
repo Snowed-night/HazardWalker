@@ -71,6 +71,15 @@ def test_rosbridge_fragment_contract_is_bounded_and_adapter_keeps_image_bytes():
     assert "'/hw/cmd_vel'" in adapter and "'/cmd_vel'" in adapter
     assert "for name in ('x', 'y', 'z', 'w')" in adapter
     assert "for name in ('x', 'y', 'z'):" in adapter
+    assert "tf2_msgs/TFMessage" in adapter
+    assert "'/tf_static'" in adapter
+    assert 'tf_odom_consistency_tolerance_m' in adapter
+    assert 'dropped_inconsistent_tf' in adapter
+    assert 'tf_throttle_rate_ms' in adapter
+    assert "declare_parameter('world_frame', 'world')" in adapter
+    detector = (REPO_ROOT / 'ros2_ws' / 'src' / 'hazardwalker_perception' / 'hazardwalker_perception' /
+                'hsv_detector_node.py').read_text(encoding='utf-8')
+    assert "declare_parameter('output_frame', 'world')" in detector
     legacy_launcher = (REPO_ROOT / 'scripts' / 'run_official_simenv_ros1_adapter.sh').read_text(encoding='utf-8')
     assert 'run_official_simenv_rosbridge_adapter.sh' in legacy_launcher
 
@@ -81,6 +90,13 @@ def test_official_business_launch_never_starts_fake_platform_by_default():
     assert "DeclareLaunchArgument('start_navigation', default_value='false')" in source
     assert "package='hazardwalker_platform'" not in source
     compile(source, 'official_simenv_business.launch.py', 'exec')
+
+
+def test_official_minimal_navigation_consumes_stable_hw_odom():
+    source = (REPO_ROOT / 'ros2_ws' / 'src' / 'hazardwalker_nav' / 'hazardwalker_nav' /
+              'waypoint_patrol_node.py').read_text(encoding='utf-8')
+    assert "Odometry, '/hw/odom'" in source
+    assert "'/hw/Odometry_gazebo'" not in source
 
 
 def test_stack_keeps_adapter_alive_while_business_launch_runs():

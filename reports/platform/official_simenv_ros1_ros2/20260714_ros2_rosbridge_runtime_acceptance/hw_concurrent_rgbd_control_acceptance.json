@@ -1,25 +1,25 @@
 {
   "before": {
-    "t": 27.052,
-    "x": 0.45419461202993244,
-    "y": -1.8706039342516654,
-    "yaw": 1.26253951740245
+    "t": 87.293,
+    "x": 0.6256563165316079,
+    "y": -1.3307207168801025,
+    "yaw": 1.3598291243728513
   },
   "after_motion": {
-    "t": 28.764,
-    "x": 0.6095635396132104,
-    "y": -1.3829775376795885,
-    "yaw": 1.3110110536220476
+    "t": 89.107,
+    "x": 0.7402369202137429,
+    "y": -0.8401209903348331,
+    "yaw": 1.4000648003977898
   },
   "after_stop": {
-    "t": 30.768,
-    "x": 0.6264033901562577,
-    "y": -1.3333452686994185,
-    "yaw": 1.3533790168982593
+    "t": 91.107,
+    "x": 0.7493586948705216,
+    "y": -0.8027676536433482,
+    "yaw": 1.4518298290452198
   },
-  "distance_m": 0.5117802324164604,
-  "zero_drift_m": 0.05241128399907903,
-  "wall_motion_s": 35.912891290994594,
+  "distance_m": 0.5038023485717942,
+  "zero_drift_m": 0.038450988737306645,
+  "wall_motion_s": 38.045252707001055,
   "rgbd_samples": {
     "rgb": {
       "width": 640,
@@ -66,10 +66,12 @@
   },
   "adapter_status": {
     "adapter": "rosbridge_ros2",
+    "dropped_inconsistent_tf": 891,
     "dropped_invalid_image_frames": {},
     "enable_cmd_vel_relay": true,
     "enable_image_relay": true,
-    "forwarded_cmd_count": 684,
+    "enable_tf_relay": true,
+    "forwarded_cmd_count": 725,
     "image_throttle_rate_ms": 500,
     "last_forwarded_cmd": {
       "angular": {
@@ -84,11 +86,13 @@
       }
     },
     "received": {
-      "/Odometry_gazebo": 3104,
-      "/real_sense/depth/camera_info": 61,
-      "/real_sense/depth/image_raw": 119,
-      "/real_sense/rgb/camera_info": 61,
-      "/real_sense/rgb/image_raw": 120
+      "/Odometry_gazebo": 4500,
+      "/real_sense/depth/camera_info": 85,
+      "/real_sense/depth/image_raw": 136,
+      "/real_sense/rgb/camera_info": 84,
+      "/real_sense/rgb/image_raw": 137,
+      "/tf": 9015,
+      "/tf_static": 1
     },
     "rosbridge_host_header": "127.0.0.1:9090",
     "sources": {

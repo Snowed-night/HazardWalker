@@ -23,7 +23,8 @@
 - `run_official_simenv_rosbridge_adapter.sh`：实际官方 profile 使用的 ROS2 主机入口；经容器内
   `rosbridge_websocket` 双向传输 `/hw/*` 与 `/cmd_vel`，需要安装轻量 `websocket-client`。
   原始 RGB-D 默认以 500 ms 节流传输；可通过 `OFFICIAL_SIMENV_IMAGE_THROTTLE_RATE_MS` 调整，调高帧率后
-  必须重做全量 RGB-D 与控制并发回归。
+  必须重做全量 RGB-D 与控制并发回归。默认同时中继 `/tf` 与 `/tf_static`，并过滤与
+  `/Odometry_gazebo` 不一致的 `odom→base` 估计变换，供深度三维定位使用。
 
 官方 SimEnv 的实际 RGB 源可能是 `/camera/image_raw` 而非默认 RealSense 路径。运行前用 `rostopic list`
 确认，并通过 `OFFICIAL_SIMENV_RGB_TOPIC`、`OFFICIAL_SIMENV_RGB_CAMERA_INFO_TOPIC` 覆盖；完整验收顺序见

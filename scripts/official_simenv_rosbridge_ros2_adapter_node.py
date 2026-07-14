@@ -10,6 +10,7 @@ RGB、深度、内参和里程计，完整重组 fragment 后发布稳定 /hw/*�
 import base64
 import binascii
 import json
+import math
 import threading
 import time
 
@@ -17,8 +18,11 @@ import rclpy
 from geometry_msgs.msg import Twist
 from nav_msgs.msg import Odometry
 from rclpy.node import Node
+from rclpy.qos import DurabilityPolicy, QoSProfile
 from sensor_msgs.msg import CameraInfo, Image
 from std_msgs.msg import String
+from tf2_msgs.msg import TFMessage
+from geometry_msgs.msg import TransformStamped
 
 from hazardwalker_platform.rosbridge_protocol import FragmentAssembler, decode_packet
 
@@ -42,6 +46,18 @@ class RosbridgeHwAdapter(Node):
         # 原始 640x480 RGB-D 通过 rosbridge 时，前一帧未收全又开始下一帧会造成分片混杂。
         # 默认节流到 2 Hz；平台带宽验证充足后可按毫秒调小此参数。
         self.image_throttle_rate_ms = int(self.declare_parameter('image_throttle_rate_ms', 500).value)
+        # 三维定位需要 tf2 查询相机到 world/odom 的外参；官方 ROS1 /tf 必须显式转入 ROS2。
+        self.enable_tf_relay = bool(self.declare_parameter('enable_tf_relay', True).value)
+        # 官方 /tf 可达 500 Hz；三维定位消费的是低频 RGB-D，保留 50 Hz 已足够插值，
+        # 否则 JSON 解码会饿死大图像分片与感知回调。
+        self.tf_throttle_rate_ms = int(self.declare_parameter('tf_throttle_rate_ms', 20).value)
+        self.tf_odom_consistency_tolerance_m = float(
+            self.declare_parameter('tf_odom_consistency_tolerance_m', 0.25).value)
+        # 官方 TF 根帧为 map，而赛题结果要求 world。已实测官方 map→odom 为单位变换，
+        # 因而默认补一条 world→map 单位静态边；若平台改了地图原点可关掉或改名，绝不静默猜测。
+        self.enable_world_frame_alias = bool(self.declare_parameter('enable_world_frame_alias', True).value)
+        self.world_frame = self.declare_parameter('world_frame', 'world').value
+        self.map_frame = self.declare_parameter('map_frame', 'map').value
         self.enable_control = bool(self.declare_parameter('enable_cmd_vel_relay', False).value)
         self.timeout_sec = float(self.declare_parameter('cmd_vel_timeout_sec', 0.5).value)
         # 官方版本相机命名有差异；源话题可配，但稳定的 ROS2 /hw 输出不变。
@@ -59,15 +75,31 @@ class RosbridgeHwAdapter(Node):
         # rosbridge 在高带宽订阅下偶发给出不完整的 base64 图像；只丢弃坏帧，不能让整条
         # WebSocket 接收循环重连，否则 /hw/odom 与 /hw/cmd_vel 也会被一起中断。
         self._dropped_image_frames = {}
+        self._dropped_inconsistent_tf = 0
+        self._official_odom_xy = None
+        # WebSocket 接收线程不能长期直接调用 rclpy Publisher.publish：大图像高负载时
+        # Fast DDS 可能出现“已解码计数增长、订阅者无帧”的跨线程投递异常。接收线程只保留
+        # 每类最新消息，ROS2 执行器定时统一发布；图像过期帧天然被丢弃，不积压内存。
+        self._pending_messages = {}
+        self._pending_lock = threading.Lock()
         self.odom_pub = self.create_publisher(Odometry, '/hw/odom', 10)
         self.rgb_pub = self.create_publisher(Image, '/hw/camera/image_raw', 1)
         self.depth_pub = self.create_publisher(Image, '/hw/camera/depth_image', 1)
         self.info_pub = self.create_publisher(CameraInfo, '/hw/camera/camera_info', 1)
         self.depth_info_pub = self.create_publisher(CameraInfo, '/hw/camera/depth_camera_info', 1)
+        self.tf_pub = self.create_publisher(TFMessage, '/tf', 20)
+        self.tf_static_pub = self.create_publisher(
+            TFMessage, '/tf_static', QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL))
+        self._ros_publishers = {
+            'odom': self.odom_pub, 'rgb': self.rgb_pub, 'depth': self.depth_pub,
+            'rgb_info': self.info_pub, 'depth_info': self.depth_info_pub,
+            'tf': self.tf_pub, 'tf_static': self.tf_static_pub,
+        }
         self.status_pub = self.create_publisher(String, '/hw/platform/official_simenv_adapter_status', 10)
         self.cmd_sub = self.create_subscription(Twist, '/hw/cmd_vel', self._on_cmd, 10)
         self.create_timer(0.1, self._watchdog)
         self.create_timer(0.5, self._status)
+        self.create_timer(0.01, self._flush_pending_messages)
         self._thread = threading.Thread(target=self._receive_loop, daemon=True)
         self._thread.start()
 
@@ -77,6 +109,19 @@ class RosbridgeHwAdapter(Node):
                 self._socket.send(json.dumps(packet, separators=(',', ':')))
                 return True
         return False
+
+    def _queue_message(self, name, message):
+        """由 WebSocket 线程覆盖式缓存，避免跨线程直接触发 DDS 发布。"""
+        with self._pending_lock:
+            self._pending_messages[name] = message
+
+    def _flush_pending_messages(self):
+        """在 ROS2 执行器线程实际发布缓存的最新传感器消息。"""
+        with self._pending_lock:
+            pending = self._pending_messages
+            self._pending_messages = {}
+        for name, message in pending.items():
+            self._ros_publishers[name].publish(message)
 
     def _receive_loop(self):
         try:
@@ -94,6 +139,9 @@ class RosbridgeHwAdapter(Node):
                 subscriptions = [('/Odometry_gazebo', 'nav_msgs/Odometry'),
                                  (self.rgb_info_topic, 'sensor_msgs/CameraInfo'),
                                  (self.depth_info_topic, 'sensor_msgs/CameraInfo')]
+                if self.enable_tf_relay:
+                    subscriptions.extend((('/tf', 'tf2_msgs/TFMessage'),
+                                          ('/tf_static', 'tf2_msgs/TFMessage')))
                 if self.enable_image_relay:
                     subscriptions.extend(((self.rgb_topic, 'sensor_msgs/Image'),
                                           (self.depth_topic, 'sensor_msgs/Image')))
@@ -102,6 +150,8 @@ class RosbridgeHwAdapter(Node):
                                'queue_length': 1, 'fragment_size': 60000, 'compression': 'none'}
                     if topic in (self.rgb_topic, self.depth_topic):
                         request['throttle_rate'] = self.image_throttle_rate_ms
+                    elif topic == '/tf':
+                        request['throttle_rate'] = self.tf_throttle_rate_ms
                     self._send(request)
                 while rclpy.ok():
                     packet = decode_packet(self._socket.recv(), self._assembler)
@@ -121,13 +171,14 @@ class RosbridgeHwAdapter(Node):
             for name in ('x', 'y', 'z'):
                 setattr(message.pose.pose.position, name, float(pose.get('position', {}).get(name, 0.0)))
                 setattr(message.twist.twist.linear, name, float(twist.get('linear', {}).get(name, 0.0)))
+            self._official_odom_xy = (message.pose.pose.position.x, message.pose.pose.position.y)
             # Pose 使用四元数 (x/y/z/w)，Twist.angular 是三维 Vector3，不能把 w 写入其中。
             # 这里若混写会在首个 Odometry 包抛 AttributeError，使整个 rosbridge 收帧循环重连。
             for name in ('x', 'y', 'z', 'w'):
                 setattr(message.pose.pose.orientation, name, float(pose.get('orientation', {}).get(name, 0.0)))
             for name in ('x', 'y', 'z'):
                 setattr(message.twist.twist.angular, name, float(twist.get('angular', {}).get(name, 0.0)))
-            self.odom_pub.publish(message)
+            self._queue_message('odom', message)
         elif topic in (self.rgb_topic, self.depth_topic):
             message = Image(); _stamp(message.header.stamp, header.get('stamp')); message.header.frame_id = header.get('frame_id', '')
             message.height = int(source.get('height', 0)); message.width = int(source.get('width', 0))
@@ -138,7 +189,7 @@ class RosbridgeHwAdapter(Node):
                 self._dropped_image_frames[topic] = self._dropped_image_frames.get(topic, 0) + 1
                 self.get_logger().warn('丢弃无效图像帧：%s（%s）' % (topic, error))
                 return
-            (self.rgb_pub if topic == self.rgb_topic else self.depth_pub).publish(message)
+            self._queue_message('rgb' if topic == self.rgb_topic else 'depth', message)
         elif topic in (self.rgb_info_topic, self.depth_info_topic):
             message = CameraInfo(); _stamp(message.header.stamp, header.get('stamp')); message.header.frame_id = header.get('frame_id', '')
             message.height = int(source.get('height', 0)); message.width = int(source.get('width', 0))
@@ -146,7 +197,42 @@ class RosbridgeHwAdapter(Node):
             message.d = [float(value) for value in source.get('D', source.get('d', []))]
             message.r = [float(value) for value in source.get('R', source.get('r', []))]
             message.p = [float(value) for value in source.get('P', source.get('p', []))]
-            (self.info_pub if topic == self.rgb_info_topic else self.depth_info_pub).publish(message)
+            self._queue_message('rgb_info' if topic == self.rgb_info_topic else 'depth_info', message)
+        elif self.enable_tf_relay and topic in ('/tf', '/tf_static'):
+            message = TFMessage()
+            for source_transform in source.get('transforms', []):
+                header_value = source_transform.get('header', {})
+                transform_value = source_transform.get('transform', {})
+                parent = header_value.get('frame_id', '')
+                child = source_transform.get('child_frame_id', '')
+                translation_value = transform_value.get('translation', {})
+                # 官方环境同时有控制器估计和 Gazebo 真值两路 odom→base TF。它们冲突时，
+                # tf2 最后收到哪一路不可预测；只保留与 /Odometry_gazebo 一致的真值变换。
+                if (topic == '/tf' and parent == 'odom' and child == 'base' and
+                        self._official_odom_xy is not None):
+                    dx = float(translation_value.get('x', 0.0)) - self._official_odom_xy[0]
+                    dy = float(translation_value.get('y', 0.0)) - self._official_odom_xy[1]
+                    if math.hypot(dx, dy) > self.tf_odom_consistency_tolerance_m:
+                        self._dropped_inconsistent_tf += 1
+                        continue
+                transform = TransformStamped()
+                _stamp(transform.header.stamp, header_value.get('stamp'))
+                transform.header.frame_id = parent
+                transform.child_frame_id = child
+                for name in ('x', 'y', 'z'):
+                    setattr(transform.transform.translation, name,
+                            float(translation_value.get(name, 0.0)))
+                for name in ('x', 'y', 'z', 'w'):
+                    setattr(transform.transform.rotation, name,
+                            float(transform_value.get('rotation', {}).get(name, 0.0)))
+                message.transforms.append(transform)
+            if (topic == '/tf_static' and self.enable_world_frame_alias and self.world_frame != self.map_frame):
+                alias = TransformStamped()
+                alias.header.frame_id = self.world_frame
+                alias.child_frame_id = self.map_frame
+                alias.transform.rotation.w = 1.0
+                message.transforms.append(alias)
+            self._queue_message('tf' if topic == '/tf' else 'tf_static', message)
         else:
             return
         self._counts[topic] = self._counts.get(topic, 0) + 1
@@ -180,6 +266,11 @@ class RosbridgeHwAdapter(Node):
                         'depth_camera_info': self.depth_info_topic},
             'enable_image_relay': self.enable_image_relay,
             'image_throttle_rate_ms': self.image_throttle_rate_ms,
+            'enable_tf_relay': self.enable_tf_relay,
+            'tf_throttle_rate_ms': self.tf_throttle_rate_ms,
+            'dropped_inconsistent_tf': self._dropped_inconsistent_tf,
+            'world_frame_alias': (self.world_frame + '->' + self.map_frame
+                                  if self.enable_world_frame_alias else None),
         }, sort_keys=True)))
 
 

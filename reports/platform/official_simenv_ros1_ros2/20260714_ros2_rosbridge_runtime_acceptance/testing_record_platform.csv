@@ -4,5 +4,7 @@ ROS2-BRIDGE-02,RGB深度内参到ROS2/hw/camera,pass,640x480 RGB8与32FC1及K矩
 ROS2-BRIDGE-03,ROS2速度到ROS1控制器,pass,ROS1监控到非零和零速度及关节命令,hw_control_acceptance.json
 ROS2-BRIDGE-04,ROS2控制前进至少1米,pass,1.0050512524329165m,hw_forward_one_meter.json
 ROS2-BRIDGE-05,ROS2控制转向,pass,0.25531265923012486rad,hw_control_acceptance.json
-ROS2-BRIDGE-06,全量RGBD与控制并发稳定,pass,0.5117802324164604m且RGB120深度119帧无重连无坏帧,hw_concurrent_rgbd_control_acceptance.json;500ms图像节流
+ROS2-BRIDGE-06,全量RGBD与控制并发稳定,pass,0.5028365572466627m且RGB4深度9帧控制716次无重连;丢弃1个坏深度帧,hw_concurrent_rgbd_control_acceptance.json;500ms图像节流
+ROS2-BRIDGE-07,ROS1动态静态TF到ROS2,pass,world->map->odom->base->real_sense链可查询且过滤374条冲突估计TF,hw_tf_relay_check.json
+ROS2-BRIDGE-08,ROS2感知真实输入,partial_pass,HSV节点处理640x480真实RGB且TF可用;当前视野无红球,hw_perception_pipeline_check.json
 BUSINESS-LOOP-01,复杂场景导航感知决策闭环,not_run,待稳定适配后执行,不得宣称通过

@@ -59,7 +59,8 @@ class HsvDetectorNode(Node):
         # PoseInfo/相机帧来自不同桥接线程时可能只有数毫秒滞后；允许使用最新 TF
         # 能避免“未来外推”导致整帧定位被丢弃。高速运动平台可显式关闭该兜底。
         self.declare_parameter('allow_latest_tf_fallback', True)
-        self.declare_parameter('output_frame', 'start')
+        # 官方 SimEnv 适配层提供 world→map 静态别名，令检测结果直接满足官方提交的 world 坐标要求。
+        self.declare_parameter('output_frame', 'world')
         self.declare_parameter('confirm_observation_count', 3)
         self.declare_parameter('confirm_distinct_views', 3)
         # 主动横移期间目标可能连续数秒离开视场；150 帧约等于 5 秒@30FPS，
@@ -99,6 +100,9 @@ class HsvDetectorNode(Node):
         self._last_camera_pose_signature = None
         self._stable_view_frame_count = 0
         self._stable_view_id = ''
+        # 官方 RGB-D 对接首帧常暴露 DDS、编码或 TF 时序问题；仅记录前两帧的关键阶段，
+        # 既便于集成验收定位，又避免运行期逐帧刷屏。
+        self._image_callback_count = 0
         self.detector_backend = create_detection_backend(str(self.get_parameter('detector_backend').value))
         self.tracker = HazardTracker(HazardTrackerConfig(
             confirm_observation_count=int(self.get_parameter('confirm_observation_count').value),
@@ -148,6 +152,11 @@ class HsvDetectorNode(Node):
             self.get_logger().warn(f'Unsupported image encoding: {msg.encoding}', throttle_duration_sec=5.0)
             return
 
+        self._image_callback_count += 1
+        if self._image_callback_count <= 2:
+            self.get_logger().info('Received RGB frame %d: %dx%d %s.' % (
+                self._image_callback_count, msg.width, msg.height, msg.encoding))
+
         detections_2d = self.detector_backend.detect(
             data=msg.data,
             width=msg.width,
@@ -171,6 +180,9 @@ class HsvDetectorNode(Node):
         stamp_sec = _stamp_to_float(msg.header.stamp)
         output_frame = str(self.get_parameter('output_frame').value)
         camera_to_output = self._lookup_camera_to_output(msg.header.frame_id, output_frame, msg.header.stamp)
+        if self._image_callback_count <= 2:
+            self.get_logger().info('RGB frame %d processed: detections=%d tf=%s.' % (
+                self._image_callback_count, len(detections_2d), bool(camera_to_output)))
         camera_stable = self._update_camera_stability(camera_to_output)
         # 一个停靠周期只允许一个视角标识；即使量化边界附近有毫米级抖动，
         # 也不能在同一次截图中凭空累计多个 distinct view。
@@ -338,6 +350,8 @@ class HsvDetectorNode(Node):
             'stable_view_frame_count': self._stable_view_frame_count,
         }, ensure_ascii=False)
         self.pub.publish(out)
+        if self._image_callback_count <= 2:
+            self.get_logger().info('Published perception payload for RGB frame %d.' % self._image_callback_count)
 
     def _update_camera_stability(self, transform):
         """根据精确相机世界位姿判断当前帧是否属于停靠稳定视角。"""
@@ -522,3 +536,7 @@ def main():
     finally:
         node.destroy_node()
         rclpy.shutdown()
+
+
+if __name__ == '__main__':
+    main()

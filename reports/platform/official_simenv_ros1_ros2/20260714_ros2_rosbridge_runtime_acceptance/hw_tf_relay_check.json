@@ -1,0 +1,131 @@
+{
+  "dynamic_count": 2,
+  "static_count": 10,
+  "dynamic_sample": [
+    {
+      "parent": "map",
+      "child": "odom",
+      "stamp": 107.848,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "parent": "odom",
+      "child": "base",
+      "stamp": 107.848,
+      "translation": [
+        0.7488414347916853,
+        -0.8020134736649092,
+        0.3950996916468393
+      ]
+    }
+  ],
+  "static_sample": [
+    {
+      "parent": "FL_hip",
+      "child": "FL_thigh_shoulder",
+      "stamp": 0.02,
+      "translation": [
+        0.0,
+        0.081,
+        0.0
+      ]
+    },
+    {
+      "parent": "FR_hip",
+      "child": "FR_thigh_shoulder",
+      "stamp": 0.02,
+      "translation": [
+        0.0,
+        -0.081,
+        0.0
+      ]
+    },
+    {
+      "parent": "RL_hip",
+      "child": "RL_thigh_shoulder",
+      "stamp": 0.02,
+      "translation": [
+        0.0,
+        0.081,
+        0.0
+      ]
+    },
+    {
+      "parent": "RR_hip",
+      "child": "RR_thigh_shoulder",
+      "stamp": 0.02,
+      "translation": [
+        0.0,
+        -0.081,
+        0.0
+      ]
+    },
+    {
+      "parent": "base",
+      "child": "trunk",
+      "stamp": 0.02,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "parent": "trunk",
+      "child": "imu_link",
+      "stamp": 0.02,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "parent": "base",
+      "child": "laser_livox",
+      "stamp": 0.02,
+      "translation": [
+        0.2,
+        0.0,
+        0.08
+      ]
+    },
+    {
+      "parent": "laser_livox",
+      "child": "livox_imu_link",
+      "stamp": 0.02,
+      "translation": [
+        -0.011,
+        -0.02329,
+        0.04412
+      ]
+    },
+    {
+      "parent": "base",
+      "child": "real_sense",
+      "stamp": 0.02,
+      "translation": [
+        0.28,
+        0.0,
+        0.043
+      ]
+    },
+    {
+      "parent": "world",
+      "child": "map",
+      "stamp": 0.0,
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ]
+    }
+  ],
+  "has_odom_to_base": true,
+  "has_base_chain": true,
+  "has_world_to_map_alias": true
+}
