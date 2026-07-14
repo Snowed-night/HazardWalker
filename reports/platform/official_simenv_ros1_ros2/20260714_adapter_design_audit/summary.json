@@ -1,0 +1,23 @@
+{
+  "record_date": "2026-07-14",
+  "owner": "姜晨",
+  "scope": "official_simenv_ros1_ros2_adapter_design_audit",
+  "implementation": {
+    "ros1_relay": "implemented_offline",
+    "ros1_bridge": "requires_official_runtime",
+    "cmd_vel_safety_gate": "implemented_offline",
+    "camera_source_override": "implemented_offline"
+  },
+  "runtime_verification": {
+    "ros1_direct_forward_1m": "not_verified",
+    "ros1_turn": "not_verified",
+    "ros1_stop": "not_verified",
+    "rgbd_and_camera_info_to_ros2": "not_verified",
+    "ros2_to_ros1_motion": "not_verified",
+    "business_closed_loop": "not_verified"
+  },
+  "known_risks": [
+    "headless Gazebo Classic may disable camera rendering",
+    "cmd_vel subscription alone does not prove an active A1 controller"
+  ]
+}

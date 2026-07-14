@@ -1,0 +1,27 @@
+{
+  "record_date": "2026-07-14",
+  "owner": "姜晨",
+  "mode": "read_only_shared_environment_precheck",
+  "container": "simenv_run",
+  "observations": {
+    "odom_topic_visible": true,
+    "odom_sample_received": true,
+    "cmd_vel_controller_subscriber": "/unitree_gazebo_servo",
+    "motor_command_publishers_visible": true,
+    "physics_paused": false,
+    "real_sense_sensor_configured_in_source": true,
+    "headless_launch_argument_passed_by_auto_sh": false,
+    "rosbridge_host_network_reachable": true,
+    "camera_or_realsense_topic_count": 0,
+    "external_cmd_vel_publishers_present": true
+  },
+  "claims_not_made": [
+    "direct_ros1_motion",
+    "one_meter_forward_motion",
+    "turn_or_stop",
+    "rgbd_bridge",
+    "ros2_to_ros1_motion",
+    "business_closed_loop"
+  ],
+  "next_blocker": "camera topics absent; apply and compile the headless rendering candidate patch in an isolated SimEnv copy, then reserve the shared simulation for direct motion testing"
+}

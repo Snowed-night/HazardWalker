@@ -265,31 +265,46 @@ def test_world_has_lighting():
 _BRIDGE_YAML = os.path.join(CONFIG_DIR, 'ros_gz_bridge.yaml')
 
 
-def test_bridge_yaml_is_valid():
-    """桥接 YAML 文件存在且能被解析为列表。"""
+def _load_bridge_entries():
+    """兼容 ros_gz_bridge 的列表式旧格式和节点参数式新格式。
+
+    本地 Harmonic profile 的配置已改为 ``gz_bridge.ros__parameters.topics``，这是 ROS 2
+    参数文件的标准写法；官方 ROS1 SimEnv 不读取该文件，见独立的 official 映射测试。
+    """
     try:
         import yaml
     except ImportError:
-        # Windows 上可能没有 pyyaml，跳过。主力机上一定可用。
-        return
+        return None
 
     with open(_BRIDGE_YAML, 'r', encoding='utf-8') as f:
         data = yaml.safe_load(f)
-
     assert data is not None, 'YAML 文件为空'
-    assert isinstance(data, list), f'YAML 顶层应为 list，实际: {type(data)}'
-    assert len(data) > 0, 'YAML 配置列表为空'
+    if isinstance(data, list):
+        entries = data
+    elif isinstance(data, dict):
+        entries = data.get('gz_bridge', {}).get('ros__parameters', {}).get('topics')
+    else:
+        entries = None
+    assert isinstance(entries, list), (
+        '桥接条目应为 list；支持顶层 list 或 gz_bridge.ros__parameters.topics，'
+        '实际: %s' % type(entries))
+    assert entries, '桥接配置列表为空'
+    return entries
+
+
+def test_bridge_yaml_is_valid():
+    """桥接 YAML 文件存在且能解析出至少一条桥接条目。"""
+    entries = _load_bridge_entries()
+    if entries is None:
+        # Windows 上可能没有 pyyaml，跳过。主力机上一定可用。
+        return
 
 
 def test_bridge_has_all_required_topics():
     """桥接配置覆盖所有必需的 /hw/* 话题。"""
-    try:
-        import yaml
-    except ImportError:
+    entries = _load_bridge_entries()
+    if entries is None:
         return
-
-    with open(_BRIDGE_YAML, 'r', encoding='utf-8') as f:
-        entries = yaml.safe_load(f)
 
     ros_topics = {entry.get('ros_topic_name', '') for entry in entries}
 
