@@ -24,6 +24,8 @@ class ActiveViewPolicyConfig:
     min_confidence: float = 0.70
     far_distance_m: float = 5.0
     dense_iou_threshold: float = 0.15
+    min_normalized_depth_curvature: float = 0.10
+    max_normalized_depth_curvature: float = 0.30
 
 
 @dataclass(frozen=True)
@@ -64,15 +66,27 @@ def choose_active_view_action(detections, image_width, image_height, config=None
         return edge_action
 
     if target['depth_shape_status'] == 'flat':
-        return ViewRecommendation(
-            'move_laterally', '深度轮廓近似平面，疑似红色非球体；建议侧向复查后再决定是否丢弃。',
-            94, target['id'],
+        return _lateral_action(
+            target, image_width, 94,
+            '深度轮廓近似平面，疑似红色非球体；从侧面复查轮廓变化后再决定是否丢弃。',
+        )
+
+    if target['normalized_depth_curvature'] is not None and not (
+        policy.min_normalized_depth_curvature
+        <= target['normalized_depth_curvature']
+        <= policy.max_normalized_depth_curvature
+    ):
+        return _lateral_action(
+            target, image_width, 93,
+            '深度曲率不在球体稳定区间，疑似圆锥端面、扁平物或深度异常；必须侧向复查。',
         )
 
     if target['requires_reobservation']:
-        return ViewRecommendation('move_laterally', '候选可能由密集目标合并，建议横移后分离复查。', 92, target['id'])
+        return _lateral_action(
+            target, image_width, 92, '候选局部可见或可能合并，沿目标所在侧横移后复查。',
+        )
 
-    dense_action = _dense_target_action(normalized, policy)
+    dense_action = _dense_target_action(normalized, image_width, policy)
     if dense_action:
         return dense_action
 
@@ -83,12 +97,17 @@ def choose_active_view_action(detections, image_width, image_height, config=None
         return ViewRecommendation('move_forward', '候选距离较远，建议靠近后提高像素覆盖率。', 75, target['id'])
 
     if target['circularity'] < policy.min_circularity:
-        return ViewRecommendation('move_laterally', '候选圆度不稳定，建议横移后从侧面复查。', 70, target['id'])
+        return _lateral_action(
+            target, image_width, 70, '候选圆度不稳定，横移后从侧面复查轮廓是否仍为球形。',
+        )
 
     if target['confidence'] < policy.min_confidence:
         return ViewRecommendation('hold_observation', '候选置信度偏低，建议保持视角采集更多帧。', 60, target['id'])
 
-    return ViewRecommendation('hold_observation', '候选质量稳定，建议保持视角完成多帧确认。', 20, target['id'])
+    return _lateral_action(
+        target, image_width, 55,
+        '单视角圆形仍可能是圆柱或圆锥端面；完成当前稳定帧后获取独立侧视再确认。',
+    )
 
 
 def bbox_iou(a, b):
@@ -114,6 +133,12 @@ def _normalize_detection(item, index):
     y_max = max(y_min, int(bbox.get('y_max', y_min)))
     shape = item.get('shape', {})
     depth = item.get('depth_m')
+    depth_shape = item.get('depth_shape', {})
+    curvature = depth_shape.get('curvature_m')
+    diameter = item.get('apparent_diameter_m')
+    normalized_curvature = None
+    if curvature is not None and diameter is not None and float(diameter) > 0.0:
+        normalized_curvature = float(curvature) / float(diameter)
     return {
         'id': str(item.get('id', index)),
         'x_min': x_min,
@@ -125,7 +150,8 @@ def _normalize_detection(item, index):
         'circularity': float(shape.get('circularity', item.get('circularity', 0.0))),
         'confidence': float(item.get('confidence', 0.0)),
         'depth_m': float(depth) if depth is not None else None,
-        'depth_shape_status': str(item.get('depth_shape', {}).get('status', 'unknown')),
+        'depth_shape_status': str(depth_shape.get('status', 'unknown')),
+        'normalized_depth_curvature': normalized_curvature,
         'requires_reobservation': bool(item.get('requires_reobservation', False)),
     }
 
@@ -138,13 +164,24 @@ def _target_score(item, policy):
     return score
 
 
-def _dense_target_action(detections, policy):
+def _dense_target_action(detections, image_width, policy):
     for left_index, first in enumerate(detections):
         for second in detections[left_index + 1:]:
             if bbox_iou(first, second) >= policy.dense_iou_threshold:
                 target = max((first, second), key=lambda item: _target_score(item, policy))
-                return ViewRecommendation('move_laterally', '多个候选框重叠，建议横移以分离密集目标。', 90, target['id'])
+                return _lateral_action(
+                    target, image_width, 90, '多个候选框重叠，沿目标所在侧横移以产生运动视差。',
+                )
     return None
+
+
+def _lateral_action(target, image_width, priority, reason):
+    """把模糊的“横移”落成可执行方向，并尽量让目标留在视场内。"""
+
+    center_x = (target['x_min'] + target['x_max']) / 2.0
+    action = 'move_left' if center_x <= max(1, image_width) / 2.0 else 'move_right'
+    direction = '左' if action == 'move_left' else '右'
+    return ViewRecommendation(action, f'{reason} 当前选择向{direction}横移。', priority, target['id'])
 
 
 def _edge_action(target, image_width, image_height, policy):
@@ -157,5 +194,8 @@ def _edge_action(target, image_width, image_height, policy):
     if target['x_max'] >= image_width - 1 - margin_x:
         return ViewRecommendation('turn_right', '候选框贴近右边界，建议向目标方向右转复查。', 100, target['id'])
     if target['y_min'] <= margin_y or target['y_max'] >= image_height - 1 - margin_y:
-        return ViewRecommendation('adjust_pitch', '候选框贴近上下边界，建议调整俯仰角复查。', 95, target['id'])
+        return _lateral_action(
+            target, image_width, 95,
+            '候选框贴近上下边界且当前相机俯仰固定，改用侧向视差复查。',
+        )
     return None

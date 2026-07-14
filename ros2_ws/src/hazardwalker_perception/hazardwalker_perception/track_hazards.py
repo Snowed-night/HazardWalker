@@ -4,14 +4,16 @@
 文件作用：
 把每帧三维定位结果合并成稳定危险源列表，降低重复上报和单帧误检。
 当前实现边界：
-按三维欧氏距离做最近邻合并，达到确认观测次数后标记为 confirmed。
-暂不做卡尔曼滤波、跨相机重识别或复杂数据关联，后续可在保持输出字段稳定的前提下升级。
+按三维欧氏距离做最近邻合并，并同时检查真实离散视角、深度形状反证和
+目标三维尺寸稳定性。只有多视角证据一致时才标记为 confirmed。
+暂不做卡尔曼滤波或跨相机重识别，后续可在保持输出字段稳定的前提下升级。
 验证方式：
 使用 tests/offline/test_track_hazards.py 构造多帧观测，验证合并、确认、missed 计数和新目标创建。
 """
 
 from dataclasses import dataclass, field
 import math
+from typing import Optional
 
 
 @dataclass
@@ -23,6 +25,15 @@ class HazardObservation:
     stamp_sec: float = 0.0
     source_id: str = ''
     view_id: str = ''
+    confirmation_eligible: bool = True
+    depth_shape_status: str = 'unknown'
+    # 使用 Optional 而非 PEP 604，确保 ROS1 Noetic 默认 Python 3.8 可解析本纯函数模块。
+    apparent_diameter_m: Optional[float] = None
+    aspect_ratio: Optional[float] = None
+    depth_curvature_m: Optional[float] = None
+    # 相机到候选三维中心的水平视线方位。它让确认器能区分“向前靠近”与
+    # “真正绕到侧面复查”；未提供时保持兼容旧的纯 2D/离线链路。
+    view_bearing_rad: Optional[float] = None
 
 
 @dataclass
@@ -39,6 +50,18 @@ class HazardTrack:
     last_seen_sec: float = 0.0
     source_ids: list = field(default_factory=list)
     view_ids: list = field(default_factory=list)
+    eligible_observation_count: int = 0
+    eligible_view_ids: list = field(default_factory=list)
+    flat_view_ids: list = field(default_factory=list)
+    apparent_diameters_m: list = field(default_factory=list)
+    aspect_ratios: list = field(default_factory=list)
+    depth_curvatures_m: list = field(default_factory=list)
+    diameters_by_view: dict = field(default_factory=dict)
+    aspects_by_view: dict = field(default_factory=dict)
+    curvatures_by_view: dict = field(default_factory=dict)
+    curvature_ratios_by_view: dict = field(default_factory=dict)
+    bearings_by_view: dict = field(default_factory=dict)
+    evidence_status: str = 'collecting_views'
 
 
 @dataclass
@@ -49,6 +72,17 @@ class HazardTrackerConfig:
     reject_after_missed_count: int = 10
     merge_distance_m: float = 0.5
     min_distinct_views: int = 1
+    max_apparent_diameter_cv: float = 0.35
+    min_non_spherical_views_to_reject: int = 2
+    min_multiview_aspect_ratio: float = 0.88
+    # Gazebo 深度边缘会使同一球体的曲率在不同视角波动较大，因此只把极端
+    # 不稳定曲率作为反证；同时要求曲率相对表观直径达到下限，用来排除正面
+    # 看似圆形、实际深度几乎为平面的扁椭球/圆片。
+    max_depth_curvature_cv: float = 0.65
+    min_normalized_depth_curvature: float = 0.10
+    max_median_normalized_depth_curvature: float = 0.30
+    # 为零表示兼容旧链路，不强制方位视差；正式 RGB-D 运行应设置约 20--30 度。
+    min_view_bearing_span_deg: float = 0.0
 
 
 class HazardTracker:
@@ -80,7 +114,7 @@ class HazardTracker:
     def active_tracks(self):
         return [
             track for track in self.tracks
-            if track.status != 'rejected'
+            if not track.status.startswith('rejected')
         ]
 
     def confirmed_tracks(self):
@@ -117,6 +151,43 @@ class HazardTracker:
             last_seen_sec=float(observation.stamp_sec),
             source_ids=[observation.source_id] if observation.source_id else [],
             view_ids=[observation.view_id] if observation.view_id else [],
+            eligible_observation_count=1 if observation.confirmation_eligible else 0,
+            eligible_view_ids=(
+                [observation.view_id]
+                if observation.confirmation_eligible and observation.view_id else []
+            ),
+            flat_view_ids=(
+                [observation.view_id]
+                if observation.depth_shape_status == 'flat' and observation.view_id else []
+            ),
+            apparent_diameters_m=(
+                [float(observation.apparent_diameter_m)]
+                if (observation.confirmation_eligible
+                    and _valid_diameter(observation.apparent_diameter_m)) else []
+            ),
+            aspect_ratios=(
+                [float(observation.aspect_ratio)]
+                if (observation.confirmation_eligible
+                    and _valid_aspect_ratio(observation.aspect_ratio)) else []
+            ),
+            depth_curvatures_m=(
+                [float(observation.depth_curvature_m)]
+                if (observation.confirmation_eligible
+                    and _valid_positive(observation.depth_curvature_m)) else []
+            ),
+            diameters_by_view=_initial_view_evidence(
+                observation.view_id, observation.apparent_diameter_m, _valid_diameter,
+            ) if observation.confirmation_eligible else {},
+            aspects_by_view=_initial_view_evidence(
+                observation.view_id, observation.aspect_ratio, _valid_aspect_ratio,
+            ) if observation.confirmation_eligible else {},
+            curvatures_by_view=_initial_view_evidence(
+                observation.view_id, observation.depth_curvature_m, _valid_positive,
+            ) if observation.confirmation_eligible else {},
+            curvature_ratios_by_view=_initial_curvature_ratio_evidence(observation),
+            bearings_by_view=_initial_view_evidence(
+                observation.view_id, observation.view_bearing_rad, _valid_bearing,
+            ) if observation.confirmation_eligible else {},
         )
         self._next_track_id += 1
         self.tracks.append(track)
@@ -125,12 +196,79 @@ class HazardTracker:
     def _refresh_statuses(self):
         for track in self.tracks:
             if track.missed_count >= self.config.reject_after_missed_count:
+                if (track.status == 'confirmed'
+                        and track.missed_count < self.config.reject_after_missed_count * 10):
+                    # 已确认危险源短时离开视场时保留，避免一次转向就从任务结果消失。
+                    continue
                 track.status = 'rejected'
-            elif (track.observation_count >= self.config.confirm_observation_count
-                  and _distinct_view_count(track) >= self.config.min_distinct_views):
+                track.evidence_status = 'lost_track'
+                continue
+
+            eligible_views = _eligible_distinct_view_count(track)
+            flat_views = len(track.flat_view_ids)
+            diameter_cv = _coefficient_of_variation(_view_medians(track.diameters_by_view))
+            representative_aspect_ratio = min(_view_medians(track.aspects_by_view), default=1.0)
+            curvature_cv = _coefficient_of_variation(_view_medians(track.curvatures_by_view))
+            normalized_curvatures = _normalized_curvature_by_view(track)
+            normalized_curvature = _median(normalized_curvatures, default=0.0)
+            view_bearing_span_deg = _bearing_span_deg(track.bearings_by_view)
+            lateral_parallax_ok = (
+                self.config.min_view_bearing_span_deg <= 0.0
+                or view_bearing_span_deg >= self.config.min_view_bearing_span_deg
+            )
+            normalized_curvature_ok = (
+                not normalized_curvatures
+                or (
+                    normalized_curvature >= self.config.min_normalized_depth_curvature
+                    and normalized_curvature <= self.config.max_median_normalized_depth_curvature
+                )
+            )
+            if (flat_views >= self.config.min_non_spherical_views_to_reject
+                    and flat_views >= eligible_views):
+                track.status = 'rejected_non_spherical'
+                track.evidence_status = 'multi_view_flat_or_non_spherical'
+            elif flat_views > 0 and eligible_views == 0:
+                # 第一帧就取得平面深度时，尚不足以把圆柱/圆盘永久拒绝，
+                # 但也不能继续显示为普通 tentative；必须明确要求换到侧视。
+                track.status = 'needs_reobservation'
+                track.evidence_status = 'single_view_flat_or_non_spherical'
+            elif (track.eligible_observation_count >= self.config.confirm_observation_count
+                  and eligible_views >= self.config.min_distinct_views
+                  and diameter_cv <= self.config.max_apparent_diameter_cv
+                  and representative_aspect_ratio >= self.config.min_multiview_aspect_ratio
+                  and curvature_cv <= self.config.max_depth_curvature_cv
+                  and normalized_curvature_ok
+                  and lateral_parallax_ok
+                  and (flat_views == 0 or eligible_views >= flat_views + 2)):
                 track.status = 'confirmed'
+                track.evidence_status = 'multi_view_sphere_consistent'
+            elif (eligible_views >= self.config.min_distinct_views
+                  and (diameter_cv > self.config.max_apparent_diameter_cv
+                       or representative_aspect_ratio < self.config.min_multiview_aspect_ratio
+                       or curvature_cv > self.config.max_depth_curvature_cv
+                       or not normalized_curvature_ok
+                       or not lateral_parallax_ok
+                       or flat_views > 0)):
+                track.status = 'needs_reobservation'
+                track.evidence_status = (
+                    'inconsistent_apparent_size'
+                    if diameter_cv > self.config.max_apparent_diameter_cv
+                    else 'excessive_normalized_depth_curvature'
+                    if (normalized_curvatures and normalized_curvature
+                        > self.config.max_median_normalized_depth_curvature)
+                    else 'insufficient_normalized_depth_curvature'
+                    if not normalized_curvature_ok
+                    else 'inconsistent_depth_curvature'
+                    if curvature_cv > self.config.max_depth_curvature_cv
+                    else 'insufficient_lateral_parallax'
+                    if not lateral_parallax_ok
+                    else 'inconsistent_multiview_aspect'
+                    if representative_aspect_ratio < self.config.min_multiview_aspect_ratio
+                    else 'contradictory_depth_shape'
+                )
             else:
                 track.status = 'tentative'
+                track.evidence_status = 'collecting_views'
 
 
 """计算两个三维位置之间的欧氏距离。"""
@@ -157,8 +295,25 @@ def track_to_hazard_dict(track):
         'first_seen_sec': track.first_seen_sec,
         'last_seen_sec': track.last_seen_sec,
         'source_ids': list(track.source_ids),
-        'distinct_view_count': _distinct_view_count(track),
+        'distinct_view_count': _eligible_distinct_view_count(track),
         'view_ids': list(track.view_ids),
+        'eligible_observation_count': track.eligible_observation_count,
+        'eligible_view_ids': list(track.eligible_view_ids),
+        'flat_view_ids': list(track.flat_view_ids),
+        'apparent_diameter_cv': round(
+            _coefficient_of_variation(_view_medians(track.diameters_by_view)), 4,
+        ),
+        'min_multiview_aspect_ratio': round(
+            min(_view_medians(track.aspects_by_view), default=1.0), 4,
+        ),
+        'depth_curvature_cv': round(
+            _coefficient_of_variation(_view_medians(track.curvatures_by_view)), 4,
+        ),
+        'median_normalized_depth_curvature': round(
+            _median(_normalized_curvature_by_view(track), default=0.0), 4,
+        ),
+        'view_bearing_span_deg': round(_bearing_span_deg(track.bearings_by_view), 3),
+        'evidence_status': track.evidence_status,
     }
 
 
@@ -172,6 +327,12 @@ def _normalize_observation(observation, default_stamp_sec):
             stamp_sec=float(stamp),
             source_id=observation.source_id,
             view_id=observation.view_id,
+            confirmation_eligible=bool(observation.confirmation_eligible),
+            depth_shape_status=str(observation.depth_shape_status),
+            apparent_diameter_m=observation.apparent_diameter_m,
+            aspect_ratio=observation.aspect_ratio,
+            depth_curvature_m=observation.depth_curvature_m,
+            view_bearing_rad=observation.view_bearing_rad,
         )
 
     position = observation.get('position')
@@ -184,6 +345,12 @@ def _normalize_observation(observation, default_stamp_sec):
         stamp_sec=float(stamp),
         source_id=str(observation.get('source_id', observation.get('id', ''))),
         view_id=str(observation.get('view_id', '')),
+        confirmation_eligible=bool(observation.get('confirmation_eligible', True)),
+        depth_shape_status=str(observation.get('depth_shape_status', 'unknown')),
+        apparent_diameter_m=observation.get('apparent_diameter_m'),
+        aspect_ratio=observation.get('aspect_ratio'),
+        depth_curvature_m=observation.get('depth_curvature_m'),
+        view_bearing_rad=observation.get('view_bearing_rad'),
     )
 
 
@@ -203,8 +370,157 @@ def _merge_observation_into_track(track, observation):
         track.source_ids.append(observation.source_id)
     if observation.view_id and observation.view_id not in track.view_ids:
         track.view_ids.append(observation.view_id)
+    if observation.confirmation_eligible:
+        track.eligible_observation_count += 1
+        if observation.view_id and observation.view_id not in track.eligible_view_ids:
+            track.eligible_view_ids.append(observation.view_id)
+    if (observation.depth_shape_status == 'flat' and observation.view_id
+            and observation.view_id not in track.flat_view_ids):
+        track.flat_view_ids.append(observation.view_id)
+    if (observation.confirmation_eligible
+            and _valid_diameter(observation.apparent_diameter_m)):
+        track.apparent_diameters_m.append(float(observation.apparent_diameter_m))
+        _append_view_evidence(track.diameters_by_view, observation.view_id, observation.apparent_diameter_m)
+    if (observation.confirmation_eligible
+            and _valid_aspect_ratio(observation.aspect_ratio)):
+        track.aspect_ratios.append(float(observation.aspect_ratio))
+        _append_view_evidence(track.aspects_by_view, observation.view_id, observation.aspect_ratio)
+    if (observation.confirmation_eligible
+            and _valid_positive(observation.depth_curvature_m)):
+        track.depth_curvatures_m.append(float(observation.depth_curvature_m))
+        _append_view_evidence(track.curvatures_by_view, observation.view_id, observation.depth_curvature_m)
+    if (observation.confirmation_eligible and _valid_positive(observation.depth_curvature_m)
+            and _valid_diameter(observation.apparent_diameter_m)):
+        _append_view_evidence(
+            track.curvature_ratios_by_view, observation.view_id,
+            float(observation.depth_curvature_m) / float(observation.apparent_diameter_m),
+        )
+    if observation.confirmation_eligible and _valid_bearing(observation.view_bearing_rad):
+        _append_view_evidence(track.bearings_by_view, observation.view_id, observation.view_bearing_rad)
 
 
 """没有提供视角标识时按兼容旧链路的单一视角计数。"""
-def _distinct_view_count(track):
-    return len(track.view_ids) if track.view_ids else 1
+def _eligible_distinct_view_count(track):
+    """只统计可确认观测的真实离散视角，反证视角不能把轨迹推成 confirmed。"""
+
+    if track.eligible_view_ids:
+        return len(track.eligible_view_ids)
+    return 1 if track.eligible_observation_count > 0 else 0
+
+
+def _valid_diameter(value):
+    return value is not None and math.isfinite(float(value)) and float(value) > 0.0
+
+
+def _valid_positive(value):
+    return value is not None and math.isfinite(float(value)) and float(value) > 0.0
+
+
+def _valid_aspect_ratio(value):
+    return value is not None and math.isfinite(float(value)) and 0.0 < float(value) <= 1.0
+
+
+def _valid_bearing(value):
+    return value is not None and math.isfinite(float(value))
+
+
+def _diameter_cv(values):
+    """返回表观三维直径的变异系数；样本不足时不提前否决。"""
+
+    valid = [float(value) for value in values if _valid_diameter(value)]
+    if len(valid) < 2:
+        return 0.0
+    mean = sum(valid) / len(valid)
+    variance = sum((value - mean) ** 2 for value in valid) / len(valid)
+    return math.sqrt(variance) / max(mean, 1e-9)
+
+
+def _coefficient_of_variation(values):
+    valid = [float(value) for value in values if _valid_positive(value)]
+    if len(valid) < 2:
+        return 0.0
+    mean = sum(valid) / len(valid)
+    variance = sum((value - mean) ** 2 for value in valid) / len(valid)
+    return math.sqrt(variance) / max(mean, 1e-9)
+
+
+def _median(values, default=0.0):
+    valid = sorted(float(value) for value in values if math.isfinite(float(value)))
+    if not valid:
+        return float(default)
+    middle = len(valid) // 2
+    if len(valid) % 2:
+        return valid[middle]
+    return (valid[middle - 1] + valid[middle]) / 2.0
+
+
+def _initial_view_evidence(view_id, value, validator):
+    if not validator(value):
+        return {}
+    return {str(view_id or 'unknown'): [float(value)]}
+
+
+def _append_view_evidence(mapping, view_id, value):
+    mapping.setdefault(str(view_id or 'unknown'), []).append(float(value))
+
+
+def _view_medians(mapping):
+    """先压缩同一量化视角内的连续帧，避免运动过渡帧支配跨视角门控。"""
+
+    return [_median(values) for values in mapping.values() if values]
+
+
+def _initial_curvature_ratio_evidence(observation):
+    if (not observation.confirmation_eligible
+            or not _valid_positive(observation.depth_curvature_m)
+            or not _valid_diameter(observation.apparent_diameter_m)):
+        return {}
+    ratio = float(observation.depth_curvature_m) / float(observation.apparent_diameter_m)
+    return {str(observation.view_id or 'unknown'): [ratio]}
+
+
+def _view_percentiles(mapping, fraction):
+    values = []
+    for samples in mapping.values():
+        ordered = sorted(float(value) for value in samples if math.isfinite(float(value)))
+        if not ordered:
+            continue
+        index = min(len(ordered) - 1, max(0, int(round((len(ordered) - 1) * fraction))))
+        values.append(ordered[index])
+    return values
+
+
+def _normalized_curvature_by_view(track):
+    """用同视角曲率上四分位数/直径中位数，避免单帧小框把比值放大。"""
+
+    ratios = []
+    for view_id, curvature_samples in track.curvatures_by_view.items():
+        diameter_samples = track.diameters_by_view.get(view_id, [])
+        if not curvature_samples or not diameter_samples:
+            continue
+        curvature = _percentile(curvature_samples, 0.75)
+        diameter = _median(diameter_samples)
+        if diameter > 0.0:
+            ratios.append(curvature / diameter)
+    return ratios
+
+
+def _bearing_span_deg(bearings_by_view):
+    """返回任意两个稳定视角的最大水平视线夹角，处理 -pi/pi 环绕。"""
+    bearings = _view_medians(bearings_by_view)
+    if len(bearings) < 2:
+        return 0.0
+    max_span = 0.0
+    for first_index, first in enumerate(bearings):
+        for second in bearings[first_index + 1:]:
+            delta = math.atan2(math.sin(second - first), math.cos(second - first))
+            max_span = max(max_span, abs(math.degrees(delta)))
+    return max_span
+
+
+def _percentile(values, fraction):
+    ordered = sorted(float(value) for value in values if math.isfinite(float(value)))
+    if not ordered:
+        return 0.0
+    index = min(len(ordered) - 1, max(0, int(round((len(ordered) - 1) * fraction))))
+    return ordered[index]

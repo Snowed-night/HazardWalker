@@ -23,12 +23,16 @@
 import json
 import os
 from datetime import datetime
+from pathlib import Path
 
 import rclpy
 from rclpy.node import Node
 from std_msgs.msg import String
 
-from hazardwalker_decision.result_builder import build_mission_result
+from hazardwalker_decision.result_builder import (
+    build_mission_result,
+    build_official_detected_danger_result,
+)
 
 
 class MissionStateMachineNode(Node):
@@ -36,6 +40,11 @@ class MissionStateMachineNode(Node):
         super().__init__('mission_state_machine_node')
         self.declare_parameter('result_dir', 'reports/run_results')
         self.declare_parameter('mission_id', 'minimal_demo')
+        # 官方 SimEnv 评估器只读取这个结果文件。正式运行时感知节点必须设置
+        # output_frame:=world；否则本节点会安全地跳过非 world 的候选，而非错报坐标。
+        self.declare_parameter('official_result_path', 'results/detected_danger.json')
+        self.declare_parameter('official_result_frame', 'world')
+        self.declare_parameter('official_result_dedup_distance_m', 0.30)
 
         # nav_state 保存导航组当前状态；hazards 用字典按 id 去重保存候选危险源。
         # 当前版本只做简单覆盖，后续要替换为多帧确认和状态管理。
@@ -115,6 +124,31 @@ class MissionStateMachineNode(Node):
         path = os.path.join(output_dir, f'{timestamp}_result.json')
         with open(path, 'w', encoding='utf-8') as f:
             json.dump(result, f, ensure_ascii=False, indent=2)
+
+        # 另外写出官方评分格式。仅 `confirmed` 且 world 坐标的球体轨迹会进入此文件，
+        # 所以红圆柱/圆锥候选、部分可见候选和被拒绝的非球体不会形成虚警提交。
+        official = build_official_detected_danger_result(
+            result['hazards'],
+            result['metrics']['duration_sec'],
+            expected_frame=self.get_parameter('official_result_frame').value,
+            dedup_distance_m=float(
+                self.get_parameter('official_result_dedup_distance_m').value
+            ),
+        )
+        official_value = self.get_parameter('official_result_path').value
+        official_path = Path(official_value)
+        if not official_path.is_absolute():
+            official_path = Path(repo_root) / official_path
+        official_path.parent.mkdir(parents=True, exist_ok=True)
+        temporary_path = official_path.with_suffix(official_path.suffix + '.tmp')
+        temporary_path.write_text(
+            json.dumps(official, ensure_ascii=False, indent=2) + '\n', encoding='utf-8',
+        )
+        temporary_path.replace(official_path)
+        self.get_logger().info(
+            f'Official danger result written: {official_path} '
+            f'({len(official["detected_danger_sources"])} confirmed world-frame sources).'
+        )
 
 
 def main():

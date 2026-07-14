@@ -247,6 +247,8 @@ def test_extremely_occluded_red_ball_keeps_reobservation_candidate():
     assert detections[0].requires_reobservation is True
 
 
+
+
 """验证暗红目标仅以低质量候选形式出现，不绕过严格 HSV 最终判定。"""
 def test_dim_red_ball_emits_reobservation_candidate_only():
     if not require_opencv():
@@ -298,6 +300,39 @@ def test_touching_red_balls_can_be_split_into_multiple_candidates():
     assert len(detections) >= 2
     centers = sorted((item.x_min + item.x_max) / 2.0 for item in detections[:2])
     assert centers[1] - centers[0] > 15.0
+    assert all(item.from_merged_split for item in detections[:2])
+    assert all(item.requires_reobservation for item in detections[:2])
+
+
+def test_three_ball_triangle_blob_can_be_split_despite_near_square_bbox():
+    if not require_opencv():
+        return
+    image = np.full((180, 220, 3), BACKGROUND, dtype=np.uint8)
+    for center in ((80, 105), (140, 105), (110, 58)):
+        cv2.circle(image, center, 36, RED, thickness=-1)
+
+    detections = detect_red_balls_rgb_bytes(
+        bytearray(image.tobytes()), 220, 180, min_area_px=80,
+    )
+
+    assert len(detections) >= 3
+
+
+def test_dumbbell_lobes_are_split_candidates_not_confirmable_balls():
+    if not require_opencv():
+        return
+    image = np.full((160, 240, 3), BACKGROUND, dtype=np.uint8)
+    cv2.circle(image, (80, 80), 34, RED, thickness=-1)
+    cv2.circle(image, (160, 80), 34, RED, thickness=-1)
+    cv2.rectangle(image, (80, 72), (160, 88), RED, thickness=-1)
+
+    detections = detect_red_balls_rgb_bytes(
+        bytearray(image.tobytes()), 240, 160, min_area_px=80,
+    )
+
+    assert len(detections) >= 2
+    assert all(item.from_merged_split for item in detections)
+    assert all(item.requires_reobservation for item in detections)
 
 
 """单个大球的 Hough 内嵌小圆不能导致重复报球。"""
@@ -313,3 +348,49 @@ def test_single_large_red_ball_is_not_duplicated_by_hough_split():
     detections = detect_red_balls_rgb_bytes(bytearray(image.tobytes()), width, height, min_area_px=80)
 
     assert len(detections) == 1
+
+
+def test_single_red_ellipse_is_not_hough_split_into_fake_balls():
+    """凸椭球投影不能被 Hough 拆成多个伪球候选。"""
+
+    image = np.zeros((220, 300, 3), dtype=np.uint8)
+    cv2.ellipse(image, (150, 110), (78, 40), 0, 0, 360, (255, 0, 0), thickness=-1)
+
+    detections = detect_red_balls_rgb_bytes(
+        image.tobytes(), width=300, height=220, step=900, encoding='rgb8',
+        min_area_px=80, min_confidence=0.5, split_touching=True,
+    )
+
+    assert len(detections) <= 1
+
+
+def test_single_near_round_vertical_ellipse_is_not_split_into_two_balls():
+    if not require_opencv():
+        return
+    image = np.zeros((240, 300, 3), dtype=np.uint8)
+    cv2.ellipse(image, (150, 120), (60, 80), 0, 0, 360, (255, 0, 0), thickness=-1)
+
+    detections = detect_red_balls_rgb_bytes(
+        image.tobytes(), width=300, height=240,
+        min_area_px=80, min_confidence=0.5, split_touching=True,
+    )
+
+    assert len(detections) <= 1
+
+
+def test_convex_red_triangle_is_not_split_into_fake_balls():
+    if not require_opencv():
+        return
+    image = np.zeros((240, 300, 3), dtype=np.uint8)
+    cv2.fillPoly(
+        image,
+        [np.array([[150, 25], [75, 205], [225, 205]], dtype=np.int32)],
+        (255, 0, 0),
+    )
+
+    detections = detect_red_balls_rgb_bytes(
+        image.tobytes(), width=300, height=240,
+        min_area_px=80, min_confidence=0.5, split_touching=True,
+    )
+
+    assert len(detections) <= 1
