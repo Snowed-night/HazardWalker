@@ -102,6 +102,15 @@ class RosbridgeHwAdapter(Node):
         self.create_timer(0.01, self._flush_pending_messages)
         self._thread = threading.Thread(target=self._receive_loop, daemon=True)
         self._thread.start()
+        # 官方镜像内的 rosbridge 会把不同订阅的 fragment 都标成 id=0。若 RGB、深度共用
+        # 一个 WebSocket，高带宽帧偶发交错时无法仅靠 id 区分，最终会拼出非法 base64。
+        # 因此两个图像源各占一个只接收的连接；主连接保留控制回传、里程计、内参和 TF。
+        self._image_threads = []
+        if self.enable_image_relay:
+            for topic in (self.rgb_topic, self.depth_topic):
+                worker = threading.Thread(target=self._receive_image_loop, args=(topic,), daemon=True)
+                worker.start()
+                self._image_threads.append(worker)
 
     def _send(self, packet):
         with self._send_lock:
@@ -142,15 +151,10 @@ class RosbridgeHwAdapter(Node):
                 if self.enable_tf_relay:
                     subscriptions.extend((('/tf', 'tf2_msgs/TFMessage'),
                                           ('/tf_static', 'tf2_msgs/TFMessage')))
-                if self.enable_image_relay:
-                    subscriptions.extend(((self.rgb_topic, 'sensor_msgs/Image'),
-                                          (self.depth_topic, 'sensor_msgs/Image')))
                 for topic, msg_type in subscriptions:
                     request = {'op': 'subscribe', 'id': 'hw:' + topic, 'topic': topic, 'type': msg_type,
                                'queue_length': 1, 'fragment_size': 60000, 'compression': 'none'}
-                    if topic in (self.rgb_topic, self.depth_topic):
-                        request['throttle_rate'] = self.image_throttle_rate_ms
-                    elif topic == '/tf':
+                    if topic == '/tf':
                         request['throttle_rate'] = self.tf_throttle_rate_ms
                     self._send(request)
                 while rclpy.ok():
@@ -161,6 +165,39 @@ class RosbridgeHwAdapter(Node):
                 self.get_logger().warn('rosbridge 连接中断：%s' % error)
                 self._socket = None
                 time.sleep(2.0)
+
+    def _receive_image_loop(self, topic):
+        """用独立 WebSocket 接收单个图像话题，隔离官方 fragment 的错误 id。"""
+        try:
+            import websocket
+        except ImportError:
+            return
+        while rclpy.ok():
+            connection = None
+            try:
+                options = {}
+                if self.host_header:
+                    options['host'] = self.host_header
+                connection = websocket.create_connection(self.url, timeout=5, **options)
+                connection.send(json.dumps({
+                    'op': 'subscribe', 'id': 'hw-image:' + topic, 'topic': topic,
+                    'type': 'sensor_msgs/Image', 'queue_length': 1, 'fragment_size': 60000,
+                    'compression': 'none', 'throttle_rate': self.image_throttle_rate_ms,
+                }, separators=(',', ':')))
+                assembler = FragmentAssembler()
+                while rclpy.ok():
+                    packet = decode_packet(connection.recv(), assembler)
+                    if packet and packet.get('op') == 'publish':
+                        self._publish(packet.get('topic'), packet.get('msg', {}))
+            except Exception as error:
+                self.get_logger().warn('图像 rosbridge 连接中断：%s（%s）' % (topic, error))
+                time.sleep(2.0)
+            finally:
+                if connection is not None:
+                    try:
+                        connection.close()
+                    except Exception:
+                        pass
 
     def _publish(self, topic, source):
         header = source.get('header', {})

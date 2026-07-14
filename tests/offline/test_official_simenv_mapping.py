@@ -77,6 +77,9 @@ def test_rosbridge_fragment_contract_is_bounded_and_adapter_keeps_image_bytes():
     assert 'dropped_inconsistent_tf' in adapter
     assert 'tf_throttle_rate_ms' in adapter
     assert "declare_parameter('world_frame', 'world')" in adapter
+    # 官方 rosbridge 把不同图像订阅的 fragment 都标成 id=0，必须隔离 RGB/深度接收连接。
+    assert 'def _receive_image_loop' in adapter
+    assert 'self._image_threads' in adapter
     detector = (REPO_ROOT / 'ros2_ws' / 'src' / 'hazardwalker_perception' / 'hazardwalker_perception' /
                 'hsv_detector_node.py').read_text(encoding='utf-8')
     assert "declare_parameter('output_frame', 'world')" in detector

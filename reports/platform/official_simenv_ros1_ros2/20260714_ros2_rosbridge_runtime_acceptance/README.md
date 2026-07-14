@@ -32,9 +32,16 @@
   帧数、适配状态和停止尾迹。
 - `hw_tf_relay_check.json`：ROS2 实际接收的动态/静态 TF 样本和 `odom→base`、`base` 链检查。
 - `hw_perception_pipeline_check.json`：业务 HSV 节点处理真实 RGB 与 TF 的部分验收记录。
+- `shared_host_contention_diagnosis.json`：三套 Gazebo 并发时的 CPU、仿真时间与近入口控制诊断；
+  只说明本机资源竞争，不作为导航性能结论。
 
 ## 限制
 
-全量 RGB-D 已完成空载 35 s 和与控制并发的实际回归。当前原始图像保守节流为 2 Hz，接收线程只保留
-最新消息并由 ROS2 执行器发布，避免跨线程 DDS 投递失效；偶发坏分片会被计数丢弃而不重连。
-更高帧率、ROS2 导航/感知/决策完整闭环仍未运行，不能据此宣称任务完成。
+全量 RGB-D 已完成空载 35 s 和与控制并发的实际回归。官方 rosbridge 会把 RGB、深度的 fragment
+都写为 `id=0`；适配器现为两路图像各使用独立 WebSocket，实测可同时收到完整 640×480 RGB 与深度帧，
+且状态中的 `dropped_invalid_image_frames` 为 `{}`。接收线程只保留最新消息并由 ROS2 执行器发布，
+避免跨线程 DDS 投递失效。
+
+原始 RGB-D 的 JSON/base64 转发仍会显著占用一个 CPU 核，因此验证时可保守设为 1 Hz；正式高帧率链路
+应改为容器内 ROS1 感知或二进制/压缩桥接，不能把 Python rosbridge 作为比赛高帧率方案。更高帧率、
+ROS2 导航/感知/决策完整闭环仍未运行，不能据此宣称任务完成。

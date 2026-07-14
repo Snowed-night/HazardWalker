@@ -137,9 +137,17 @@ ROS2，且 `world→map→odom→base→real_sense` 可实际查询。一个无�
 `reports/platform/official_simenv_ros1_ros2/20260714_ros2_rosbridge_runtime_acceptance/`。适配器的 WebSocket 线程只缓存最新消息，
 由 ROS2 执行器发布，避免大图像长期运行时跨线程 DDS 投递失效。
 
-为防止原始大图像分片覆盖，适配器默认将 RGB、深度订阅节流为 500 ms，并在状态中记录
-`image_throttle_rate_ms` 与 `dropped_invalid_image_frames`。该设置已在并发轮次得到验证；调高帧率必须
-重做同结构回归，不能只凭订阅数宣称稳定。
+为防止原始大图像分片覆盖，适配器将 RGB、深度放到各自独立的只接收 WebSocket：官方 rosbridge 将不同
+订阅的 fragment 都标记为 `id=0`，若共用一个连接会偶发串帧并产生非法 base64。两路在真实容器中已同时
+收到完整 640×480 RGB/深度帧，`dropped_invalid_image_frames={}`。默认仍以 500 ms 节流，并在状态中记录
+`image_throttle_rate_ms` 与 `dropped_invalid_image_frames`；调高帧率必须重做同结构回归，不能只凭订阅数
+宣称稳定。
+
+2026-07-14 的主机诊断还发现三个 SimEnv 容器同时运行，各自约占 217%--313% CPU，系统负载约 45；即使
+停止适配器，当前验收容器的仿真时间也仅约 0.1× 实时。因此“第二次速度仍保持旧速度”不能据此归因于
+rosbridge，且在未停掉遗留 Gazebo/获得独占场景前，不能进行正式导航性能或闭环验收。原始 RGB-D 的
+Python JSON/base64 转发还会占用约一个 CPU 核；正式比赛高帧率方案应采用容器内 ROS1 感知或二进制/压缩
+桥接，而非将 Python rosbridge 当作高帧率数据面。
 
 这证明双向平台链路可用，但**不等于完整比赛任务通过**：ROS2 导航自主探索、感知多视角确认、红色
 非球体排除、三维定位和决策结果文件尚未在官方复杂楼宇场景联调，仍为 `not_run`。
