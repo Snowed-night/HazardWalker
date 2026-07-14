@@ -1,0 +1,70 @@
+<launch>
+    <arg name="wname" default="multi_floor_building"/>
+    <arg name="rname" default="a1"/>
+    <arg name="robot_path" value="(find $(arg rname)_description)"/>
+    <arg name="dollar" value="$"/>
+
+    <arg name="paused" default="true"/>
+    <arg name="use_sim_time" default="true"/>
+    <arg name="gui" default="true"/>
+    <arg name="headless" default="false"/>
+    <arg name="debug" default="false"/>
+    <arg name="user_debug" default="false"/>
+
+    <arg name="world_file" default="$(optenv BUILDING_WORLD_FILE)"/>
+    <arg name="robot_x" default="$(optenv COMPETITION_ROBOT_X 0.0)"/>
+    <arg name="robot_y" default="$(optenv COMPETITION_ROBOT_Y -2.2)"/>
+    <arg name="robot_z" default="$(optenv COMPETITION_ROBOT_Z 0.6)"/>
+    <arg name="robot_yaw" default="$(optenv COMPETITION_ROBOT_YAW 1.5708)"/>
+
+    <param name="world_file" value="$(arg world_file)"/>
+
+    <include file="$(find gazebo_ros)/launch/empty_world.launch">
+        <arg name="world_name" value="$(arg world_file)"/>
+        <arg name="debug" value="$(arg debug)"/>
+        <arg name="gui" value="$(arg gui)"/>
+        <arg name="paused" value="$(arg paused)"/>
+        <arg name="headless" value="$(arg headless)"/>
+    </include>
+
+    <param name="robot_description"
+           command="$(find xacro)/xacro --inorder '$(arg dollar)$(arg robot_path)/xacro/robot.xacro'
+           DEBUG:=$(arg user_debug)"/>
+
+    <node pkg="gazebo_ros" type="spawn_model" name="urdf_spawner" respawn="false" output="screen"
+              args="-urdf -z $(arg robot_z) -y $(arg robot_y) -x $(arg robot_x) -Y $(arg robot_yaw) -model $(arg rname)_gazebo -param robot_description -unpause"/>
+
+    <node pkg="unitree_guide" type="state_from_gazebo" name="state_from_gazebo" args="0 0 0 0 0 0" output="screen">
+        <param name="robot_name" value="$(arg rname)" />
+    </node>
+
+    <rosparam file="$(arg dollar)$(arg robot_path)/config/robot_control.yaml" command="load"/>
+
+    <node pkg="controller_manager" type="spawner" name="controller_spawner" respawn="false"
+           ns="/$(arg rname)_gazebo" args="joint_state_controller
+          FL_hip_controller FL_thigh_controller FL_calf_controller
+          FR_hip_controller FR_thigh_controller FR_calf_controller
+          RL_hip_controller RL_thigh_controller RL_calf_controller
+          RR_hip_controller RR_thigh_controller RR_calf_controller "/>
+
+    <node pkg="robot_state_publisher" type="robot_state_publisher" name="robot_state_publisher"
+          respawn="false" output="screen">
+        <remap from="/joint_states" to="/$(arg rname)_gazebo/joint_states"/>
+    </node>
+
+    <node name="joy_node" pkg="joy" type="joy_node" output="screen">
+        <param name="dev" value="/dev/input/js0" />
+        <param name="deadzone" value="0.05" />
+        <param name="autorepeat_rate" value="20" />
+    </node>
+
+    <include file="$(find unitree_controller)/launch/set_ctrl.launch">
+        <arg name="rname" value="$(arg rname)"/>
+    </include>
+
+    <node pkg="unitree_guide" type="pointcloud2livox.py" name="pointcloud2livox" output="screen">
+        <param name="laser_blind" value="0.5" />
+        <param name="min_angle" value="-7"/>
+        <param name="max_angle" value="55"/>
+    </node>
+</launch>
