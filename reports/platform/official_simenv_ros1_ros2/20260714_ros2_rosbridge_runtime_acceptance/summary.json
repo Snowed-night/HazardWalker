@@ -1,0 +1,15 @@
+{
+  "owner": "姜晨",
+  "date": "2026-07-14",
+  "transport": "ROS2 Jazzy host -> rosbridge WebSocket -> official ROS1 SimEnv",
+  "sensor_relay": "pass: RGB, depth, both CameraInfo and odometry received on /hw/*",
+  "control_relay": {
+    "one_meter_distance_m": 1.0050512524329165,
+    "one_meter_pass": true,
+    "turn_yaw_delta_rad": 0.25531265923012486,
+    "turn_pass": true,
+    "ros1_nonzero_and_zero_commands_observed": true
+  },
+  "full_rgbd_control_soak": "pending: image fragmentation fix requires sustained regression",
+  "business_loop": "not_run"
+}
