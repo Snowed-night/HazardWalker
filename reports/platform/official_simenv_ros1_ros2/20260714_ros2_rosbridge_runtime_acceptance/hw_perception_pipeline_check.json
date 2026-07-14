@@ -1,0 +1,23 @@
+{
+  "owner": "姜晨",
+  "date": "2026-07-14",
+  "source": "当前分支的 hazardwalker_perception.hsv_detector_node 在 ROS2 Jazzy 主机以源码方式运行",
+  "input": {
+    "image_topic": "/hw/camera/image_raw",
+    "depth_topic": "/hw/camera/depth_image",
+    "camera_info_topic": "/hw/camera/camera_info",
+    "output_frame": "world"
+  },
+  "observed": {
+    "rgb_frame": {
+      "width": 640,
+      "height": 480,
+      "encoding": "rgb8"
+    },
+    "tf_available": true,
+    "detection_count": 0,
+    "tf_lookup": "图像时刻比最新 TF 快约 25 ms，节点按配置回退到 latest TF 后成功处理"
+  },
+  "result": "partial_pass",
+  "scope": "证明真实官方 RGB-D 与 TF 已进入 ROS2 感知节点并被处理；该相机视野未含红球，不能作为红球识别、多视角确认或任务闭环证据。"
+}

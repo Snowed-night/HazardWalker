@@ -22,6 +22,7 @@
 import math
 
 import rclpy
+from rclpy.executors import ExternalShutdownException
 from geometry_msgs.msg import Twist
 from nav_msgs.msg import Odometry
 from rclpy.node import Node
@@ -57,7 +58,9 @@ class WaypointPatrolNode(Node):
         self.cmd_pub = self.create_publisher(Twist, '/hw/cmd_vel', 10)
         # 输出导航状态给决策层。当前只发布 IDLE/NAVIGATING/RETURNING/FINISHED。
         self.state_pub = self.create_publisher(String, '/hw/nav/state', 10)
-        self.odom_sub = self.create_subscription(Odometry, '/hw/Odometry_gazebo', self.on_odom, 10)
+        # 官方 ROS1 适配层将 /Odometry_gazebo 统一输出为 /hw/odom；不能泄漏官方原话题名，
+        # 否则官方 profile 启动导航后永远收不到位姿，表面上却没有节点异常。
+        self.odom_sub = self.create_subscription(Odometry, '/hw/odom', self.on_odom, 10)
         # 10Hz 控制循环。真实 Nav2 接入后，这里可以改成 action/result 驱动，而不是定时轮询。
         self.timer = self.create_timer(0.1, self.on_timer)
         self.get_logger().info(f'Waypoint patrol loaded {len(self.waypoints)} goals.')
@@ -126,6 +129,14 @@ def main():
     node = WaypointPatrolNode()
     try:
         rclpy.spin(node)
+    except ExternalShutdownException:
+        # launch/stack 收到 SIGTERM 时上下文可能已被外部关闭；这属于正常收尾，不能报成导航崩溃。
+        pass
     finally:
-        node.destroy_node()
-        rclpy.shutdown()
+        if rclpy.ok():
+            node.destroy_node()
+            rclpy.shutdown()
+
+
+if __name__ == '__main__':
+    main()

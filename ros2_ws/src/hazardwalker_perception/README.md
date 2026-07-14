@@ -22,6 +22,9 @@
 `allow_latest_tf_fallback` 默认开启：相机帧时间比公开 world TF 新数毫秒时，节点会回退到最新变换而非丢弃整帧定位；对高速运动且要求严格时序的硬件平台可关闭它。
 - `dynamic_detection_recorder_node`：订阅 `/hw/camera/image_raw`、`/hw/odom` 和 `/hw/perception/hazard_detections`，写入逐帧记录、精选截图、`summary.json` 与测试组 CSV/JSON；发布建议动作到 `/hw/perception/view_recommendation`，但不直接控制机器人。
 
+上述节点收到官方一键栈的正常停止信号时会安静收尾；记录节点仍先落盘 `frames.jsonl`、`summary.json` 和
+测试表，避免把 ROS2 外部 shutdown 误报为感知崩溃。
+
 当前检测链路已经引入 OpenCV：
 
 ```text

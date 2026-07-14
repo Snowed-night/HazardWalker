@@ -52,11 +52,16 @@ source ./devel/setup.bash
 |------|------|------|
 | `/cmd_vel` | `geometry_msgs/Twist` | 机器人速度指令输入 |
 | `/Odometry_gazebo` | `nav_msgs/Odometry` | 仿真里程计 |
-| `/scan` | `sensor_msgs/PointCloud2` | Livox Mid-360 点云 |
+| `/scan` | `sensor_msgs/LaserScan` | 官方 Gazebo 激光扫描 |
+| `/real_sense/rgb/image_raw` | `sensor_msgs/Image` | RealSense RGB 图像 |
+| `/real_sense/depth/image_raw` | `sensor_msgs/Image` | RealSense 深度图（`32FC1`） |
 | `/camera/image_raw` | `sensor_msgs/Image` | 前视 RGB 图像 |
 | `/real_sense/depth/points` | `sensor_msgs/PointCloud2` | 深度相机点云 |
 
-`junior_ctrl` 默认以前台方式启动。终端输入 `2` 进入站立状态，输入 `6` 切换到 RL 模式，随后控制器接收 `/cmd_vel`。完整接口见 [算法接入接口](docs/algorithm-interfaces.md)。
+共享场景的 `junior_ctrl` 默认以前台方式启动。headless 验收已验证的入口为先以
+`START_CONTROLLER=0` 启动场景、再单独以 `SIMENV_AUTO_RL=1` 启动控制器；终端手动模式可输入 `2` 进入
+站立状态、输入 `6` 切换到 RL 模式。每轮控制验收必须独占 ROS master，避免遗留 `/cmd_vel` 发布者污染结果。
+完整接口见 [算法接入接口](docs/algorithm-interfaces.md)。
 
 ## 结果文件
 

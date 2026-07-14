@@ -1,5 +1,11 @@
 #!/usr/bin/env python3
-"""Host side: read JSON from Docker pipe, publish ROS2 /hw/* topics."""
+"""已停用的旧 JSON 管道桥接器。
+
+负责人：姜晨。该实现无法完整转发 RGB/深度 Image.data，且 /hw/cmd_vel 曾是空回调；官方
+SimEnv 现必须使用 scripts/official_simenv_rosbridge_ros2_adapter_node.py 的 rosbridge 适配器。
+仅在排查历史录包时可显式开启本文件，不能用于官方控制或业务闭环。
+"""
+import os
 import subprocess, json, base64, threading
 import rclpy
 from rclpy.node import Node
@@ -157,6 +163,11 @@ class HwBridge(Node):
                 self._pub['/hw/livox/Pointcloud2'].publish(msg)
 
 def main():
+    # 失败优先：避免成员按旧手册启动后误以为 /hw/* 与控制链路已完整可用。
+    if os.environ.get('HAZARDWALKER_ENABLE_LEGACY_JSON_BRIDGE') != '1':
+        raise SystemExit(
+            '旧 JSON bridge 已停用：请运行 scripts/run_official_simenv_rosbridge_adapter.sh；'
+            '仅历史诊断可设置 HAZARDWALKER_ENABLE_LEGACY_JSON_BRIDGE=1。')
     rclpy.init()
     rclpy.spin(HwBridge())
 

@@ -1,0 +1,100 @@
+{
+  "adapter_status": {
+    "adapter": "rosbridge_ros2",
+    "enable_cmd_vel_relay": true,
+    "forwarded_cmd_count": 4669,
+    "last_forwarded_cmd": {
+      "angular": {
+        "x": 0.0,
+        "y": 0.0,
+        "z": 0.0
+      },
+      "linear": {
+        "x": 0.0,
+        "y": 0.0,
+        "z": 0.0
+      }
+    },
+    "received": {
+      "/Odometry_gazebo": 20888,
+      "/real_sense/depth/camera_info": 395,
+      "/real_sense/depth/image_raw": 129,
+      "/real_sense/rgb/camera_info": 395,
+      "/real_sense/rgb/image_raw": 76
+    },
+    "rosbridge_host_header": "127.0.0.1:9090",
+    "sources": {
+      "depth": "/real_sense/depth/image_raw",
+      "depth_camera_info": "/real_sense/depth/camera_info",
+      "rgb": "/real_sense/rgb/image_raw",
+      "rgb_camera_info": "/real_sense/rgb/camera_info"
+    },
+    "url": "ws://127.0.0.1:9091"
+  },
+  "forward": {
+    "after_command": {
+      "sim_time": 47.76,
+      "x": 0.1377157057220566,
+      "y": -0.352609532240458,
+      "yaw": 1.7272578458179817,
+      "z": 0.3811410874464143
+    },
+    "after_zero": {
+      "sim_time": 50.764,
+      "x": 0.14064755369530263,
+      "y": -0.35267686035549317,
+      "yaw": 1.7398647605049362,
+      "z": 0.38995204571928216
+    },
+    "before": {
+      "sim_time": 39.115,
+      "x": 0.22296469827842963,
+      "y": -1.2143330102825312,
+      "yaw": 1.6522506642660575,
+      "z": 0.39582892824797294
+    },
+    "command_elapsed_wall_s": 90.00930859698565,
+    "distance_m": 0.8659299875514209,
+    "zero_drift_m": 0.0029326209460653154,
+    "zero_yaw_drift_rad": 0.012606914686954518
+  },
+  "ros2_cmd_echo_count": 1151,
+  "status": "completed",
+  "transport": "ROS2 /hw/cmd_vel -> rosbridge -> ROS1 /cmd_vel -> junior_ctrl",
+  "turn": {
+    "after_command": {
+      "sim_time": 51.912,
+      "x": 0.14015735251178554,
+      "y": -0.339638235853154,
+      "yaw": 1.9951774197350611,
+      "z": 0.3943805172439438
+    },
+    "after_hold_zero": {
+      "sim_time": 57.952,
+      "x": 0.13583087219059103,
+      "y": -0.34148696827841746,
+      "yaw": 1.8947891024822685,
+      "z": 0.3906084975707484
+    },
+    "after_settle_zero": {
+      "sim_time": 54.944,
+      "x": 0.1346042510360599,
+      "y": -0.34120145198524376,
+      "yaw": 1.898082585461672,
+      "z": 0.3906965626713418
+    },
+    "before": {
+      "sim_time": 50.764,
+      "x": 0.14064755369530263,
+      "y": -0.35267686035549317,
+      "yaw": 1.7398647605049362,
+      "z": 0.38995204571928216
+    },
+    "command_elapsed_wall_s": 11.492022418999113,
+    "hold_drift_m": 0.0012594121685972814,
+    "hold_yaw_drift_rad": -0.0032934829794035725,
+    "settle_drift_m": 0.005768932368760432,
+    "settle_yaw_drift_rad": -0.09709483427338905,
+    "yaw_delta_rad": 0.25531265923012486
+  }
+}

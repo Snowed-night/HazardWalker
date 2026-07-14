@@ -17,6 +17,7 @@ from pathlib import Path
 
 import numpy as np
 import rclpy
+from rclpy.executors import ExternalShutdownException
 from nav_msgs.msg import Odometry
 from rclpy.node import Node
 from sensor_msgs.msg import Image
@@ -231,7 +232,11 @@ def main():
     node = DynamicDetectionRecorderNode()
     try:
         rclpy.spin(node)
+    except ExternalShutdownException:
+        # 仍需在外部关闭后落盘 frames/summary，随后跳过已失效上下文的 rclpy.shutdown。
+        pass
     finally:
         node.close()
-        node.destroy_node()
-        rclpy.shutdown()
+        if rclpy.ok():
+            node.destroy_node()
+            rclpy.shutdown()

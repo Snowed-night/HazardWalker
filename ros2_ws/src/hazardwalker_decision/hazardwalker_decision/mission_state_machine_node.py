@@ -26,6 +26,7 @@ from datetime import datetime
 from pathlib import Path
 
 import rclpy
+from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
 from std_msgs.msg import String
 
@@ -156,6 +157,10 @@ def main():
     node = MissionStateMachineNode()
     try:
         rclpy.spin(node)
+    except ExternalShutdownException:
+        # 栈统一停止时避免二次 shutdown 产生误导性的 RCLError。
+        pass
     finally:
-        node.destroy_node()
-        rclpy.shutdown()
+        if rclpy.ok():
+            node.destroy_node()
+            rclpy.shutdown()

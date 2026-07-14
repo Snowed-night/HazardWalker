@@ -1,0 +1,79 @@
+{
+  "complete": true,
+  "depth": {
+    "bytes": 1228800,
+    "encoding": "32FC1",
+    "height": 480,
+    "stamp_ns": 810000000,
+    "width": 640
+  },
+  "depth_info": {
+    "distortion_model": "",
+    "height": 480,
+    "k": [
+      554.5940455214144,
+      0.0,
+      320.5,
+      0.0,
+      554.5940455214144,
+      240.5,
+      0.0,
+      0.0,
+      1.0
+    ],
+    "width": 640
+  },
+  "missing": [],
+  "odom": {
+    "child_frame_id": "base",
+    "frame_id": "odom",
+    "stamp_ns": 650000000,
+    "x": -0.6658565037646161,
+    "y": -2.7289548754561648
+  },
+  "rgb": {
+    "bytes": 921600,
+    "encoding": "rgb8",
+    "height": 480,
+    "stamp_ns": 610000000,
+    "width": 640
+  },
+  "rgb_info": {
+    "distortion_model": "",
+    "height": 480,
+    "k": [
+      554.5940455214144,
+      0.0,
+      320.5,
+      0.0,
+      554.5940455214144,
+      240.5,
+      0.0,
+      0.0,
+      1.0
+    ],
+    "width": 640
+  },
+  "status": {
+    "adapter": "rosbridge_ros2",
+    "enable_cmd_vel_relay": false,
+    "enable_image_relay": true,
+    "forwarded_cmd_count": 0,
+    "last_forwarded_cmd": null,
+    "received": {
+      "/Odometry_gazebo": 57,
+      "/real_sense/depth/camera_info": 56,
+      "/real_sense/depth/image_raw": 2,
+      "/real_sense/rgb/camera_info": 56,
+      "/real_sense/rgb/image_raw": 2
+    },
+    "rosbridge_host_header": null,
+    "sources": {
+      "depth": "/real_sense/depth/image_raw",
+      "depth_camera_info": "/real_sense/depth/camera_info",
+      "rgb": "/real_sense/rgb/image_raw",
+      "rgb_camera_info": "/real_sense/rgb/camera_info"
+    },
+    "url": "ws://127.0.0.1:9090"
+  }
+}

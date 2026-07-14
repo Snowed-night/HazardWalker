@@ -1,0 +1,7 @@
+record_id,test_item,expected_evidence,status,notes
+PLAT-20260714-01,ROS1原始传感器恢复,Odometry scan RGB 深度 点云 内参均有样本,pass,频率和编码见 summary.json
+PLAT-20260714-02,headless控制器入口,策略模型加载且非零cmd_vel导致里程计变化,partial,已观测前进与转向变化但未达完整阈值
+PLAT-20260714-03,连续直行至少1米,前后Odometry加视频,not_passed,本轮最大前进位移 0.0632m
+PLAT-20260714-04,不同速度命令生效,空旷位置正反向或两档速度的里程计与视频,not_passed,第二段受当前位置障碍或接触状态影响，不能据此判定
+PLAT-20260714-05,原地转向至少0.2rad,前后姿态加视频,not_passed,本轮姿态变化 0.0646rad
+PLAT-20260714-06,ROS2跨栈控制,/hw/cmd_vel到实体运动的同窗证据,blocked,必须先完成ROS1直连完整验收

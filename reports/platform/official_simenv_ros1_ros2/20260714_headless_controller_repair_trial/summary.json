@@ -1,0 +1,38 @@
+{
+  "record_date": "2026-07-14",
+  "owner": "姜晨",
+  "environment": "official SimEnv ROS1 Noetic + Gazebo Classic, simenv_run",
+  "purpose": "复测 headless 传感器恢复和 junior_ctrl 控制入口修复；不作为跨 ROS2 验收。",
+  "source_fixes_applied": [
+    "FSM: SIMENV_AUTO_RL=1 时从 passive 直接进入既有 RL 状态",
+    "IOROS: AsyncSpinner 改为成员生命周期，避免构造函数返回后停止",
+    "完整官方 SimEnv devel 工作空间、PAUSED=false、Xvfb 在 Gazebo 前启动"
+  ],
+  "raw_ros1_sensor_observation": {
+    "Odometry_gazebo_hz": 498.9,
+    "scan_hz": 9.97,
+    "real_sense_rgb_hz": 21.3,
+    "real_sense_depth_hz": 19.75,
+    "depth_encoding": "32FC1",
+    "image_resolution": "640x480",
+    "depth_points_readable": true,
+    "camera_info_readable": true
+  },
+  "controller_restart": {
+    "SIMENV_AUTO_RL": "1",
+    "controller_node": "/unitree_gazebo_servo",
+    "policy_model_loaded": true,
+    "cuda_available": false
+  },
+  "odom_acceptance_trial": {
+    "forward_0_12_mps_for_3s_displacement_m": 0.0632109,
+    "forward_0_24_mps_for_3s_displacement_m": 0.0252779,
+    "turn_0_35_radps_for_3s_yaw_delta_rad": 0.0646495,
+    "first_nonzero_command_produced_observable_motion": true,
+    "one_meter_forward_pass": false,
+    "turn_0_2_rad_pass": false,
+    "variable_speed_pass": false
+  },
+  "conclusion": "partial",
+  "next_required_test": "将 A1 置于空旷安全位置，记录视频与里程计，完成 >=1m 直行、正反向/两档变速、>=0.2rad 转向、停止；通过后再测 ROS2 /hw/cmd_vel。"
+}
