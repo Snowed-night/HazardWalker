@@ -4,6 +4,14 @@
 
 比赛目标是控制机器狗完成未知室内环境探索，识别并输出危险源位置。危险源真值文件仅供裁判评估使用，参赛算法不应读取。
 
+## HazardWalker 官方适配覆盖层
+
+本目录还包含 `hazardwalker_platform/official_simenv_mapping.py`，用于约束 HazardWalker 对官方 ROS1
+Noetic + Gazebo Classic 环境的稳定 `/hw/*` 接口。官方场景不复用本地 `ros_gz_bridge.yaml`：应启动容器内
+ROS1 中继和 `ros1_bridge dynamic_bridge`，并按
+`docs/environment/官方SimEnv_ROS1_ROS2双向适配整改_20260714.md` 完成 ROS1 直连控制、传感器和跨栈控制
+的逐段验收后，才运行业务闭环。
+
 ## 选手快速入口
 
 | 你要做什么 | 推荐阅读 |

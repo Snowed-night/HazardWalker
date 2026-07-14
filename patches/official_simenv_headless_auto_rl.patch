@@ -1,0 +1,65 @@
+diff --git a/docs/algorithm-interfaces.md b/docs/algorithm-interfaces.md
+index 2cba4ee..26f3101 100644
+--- a/docs/algorithm-interfaces.md
++++ b/docs/algorithm-interfaces.md
+@@ -12,6 +12,18 @@
+ 
+ 如果 `CONTROLLER_FOREGROUND=0`，`junior_ctrl` 会在后台运行，键盘状态切换通常不可用，日志写入 `logs/junior_ctrl.log`。
+ 
++### Headless 自动 RL 模式
++
++远程 headless 容器内控制器 stdin 为 `/dev/null`，因此不能从另一个 `docker exec` 终端向它补发
++键盘 `2`、`6`。需要一键启动并且已完成场景安全检查时，可显式设置：
++
++```bash
++SIMENV_AUTO_RL=1 bash start_headless.sh
++```
++
++该变量默认 `0`，不会改变 GUI/人工启动流程；设置为 `1` 后控制器直接进入已有 RL 状态并订阅
++`/cmd_vel`。这只解决模式入口，仍必须以里程计验证连续前进、变速、转向和零速，不能以订阅数代替。
++
+ ## 最小控制接口
+ 
+ | 接口 | 类型 | 说明 |
+diff --git a/src/unitree_guide/unitree_guide/unitree_guide/src/FSM/FSM.cpp b/src/unitree_guide/unitree_guide/unitree_guide/src/FSM/FSM.cpp
+index 76bc96b..8bb0e65 100755
+--- a/src/unitree_guide/unitree_guide/unitree_guide/src/FSM/FSM.cpp
++++ b/src/unitree_guide/unitree_guide/unitree_guide/src/FSM/FSM.cpp
+@@ -2,6 +2,8 @@
+  Copyright (c) 2020-2023, Unitree Robotics.Co.Ltd. All rights reserved.
+ ***********************************************************************/
+ #include "FSM/FSM.h"
++#include <cstdlib>
++#include <cstring>
+ #include <iostream>
+ 
+ FSM::FSM(CtrlComponents *ctrlComp)
+@@ -27,7 +29,15 @@ FSM::~FSM(){
+ }
+ 
+ void FSM::initialize(){
+-    _currentState = _stateList.passive;
++    // headless 控制器的 stdin 是 /dev/null，不能依赖另一终端输入“2/6”。
++    // 仅在显式设置 SIMENV_AUTO_RL=1 时直接进入已有 RL 状态，默认保留人工键盘流程。
++    const char *autoRl = std::getenv("SIMENV_AUTO_RL");
++    const bool startInRl = autoRl != nullptr && std::strcmp(autoRl, "1") == 0;
++    _currentState = startInRl ? static_cast<FSMState *>(_stateList.rl) :
++                                static_cast<FSMState *>(_stateList.passive);
++    if (startInRl) {
++        std::cout << "SIMENV_AUTO_RL=1: starting controller in RL mode." << std::endl;
++    }
+     _currentState -> enter();
+     _nextState = _currentState;
+     _mode = FSMMode::NORMAL;
+diff --git a/start_headless.sh b/start_headless.sh
+index 66744a0..f4b182b 100644
+--- a/start_headless.sh
++++ b/start_headless.sh
+@@ -22,6 +22,7 @@ docker run -d --rm \
+     -e GUI=false \
+     -e CONTROLLER_FOREGROUND=0 \
+     -e HEADLESS="${HEADLESS:-true}" \
++    -e SIMENV_AUTO_RL="${SIMENV_AUTO_RL:-0}" \
+     -e SEED="${SEED:-}" \
+     -e FLOOR_COUNT="${FLOOR_COUNT:-3}" \
+     -e ROOMS_PER_FLOOR="${ROOMS_PER_FLOOR:-4}" \

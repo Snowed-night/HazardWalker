@@ -1,0 +1,46 @@
+diff --git a/src/unitree_guide/unitree_guide/unitree_guide/include/interface/IOROS.h b/src/unitree_guide/unitree_guide/unitree_guide/include/interface/IOROS.h
+index bf9ddd2..c9df6eb 100644
+--- a/src/unitree_guide/unitree_guide/unitree_guide/include/interface/IOROS.h
++++ b/src/unitree_guide/unitree_guide/unitree_guide/include/interface/IOROS.h
+@@ -17,6 +17,7 @@
+ #include "nav_msgs/Odometry.h"
+ #include "rosgraph_msgs/Clock.h"
+ #include <sensor_msgs/Joy.h>
++#include <memory>
+ 
+ class IOROS : public IOInterface{
+ public:
+@@ -28,6 +29,8 @@ private:
+ void sendCmd(const LowlevelCmd *cmd);
+ void recvState(LowlevelState *state);
+ ros::NodeHandle _nm;
++// 必须与 IOROS 同生命周期，避免构造函数返回时停止 ROS 回调执行器。
++std::unique_ptr<ros::AsyncSpinner> _sub_spinner;
+ ros::Subscriber _servo_sub[12], _imu_sub, _foot_states_sub[4], _base_w_sub,_base_t_sub, _time_sub,joy_sub;;
+ ros::Publisher _servo_pub[12];
+ unitree_legged_msgs::LowCmd _lowCmd;
+diff --git a/src/unitree_guide/unitree_guide/unitree_guide/src/interface/IOROS.cpp b/src/unitree_guide/unitree_guide/unitree_guide/src/interface/IOROS.cpp
+index 46879a5..1c0eafd 100644
+--- a/src/unitree_guide/unitree_guide/unitree_guide/src/interface/IOROS.cpp
++++ b/src/unitree_guide/unitree_guide/unitree_guide/src/interface/IOROS.cpp
+@@ -21,8 +21,8 @@ IOROS::IOROS():IOInterface(){
+ 
+     // start subscriber
+     initRecv();
+-    ros::AsyncSpinner subSpinner(1); // one threads
+-    subSpinner.start();
++    _sub_spinner.reset(new ros::AsyncSpinner(1));
++    _sub_spinner->start();
+     usleep(300000);     //wait for subscribers start
+     // initialize publisher
+     initSend();   
+@@ -33,6 +33,9 @@ IOROS::IOROS():IOInterface(){
+ }
+ 
+ IOROS::~IOROS(){
++    if (_sub_spinner) {
++        _sub_spinner->stop();
++    }
+     delete cmdPanel;
+     ros::shutdown();
+ }
