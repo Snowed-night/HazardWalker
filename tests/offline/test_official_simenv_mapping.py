@@ -60,6 +60,15 @@ def test_direct_ros1_control_verifier_requires_exclusive_session_and_records_odo
     assert 'summary.json' in source
 
 
+def test_rosbridge_fragment_contract_is_bounded_and_adapter_keeps_image_bytes():
+    protocol = (PLATFORM_SRC / 'hazardwalker_platform' / 'rosbridge_protocol.py').read_text(encoding='utf-8')
+    adapter = (REPO_ROOT / 'scripts' / 'official_simenv_rosbridge_ros2_adapter_node.py').read_text(encoding='utf-8')
+    assert 'FragmentAssembler' in protocol and 'timeout_sec' in protocol
+    assert "'fragment_size': 60000" in adapter
+    assert 'base64.b64decode' in adapter
+    assert "'/hw/cmd_vel'" in adapter and "'/cmd_vel'" in adapter
+
+
 def test_official_business_launch_never_starts_fake_platform_by_default():
     source = (REPO_ROOT / 'ros2_ws' / 'src' / 'hazardwalker_bringup' / 'launch' /
               'official_simenv_business.launch.py').read_text(encoding='utf-8')

@@ -3,7 +3,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-CONTAINER="${SIMENV_CONTAINER:-simenv_ros1_hazard_platform}"
+CONTAINER="${SIMENV_CONTAINER:-simenv_run}"
 RUN_CONTROL=0
 [[ "${1:-}" == "--control" ]] && RUN_CONTROL=1
 RGB_TOPIC="${OFFICIAL_SIMENV_RGB_TOPIC:-/real_sense/rgb/image_raw}"

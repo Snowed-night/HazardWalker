@@ -6,10 +6,11 @@
 
 官方 SimEnv 为 ROS1 Noetic、Gazebo Classic 和 Unitree A1；HazardWalker 的导航、感知和决策保持
 ROS2，仅使用稳定 `/hw/*`。本整改新增的不是第二套业务系统，而是位于官方容器内的 ROS1
-适配节点：它先把官方原始话题改为 `/hw/*`，再由容器内 `ros1_bridge dynamic_bridge` 双向桥接。
+适配节点：它运行在 ROS2 主机上，经官方容器已有的 `rosbridge_websocket` 订阅原始 ROS1 话题并发布为 `/hw/*`；
+控制方向则由同一 WebSocket 把 `/hw/cmd_vel` 送回 ROS1 `/cmd_vel`。
 
-`ros_gz_bridge.yaml` 和 Gazebo Harmonic 仅服务本地 profile，不能作为官方控制、RGB-D 或里程计
-可用的证据。
+`ros_gz_bridge.yaml` 和 Gazebo Harmonic 仅服务本地 profile，不能作为官方控制、RGB-D 或里程计可用的证据。
+当前官方 `simenv_run` 容器未安装 ROS2 或 `dynamic_bridge`，不得假设容器内 ros1_bridge 可用。
 
 ## 映射
 
@@ -39,7 +40,7 @@ export OFFICIAL_SIMENV_RGB_CAMERA_INFO_TOPIC=/camera/camera_info
 ## 文件与运行
 
 - `scripts/official_simenv_ros1_adapter_node.py`：容器内 ROS1 中继、安全速度门和状态审计。
-- `scripts/run_official_simenv_ros1_adapter.sh`：将中继部署到已运行官方容器。
+- `scripts/run_official_simenv_rosbridge_adapter.sh`：在 ROS2 主机启动 rosbridge 双向适配器。
 - `scripts/verify_official_simenv_ros1_adapter.sh`：逐段检查原始 ROS1 与 ROS2 `/hw/*`。
 - `scripts/run_official_simenv_ros1_ros2_stack.sh`：官方容器已启动后的 ROS2 业务入口。
 - `ros2_ws/src/hazardwalker_bringup/launch/official_simenv_business.launch.py`：只启动业务节点，不启动
@@ -50,7 +51,7 @@ export OFFICIAL_SIMENV_RGB_CAMERA_INFO_TOPIC=/camera/camera_info
 ~~~bash
 export ROS_DOMAIN_ID=17
 export SIMENV_CONTAINER=simenv_ros1_hazard_platform
-./scripts/run_official_simenv_ros1_adapter.sh
+./scripts/run_official_simenv_rosbridge_adapter.sh
 ./scripts/verify_official_simenv_ros1_adapter.sh
 OFFICIAL_SIMENV_ENABLE_CONTROL=1 ./scripts/run_official_simenv_ros1_adapter.sh
 ./scripts/verify_official_simenv_ros1_adapter.sh --control

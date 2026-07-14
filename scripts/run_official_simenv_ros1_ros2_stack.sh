@@ -4,7 +4,7 @@ set -euo pipefail
 
 # 负责人：姜晨。先确认官方容器，再启动独立适配，再启动不含 fake/Harmonic 的 ROS2 业务层。
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-CONTAINER="${SIMENV_CONTAINER:-simenv_ros1_hazard_platform}"
+CONTAINER="${SIMENV_CONTAINER:-simenv_run}"
 
 source /opt/ros/jazzy/setup.bash
 source "$ROOT/ros2_ws/install/setup.bash"
@@ -21,6 +21,6 @@ if ! docker inspect -f '{{.State.Running}}' "$CONTAINER" 2>/dev/null | grep -qx 
   bash -lc "$SIMENV_START_COMMAND"
 fi
 
-"$ROOT/scripts/run_official_simenv_ros1_adapter.sh"
+"$ROOT/scripts/run_official_simenv_rosbridge_adapter.sh"
 echo '[stack] 启动 ROS2 业务层（不含 fake 平台；固定航点导航默认关闭）。'
 exec ros2 launch hazardwalker_bringup official_simenv_business.launch.py "$@"

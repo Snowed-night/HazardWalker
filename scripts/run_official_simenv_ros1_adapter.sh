@@ -4,7 +4,7 @@ set -euo pipefail
 
 # 负责人：姜晨。该脚本只部署本仓库的独立中继到容器 /tmp，不复制或修改 SimEnv catkin 源码。
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-CONTAINER="${SIMENV_CONTAINER:-simenv_ros1_hazard_platform}"
+CONTAINER="${SIMENV_CONTAINER:-simenv_run}"
 NODE_FILE="/tmp/hazardwalker_official_simenv_ros1_adapter.py"
 ENABLE_CONTROL="${OFFICIAL_SIMENV_ENABLE_CONTROL:-0}"
 ALLOW_UNKNOWN="${OFFICIAL_SIMENV_ALLOW_UNKNOWN_CONTROLLER:-0}"
