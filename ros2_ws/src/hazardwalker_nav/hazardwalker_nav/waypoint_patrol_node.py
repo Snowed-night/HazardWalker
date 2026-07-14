@@ -22,6 +22,7 @@
 import math
 
 import rclpy
+from rclpy.executors import ExternalShutdownException
 from geometry_msgs.msg import Twist
 from nav_msgs.msg import Odometry
 from rclpy.node import Node
@@ -128,9 +129,13 @@ def main():
     node = WaypointPatrolNode()
     try:
         rclpy.spin(node)
+    except ExternalShutdownException:
+        # launch/stack 收到 SIGTERM 时上下文可能已被外部关闭；这属于正常收尾，不能报成导航崩溃。
+        pass
     finally:
-        node.destroy_node()
-        rclpy.shutdown()
+        if rclpy.ok():
+            node.destroy_node()
+            rclpy.shutdown()
 
 
 if __name__ == '__main__':

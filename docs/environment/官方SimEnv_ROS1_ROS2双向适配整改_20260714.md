@@ -118,6 +118,9 @@ OFFICIAL_SIMENV_VIDEO_REFERENCE='共享盘/20260714_ros1_direct.mp4' \
 4. **业务闭环**：仅在前三项通过后，运行导航、感知、决策；输出 `results/detected_danger.json` 与
    截图/视频、summary、测试 CSV 和 README。
 
+业务节点在一键栈收到正常终止信号时会识别 ROS2 外部 shutdown：导航/感知/决策不再打印二次 shutdown
+异常，动态记录节点仍落盘已有证据。这只保证可控收尾，不代表导航完成，也不会触发虚假的 `FINISHED` 结果。
+
 `forwarded_cmd_count`、bridge 订阅数或模式切换日志仅能证明链路局部存在，不能证明实体运动。
 
 ## 当前结论与风险

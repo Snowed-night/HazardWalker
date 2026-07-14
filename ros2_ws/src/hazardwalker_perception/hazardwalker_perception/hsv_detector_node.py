@@ -14,6 +14,7 @@ import time
 
 import numpy as np
 import rclpy
+from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
 from rclpy.time import Time
 from sensor_msgs.msg import CameraInfo, Image
@@ -533,9 +534,13 @@ def main():
     node = HsvDetectorNode()
     try:
         rclpy.spin(node)
+    except ExternalShutdownException:
+        # 官方一键栈停止时 ROS 上下文可先于节点关闭，不把正常退出误记为感知异常。
+        pass
     finally:
-        node.destroy_node()
-        rclpy.shutdown()
+        if rclpy.ok():
+            node.destroy_node()
+            rclpy.shutdown()
 
 
 if __name__ == '__main__':
