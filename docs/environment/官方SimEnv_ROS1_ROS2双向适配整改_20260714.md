@@ -84,6 +84,15 @@ OFFICIAL_SIMENV_ENABLE_CONTROL=1 ./scripts/run_official_simenv_ros1_adapter.sh
    `rostopic info /cmd_vel` 的真实订阅者是 `unitree_gazebo_servo`。
 3. 再显式执行一次 `rosservice call /gazebo/unpause_physics`，随后才启动 ROS2 适配与业务层。
 
+启动完整业务栈或直连控制验收前，先执行：
+
+~~~bash
+SIMENV_CONTAINER=simenv_run ./scripts/check_official_simenv_exclusive_session.sh --require-exclusive
+~~~
+
+它只读取 Docker 容器和资源状态，发现多个名称以 `simenv` 开头的运行容器即拒绝继续，绝不擅自停止其他
+成员容器。`run_official_simenv_ros1_ros2_stack.sh` 与直连验收脚本已自动调用此预检。
+
 不要在共享 host network 中做控制验收；遗留容器会向同一 ROS master 注入速度。验收容器应采用独立
 Docker 网络和端口映射，例如 `127.0.0.1:9091 -> 9090`，同时设置前述 Host 头。
 

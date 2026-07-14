@@ -17,6 +17,8 @@
   `--control` 才发送低速速度命令，仍需以视频和里程计证明真实运动。
 - `verify_official_simenv_ros1_direct_control.sh`：绕过适配层直接验收官方 ROS1 `/cmd_vel`，要求平台组
   设置 `OFFICIAL_SIMENV_EXCLUSIVE_SESSION=1` 才会运行，并自动保存直行≥1m、转向、停止的里程计与测试表。
+- `check_official_simenv_exclusive_session.sh`：只读检查运行中的 SimEnv 容器和资源占用；完整栈与直连控制
+  验收会强制要求仅目标容器运行，绝不自动停止其他成员容器。
 - `run_official_simenv_ros1_ros2_stack.sh`：在官方容器已启动后启动 ROS2 业务层，不启动 fake 平台或
   Gazebo Harmonic；它会在同一进程组后台保活 rosbridge 适配器，业务层退出时自动停止适配器，避免
   遗留控制中继。

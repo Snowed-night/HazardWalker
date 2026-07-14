@@ -26,6 +26,9 @@ if ! docker inspect -f '{{.State.Running}}' "$CONTAINER" 2>/dev/null | grep -qx 
   bash -lc "$SIMENV_START_COMMAND"
 fi
 
+# 完整业务闭环必须独占官方场景；否则不同 Gazebo 与 ROS1 master 会污染速度、位姿和实时性。
+"$ROOT/scripts/check_official_simenv_exclusive_session.sh" --container "$CONTAINER" --require-exclusive
+
 "$ROOT/scripts/run_official_simenv_rosbridge_adapter.sh" &
 ADAPTER_PID=$!
 cleanup_adapter() {

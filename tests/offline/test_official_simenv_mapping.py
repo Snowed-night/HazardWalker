@@ -83,6 +83,17 @@ def test_rosbridge_fragment_contract_is_bounded_and_adapter_keeps_image_bytes():
     detector = (REPO_ROOT / 'ros2_ws' / 'src' / 'hazardwalker_perception' / 'hazardwalker_perception' /
                 'hsv_detector_node.py').read_text(encoding='utf-8')
     assert "declare_parameter('output_frame', 'world')" in detector
+
+
+def test_official_full_stack_requires_an_exclusive_simenv_session():
+    preflight = (REPO_ROOT / 'scripts' / 'check_official_simenv_exclusive_session.sh').read_text(encoding='utf-8')
+    stack = (REPO_ROOT / 'scripts' / 'run_official_simenv_ros1_ros2_stack.sh').read_text(encoding='utf-8')
+    direct = (REPO_ROOT / 'scripts' / 'verify_official_simenv_ros1_direct_control.sh').read_text(encoding='utf-8')
+    # 文案可以说明 docker stop/rm，但脚本本体不能调用这两个破坏性命令。
+    assert '\ndocker stop ' not in preflight and '\ndocker rm ' not in preflight
+    assert '--require-exclusive' in preflight
+    assert 'check_official_simenv_exclusive_session.sh' in stack
+    assert 'check_official_simenv_exclusive_session.sh' in direct
     legacy_launcher = (REPO_ROOT / 'scripts' / 'run_official_simenv_ros1_adapter.sh').read_text(encoding='utf-8')
     assert 'run_official_simenv_rosbridge_adapter.sh' in legacy_launcher
 
