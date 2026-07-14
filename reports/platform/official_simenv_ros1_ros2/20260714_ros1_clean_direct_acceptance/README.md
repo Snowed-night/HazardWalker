@@ -15,6 +15,9 @@
   **0.00031 m**、偏航变化均小于 **0.00018 rad**，表明零速度保持有效。
 - ROS1 原生 RGB（`640×480 rgb8`）、深度（`640×480 32FC1`）、相机内参、里程计和 `/scan`
   均收到真实消息。该结论仅证明 ROS1 原生层；**尚不证明 ROS2 `/hw/*` 适配或业务闭环通过**。
+- 主入口经官方 `/set_door_state` 显式保持打开后，两段直连速度中 `0.35 m/s` 段产生
+  **0.3972 m** 真实位移；未复现“第二次不同速度仍沿用旧指令”。但首段 `0.20 m/s` 只移动
+  **0.0159 m**，正式导航仍必须有启动暖机、卡滞检测和重新规划，不能只看 `/cmd_vel` 回显。
 
 ## 文件
 
@@ -23,10 +26,12 @@
 - `clean_ros1_sensor_contract.json`：RGB-D、内参、里程计和雷达的 ROS1 实际契约。
 - `clean_ros1_rgb.png`、`clean_ros1_depth.png`：同一轮官方 RealSense 原生图像证据。
 - `summary.json`、`testing_record_platform.csv`：供测试组汇总的结论和表格。
+- `ros1_two_speed_after_door_open.json`：主入口打开后两段不同线速度、两次零速度的里程计复测。
 
 ## 复现前提
 
 1. 不要与其他使用 host 网络且指向同一 ROS master 的容器并行发布 `/cmd_vel`。
-2. 先用 `START_CONTROLLER=0` 启动官方场景，再单独运行 `SIMENV_AUTO_RL=1` 的 `junior_ctrl`；
-   不把未修复的 MoveBase 路径当作已验收入口。
+2. 以 `PAUSED=true`、`SIMENV_AUTO_RL=1` 启动 `junior_ctrl`，等待 Gazebo 服务与控制器订阅
+   `/cmd_vel` 后再解除暂停；`LD_LIBRARY_PATH` 必须包含 `/opt/libtorch/lib`。不把出现 NaN 的
+   MoveBase 路径当作已验收入口。
 3. 对外共享环境必须先清除旧发布者或为每次验收建立隔离网络，并记录控制发布者列表。

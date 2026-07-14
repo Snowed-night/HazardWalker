@@ -5,5 +5,6 @@ ROS1-CLEAN-03,ROS1原生停止,连续零速度与Odometry保持窗口,pass,3秒�
 ROS1-CLEAN-04,RGB输入,Image消息尺寸编码与截图,pass,640x480 rgb8,clean_ros1_rgb.png
 ROS1-CLEAN-05,深度和内参输入,Image/CameraInfo实际消息,pass,640x480 32FC1及K矩阵,clean_ros1_sensor_contract.json
 ROS1-CLEAN-06,雷达输入,LaserScan有效量程,pass,360样本中198个有限值,clean_ros1_sensor_contract.json
+ROS1-CLEAN-07,主入口打开后两段不同速度,Odometry分段位移,partial_pass,0.20m/s段0.015928m;0.35m/s段0.397157m,ros1_two_speed_after_door_open.json
 ROS2-ADAPTER-01,ROS2双向适配,ROS2/hw与ROS1同窗证据,not_run,缺少可运行ROS2环境,不可宣称通过
 BUSINESS-LOOP-01,复杂场景闭环,导航感知决策与结果证据,not_run,待ROS2适配实测后执行,不可宣称通过

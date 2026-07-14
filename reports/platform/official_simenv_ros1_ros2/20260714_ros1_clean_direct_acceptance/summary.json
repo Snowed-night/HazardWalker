@@ -29,6 +29,16 @@
     "scan_finite_ratio": 0.55,
     "conclusion": "pass"
   },
+  "two_speed_recheck_after_opening_main_entrance": {
+    "first_linear_x_mps": 0.2,
+    "first_distance_m": 0.01592808968334363,
+    "second_linear_x_mps": 0.35,
+    "second_distance_m": 0.397156567651707,
+    "first_stop_drift_m": 0.010962945986010168,
+    "second_stop_drift_m": 0.03316525358163195,
+    "conclusion": "第二段不同速度产生真实位移，未复现第二次速度被旧指令锁死；首段低速位移不足，说明正式导航须做启动暖机和里程计卡滞检测。",
+    "evidence": "ros1_two_speed_after_door_open.json"
+  },
   "ros2_adapter": "not run: the available official container is ROS1-only and lacks a runnable ROS2 rclpy environment",
   "business_loop": "not run",
   "evidence_integrity": "raw numeric evidence is preserved in clean_ros1_direct_acceptance.json, clean_ros1_stop_hold.json and clean_ros1_sensor_contract.json"
