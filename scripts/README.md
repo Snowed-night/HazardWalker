@@ -15,6 +15,8 @@
   `ros1_bridge dynamic_bridge` 送入 ROS2；速度中继默认关闭。
 - `verify_official_simenv_ros1_adapter.sh`：检查 ROS1 原话题、ROS2 `/hw/*` 与控制器订阅；仅显式
   `--control` 才发送低速速度命令，仍需以视频和里程计证明真实运动。
+- `verify_official_simenv_ros1_direct_control.sh`：绕过适配层直接验收官方 ROS1 `/cmd_vel`，要求平台组
+  设置 `OFFICIAL_SIMENV_EXCLUSIVE_SESSION=1` 才会运行，并自动保存直行≥1m、转向、停止的里程计与测试表。
 - `run_official_simenv_ros1_ros2_stack.sh`：在官方容器已启动后启动 ROS2 业务层，不启动 fake 平台或
   Gazebo Harmonic。
 

@@ -51,6 +51,15 @@ def test_ros1_control_relay_defaults_to_safe_and_uses_wall_clock_watchdog():
     assert "('/Odometry_gazebo', '/hw/odom', Odometry)" in source
 
 
+def test_direct_ros1_control_verifier_requires_exclusive_session_and_records_odometry():
+    source = (REPO_ROOT / 'scripts' / 'verify_official_simenv_ros1_direct_control.sh').read_text(
+        encoding='utf-8')
+    assert 'OFFICIAL_SIMENV_EXCLUSIVE_SESSION' in source
+    assert '/Odometry_gazebo' in source
+    assert 'forward_at_least_1m' in source
+    assert 'summary.json' in source
+
+
 def test_official_business_launch_never_starts_fake_platform_by_default():
     source = (REPO_ROOT / 'ros2_ws' / 'src' / 'hazardwalker_bringup' / 'launch' /
               'official_simenv_business.launch.py').read_text(encoding='utf-8')

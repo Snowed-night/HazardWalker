@@ -61,6 +61,17 @@ OFFICIAL_SIMENV_ENABLE_CONTROL=1 ./scripts/run_official_simenv_ros1_adapter.sh
 `unitree_gazebo_servo` 后才允许设置 `OFFICIAL_SIMENV_ENABLE_CONTROL=1`；中继以墙钟在断流后发送
 零速度，避免 `/clock` 暂停导致看门狗失效。
 
+ROS1 直连控制必须先于双向适配执行，并需预约独占场景：
+
+~~~bash
+OFFICIAL_SIMENV_EXCLUSIVE_SESSION=1 \
+OFFICIAL_SIMENV_VIDEO_REFERENCE='共享盘/20260714_ros1_direct.mp4' \
+./scripts/verify_official_simenv_ros1_direct_control.sh --run
+~~~
+
+脚本自动生成同一轮的控制器信息、前后里程计、`summary.json`、CSV 和 README；位移不足 1m、转角不足
+0.2 rad 或未提供视频引用时，摘要结论仍为 `incomplete`，不能进入跨 ROS 验收。
+
 ## 验收顺序与证据
 
 1. **ROS1 直连优先**：持续发布非零 Twist，记录 `/cmd_vel` 回显、控制器输入、前后
