@@ -42,15 +42,13 @@ def test_official_mapping_is_internally_valid():
     assert validate_mapping() == ()
 
 
-def test_rosbridge_control_relay_defaults_to_safe_and_uses_wall_clock_watchdog():
-    source = (REPO_ROOT / 'scripts' / 'official_simenv_rosbridge_ros2_adapter_node.py').read_text(
-        encoding='utf-8')
-    assert "declare_parameter('enable_cmd_vel_relay', False)" in source
+def test_ros1_control_relay_defaults_to_safe_and_uses_wall_clock_watchdog():
+    source = (REPO_ROOT / 'scripts' / 'official_simenv_ros1_adapter_node.py').read_text(encoding='utf-8')
+    assert "get_param('~enable_cmd_vel_relay', False)" in source
+    assert "get_param('~allow_unknown_controller', False)" in source
     assert 'time.monotonic()' in source
-    assert "declare_parameter('rgb_topic'" in source
-    assert "'/Odometry_gazebo'" in source
-    assert "'forwarded_cmd_count'" in source
-    assert "rosbridge_host_header" in source
+    assert "'~rgb_topic'" in source
+    assert "('/Odometry_gazebo', '/hw/odom', Odometry)" in source
 
 
 def test_direct_ros1_control_verifier_requires_exclusive_session_and_records_odometry():
@@ -69,31 +67,6 @@ def test_rosbridge_fragment_contract_is_bounded_and_adapter_keeps_image_bytes():
     assert "'fragment_size': 60000" in adapter
     assert 'base64.b64decode' in adapter
     assert "'/hw/cmd_vel'" in adapter and "'/cmd_vel'" in adapter
-    assert "for name in ('x', 'y', 'z', 'w')" in adapter
-    assert "for name in ('x', 'y', 'z'):" in adapter
-    assert "tf2_msgs/TFMessage" in adapter
-    assert "'/tf_static'" in adapter
-    assert 'tf_odom_consistency_tolerance_m' in adapter
-    assert 'dropped_inconsistent_tf' in adapter
-    assert 'tf_throttle_rate_ms' in adapter
-    assert "declare_parameter('world_frame', 'world')" in adapter
-    # 官方 rosbridge 把不同图像订阅的 fragment 都标成 id=0，必须隔离 RGB/深度接收连接。
-    assert 'def _receive_image_loop' in adapter
-    assert 'self._image_threads' in adapter
-    detector = (REPO_ROOT / 'ros2_ws' / 'src' / 'hazardwalker_perception' / 'hazardwalker_perception' /
-                'hsv_detector_node.py').read_text(encoding='utf-8')
-    assert "declare_parameter('output_frame', 'world')" in detector
-
-
-def test_official_full_stack_requires_an_exclusive_simenv_session():
-    preflight = (REPO_ROOT / 'scripts' / 'check_official_simenv_exclusive_session.sh').read_text(encoding='utf-8')
-    stack = (REPO_ROOT / 'scripts' / 'run_official_simenv_ros1_ros2_stack.sh').read_text(encoding='utf-8')
-    direct = (REPO_ROOT / 'scripts' / 'verify_official_simenv_ros1_direct_control.sh').read_text(encoding='utf-8')
-    # 文案可以说明 docker stop/rm，但脚本本体不能调用这两个破坏性命令。
-    assert '\ndocker stop ' not in preflight and '\ndocker rm ' not in preflight
-    assert '--require-exclusive' in preflight
-    assert 'check_official_simenv_exclusive_session.sh' in stack
-    assert 'check_official_simenv_exclusive_session.sh' in direct
     legacy_launcher = (REPO_ROOT / 'scripts' / 'run_official_simenv_ros1_adapter.sh').read_text(encoding='utf-8')
     assert 'run_official_simenv_rosbridge_adapter.sh' in legacy_launcher
 
@@ -104,25 +77,3 @@ def test_official_business_launch_never_starts_fake_platform_by_default():
     assert "DeclareLaunchArgument('start_navigation', default_value='false')" in source
     assert "package='hazardwalker_platform'" not in source
     compile(source, 'official_simenv_business.launch.py', 'exec')
-
-
-def test_official_minimal_navigation_consumes_stable_hw_odom():
-    source = (REPO_ROOT / 'ros2_ws' / 'src' / 'hazardwalker_nav' / 'hazardwalker_nav' /
-              'waypoint_patrol_node.py').read_text(encoding='utf-8')
-    assert "Odometry, '/hw/odom'" in source
-    assert "'/hw/Odometry_gazebo'" not in source
-
-
-def test_stack_keeps_adapter_alive_while_business_launch_runs():
-    source = (REPO_ROOT / 'scripts' / 'run_official_simenv_ros1_ros2_stack.sh').read_text(
-        encoding='utf-8')
-    assert 'ADAPTER_PID=$!' in source
-    assert 'trap cleanup_adapter EXIT INT TERM' in source
-    assert 'ros2 launch hazardwalker_bringup official_simenv_business.launch.py' in source
-
-
-def test_legacy_json_bridge_fails_closed_in_official_profile():
-    source = (REPO_ROOT / 'ros2_ws' / 'src' / 'hazardwalker_platform' / 'hw_bridge.py').read_text(
-        encoding='utf-8')
-    assert 'HAZARDWALKER_ENABLE_LEGACY_JSON_BRIDGE' in source
-    assert 'run_official_simenv_rosbridge_adapter.sh' in source

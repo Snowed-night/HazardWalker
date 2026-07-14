@@ -17,24 +17,14 @@
   `--control` 才发送低速速度命令，仍需以视频和里程计证明真实运动。
 - `verify_official_simenv_ros1_direct_control.sh`：绕过适配层直接验收官方 ROS1 `/cmd_vel`，要求平台组
   设置 `OFFICIAL_SIMENV_EXCLUSIVE_SESSION=1` 才会运行，并自动保存直行≥1m、转向、停止的里程计与测试表。
-- `check_official_simenv_exclusive_session.sh`：只读检查运行中的 SimEnv 容器和资源占用；完整栈与直连控制
-  验收会强制要求仅目标容器运行，绝不自动停止其他成员容器。
 - `run_official_simenv_ros1_ros2_stack.sh`：在官方容器已启动后启动 ROS2 业务层，不启动 fake 平台或
-  Gazebo Harmonic；它会在同一进程组后台保活 rosbridge 适配器，业务层退出时自动停止适配器，避免
-  遗留控制中继。
+  Gazebo Harmonic。
 - `run_official_simenv_rosbridge_adapter.sh`：实际官方 profile 使用的 ROS2 主机入口；经容器内
   `rosbridge_websocket` 双向传输 `/hw/*` 与 `/cmd_vel`，需要安装轻量 `websocket-client`。
-  原始 RGB-D 默认以 500 ms 节流传输；可通过 `OFFICIAL_SIMENV_IMAGE_THROTTLE_RATE_MS` 调整，调高帧率后
-  必须重做全量 RGB-D 与控制并发回归。默认同时中继 `/tf` 与 `/tf_static`，并过滤与
-  `/Odometry_gazebo` 不一致的 `odom→base` 估计变换，供深度三维定位使用。
 
 官方 SimEnv 的实际 RGB 源可能是 `/camera/image_raw` 而非默认 RealSense 路径。运行前用 `rostopic list`
 确认，并通过 `OFFICIAL_SIMENV_RGB_TOPIC`、`OFFICIAL_SIMENV_RGB_CAMERA_INFO_TOPIC` 覆盖；完整验收顺序见
 [`docs/environment/官方SimEnv_ROS1_ROS2双向适配整改_20260714.md`](../docs/environment/官方SimEnv_ROS1_ROS2双向适配整改_20260714.md)。
-
-官方容器仅提供 ROS1；`run_official_simenv_rosbridge_adapter.sh` 与完整业务入口必须在另一个安装了
-ROS2、`rclpy` 和 `websocket-client` 的主机/容器上运行。没有这三个依赖时，启动脚本会明确失败，不能
-把 ROS1 原话题可读误写成 ROS2 `/hw/*` 已可用。
 
 ## 约定
 

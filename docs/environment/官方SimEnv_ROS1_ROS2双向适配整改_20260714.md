@@ -22,7 +22,7 @@ ROS2，仅使用稳定 `/hw/*`。本整改新增的不是第二套业务系统�
 | 输入 ROS2 | RGB/深度 `camera_info` | `/hw/camera/*camera_info` | `sensor_msgs/CameraInfo` | 内参输入 |
 | 输入 ROS2 | 深度点云、Livox 点云 | `/hw/camera/depth_points`、`/hw/lidar/points` | `sensor_msgs/PointCloud2` | 可选增强输入 |
 | 输出 ROS1 | `/hw/cmd_vel` | `/cmd_vel` | `geometry_msgs/Twist` | 默认拒绝，需显式启用 |
-| 输入 ROS2 | `/tf`、`/tf_static` | 同名 | `tf2_msgs/TFMessage` | 已转发；过滤与 `/Odometry_gazebo` 冲突的 `odom→base` 估计 TF |
+| 双向 | `/tf`、`/tf_static` | 同名 | `tf2_msgs/TFMessage` | 由 dynamic_bridge 直接桥接 |
 
 官方有些版本将前视 RGB 发布为 `/camera/image_raw`；运行前必须用 `rostopic list` 确认实际源话题，
 然后用环境变量设置对应 RGB 与 CameraInfo 源。不能同时把两个物理相机混到一个
@@ -33,17 +33,9 @@ export OFFICIAL_SIMENV_RGB_TOPIC=/camera/image_raw
 export OFFICIAL_SIMENV_RGB_CAMERA_INFO_TOPIC=/camera/camera_info
 ~~~
 
-深度源、深度内参和 ROS2 环境脚本可分别通过
-`OFFICIAL_SIMENV_DEPTH_TOPIC`、`OFFICIAL_SIMENV_DEPTH_CAMERA_INFO_TOPIC` 和
-`OFFICIAL_SIMENV_ROS2_SETUP` 覆盖。未发现实际源话题时不得把验证失败归因于 ROS2 算法。
-
-若官方容器通过 Docker 端口映射暴露 rosbridge（例如宿主机 `9091` 映射到容器内 `9090`），部分
-rosbridge 会校验 WebSocket `Host` 头。此时 URL 使用宿主机端口，额外设置容器监听端口对应的头：
-
-~~~bash
-export OFFICIAL_SIMENV_ROSBRIDGE_URL=ws://127.0.0.1:9091
-export OFFICIAL_SIMENV_ROSBRIDGE_HOST_HEADER=127.0.0.1:9090
-~~~
+深度源、深度内参、容器 ROS1 setup 和既有 dynamic bridge 启动入口也可分别通过
+`OFFICIAL_SIMENV_DEPTH_TOPIC`、`OFFICIAL_SIMENV_DEPTH_CAMERA_INFO_TOPIC`、`SIMENV_ROS1_SETUP` 和
+`SIMENV_ROS1_BRIDGE_COMMAND` 覆盖。未发现实际源话题时不得把验证失败归因于 ROS2 算法。
 
 ## 文件与运行
 
@@ -71,31 +63,6 @@ OFFICIAL_SIMENV_ENABLE_CONTROL=1 ./scripts/run_official_simenv_ros1_adapter.sh
 `unitree_gazebo_servo` 后才允许设置 `OFFICIAL_SIMENV_ENABLE_CONTROL=1`；中继以墙钟在断流后发送
 零速度，避免 `/clock` 暂停导致看门狗失效。
 
-### 官方 headless 控制器的必要启动约束
-
-官方 `auto.sh` 不是“设为 `PAUSED=false` 就可控”的入口。实测中，未暂停启动会在 Gazebo 服务和
-首个关节状态尚未就绪时直接退出控制器启动；手动补启又必须带上 libtorch 运行库和 headless 状态，
-否则分别出现 `libcublas.so.11` 缺失或“收到 `/cmd_vel` 却不运动”。官方容器的可复现顺序为：
-
-1. 使用 `PAUSED=true`、`START_CONTROLLER=1`、`CONTROLLER_FOREGROUND=0`、
-   `SIMENV_AUTO_RL=1`、`AUTO_UNPAUSE_AFTER_CONTROLLER=0` 启动；同时令
-   `LD_LIBRARY_PATH` 包含 `/opt/libtorch/lib`。
-2. 等待 `/gazebo/unpause_physics`、`/unitree_gazebo_servo`、`/rosbridge_websocket` 都出现，检查
-   `rostopic info /cmd_vel` 的真实订阅者是 `unitree_gazebo_servo`。
-3. 再显式执行一次 `rosservice call /gazebo/unpause_physics`，随后才启动 ROS2 适配与业务层。
-
-启动完整业务栈或直连控制验收前，先执行：
-
-~~~bash
-SIMENV_CONTAINER=simenv_run ./scripts/check_official_simenv_exclusive_session.sh --require-exclusive
-~~~
-
-它只读取 Docker 容器和资源状态，发现多个名称以 `simenv` 开头的运行容器即拒绝继续，绝不擅自停止其他
-成员容器。`run_official_simenv_ros1_ros2_stack.sh` 与直连验收脚本已自动调用此预检。
-
-不要在共享 host network 中做控制验收；遗留容器会向同一 ROS master 注入速度。验收容器应采用独立
-Docker 网络和端口映射，例如 `127.0.0.1:9091 -> 9090`，同时设置前述 Host 头。
-
 ROS1 直连控制必须先于双向适配执行，并需预约独占场景：
 
 ~~~bash
@@ -118,55 +85,13 @@ OFFICIAL_SIMENV_VIDEO_REFERENCE='共享盘/20260714_ros1_direct.mp4' \
 4. **业务闭环**：仅在前三项通过后，运行导航、感知、决策；输出 `results/detected_danger.json` 与
    截图/视频、summary、测试 CSV 和 README。
 
-业务节点在一键栈收到正常终止信号时会识别 ROS2 外部 shutdown：导航/感知/决策不再打印二次 shutdown
-异常，动态记录节点仍落盘已有证据。这只保证可控收尾，不代表导航完成，也不会触发虚假的 `FINISHED` 结果。
-
 `forwarded_cmd_count`、bridge 订阅数或模式切换日志仅能证明链路局部存在，不能证明实体运动。
 
 ## 当前结论与风险
 
-截至 2026-07-14，已经在独立 Docker 网络的官方 ROS1 容器中完成无污染直连验收：
-
-- `/Odometry_gazebo`、`/real_sense/rgb/image_raw`（640×480 `rgb8`）、
-  `/real_sense/depth/image_raw`（640×480 `32FC1`）、RealSense 内参和 `/scan` 都有真实消息；
-  本轮 `/scan` 为 360 个样本，其中 198 个有限量程值。
-- 通过官方 `junior_ctrl` 的 `SIMENV_AUTO_RL=1` 入口直接发布 ROS1 `/cmd_vel`，前进
-  **1.0014 m**、转向 **0.2540 rad**。连续零速度收敛后两个 3 s 观察窗口均仅约 0.00031 m 位移、
-  0.00018 rad 偏航变化，满足原生停止保持的验收记录。
-- 完整原始数据、RGB-D 截图和测试表见
-  `reports/platform/official_simenv_ros1_ros2/20260714_ros1_clean_direct_acceptance/`。
-
-此前“传感器话题存在但无数据”不能归结为 TCPROS 或 rosbridge：已知启动错误包括把不完整的项目目录
-挂到官方 SimEnv 路径，以及 LiDAR 的标准 Gazebo `<ray>` 配置层级错误。另一个独立问题是共享 host 网络
-中的遗留容器持续向同一 ROS master 发布 `angular.z=-0.8`；这会污染停止、变速和桥接试验。因此所有
-控制验收必须独占 ROS master 或使用隔离 Docker 网络，并记录 `/cmd_vel` 发布者。
-
-在上述受控启动顺序下，宿主 ROS2 Jazzy 已产生逐段运行证据：ROS1 `/Odometry_gazebo`、RGB、深度和
-双 CameraInfo 均稳定进入 `/hw/*`；全量 RGB-D 同时转发时，ROS2 `/hw/cmd_vel` 经 rosbridge 和
-ROS1 `/cmd_vel` 驱动官方 A1 连续移动 **0.5028 m**，随后零速度保持；ROS1 动态/静态 TF 也已进入
-ROS2，且 `world→map→odom→base→real_sense` 可实际查询。一个无效深度分片被安全丢弃、未发生重连；
-详细 JSON、测试表与 README 位于
-`reports/platform/official_simenv_ros1_ros2/20260714_ros2_rosbridge_runtime_acceptance/`。适配器的 WebSocket 线程只缓存最新消息，
-由 ROS2 执行器发布，避免大图像长期运行时跨线程 DDS 投递失效。
-
-为防止原始大图像分片覆盖，适配器将 RGB、深度放到各自独立的只接收 WebSocket：官方 rosbridge 将不同
-订阅的 fragment 都标记为 `id=0`，若共用一个连接会偶发串帧并产生非法 base64。两路在真实容器中已同时
-收到完整 640×480 RGB/深度帧，`dropped_invalid_image_frames={}`。默认仍以 500 ms 节流，并在状态中记录
-`image_throttle_rate_ms` 与 `dropped_invalid_image_frames`；调高帧率必须重做同结构回归，不能只凭订阅数
-宣称稳定。
-
-2026-07-14 的主机诊断还发现三个 SimEnv 容器同时运行，各自约占 217%--313% CPU，系统负载约 45；即使
-停止适配器，当前验收容器的仿真时间也仅约 0.1× 实时。因此“第二次速度仍保持旧速度”不能据此归因于
-rosbridge，且在未停掉遗留 Gazebo/获得独占场景前，不能进行正式导航性能或闭环验收。原始 RGB-D 的
-Python JSON/base64 转发还会占用约一个 CPU 核；正式比赛高帧率方案应采用容器内 ROS1 感知或二进制/压缩
-桥接，而非将 Python rosbridge 当作高帧率数据面。
-
-这证明双向平台链路可用，但**不等于完整比赛任务通过**：ROS2 导航自主探索、感知多视角确认、红色
-非球体排除、三维定位和决策结果文件尚未在官方复杂楼宇场景联调，仍为 `not_run`。
-
-另外，隔离验收所用官方 SimEnv 副本在诊断阶段存在人工源码改动；候选补丁目录尚未覆盖其全部精确差异。
-下一位维护者不能直接复制共享运行目录或盲目应用旧补丁，应先在干净官方副本导出、审查、编译这些差异，
-再以同一套验收脚本回归。这是可复现性的待办项，不影响本目录中已经保存的 ROS1 运行时观测结论。
+截至本次提交，离线映射契约和安全控制门已实现；**ROS1 原生 1 m 运动、传感器进 ROS2、跨栈控制和
+完整任务闭环均尚未通过实测**。此前共享环境只观察到 `/ros_bridge` 订阅 `/cmd_vel`，未观察到有效
+四足控制器；headless 环境还出现渲染关闭导致深度相机不发布。
 
 候选补丁位于 `patches/`：分别修复 headless 渲染、显式 headless RL 模式和 IOROS 回调执行器生命周期。
 补丁必须在官方 SimEnv 独立副本审查、编译、备份后由平台组应用；失败可通过 `git apply -R` 回滚，

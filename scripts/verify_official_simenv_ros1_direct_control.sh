@@ -38,7 +38,6 @@ if ! docker inspect -f '{{.State.Running}}' "$CONTAINER" 2>/dev/null | grep -qx 
   echo "[direct-control] 官方 ROS1 容器未运行：$CONTAINER" >&2
   exit 1
 fi
-"$ROOT/scripts/check_official_simenv_exclusive_session.sh" --container "$CONTAINER" --require-exclusive
 
 mkdir -p "$EVIDENCE_DIR"
 

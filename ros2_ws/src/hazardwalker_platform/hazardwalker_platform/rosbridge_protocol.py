@@ -25,19 +25,10 @@ class FragmentAssembler:
         data = packet.get('data')
         if not identity or not isinstance(data, str) or total <= 0 or number < 0 or number >= total:
             return None
-        entry = self._parts.get(identity)
-        if entry is not None and entry['total'] != total:
+        entry = self._parts.setdefault(identity, {'total': total, 'chunks': {}, 'created': time.monotonic()})
+        if entry['total'] != total:
             self._parts.pop(identity, None)
             return None
-        # rosbridge 对同一订阅通常复用 id。高频 RGB-D 的下一帧可能在上一帧未收全时再次从 num=0 开始；
-        # 若继续复用旧 chunks，会把两帧 base64 片段拼到一起，最终出现 padding/长度错误。
-        # WebSocket 保序，因此观察到新的 num=0 即可安全丢弃上一个不完整帧并从头重组。
-        if entry is not None and number == 0 and 0 in entry['chunks']:
-            self._parts.pop(identity, None)
-            entry = None
-        if entry is None:
-            entry = {'total': total, 'chunks': {}, 'created': time.monotonic()}
-            self._parts[identity] = entry
         entry['chunks'][number] = data
         if len(entry['chunks']) != total:
             self._bound()

@@ -58,9 +58,7 @@ hazardwalker_msgs         自定义消息定义
 - 如果确认 README 不需要改动，需要在提交说明或 PR 中写明原因。
 
 官方 SimEnv（ROS1 Noetic + Gazebo Classic）与本地 Gazebo Harmonic profile 的平台接口不可混用：业务节点始终
-使用 `/hw/*`，官方接入由容器内 `rosbridge_websocket` 与 ROS2 主机适配器完成；不要把仅适用本地
-Harmonic 的 `ros_gz_bridge` 或不存在于官方容器内的 `ros1_bridge dynamic_bridge` 误作官方方案。官方运行、
-控制和 RGB-D 验收说明见
+使用 `/hw/*`，官方接入由 ROS1 中继和 `ros1_bridge dynamic_bridge` 完成。官方运行、控制和 RGB-D 验收说明见
 [`docs/environment/官方SimEnv_ROS1_ROS2双向适配整改_20260714.md`](docs/environment/官方SimEnv_ROS1_ROS2双向适配整改_20260714.md)。
 
 新增代码文件时，需要在文件首部注明本文件的作用，建议包含所属小组、文件职责、当前实现边界和验证方式。重要模块、重要类和重要函数需要有简明注释或 docstring，说明输入、输出、关键逻辑和后续扩展点。注释应帮助成员理解代码，不写重复代码本身含义的空泛说明。

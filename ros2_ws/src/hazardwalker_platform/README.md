@@ -8,14 +8,9 @@
 
 本目录还包含 `hazardwalker_platform/official_simenv_mapping.py`，用于约束 HazardWalker 对官方 ROS1
 Noetic + Gazebo Classic 环境的稳定 `/hw/*` 接口。官方场景不复用本地 `ros_gz_bridge.yaml`：应启动容器内
-ROS1 `rosbridge_websocket`，再由安装 ROS2 的主机运行本仓库的 rosbridge 适配器；官方 Docker 不含
-可用的 `ros1_bridge dynamic_bridge`，不得假设它存在。应按
+ROS1 中继和 `ros1_bridge dynamic_bridge`，并按
 `docs/environment/官方SimEnv_ROS1_ROS2双向适配整改_20260714.md` 完成 ROS1 直连控制、传感器和跨栈控制
 的逐段验收后，才运行业务闭环。
-
-历史 `hw_bridge.py`/`docker_pipe.py` JSON 管道已默认停用：它无法完整承载 RGB-D 字节且没有真实控制
-回传。不要按旧 `PLATFORM_MANUAL.md` 启动它；如需追溯历史录包，必须显式设置
-`HAZARDWALKER_ENABLE_LEGACY_JSON_BRIDGE=1`，且不得把结果作为官方验收证据。
 
 ## 选手快速入口
 
