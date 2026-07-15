@@ -25,8 +25,15 @@ fi
 "$ROOT/scripts/run_official_simenv_rosbridge_adapter.sh" &
 ADAPTER_PID=$!
 cleanup_adapter() {
+  # ros2 launch 会派生导航、感知和决策子进程；只杀 launch 父进程会留下多个
+  # /hw/cmd_vel 发布者。setsid 为业务栈创建独立进程组后统一回收。
+  if [[ -n "${BUSINESS_PID:-}" ]]; then
+    kill -- "-$BUSINESS_PID" 2>/dev/null || true
+  fi
   kill "$ADAPTER_PID" 2>/dev/null || true
 }
 trap cleanup_adapter EXIT INT TERM
 echo '[stack] 启动 ROS2 业务层（不含 fake 平台；固定航点导航默认关闭）。'
-ros2 launch hazardwalker_bringup official_simenv_business.launch.py "$@"
+setsid ros2 launch hazardwalker_bringup official_simenv_business.launch.py "$@" &
+BUSINESS_PID=$!
+wait "$BUSINESS_PID"
