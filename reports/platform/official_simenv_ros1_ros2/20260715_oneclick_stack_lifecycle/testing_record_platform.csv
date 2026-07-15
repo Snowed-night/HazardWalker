@@ -1,0 +1,6 @@
+负责人,日期,场景,验收项,方法,观测结果,结论,证据
+姜晨,2026-07-15,官方simenv_run独占容器,业务栈启动,ROS_DOMAIN_ID=42运行一键业务栈,适配器感知决策导航四节点均出现,通过,summary.json
+姜晨,2026-07-15,官方simenv_run独占容器,/hw/cmd_vel拓扑,ros2 topic info -v,1个导航发布者和1个官方适配器订阅者,通过,summary.json
+姜晨,2026-07-15,官方simenv_run独占容器,/hw/odom拓扑,ros2 topic info -v,1个官方适配器发布者和1个导航订阅者,通过,summary.json
+姜晨,2026-07-15,官方simenv_run独占容器,真实RGB进入感知,业务栈原始日志,感知节点处理640x480 rgb8且tf=True,通过,README.md
+姜晨,2026-07-15,官方simenv_run独占容器,进程组清理,向外层栈进程组发送SIGTERM,域42及负责人临时目录无残留业务进程,通过,summary.json

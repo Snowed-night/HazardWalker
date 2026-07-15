@@ -22,7 +22,7 @@ ROS2，仅使用稳定 `/hw/*`。本整改新增的不是第二套业务系统�
 | 输入 ROS2 | RGB/深度 `camera_info` | `/hw/camera/*camera_info` | `sensor_msgs/CameraInfo` | 内参输入 |
 | 输入 ROS2 | 深度点云、Livox 点云 | `/hw/camera/depth_points`、`/hw/lidar/points` | `sensor_msgs/PointCloud2` | 可选增强输入 |
 | 输出 ROS1 | `/hw/cmd_vel` | `/cmd_vel` | `geometry_msgs/Twist` | 默认拒绝，需显式启用 |
-| 双向 | `/tf`、`/tf_static` | 同名 | `tf2_msgs/TFMessage` | 由 dynamic_bridge 直接桥接 |
+| 输入 ROS2 | `/tf`、`/tf_static` | 同名 | `tf2_msgs/TFMessage` | 适配器转发静态外参，滤除陈旧的 `odom→base`，并以最新官方里程计重建该动态边 |
 
 官方有些版本将前视 RGB 发布为 `/camera/image_raw`；运行前必须用 `rostopic list` 确认实际源话题，
 然后用环境变量设置对应 RGB 与 CameraInfo 源。不能同时把两个物理相机混到一个
@@ -64,11 +64,11 @@ RGB 为 640×480 `rgb8`，深度为 640×480 `32FC1`，相机内参已进入 `/h
 ~~~bash
 export ROS_DOMAIN_ID=17
 export SIMENV_CONTAINER=simenv_ros1_hazard_platform
-./scripts/run_official_simenv_rosbridge_adapter.sh
-./scripts/verify_official_simenv_ros1_adapter.sh
-OFFICIAL_SIMENV_ENABLE_CONTROL=1 ./scripts/run_official_simenv_ros1_adapter.sh
-./scripts/verify_official_simenv_ros1_adapter.sh --control
-./scripts/run_official_simenv_ros1_ros2_stack.sh
+bash ./scripts/run_official_simenv_rosbridge_adapter.sh
+bash ./scripts/verify_official_simenv_ros1_adapter.sh
+OFFICIAL_SIMENV_ENABLE_CONTROL=1 bash ./scripts/run_official_simenv_ros1_adapter.sh
+bash ./scripts/verify_official_simenv_ros1_adapter.sh --control
+bash ./scripts/run_official_simenv_ros1_ros2_stack.sh
 ~~~
 
 控制默认关闭。只有确认 `/cmd_vel` 的真实订阅节点含 `junior_ctrl` 或
@@ -101,9 +101,14 @@ OFFICIAL_SIMENV_VIDEO_REFERENCE='共享盘/20260714_ros1_direct.mp4' \
 
 ## 当前结论与风险
 
-截至本次提交，离线映射契约和安全控制门已实现；**ROS1 原生 1 m 运动、传感器进 ROS2、跨栈控制和
-完整任务闭环均尚未通过实测**。此前共享环境只观察到 `/ros_bridge` 订阅 `/cmd_vel`，未观察到有效
-四足控制器；headless 环境还出现渲染关闭导致深度相机不发布。
+截至 2026-07-15，ROS1 原生前进 1.1766 m、跨 ROS2 前进 0.8723 m、转向和停止，以及 RGB-D、内参、
+里程计进入 `/hw/*` 均已完成真实验收；证据见
+`reports/platform/official_simenv_ros1_ros2/20260715_headless_native_and_ros2_acceptance/`。同日一键业务栈
+在独立 ROS 域验证了唯一命令发布者、唯一适配器订阅者和 SIGTERM 无残留回收，见
+`reports/platform/official_simenv_ros1_ros2/20260715_oneclick_stack_lifecycle/`。
+
+这不等于完整任务闭环：当前固定航点仅为接口诊断，尚未完成真实楼宇自主探索、红球搜索、多视角确认、
+三维定位和结果文件验收。不得把节点数、短窗口命令或启动日志表述为上述任务已通过。
 
 候选补丁位于 `patches/`：分别修复 headless 渲染、显式 headless RL 模式和 IOROS 回调执行器生命周期。
 补丁必须在官方 SimEnv 独立副本审查、编译、备份后由平台组应用；失败可通过 `git apply -R` 回滚，
