@@ -119,6 +119,7 @@ def test_stack_keeps_adapter_alive_while_business_launch_runs():
     source = (REPO_ROOT / 'scripts' / 'run_official_simenv_ros1_ros2_stack.sh').read_text(
         encoding='utf-8')
     assert 'ADAPTER_PID=$!' in source
+    assert 'bash "$ROOT/scripts/run_official_simenv_rosbridge_adapter.sh" &' in source
     assert 'trap cleanup_adapter EXIT INT TERM' in source
     # 业务 launch 会派生多个节点；必须拥有独立进程组并在退出时整体回收，
     # 否则下一次联调会残留多个 /hw/cmd_vel 发布者。

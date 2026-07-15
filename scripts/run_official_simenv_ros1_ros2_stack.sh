@@ -26,7 +26,8 @@ if ! docker inspect -f '{{.State.Running}}' "$CONTAINER" 2>/dev/null | grep -qx 
 fi
 
 "$ROOT/scripts/check_official_simenv_exclusive_session.sh" --container "$CONTAINER" --require-exclusive
-"$ROOT/scripts/run_official_simenv_rosbridge_adapter.sh" &
+# 显式经 bash 调用，不依赖 Git checkout、共享目录或 Windows 挂载是否保留可执行位。
+bash "$ROOT/scripts/run_official_simenv_rosbridge_adapter.sh" &
 ADAPTER_PID=$!
 cleanup_adapter() {
   # ros2 launch 会派生导航、感知和决策子进程；只杀 launch 父进程会留下多个
