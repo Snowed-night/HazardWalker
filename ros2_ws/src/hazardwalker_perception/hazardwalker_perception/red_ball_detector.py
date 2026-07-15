@@ -70,37 +70,6 @@ def create_detection_backend(name='hsv_opencv'):
     raise ValueError(f'Unsupported detection backend: {name}')
 
 
-"""二维检测后端接口，后续 YOLO/分割模型只要实现 detect 即可接入 ROS 节点。"""
-class DetectionBackend:
-    name = 'base'
-
-    def detect(self, data, width, height, step=None, encoding='rgb8', **kwargs):
-        raise NotImplementedError
-
-
-"""当前可展示版本使用的 HSV + OpenCV 检测后端。"""
-class HsvOpenCvDetectionBackend(DetectionBackend):
-    name = 'hsv_opencv'
-
-    def detect(self, data, width, height, step=None, encoding='rgb8', **kwargs):
-        return detect_red_balls_rgb_bytes(
-            data=data,
-            width=width,
-            height=height,
-            step=step,
-            encoding=encoding,
-            **kwargs,
-        )
-
-
-"""根据名称创建检测后端，暂时只内置 HSV，后续模型化方案从这里注册。"""
-def create_detection_backend(name='hsv_opencv'):
-    normalized = (name or 'hsv_opencv').lower()
-    if normalized in ('hsv', 'hsv_opencv'):
-        return HsvOpenCvDetectionBackend()
-    raise ValueError(f'Unsupported detection backend: {name}')
-
-
 """把单个 RGB 像素转为 OpenCV 风格 HSV"""
 def rgb_to_hsv_pixel(r, g, b):
     """将单个 RGB 像素转换为 OpenCV 风格 HSV。
@@ -334,9 +303,11 @@ def _detect_red_balls_with_opencv(data, width, height, step, encoding, min_area_
             continue
 
     detections.sort(key=lambda item: item.confidence, reverse=True)
-    # 强检出为空时才暴露局部/暗光候选，避免与完整球重复；候选必须明确标记为
-    # requires_reobservation，调用方不能将它当作最终危险源。
-    if not detections and include_partial_candidates:
+    # 不能因为同帧已经有一个完整红球，就吞掉另一处仅露出一小段的红球。
+    # 真实巡检中“完整球 + 门边局部球”很常见：后者必须触发复查，绝不能因为
+    # 前者存在而静默漏检。这里始终生成宽松候选，再仅剔除和已有严格框明显重叠的
+    # 同一物体，确保候选不会与完整球重复计数。
+    if include_partial_candidates:
         relaxed_mask = _red_mask_from_hsv(hsv, min_value=partial_min_value)
         partial_contours, _hierarchy = cv2.findContours(
             relaxed_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE,
@@ -349,7 +320,7 @@ def _detect_red_balls_with_opencv(data, width, height, step, encoding, min_area_
                 min_circularity=partial_min_circularity,
                 min_aspect_ratio=partial_min_aspect_ratio,
             )
-            if candidate is not None:
+            if candidate is not None and not _is_duplicate_partial_candidate(candidate, detections):
                 detections.append(candidate)
         detections.sort(key=lambda item: item.confidence, reverse=True)
     return detections
@@ -649,6 +620,21 @@ def _deduplicate_detections(detections):
         if not duplicate:
             unique.append(detection)
     return unique
+
+
+def _is_duplicate_partial_candidate(candidate, detections):
+    """只去掉与已有严格/分裂框代表同一红色区域的宽松候选。
+
+    这里不能使用“画面已有严格候选”这样的全局条件，否则远处或遮挡后的另一个
+    红球会被静默忽略。要求候选框实际高度重叠或近乎被包含，才认定为同一物体。
+    """
+
+    for existing in detections:
+        if (_bbox_iou_detection(candidate, existing) >= 0.35
+                or _bbox_contains_detection(candidate, existing, min_ratio=0.75)
+                or _bbox_contains_detection(existing, candidate, min_ratio=0.75)):
+            return True
+    return False
 
 
 def _bbox_contains_detection(first, second, min_ratio=0.80):

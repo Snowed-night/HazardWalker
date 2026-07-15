@@ -89,7 +89,7 @@ def bbox_center_pixel(bbox):
     return (x_min + x_max) / 2.0, (y_min + y_max) / 2.0
 
 
-"""把像素点和深度反投影到相机坐标系。"""
+"""把像素点和深度反投影到标准光学相机坐标系。"""
 def pixel_to_camera_point(pixel_u, pixel_v, depth_m, intrinsics):
     depth = float(depth_m)
     if not math.isfinite(depth) or depth <= 0.0:
@@ -100,6 +100,21 @@ def pixel_to_camera_point(pixel_u, pixel_v, depth_m, intrinsics):
     x = (float(pixel_u) - intrinsics.cx) * depth / intrinsics.fx
     y = (float(pixel_v) - intrinsics.cy) * depth / intrinsics.fy
     return Point3D(x=x, y=y, z=depth)
+
+
+"""将标准光学坐标变换为 CameraInfo 所属链路坐标。
+
+默认约定为 ROS 光学系（X 向右、Y 向下、Z 向前）。官方 SimEnv 的 ``real_sense``
+TF 链路则采用 Gazebo 机体约定（X 向前、Y 向左、Z 向上），因此必须显式转换为
+``(forward, -right, -down)`` 后才可套用 ``world -> real_sense`` 的 TF。
+"""
+def optical_point_to_camera_link(point, convention='optical_z_forward'):
+    normalized = str(convention or 'optical_z_forward').strip().lower()
+    if normalized == 'optical_z_forward':
+        return point
+    if normalized == 'gazebo_link_x_forward':
+        return Point3D(x=point.z, y=-point.x, z=-point.y)
+    raise ValueError('Unsupported camera axis convention: %s' % convention)
 
 
 """对三维点应用刚体变换。"""
@@ -262,9 +277,13 @@ def estimate_sphere_center_depth_from_bbox(bbox, intrinsics, image_width, image_
 
 
 """使用 bbox 中心像素和深度估计危险源三维坐标。"""
-def localize_bbox_with_depth(bbox, intrinsics, depth_m, camera_to_output=None, output_frame='camera_link'):
+def localize_bbox_with_depth(bbox, intrinsics, depth_m, camera_to_output=None, output_frame='camera_link',
+                             camera_axis_convention='optical_z_forward'):
     pixel_u, pixel_v = bbox_center_pixel(bbox)
-    camera_point = pixel_to_camera_point(pixel_u, pixel_v, depth_m, intrinsics)
+    camera_point = optical_point_to_camera_link(
+        pixel_to_camera_point(pixel_u, pixel_v, depth_m, intrinsics),
+        convention=camera_axis_convention,
+    )
     position = transform_point(camera_point, camera_to_output) if camera_to_output else camera_point
     return HazardLocalization3D(
         position=position,
@@ -281,7 +300,8 @@ def localize_bbox_from_depth_image(bbox, intrinsics, depth_image, camera_to_outp
                                    output_frame='camera_link', roi_padding_px=0,
                                    max_depth_m=20.0, min_points=5,
                                    sphere_radius_m=0.0,
-                                   use_sphere_projection_geometry=True):
+                                   use_sphere_projection_geometry=True,
+                                   camera_axis_convention='optical_z_forward'):
     depth_m, points_used = estimate_depth_from_bbox(
         depth_image=depth_image,
         bbox=bbox,
@@ -314,6 +334,7 @@ def localize_bbox_from_depth_image(bbox, intrinsics, depth_image, camera_to_outp
         depth_m=depth_m,
         camera_to_output=camera_to_output,
         output_frame=output_frame,
+        camera_axis_convention=camera_axis_convention,
     )
     return HazardLocalization3D(
         position=localization.position,

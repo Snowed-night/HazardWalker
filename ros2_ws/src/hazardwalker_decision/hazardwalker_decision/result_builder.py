@@ -63,6 +63,9 @@ def build_official_detected_danger_result(
     exploration_time_sec,
     expected_frame='world',
     dedup_distance_m=0.30,
+    require_legal_localization=False,
+    require_multiview_sphere_evidence=False,
+    allowed_localization_provenance=('lidar_imu_slam', 'visual_inertial_slam'),
 ):
     """构建官方 SimEnv 的最终危险源输出。
 
@@ -76,6 +79,10 @@ def build_official_detected_danger_result(
         expected_frame: 官方结果要求的坐标系，当前官方仓库为 `world`。
         dedup_distance_m: 对同一球体重复 confirmed 轨迹的保守空间去重距离；官方
             生成器源之间最小间距约 0.65m，0.30m 不会合并两个合法独立源。
+        require_legal_localization: 为真时仅导出明确标为合法 SLAM 定位的轨迹，
+            防止调试用 Gazebo 真值里程计/TF 混入比赛提交。
+        require_multiview_sphere_evidence: 为真时仅导出已完成 RGB-D 多视角球面
+            一致性确认的轨迹，防止红色圆柱端面或圆锥端面误入最终评分文件。
 
     Returns:
         严格符合官方 `results/detected_danger.json` 基础格式的 dict。
@@ -91,6 +98,13 @@ def build_official_detected_danger_result(
     confirmed = []
     for hazard in hazards:
         if str(hazard.get('status', '')) != 'confirmed':
+            continue
+        if (require_legal_localization
+                and str(hazard.get('localization_provenance', 'unverified'))
+                not in set(allowed_localization_provenance)):
+            continue
+        if (require_multiview_sphere_evidence
+                and str(hazard.get('evidence_status', '')) != 'multi_view_sphere_consistent'):
             continue
         frame_id = str(hazard.get('position_frame_id', expected_frame))
         if frame_id != str(expected_frame):

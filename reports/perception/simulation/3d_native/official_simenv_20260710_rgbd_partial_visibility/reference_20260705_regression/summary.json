@@ -1,8 +1,0 @@
-{
-  "reference_suite": "official_simenv_20260705_3d_red_ball_occlusion",
-  "case_count": 21,
-  "pass_count": 21,
-  "review_count": 0,
-  "fail_count": 0,
-  "scoring_boundary": "2D source-frame regression only; it does not certify 3D confirmed tracks, multi-view shape rejection, or localization accuracy."
-}

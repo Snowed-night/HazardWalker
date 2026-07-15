@@ -12,6 +12,55 @@
 from collections import Counter
 
 
+_ALLOWED_LOCALIZATION_PROVENANCE = {
+    'lidar_imu_slam',
+    'visual_inertial_slam',
+}
+_FORBIDDEN_POSE_TOPIC_PARTS = (
+    '/odometry_gazebo',
+    '/ground_truth',
+    '/hw/odom',
+)
+
+
+def build_perception_evidence_contract(
+        run_mode, scenario_seed, code_version, legal_pose_topic, localization_provenance):
+    """生成正式随机场景证据的 fail-closed 准入结论。
+
+    该函数只审计记录元数据和禁用输入名称，不能替代裁判的运行期审计；它的目的
+    是防止受控夹具、未记录 SEED 或 Gazebo 真值里程计被误归档为正式成绩。
+    """
+
+    mode = str(run_mode).strip()
+    seed = str(scenario_seed).strip()
+    version = str(code_version).strip()
+    pose_topic = str(legal_pose_topic).strip()
+    provenance = str(localization_provenance).strip()
+    violations = []
+    if mode != 'official_random_scene':
+        violations.append('run_mode_not_official_random_scene')
+    if not seed:
+        violations.append('missing_fixed_scenario_seed')
+    if not version:
+        violations.append('missing_code_version')
+    if not pose_topic:
+        violations.append('missing_legal_pose_topic')
+    elif any(part in pose_topic.lower() for part in _FORBIDDEN_POSE_TOPIC_PARTS):
+        violations.append('forbidden_pose_topic')
+    if provenance not in _ALLOWED_LOCALIZATION_PROVENANCE:
+        violations.append('unverified_localization_provenance')
+    return {
+        'run_mode': mode,
+        'scenario_seed': seed,
+        'code_version': version,
+        'legal_pose_topic': pose_topic,
+        'localization_provenance': provenance,
+        'formal_evidence_eligible': not violations,
+        'contract_violations': violations,
+        'truth_inputs_used': False,
+    }
+
+
 def build_dynamic_summary(records):
     """从逐帧记录生成不依赖真值的动态识别摘要。"""
 

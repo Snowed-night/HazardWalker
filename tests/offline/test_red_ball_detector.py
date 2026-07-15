@@ -231,6 +231,45 @@ def test_heavily_occluded_red_ball_emits_reobservation_candidate():
     assert detections[0].confidence < 0.5
 
 
+def test_complete_ball_does_not_suppress_another_partial_ball_candidate():
+    """同帧完整球不能吞掉门边局部球；后者应触发换视角而非静默漏检。"""
+    if not require_opencv():
+        return
+
+    image = np.full((100, 200, 3), BACKGROUND, dtype=np.uint8)
+    cv2.circle(image, (42, 50), 24, RED, thickness=-1)
+    cv2.circle(image, (156, 50), 24, RED, thickness=-1)
+    # 只保留右侧约三分之一球面，模拟机器人初见门框后的局部红球。
+    cv2.rectangle(image, (126, 20), (170, 80), BACKGROUND, thickness=-1)
+
+    detections = detect_red_balls_rgb_bytes(
+        image.tobytes(), 200, 100, min_area_px=120,
+        include_partial_candidates=True, partial_min_area_px=20,
+        partial_min_circularity=0.18, partial_min_aspect_ratio=0.12,
+    )
+
+    assert len(detections) == 2
+    assert sum(not item.requires_reobservation for item in detections) == 1
+    partial = [item for item in detections if item.requires_reobservation]
+    assert len(partial) == 1
+    assert partial[0].x_min > 165
+
+
+def test_relaxed_pass_does_not_duplicate_the_same_complete_ball():
+    """宽松掩膜只补充不同位置的局部物体，不能给完整球增加第二个框。"""
+    if not require_opencv():
+        return
+
+    data = draw_circle_image(100, 100)
+    detections = detect_red_balls_rgb_bytes(
+        data, 100, 100, min_area_px=80, include_partial_candidates=True,
+        partial_min_area_px=20, partial_min_circularity=0.18,
+        partial_min_aspect_ratio=0.12,
+    )
+    assert len(detections) == 1
+    assert detections[0].requires_reobservation is False
+
+
 """验证只露出约 10% 的球面仍输出不可确认的重观察候选。"""
 def test_extremely_occluded_red_ball_keeps_reobservation_candidate():
     if not require_opencv():

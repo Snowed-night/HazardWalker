@@ -16,9 +16,12 @@ def test_official_ros1_node_and_pure_modules_parse_as_python38():
     """禁止把 Python 3.10 专属语法悄悄带进官方 ROS1 启动路径。"""
     paths = [
         'scripts/official_simenv_ros1_perception_node.py',
+        'scripts/official_simenv_ros1_evidence_recorder.py',
+        'scripts/official_simenv_lidar_imu_slam_node.py',
         'ros2_ws/src/hazardwalker_perception/hazardwalker_perception/red_ball_detector.py',
         'ros2_ws/src/hazardwalker_perception/hazardwalker_perception/localize_hazard.py',
         'ros2_ws/src/hazardwalker_perception/hazardwalker_perception/track_hazards.py',
+        'ros2_ws/src/hazardwalker_perception/hazardwalker_perception/scan_imu_localization.py',
         'ros2_ws/src/hazardwalker_perception/hazardwalker_perception/active_view_policy.py',
         'ros2_ws/src/hazardwalker_perception/hazardwalker_perception/active_view_geometry.py',
         'ros2_ws/src/hazardwalker_perception/hazardwalker_perception/room_search_policy.py',
@@ -42,6 +45,55 @@ def test_public_start_pose_can_transform_team_slam_coordinate_to_world():
 
     assert round(world_x, 6) == 10.0
     assert round(world_y, 6) == 0.0
+
+
+def test_official_ros1_perception_does_not_read_generated_scene_metadata():
+    """正式算法仅接收显式公开出生点，不能从 manifest 旁路获得场景信息。"""
+    path = os.path.join(REPO_ROOT, 'scripts', 'official_simenv_ros1_perception_node.py')
+    launcher = os.path.join(REPO_ROOT, 'scripts', 'run_official_simenv_ros1_perception.sh')
+    with open(path, encoding='utf-8') as handle:
+        source = handle.read()
+    with open(launcher, encoding='utf-8') as handle:
+        launcher_source = handle.read()
+
+    assert 'team_scene_info' not in source
+    # 节点可在注释中声明禁用文件，但正式输入路径不应调用文件读取 API。
+    assert '.read_text(' not in source
+    assert "'~public_start_world_x', 0.0" in source
+    assert '_public_start_world_x:=0.0' in launcher_source
+    assert '_team_scene_info_path' not in launcher_source
+
+
+def test_official_ros1_evidence_recorder_uses_legal_inputs_and_archives_result():
+    """ROS1 正式证据入口须与 ROS2 记录器同样拒绝真值位姿。"""
+    path = os.path.join(REPO_ROOT, 'scripts', 'official_simenv_ros1_evidence_recorder.py')
+    with open(path, encoding='utf-8') as handle:
+        source = handle.read()
+
+    assert "'~image_topic': '/real_sense/rgb/image_raw'" in source
+    assert "'~depth_topic': '/real_sense/depth/image_raw'" in source
+    assert "'~detection_topic': '/hazardwalker/perception/hazard_detections'" in source
+    assert "'~legal_pose_topic': ''" in source
+    assert "Subscriber('/Odometry_gazebo'" not in source
+    assert "Subscriber('/hazardwalker/odom'" not in source
+    assert "shutil.copy2" in source
+    assert "'trajectory.jsonl'" in source
+
+
+def test_official_perception_evidence_orchestrator_fails_closed_and_never_owns_cmd_vel():
+    """正式编排只服务感知；场景独占、固定 SEED 和导航完成信号缺一不可。"""
+    path = os.path.join(REPO_ROOT, 'scripts', 'run_official_simenv_perception_evidence.sh')
+    with open(path, encoding='utf-8') as handle:
+        source = handle.read()
+
+    assert 'OFFICIAL_SIMENV_EXCLUSIVE_SESSION' in source
+    assert 'OFFICIAL_SCENARIO_SEED' in source
+    assert 'OFFICIAL_CODE_VERSION' in source
+    assert 'OFFICIAL_MAX_RUNTIME_SEC' in source and '> 600' in source
+    assert "_auto_activate_cmd_vel:=false" in source
+    assert "Publisher('/cmd_vel'" not in source
+    assert "grep -m 1 -F 'FINISHED'" in source
+    assert "_run_mode:=official_random_scene" in source
 
 
 def test_official_ros1_node_uses_the_current_depth_shape_api():
@@ -90,6 +142,19 @@ def test_official_ros1_node_emits_navigation_owned_reobservation_requests():
     assert "Publisher('/cmd_vel'" not in source
 
 
+def test_official_ros1_result_export_requires_legal_slam_and_multiview_sphere_evidence():
+    """ROS1 正式入口也必须与 ROS2 入口保持同样的 fail-closed 约束。"""
+    path = os.path.join(REPO_ROOT, 'scripts', 'official_simenv_ros1_perception_node.py')
+    with open(path, encoding='utf-8') as handle:
+        source = handle.read()
+
+    assert "'~localization_provenance', 'unverified'" in source
+    assert 'min_spherical_views_for_confirm=2' in source
+    assert 'require_legal_localization=True' in source
+    assert 'require_multiview_sphere_evidence=True' in source
+    assert "item['localization_provenance'] = self.localization_provenance" in source
+
+
 def test_official_joy_activation_sequence_requires_stand_settle_then_cmd_vel():
     """正式自主运行不依赖人工按键，且不能跳过站立稳定阶段。"""
     import sys
@@ -105,3 +170,32 @@ def test_official_joy_activation_sequence_requires_stand_settle_then_cmd_vel():
     assert activation_command(2.0, *timing) == ('settling', None)
     assert activation_command(6.0, *timing) == ('switching_to_cmd_vel', 3)
     assert activation_command(7.0, *timing) == ('ready', None)
+
+
+def test_legal_lidar_imu_localizer_never_uses_gazebo_truth_inputs():
+    """定位入口只能依赖官方允许的激光与 IMU，不能把 Gazebo 状态包装成 SLAM。"""
+    path = os.path.join(REPO_ROOT, 'scripts', 'official_simenv_lidar_imu_slam_node.py')
+    with open(path, encoding='utf-8') as handle:
+        source = handle.read()
+
+    assert "'/scan'" in source and "'/trunk_imu'" in source
+    assert "'/hazardwalker/slam/odometry'" in source
+    assert "'~slam_base_frame', 'slam_base'" in source
+    assert "'~camera_frame', 'real_sense'" in source
+    assert '/Odometry_gazebo' in source  # 文档禁止说明必须存在。
+    assert "Subscriber(self.scan_topic, LaserScan" in source
+    assert "Subscriber(self.imu_topic, Imu" in source
+    assert "Subscriber('/Odometry_gazebo'" not in source
+    assert "Subscriber('/hazardwalker/odom'" not in source
+
+
+def test_ros1_perception_launchers_explicitly_include_noetic_python3_packages():
+    """官方容器缺失 PYTHONPATH 时，启动器仍须能导入 rospy/cv_bridge。"""
+    for relative_path in (
+            'scripts/run_official_simenv_lidar_imu_slam.sh',
+            'scripts/run_official_simenv_ros1_perception.sh'):
+        path = os.path.join(REPO_ROOT, relative_path)
+        with open(path, encoding='utf-8') as handle:
+            source = handle.read()
+        assert 'ROS_PYTHON_DIST_PACKAGES="/opt/ros/noetic/lib/python3/dist-packages"' in source
+        assert 'export PYTHONPATH="$ROS_PYTHON_DIST_PACKAGES:' in source

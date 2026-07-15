@@ -85,7 +85,10 @@ def test_rosbridge_fragment_contract_is_bounded_and_adapter_keeps_image_bytes():
     assert 'self._image_threads' in adapter
     detector = (REPO_ROOT / 'ros2_ws' / 'src' / 'hazardwalker_perception' / 'hazardwalker_perception' /
                 'hsv_detector_node.py').read_text(encoding='utf-8')
-    assert "declare_parameter('output_frame', 'world')" in detector
+    # 官方规则禁止把 Gazebo 真值定位当比赛输入；感知默认等待合法 SLAM 的 map TF，
+    # 未验证定位即使产生候选也不能被结果层导出为 world 危险源。
+    assert "declare_parameter('output_frame', 'map')" in detector
+    assert "declare_parameter('localization_provenance', 'unverified')" in detector
 
 
 def test_official_full_stack_requires_an_exclusive_simenv_session():
@@ -107,6 +110,17 @@ def test_official_business_launch_never_starts_fake_platform_by_default():
     assert "DeclareLaunchArgument('start_navigation', default_value='false')" in source
     assert "package='hazardwalker_platform'" not in source
     compile(source, 'official_simenv_business.launch.py', 'exec')
+
+
+def test_official_perception_world_export_requires_explicit_legal_slam_contract():
+    """默认不得把平台里程计包装成可提交的世界坐标。"""
+
+    source = (REPO_ROOT / 'ros2_ws' / 'src' / 'hazardwalker_bringup' / 'launch' /
+              'official_simenv_business.launch.py').read_text(encoding='utf-8')
+    assert "DeclareLaunchArgument('perception_output_frame', default_value='map')" in source
+    assert "DeclareLaunchArgument('localization_provenance', default_value='unverified')" in source
+    assert "'output_frame': perception_output_frame" in source
+    assert "'localization_provenance': localization_provenance" in source
 
 
 def test_official_minimal_navigation_consumes_stable_hw_odom():

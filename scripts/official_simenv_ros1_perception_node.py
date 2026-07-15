@@ -74,13 +74,22 @@ class OfficialRgbdPerceptionNode(object):
         self.bridge = CvBridge()
         self.world_frame = rospy.get_param('~world_frame', 'world')
         # 团队自己的 SLAM 应发布 localize_frame <- camera。官方不允许读 Gazebo
-        # world 真值；但 team_scene_info 明确公开起点 world 位姿，可合法将本地
-        # 起点坐标换算为官方评测所需的 world 坐标。
+        # world 真值、scene_manifest 或布局文件；局部坐标到 world 的唯一外部先验
+        # 是启动方显式传入的公开出生点。默认值与官方 docs/reference.md 的默认
+        # ROBOT_X/Y/Z/YAW 一致；若平台改动出生点，必须在启动命令中显式记录这四项。
         self.localization_frame = rospy.get_param('~localization_frame', 'start')
-        self.team_scene_info_path = Path(rospy.get_param(
-            '~team_scene_info_path', 'generated_building/team_scene_info.json',
-        )).expanduser()
-        self.world_from_localization = self._load_start_world_transform()
+        # 结果导出必须显式声明团队自建、且规则允许的定位来源。默认未验证，
+        # 即使碰巧存在 TF 也只能用于候选/复查，不能写进官方结果文件。
+        self.localization_provenance = str(rospy.get_param(
+            '~localization_provenance', 'unverified',
+        ))
+        self.public_start_world_x = float(rospy.get_param('~public_start_world_x', 0.0))
+        self.public_start_world_y = float(rospy.get_param('~public_start_world_y', -2.2))
+        self.public_start_world_z = float(rospy.get_param('~public_start_world_z', 0.6))
+        self.public_start_world_yaw = float(rospy.get_param(
+            '~public_start_world_yaw', 1.5708,
+        ))
+        self.world_from_localization = self._build_public_start_world_transform()
         self.rgb_topic = rospy.get_param('~rgb_topic', '/real_sense/rgb/image_raw')
         self.depth_topic = rospy.get_param('~depth_topic', '/real_sense/depth/image_raw')
         self.rgb_info_topic = rospy.get_param(
@@ -143,11 +152,16 @@ class OfficialRgbdPerceptionNode(object):
             reject_after_missed_count=300,
             merge_distance_m=0.50,
             max_apparent_diameter_cv=0.35,
+            expected_sphere_diameter_m=0.30,
+            max_sphere_diameter_relative_error=0.35,
             min_multiview_aspect_ratio=0.88,
             max_depth_curvature_cv=0.65,
             min_normalized_depth_curvature=0.10,
             max_median_normalized_depth_curvature=0.30,
             min_view_bearing_span_deg=self.min_view_bearing_span_deg,
+            # 两个独立稳定视角必须各自有 RGB-D 球面正证据；单视角圆柱端面、
+            # 圆锥端面或深度未知圆斑一律不能进入最终危险源文件。
+            min_spherical_views_for_confirm=2,
         ))
 
         rospy.Subscriber(self.rgb_info_topic, CameraInfo, self._on_camera_info, queue_size=1)
@@ -349,6 +363,7 @@ class OfficialRgbdPerceptionNode(object):
         for track in active_tracks:
             item = track_to_hazard_dict(track)
             item['position_frame_id'] = self.world_frame
+            item['localization_provenance'] = self.localization_provenance
             item['source'] = 'official_ros1_rgbd'
             hazards.append(item)
         self._publish_payload(hazards, payload_detections, camera_stable)
@@ -394,26 +409,24 @@ class OfficialRgbdPerceptionNode(object):
         local_from_camera = _transform_message_to_rigid(message.transform)
         return _compose_transforms(self.world_from_localization, local_from_camera)
 
-    def _load_start_world_transform(self):
-        """从唯一允许读取的公开场景文件建立 world <- start 变换。"""
+    def _build_public_start_world_transform(self):
+        """只由启动方明示的公开出生点建立 world <- start 变换。
+
+        不读取 ``scene_manifest.json``：该文件同时暴露布局元数据、危险源数量和
+        裁判真值路径，即便只取其中一个字段也不应进入正式比赛算法输入链。
+        """
         if self.localization_frame == self.world_frame:
             return RigidTransform3D(
                 translation=Point3D(0.0, 0.0, 0.0),
                 rotation=((1.0, 0.0, 0.0), (0.0, 1.0, 0.0), (0.0, 0.0, 1.0)),
             )
-        try:
-            payload = json.loads(self.team_scene_info_path.read_text(encoding='utf-8'))
-            start = payload['robot_start']
-            yaw = float(start['yaw'])
-            translation = Point3D(float(start['x']), float(start['y']), float(start['z']))
-        except Exception as error:
-            raise rospy.ROSInitException(
-                'Cannot build official world output without public team_scene_info '
-                'robot_start: %s' % error,
-            )
-        cosine, sine = math.cos(yaw), math.sin(yaw)
+        cosine, sine = math.cos(self.public_start_world_yaw), math.sin(self.public_start_world_yaw)
         return RigidTransform3D(
-            translation=translation,
+            translation=Point3D(
+                self.public_start_world_x,
+                self.public_start_world_y,
+                self.public_start_world_z,
+            ),
             rotation=((cosine, -sine, 0.0), (sine, cosine, 0.0), (0.0, 0.0, 1.0)),
         )
 
@@ -489,10 +502,13 @@ class OfficialRgbdPerceptionNode(object):
         for track in self.tracker.active_tracks():
             item = track_to_hazard_dict(track)
             item['position_frame_id'] = self.world_frame
+            item['localization_provenance'] = self.localization_provenance
             hazards.append(item)
         result = build_official_detected_danger_result(
             hazards, time.monotonic() - self.started_monotonic,
             expected_frame=self.world_frame, dedup_distance_m=0.30,
+            require_legal_localization=True,
+            require_multiview_sphere_evidence=True,
         )
         self.output_path.parent.mkdir(parents=True, exist_ok=True)
         temporary = self.output_path.with_suffix(self.output_path.suffix + '.tmp')

@@ -21,10 +21,35 @@
   Gazebo Harmonic。
 - `run_official_simenv_rosbridge_adapter.sh`：实际官方 profile 使用的 ROS2 主机入口；经容器内
   `rosbridge_websocket` 双向传输 `/hw/*` 与 `/cmd_vel`，需要安装轻量 `websocket-client`。
+- `official_simenv_ros1_evidence_recorder.py`：官方 ROS1 感知证据记录入口。仅订阅 RealSense
+  RGB-D、感知候选 JSON 和调用方声明的自建 SLAM 位姿；停止时输出 `run_manifest.json`、逐帧
+  RGB-D/轨迹、`summary.json`、测试表，并将最终 `detected_danger.json` 复制到同一证据目录。
+  正式模式必须显式提供 `run_mode=official_random_scene`、固定 SEED、代码版本、
+  `legal_pose_topic=/hazardwalker/slam/odometry` 和 `localization_provenance=lidar_imu_slam`；
+  `/Odometry_gazebo`、`/ground_truth/*`、`/hw/odom` 会被拒绝。
+- `run_official_simenv_perception_evidence.sh`：感知侧正式随机场景编排器。要求显式独占标志、
+  固定 SEED、代码版本、证据目录和测试表目录；启动自建激光—IMU定位、RGB-D感知及 ROS1
+  记录器，默认**不**切换控制器或发布 `/cmd_vel`。它只等待导航在任务状态话题发布 `FINISHED`，
+  最多 600 秒，并按“感知结果→记录器→定位”顺序停止和归档。
+- `official_simenv_classic_evidence_cases.py`：生成**官方 ROS1 + Gazebo Classic**可加载的五类受控
+  SDF 清单：10 个非规则多球、21 个部分可见、24 种红色物品、20 个真实多视角对象、8 个复杂定位布局。
+  这是案例定义，不连接 ROS、不驱动机器人，也不读取 `danger_truth.json`；执行器必须在隔离容器中逐例
+  生成/删除模型、从 `/hw/*` 采集真实结果后才可计算真值指标。
+- `run_official_simenv_classic_evidence.py`：上述五类案例的实测执行器。它硬拒绝共享
+  `simenv_run`，每案例重启检测器、保存真实 RGB/标注/JSON，并在模型清理失败时中止套件，
+  防止残留物污染后续案例。正式比赛模式不得把 `/Odometry_gazebo` 或 `ground_truth` 作为
+  运行期输入；真值只在采集完成后用于离线评分。
 
 官方 SimEnv 的实际 RGB 源可能是 `/camera/image_raw` 而非默认 RealSense 路径。运行前用 `rostopic list`
 确认，并通过 `OFFICIAL_SIMENV_RGB_TOPIC`、`OFFICIAL_SIMENV_RGB_CAMERA_INFO_TOPIC` 覆盖；完整验收顺序见
 [`docs/environment/官方SimEnv_ROS1_ROS2双向适配整改_20260714.md`](../docs/environment/官方SimEnv_ROS1_ROS2双向适配整改_20260714.md)。
+
+生成案例清单（只做离线检查，不产生实验结论）：
+
+```powershell
+python scripts/official_simenv_classic_evidence_cases.py red_objects
+python scripts/official_simenv_classic_evidence_cases.py active_multiview --center 1.5 -0.3 0.15
+```
 
 ## 约定
 

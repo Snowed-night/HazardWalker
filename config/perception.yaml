@@ -44,8 +44,13 @@ perception:
     reject_after_missed_count: 300
     merge_distance_m: 0.5
     max_apparent_diameter_cv: 0.35
+    # 官方目标直径 0.30 m；保持一定裕量以覆盖 RGB-D 投影/深度噪声。
+    expected_sphere_diameter_m: 0.30
+    max_sphere_diameter_relative_error: 0.35
     # 至少一个侧视轮廓低于该比例即保留为待复查，不能用正面帧中位数掩盖。
-    min_multiview_aspect_ratio: 0.88
+    min_multiview_aspect_ratio: 0.82
+    # 只有至少两个独立视角产生 RGB-D 球面正证据，轨迹才允许 confirmed。
+    min_spherical_views_for_confirm: 2
     max_depth_curvature_cv: 0.65
     # 球体深度曲率/表观直径的三视角中位数有效区间。
     min_normalized_depth_curvature: 0.10

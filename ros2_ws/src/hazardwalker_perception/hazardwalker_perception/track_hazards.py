@@ -53,6 +53,8 @@ class HazardTrack:
     eligible_observation_count: int = 0
     eligible_view_ids: list = field(default_factory=list)
     flat_view_ids: list = field(default_factory=list)
+    # 记录有深度正证据的离散视角。仅 RGB 圆形或深度未知不能替代球面几何确认。
+    spherical_view_ids: list = field(default_factory=list)
     apparent_diameters_m: list = field(default_factory=list)
     aspect_ratios: list = field(default_factory=list)
     depth_curvatures_m: list = field(default_factory=list)
@@ -73,7 +75,14 @@ class HazardTrackerConfig:
     merge_distance_m: float = 0.5
     min_distinct_views: int = 1
     max_apparent_diameter_cv: float = 0.35
+    # 官方红球半径为 0.15 m。设为正值时，除要求多视角尺寸稳定外，还要求
+    # 中位表观直径接近该物理尺寸；零表示兼容未知尺寸目标的历史纯函数链路。
+    expected_sphere_diameter_m: float = 0.0
+    max_sphere_diameter_relative_error: float = 0.35
     min_non_spherical_views_to_reject: int = 2
+    # 正式 RGB-D 模式可设为 2：至少两个独立视角的深度形状都应支持球面。
+    # 默认为 0 以兼容不含深度的历史离线纯函数测试；ROS 节点会显式启用该门槛。
+    min_spherical_views_for_confirm: int = 0
     min_multiview_aspect_ratio: float = 0.88
     # Gazebo 深度边缘会使同一球体的曲率在不同视角波动较大，因此只把极端
     # 不稳定曲率作为反证；同时要求曲率相对表观直径达到下限，用来排除正面
@@ -160,6 +169,12 @@ class HazardTracker:
                 [observation.view_id]
                 if observation.depth_shape_status == 'flat' and observation.view_id else []
             ),
+            spherical_view_ids=(
+                [observation.view_id]
+                if (observation.confirmation_eligible
+                    and observation.depth_shape_status == 'spherical'
+                    and observation.view_id) else []
+            ),
             apparent_diameters_m=(
                 [float(observation.apparent_diameter_m)]
                 if (observation.confirmation_eligible
@@ -206,7 +221,16 @@ class HazardTracker:
 
             eligible_views = _eligible_distinct_view_count(track)
             flat_views = len(track.flat_view_ids)
+            spherical_views = len(track.spherical_view_ids)
             diameter_cv = _coefficient_of_variation(_view_medians(track.diameters_by_view))
+            representative_diameter_m = _median(
+                _view_medians(track.diameters_by_view), default=0.0,
+            )
+            diameter_prior_ok = _matches_expected_diameter(
+                representative_diameter_m,
+                self.config.expected_sphere_diameter_m,
+                self.config.max_sphere_diameter_relative_error,
+            )
             representative_aspect_ratio = min(_view_medians(track.aspects_by_view), default=1.0)
             curvature_cv = _coefficient_of_variation(_view_medians(track.curvatures_by_view))
             normalized_curvatures = _normalized_curvature_by_view(track)
@@ -235,24 +259,30 @@ class HazardTracker:
             elif (track.eligible_observation_count >= self.config.confirm_observation_count
                   and eligible_views >= self.config.min_distinct_views
                   and diameter_cv <= self.config.max_apparent_diameter_cv
+                  and diameter_prior_ok
                   and representative_aspect_ratio >= self.config.min_multiview_aspect_ratio
                   and curvature_cv <= self.config.max_depth_curvature_cv
                   and normalized_curvature_ok
                   and lateral_parallax_ok
+                  and spherical_views >= self.config.min_spherical_views_for_confirm
                   and (flat_views == 0 or eligible_views >= flat_views + 2)):
                 track.status = 'confirmed'
                 track.evidence_status = 'multi_view_sphere_consistent'
             elif (eligible_views >= self.config.min_distinct_views
                   and (diameter_cv > self.config.max_apparent_diameter_cv
+                       or not diameter_prior_ok
                        or representative_aspect_ratio < self.config.min_multiview_aspect_ratio
                        or curvature_cv > self.config.max_depth_curvature_cv
                        or not normalized_curvature_ok
                        or not lateral_parallax_ok
+                       or spherical_views < self.config.min_spherical_views_for_confirm
                        or flat_views > 0)):
                 track.status = 'needs_reobservation'
                 track.evidence_status = (
                     'inconsistent_apparent_size'
                     if diameter_cv > self.config.max_apparent_diameter_cv
+                    else 'inconsistent_absolute_sphere_diameter'
+                    if not diameter_prior_ok
                     else 'excessive_normalized_depth_curvature'
                     if (normalized_curvatures and normalized_curvature
                         > self.config.max_median_normalized_depth_curvature)
@@ -262,6 +292,8 @@ class HazardTracker:
                     if curvature_cv > self.config.max_depth_curvature_cv
                     else 'insufficient_lateral_parallax'
                     if not lateral_parallax_ok
+                    else 'insufficient_multiview_spherical_depth'
+                    if spherical_views < self.config.min_spherical_views_for_confirm
                     else 'inconsistent_multiview_aspect'
                     if representative_aspect_ratio < self.config.min_multiview_aspect_ratio
                     else 'contradictory_depth_shape'
@@ -300,8 +332,12 @@ def track_to_hazard_dict(track):
         'eligible_observation_count': track.eligible_observation_count,
         'eligible_view_ids': list(track.eligible_view_ids),
         'flat_view_ids': list(track.flat_view_ids),
+        'spherical_view_ids': list(track.spherical_view_ids),
         'apparent_diameter_cv': round(
             _coefficient_of_variation(_view_medians(track.diameters_by_view)), 4,
+        ),
+        'median_apparent_diameter_m': round(
+            _median(_view_medians(track.diameters_by_view), default=0.0), 4,
         ),
         'min_multiview_aspect_ratio': round(
             min(_view_medians(track.aspects_by_view), default=1.0), 4,
@@ -378,6 +414,10 @@ def _merge_observation_into_track(track, observation):
             and observation.view_id not in track.flat_view_ids):
         track.flat_view_ids.append(observation.view_id)
     if (observation.confirmation_eligible
+            and observation.depth_shape_status == 'spherical' and observation.view_id
+            and observation.view_id not in track.spherical_view_ids):
+        track.spherical_view_ids.append(observation.view_id)
+    if (observation.confirmation_eligible
             and _valid_diameter(observation.apparent_diameter_m)):
         track.apparent_diameters_m.append(float(observation.apparent_diameter_m))
         _append_view_evidence(track.diameters_by_view, observation.view_id, observation.apparent_diameter_m)
@@ -422,6 +462,18 @@ def _valid_aspect_ratio(value):
 
 def _valid_bearing(value):
     return value is not None and math.isfinite(float(value))
+
+
+def _matches_expected_diameter(measured_m, expected_m, max_relative_error):
+    """检查已知标准球尺寸；禁用先验时保持历史未知尺寸兼容行为。"""
+
+    expected = float(expected_m)
+    if expected <= 0.0:
+        return True
+    if not _valid_diameter(measured_m):
+        return False
+    relative_error = abs(float(measured_m) - expected) / expected
+    return relative_error <= max(0.0, float(max_relative_error))
 
 
 def _diameter_cv(values):

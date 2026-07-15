@@ -41,11 +41,12 @@ class MissionStateMachineNode(Node):
         super().__init__('mission_state_machine_node')
         self.declare_parameter('result_dir', 'reports/run_results')
         self.declare_parameter('mission_id', 'minimal_demo')
-        # 官方 SimEnv 评估器只读取这个结果文件。正式运行时感知节点必须设置
-        # output_frame:=world；否则本节点会安全地跳过非 world 的候选，而非错报坐标。
+        # 官方 SimEnv 评估器只读取这个结果文件。正式运行时感知节点必须提供
+        # 合法 SLAM 的 world 坐标；Gazebo /Odometry_gazebo 与 ground_truth 均不得使用。
         self.declare_parameter('official_result_path', 'results/detected_danger.json')
         self.declare_parameter('official_result_frame', 'world')
         self.declare_parameter('official_result_dedup_distance_m', 0.30)
+        self.declare_parameter('official_require_legal_localization', True)
 
         # nav_state 保存导航组当前状态；hazards 用字典按 id 去重保存候选危险源。
         # 当前版本只做简单覆盖，后续要替换为多帧确认和状态管理。
@@ -135,6 +136,10 @@ class MissionStateMachineNode(Node):
             dedup_distance_m=float(
                 self.get_parameter('official_result_dedup_distance_m').value
             ),
+            require_legal_localization=bool(
+                self.get_parameter('official_require_legal_localization').value
+            ),
+            require_multiview_sphere_evidence=True,
         )
         official_value = self.get_parameter('official_result_path').value
         official_path = Path(official_value)
