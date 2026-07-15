@@ -51,6 +51,7 @@ def test_rosbridge_control_relay_defaults_to_safe_and_uses_wall_clock_watchdog()
     assert "declare_parameter('ros1_odom_topic', '/hazardwalker/odom')" in source
     assert "'forwarded_cmd_count'" in source
     assert "rosbridge_host_header" in source
+    assert 'ExternalShutdownException' in source
 
 
 def test_direct_ros1_control_verifier_requires_exclusive_session_and_records_odometry():

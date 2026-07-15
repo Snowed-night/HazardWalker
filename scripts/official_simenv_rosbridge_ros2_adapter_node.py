@@ -17,6 +17,7 @@ import time
 import rclpy
 from geometry_msgs.msg import Twist
 from nav_msgs.msg import Odometry
+from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
 from rclpy.qos import DurabilityPolicy, QoSProfile
 from sensor_msgs.msg import CameraInfo, Image
@@ -342,11 +343,18 @@ class RosbridgeHwAdapter(Node):
 
 
 def main():
-    rclpy.init(); node = RosbridgeHwAdapter()
+    rclpy.init()
+    node = RosbridgeHwAdapter()
     try:
         rclpy.spin(node)
+    except ExternalShutdownException:
+        # 栈脚本会向适配器进程组发 SIGTERM；上下文已被 rclpy 关闭时属于正常收尾，
+        # 不应把可预期的回收过程打印成适配器故障。
+        pass
     finally:
-        node.destroy_node(); rclpy.shutdown()
+        node.destroy_node()
+        if rclpy.ok():
+            rclpy.shutdown()
 
 
 if __name__ == '__main__':
