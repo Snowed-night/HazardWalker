@@ -1,8 +1,0 @@
-{
-  "reference_suite": "official_simenv_20260705_native_3d_validation",
-  "case_count": 7,
-  "pass_count": 1,
-  "review_count": 0,
-  "fail_count": 0,
-  "scoring_boundary": "2D source-frame regression only; it does not certify 3D confirmed tracks, multi-view shape rejection, or localization accuracy."
-}

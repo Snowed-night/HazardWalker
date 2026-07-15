@@ -1,8 +1,0 @@
-{
-  "reference_suite": "official_simenv_20260705_3d_red_shape_distractors",
-  "case_count": 6,
-  "pass_count": 4,
-  "review_count": 2,
-  "fail_count": 0,
-  "scoring_boundary": "2D source-frame regression only; it does not certify 3D confirmed tracks, multi-view shape rejection, or localization accuracy."
-}

@@ -60,8 +60,11 @@ class HsvDetectorNode(Node):
         # PoseInfo/相机帧来自不同桥接线程时可能只有数毫秒滞后；允许使用最新 TF
         # 能避免“未来外推”导致整帧定位被丢弃。高速运动平台可显式关闭该兜底。
         self.declare_parameter('allow_latest_tf_fallback', True)
-        # 官方 SimEnv 适配层提供 world→map 静态别名，令检测结果直接满足官方提交的 world 坐标要求。
-        self.declare_parameter('output_frame', 'world')
+        # 在官方比赛模式下，绝不能把 Gazebo 的 /Odometry_gazebo 或 ground_truth TF
+        # 伪装成世界定位。默认只使用由导航组合法 SLAM 发布的 map；在该 TF 未就绪前
+        # 仍发布相机候选和深度距离，但不输出可提交的 world 坐标。
+        self.declare_parameter('output_frame', 'map')
+        self.declare_parameter('localization_provenance', 'unverified')
         self.declare_parameter('confirm_observation_count', 3)
         self.declare_parameter('confirm_distinct_views', 3)
         # 主动横移期间目标可能连续数秒离开视场；150 帧约等于 5 秒@30FPS，
@@ -69,7 +72,16 @@ class HsvDetectorNode(Node):
         self.declare_parameter('reject_after_missed_count', 300)
         self.declare_parameter('merge_distance_m', 0.5)
         self.declare_parameter('max_apparent_diameter_cv', 0.35)
-        self.declare_parameter('min_multiview_aspect_ratio', 0.88)
+        # 官方唯一目标为半径 0.15 m 的球体；用 35% 容差吸收低分辨率、深度噪声与
+        # 轻度遮挡的投影误差，但拒绝尺寸明显不符的红色圆形物体。
+        self.declare_parameter('expected_sphere_diameter_m', 0.30)
+        self.declare_parameter('max_sphere_diameter_relative_error', 0.35)
+        # 官方真实 RGB 中完整球体会因透视/低分辨率落在约 0.85；0.82 以下才视为
+        # 明显拉长。深度平面和横向多视角仍是确认的强制门，不能放宽为单帧确认。
+        self.declare_parameter('min_multiview_aspect_ratio', 0.82)
+        # 最终确认至少要有两个不同视角的 RGB-D 球面正证据；未知深度不能把
+        # 圆柱端面或圆盘升级为危险源。
+        self.declare_parameter('min_spherical_views_for_confirm', 2)
         self.declare_parameter('max_depth_curvature_cv', 0.65)
         self.declare_parameter('min_normalized_depth_curvature', 0.10)
         self.declare_parameter('max_median_normalized_depth_curvature', 0.30)
@@ -88,6 +100,12 @@ class HsvDetectorNode(Node):
         # 深度曲率仅否决“明确平面”的候选；缺深度/遮挡一律进入重观察而非直接漏检。
         self.declare_parameter('min_sphere_depth_curvature_m', 0.008)
         self.declare_parameter('min_sphere_depth_shape_points', 8)
+        # RGB 与独立深度 WebSocket 可能跨帧到达；不同时间的深度不能用于球形判别或定位，
+        # 否则会把运动中的红球错误记为平面/错误世界坐标。
+        self.declare_parameter('max_rgb_depth_sync_delta_sec', 0.15)
+        # 默认标准 ROS 光学系；官方 Gazebo ``real_sense`` 链路需设为
+        # ``gazebo_link_x_forward``，由官方业务 launch 显式传入。
+        self.declare_parameter('camera_axis_convention', 'optical_z_forward')
         # 运动中继续发布候选供导航使用，但只有相机连续稳定若干帧后才向轨迹
         # 累积确认/反证，防止横移过渡帧让球体尺寸和曲率统计失真。
         self.declare_parameter('stable_view_min_frames', 3)
@@ -111,7 +129,16 @@ class HsvDetectorNode(Node):
             reject_after_missed_count=int(self.get_parameter('reject_after_missed_count').value),
             merge_distance_m=float(self.get_parameter('merge_distance_m').value),
             max_apparent_diameter_cv=float(self.get_parameter('max_apparent_diameter_cv').value),
+            expected_sphere_diameter_m=float(
+                self.get_parameter('expected_sphere_diameter_m').value
+            ),
+            max_sphere_diameter_relative_error=float(
+                self.get_parameter('max_sphere_diameter_relative_error').value
+            ),
             min_multiview_aspect_ratio=float(self.get_parameter('min_multiview_aspect_ratio').value),
+            min_spherical_views_for_confirm=int(
+                self.get_parameter('min_spherical_views_for_confirm').value
+            ),
             max_depth_curvature_cv=float(self.get_parameter('max_depth_curvature_cv').value),
             min_normalized_depth_curvature=float(
                 self.get_parameter('min_normalized_depth_curvature').value
@@ -212,7 +239,15 @@ class HsvDetectorNode(Node):
             }
             localization = None
             depth_shape = None
-            if self.latest_depth_image is not None:
+            depth_stamp_delta_sec = _stamp_delta_sec(msg.header.stamp, self.latest_depth_stamp)
+            depth_synchronized = (
+                self.latest_depth_image is not None
+                and depth_stamp_delta_sec is not None
+                and depth_stamp_delta_sec <= float(
+                    self.get_parameter('max_rgb_depth_sync_delta_sec').value
+                )
+            )
+            if depth_synchronized:
                 depth_shape = evaluate_sphere_depth_shape(
                     depth_image=self.latest_depth_image,
                     bbox=bbox,
@@ -230,7 +265,7 @@ class HsvDetectorNode(Node):
                     self.get_parameter('min_multiview_aspect_ratio').value
                 )
             )
-            if self.camera_intrinsics and self.latest_depth_image is not None and camera_to_output:
+            if self.camera_intrinsics and depth_synchronized and camera_to_output:
                 localization = localize_bbox_from_depth_image(
                     bbox=bbox,
                     intrinsics=self.camera_intrinsics,
@@ -243,6 +278,9 @@ class HsvDetectorNode(Node):
                     sphere_radius_m=float(self.get_parameter('sphere_radius_m').value),
                     use_sphere_projection_geometry=bool(
                         self.get_parameter('use_sphere_projection_geometry').value
+                    ),
+                    camera_axis_convention=str(
+                        self.get_parameter('camera_axis_convention').value
                     ),
                 )
             apparent_diameter_m = _apparent_diameter_m(
@@ -283,6 +321,8 @@ class HsvDetectorNode(Node):
                     'center_points': depth_shape.center_points if depth_shape else 0,
                     'outer_points': depth_shape.outer_points if depth_shape else 0,
                 },
+                'depth_synchronized': depth_synchronized,
+                'depth_stamp_delta_sec': depth_stamp_delta_sec,
                 'confirmation_eligible': confirmation_eligible,
                 'apparent_diameter_m': apparent_diameter_m,
                 'view_bearing_deg': (
@@ -336,6 +376,9 @@ class HsvDetectorNode(Node):
         for track in tracks:
             item = track_to_hazard_dict(track)
             item['position_frame_id'] = output_frame
+            item['localization_provenance'] = str(
+                self.get_parameter('localization_provenance').value
+            )
             item['source'] = 'hsv_depth_tf'
             item['observation_time'] = time.time()
             hazards.append(item)
@@ -468,6 +511,14 @@ def _transform_msg_to_rigid(transform):
 """把 ROS 时间戳转成浮点秒，供跟踪器记录观测时间。"""
 def _stamp_to_float(stamp):
     return float(stamp.sec) + float(stamp.nanosec) * 1e-9
+
+
+def _stamp_delta_sec(left, right):
+    """返回两个 ROS 时间戳的绝对差；任一缺失时明确返回 None。"""
+
+    if left is None or right is None:
+        return None
+    return abs(_stamp_to_float(left) - _stamp_to_float(right))
 
 
 def _apparent_diameter_m(bbox, depth_m, intrinsics):

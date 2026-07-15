@@ -97,7 +97,6 @@ def test_tracker_requires_distinct_views_before_confirmation():
             )
         ])
     assert tracks[0].status == 'tentative'
-
     tracks = tracker.update([
         HazardObservation(
             position=(1.1, 0.0, 0.5), confidence=0.85,
@@ -106,6 +105,89 @@ def test_tracker_requires_distinct_views_before_confirmation():
     ])
     assert tracks[0].status == 'confirmed'
     assert tracks[0].view_ids == ['pos:0.0:0.0:0.0|yaw:0', 'pos:0.4:0.0:0.0|yaw:30']
+
+
+def test_official_rgbd_profile_requires_two_spherical_depth_views_before_confirmation():
+    """正式模式不得由仅 RGB 圆形或深度未知的三视角确认红色圆柱端面。"""
+    tracker = HazardTracker(HazardTrackerConfig(
+        confirm_observation_count=3,
+        min_distinct_views=3,
+        min_spherical_views_for_confirm=2,
+        expected_sphere_diameter_m=0.30,
+        max_sphere_diameter_relative_error=0.35,
+        merge_distance_m=0.5,
+    ))
+    for view_id in ('front', 'left', 'right'):
+        tracks = tracker.update([HazardObservation(
+            position=(1.0, 0.0, 0.5), confidence=0.9,
+            view_id=view_id, confirmation_eligible=True,
+            depth_shape_status='unknown', apparent_diameter_m=0.30,
+            aspect_ratio=0.95, depth_curvature_m=0.06,
+        )])
+
+    assert tracks[0].status == 'needs_reobservation'
+    assert tracks[0].evidence_status == 'insufficient_multiview_spherical_depth'
+
+    for view_id in ('left_depth', 'right_depth'):
+        tracks = tracker.update([HazardObservation(
+            position=(1.0, 0.0, 0.5), confidence=0.9,
+            view_id=view_id, confirmation_eligible=True,
+            depth_shape_status='spherical', apparent_diameter_m=0.30,
+            aspect_ratio=0.95, depth_curvature_m=0.06,
+        )])
+
+    assert tracks[0].status == 'confirmed'
+
+
+def test_partial_or_unstable_spherical_observations_do_not_supply_confirmation_evidence():
+    """局部可见弧段即使深度看似球面，也只能触发复查而不能补齐正证据。"""
+    tracker = HazardTracker(HazardTrackerConfig(
+        confirm_observation_count=3,
+        min_distinct_views=3,
+        min_spherical_views_for_confirm=2,
+        merge_distance_m=0.5,
+    ))
+    for view_id in ('front', 'left', 'right'):
+        tracks = tracker.update([HazardObservation(
+            position=(1.0, 0.0, 0.5), confidence=0.9,
+            view_id=view_id, confirmation_eligible=True,
+            depth_shape_status='unknown', apparent_diameter_m=0.30,
+            aspect_ratio=0.95, depth_curvature_m=0.06,
+        )])
+    for view_id in ('partial_left', 'partial_right'):
+        tracks = tracker.update([HazardObservation(
+            position=(1.0, 0.0, 0.5), confidence=0.5,
+            view_id=view_id, confirmation_eligible=False,
+            depth_shape_status='spherical', apparent_diameter_m=0.30,
+            aspect_ratio=0.30, depth_curvature_m=0.06,
+        )])
+
+    assert tracks[0].status == 'needs_reobservation'
+    assert tracks[0].spherical_view_ids == []
+    assert tracks[0].evidence_status == 'insufficient_multiview_spherical_depth'
+
+
+def test_official_size_prior_rechecks_a_spherical_but_wrong_sized_red_object():
+    """题目目标尺寸固定为直径 0.30 m，不能把明显更大的红球/圆物直接提交。"""
+    tracker = HazardTracker(HazardTrackerConfig(
+        confirm_observation_count=3,
+        min_distinct_views=3,
+        min_spherical_views_for_confirm=2,
+        expected_sphere_diameter_m=0.30,
+        max_sphere_diameter_relative_error=0.35,
+        merge_distance_m=0.5,
+    ))
+    for view_id in ('front', 'left', 'right'):
+        tracks = tracker.update([HazardObservation(
+            position=(1.0, 0.0, 0.5), confidence=0.9,
+            view_id=view_id, confirmation_eligible=True,
+            depth_shape_status='spherical', apparent_diameter_m=0.55,
+            aspect_ratio=0.95, depth_curvature_m=0.08,
+        )])
+
+    assert tracks[0].status == 'needs_reobservation'
+    assert tracks[0].evidence_status == 'inconsistent_absolute_sphere_diameter'
+    assert track_to_hazard_dict(tracks[0])['median_apparent_diameter_m'] == 0.55
 
 
 """验证轨迹可以转换为结果 JSON 使用的危险源字段。"""

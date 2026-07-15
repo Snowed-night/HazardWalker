@@ -74,3 +74,39 @@ def test_official_result_only_exports_confirmed_world_frame_unique_sources():
             {'position': [6.0, 2.0, 0.3]},
         ],
     }
+
+
+def test_official_result_can_require_legal_slam_provenance():
+    """比赛模式不得把未验证/Gazebo 真值定位的 confirmed 轨迹写入提交文件。"""
+    result = build_official_detected_danger_result(
+        hazards=[
+            {'id': 1, 'status': 'confirmed', 'position_frame_id': 'world',
+             'position': [1.0, 2.0, 0.3], 'confidence': 0.99,
+             'localization_provenance': 'unverified'},
+            {'id': 2, 'status': 'confirmed', 'position_frame_id': 'world',
+             'position': [2.0, 2.0, 0.3], 'confidence': 0.98,
+             'localization_provenance': 'lidar_imu_slam'},
+        ],
+        exploration_time_sec=12.0,
+        require_legal_localization=True,
+    )
+
+    assert result['detected_danger_sources'] == [{'position': [2.0, 2.0, 0.3]}]
+
+
+def test_official_result_can_require_multiview_sphere_evidence():
+    """最终评分文件不能仅凭 status=confirmed 接纳未记录球面复查证据的目标。"""
+    result = build_official_detected_danger_result(
+        hazards=[
+            {'id': 1, 'status': 'confirmed', 'position_frame_id': 'world',
+             'position': [1.0, 2.0, 0.3], 'confidence': 0.99,
+             'evidence_status': 'single_view_flat_or_non_spherical'},
+            {'id': 2, 'status': 'confirmed', 'position_frame_id': 'world',
+             'position': [2.0, 2.0, 0.3], 'confidence': 0.98,
+             'evidence_status': 'multi_view_sphere_consistent'},
+        ],
+        exploration_time_sec=12.0,
+        require_multiview_sphere_evidence=True,
+    )
+
+    assert result['detected_danger_sources'] == [{'position': [2.0, 2.0, 0.3]}]

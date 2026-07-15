@@ -2,8 +2,8 @@
 
 所属组：感知定位组。
 文件作用：
-订阅统一的 ``/hw/*`` 图像、里程计和感知结果，记录连续帧候选、多帧确认状态、
-机器人位姿与主动重观察建议，并在结束时输出 summary 和测试记录。
+订阅统一的 ``/hw/*`` 图像和感知结果，记录连续帧候选、多帧确认状态、
+可选的合法 SLAM 位姿与主动重观察建议，并在结束时输出 summary 和测试记录。
 当前实现边界：
 只记录和发布建议到 ``/hw/perception/view_recommendation``，不直接控制机器人。
 验证方式：
@@ -25,6 +25,7 @@ from std_msgs.msg import String
 
 from hazardwalker_perception.active_view_policy import choose_active_view_action
 from hazardwalker_perception.dynamic_detection_records import (
+    build_perception_evidence_contract,
     build_dynamic_summary,
     build_dynamic_testing_record,
 )
@@ -39,7 +40,25 @@ class DynamicDetectionRecorderNode(Node):
         self.declare_parameter('test_record_dir', '')
         self.declare_parameter('scenario_name', 'official_simenv_dynamic_detection')
         self.declare_parameter('save_images', True)
+        self.declare_parameter('save_depth_evidence', True)
         self.declare_parameter('min_image_save_interval_sec', 0.5)
+        self.declare_parameter('max_rgb_depth_evidence_delta_sec', 0.15)
+        self.declare_parameter('trajectory_sample_interval_sec', 0.5)
+        # 官方赛题禁止 /Odometry_gazebo 及其平台桥接别名参与比赛算法或正式证据。
+        # 因此默认不订阅任何位姿；只有调用方显式提供合法 SLAM 的 Odometry 话题时才记录。
+        self.declare_parameter('legal_pose_topic', '')
+        # 默认内部回归，只有联调者显式填入固定 SEED、代码版本和合法 SLAM 来源时才可能
+        # 生成“可供正式复核”的元数据；该标记不会凭空证明场景或算法合规。
+        self.declare_parameter('run_mode', 'internal_regression')
+        self.declare_parameter('scenario_seed', '')
+        self.declare_parameter('code_version', '')
+        self.declare_parameter('localization_provenance', 'unverified')
+        self.declare_parameter('launch_command', '')
+        # ROS2 适配层默认使用 /hw/*；直接接入 ROS1 官方节点时可显式切换到
+        # /real_sense/* 与 /hazardwalker/perception/*，避免为了记录证据再造一层假桥接。
+        self.declare_parameter('image_topic', '/hw/camera/image_raw')
+        self.declare_parameter('depth_topic', '/hw/camera/depth_image')
+        self.declare_parameter('detection_topic', '/hw/perception/hazard_detections')
 
         output_dir = str(self.get_parameter('output_dir').value).strip()
         test_record_dir = str(self.get_parameter('test_record_dir').value).strip()
@@ -49,22 +68,65 @@ class DynamicDetectionRecorderNode(Node):
         self.output_dir = Path(output_dir).expanduser().resolve()
         self.test_record_dir = Path(test_record_dir).expanduser().resolve()
         self.image_dir = self.output_dir / 'selected_images'
+        self.depth_dir = self.output_dir / 'selected_depth'
         self.output_dir.mkdir(parents=True, exist_ok=True)
         self.test_record_dir.mkdir(parents=True, exist_ok=True)
         if bool(self.get_parameter('save_images').value):
             self.image_dir.mkdir(parents=True, exist_ok=True)
+        if bool(self.get_parameter('save_depth_evidence').value):
+            self.depth_dir.mkdir(parents=True, exist_ok=True)
+        self.evidence_contract = build_perception_evidence_contract(
+            self.get_parameter('run_mode').value,
+            self.get_parameter('scenario_seed').value,
+            self.get_parameter('code_version').value,
+            self.get_parameter('legal_pose_topic').value,
+            self.get_parameter('localization_provenance').value,
+        )
+        _write_json(self.output_dir / 'run_manifest.json', {
+            'schema': 'hazardwalker_perception_official_evidence_v1',
+            'evidence_contract': self.evidence_contract,
+            'input_topics': {
+                'image': str(self.get_parameter('image_topic').value),
+                'depth': str(self.get_parameter('depth_topic').value),
+                'detections': str(self.get_parameter('detection_topic').value),
+                'legal_pose': str(self.get_parameter('legal_pose_topic').value),
+            },
+            'launch_command': str(self.get_parameter('launch_command').value),
+            'started_at_unix_sec': round(time.time(), 3),
+        })
 
         self.records = []
         self.latest_image = None
         self.latest_image_stamp = 0.0
         self.latest_image_frame_id = ''
-        self.latest_odom = None
+        self.latest_depth_image = None
+        self.latest_depth_stamp = 0.0
+        self.latest_depth_frame_id = ''
+        self.latest_legal_pose = None
         self.last_image_save_sec = float('-inf')
+        self.last_pose_save_sec = float('-inf')
+        self.trajectory_sample_count = 0
 
-        self.image_sub = self.create_subscription(Image, '/hw/camera/image_raw', self.on_image, 10)
-        self.odom_sub = self.create_subscription(Odometry, '/hw/odom', self.on_odom, 20)
+        self.image_sub = self.create_subscription(
+            Image, str(self.get_parameter('image_topic').value), self.on_image, 10,
+        )
+        self.depth_sub = self.create_subscription(
+            Image, str(self.get_parameter('depth_topic').value), self.on_depth, 10,
+        )
+        legal_pose_topic = str(self.get_parameter('legal_pose_topic').value).strip()
+        self.legal_pose_sub = None
+        if 'forbidden_pose_topic' in self.evidence_contract.get('contract_violations', []):
+            self.get_logger().error(
+                '拒绝订阅禁用位姿话题：不得把 Gazebo 真值或 /hw/odom 写入感知正式证据。')
+        elif legal_pose_topic:
+            self.legal_pose_sub = self.create_subscription(
+                Odometry, legal_pose_topic, self.on_legal_pose, 20,
+            )
+        else:
+            self.get_logger().warn(
+                '未配置 legal_pose_topic：记录中不会写入机器人位姿，且不能作为正式定位证据。')
         self.detection_sub = self.create_subscription(
-            String, '/hw/perception/hazard_detections', self.on_detections, 20,
+            String, str(self.get_parameter('detection_topic').value), self.on_detections, 20,
         )
         self.recommendation_pub = self.create_publisher(String, '/hw/perception/view_recommendation', 10)
         self.get_logger().info(f'动态检测记录将写入 {self.output_dir}')
@@ -80,11 +142,22 @@ class DynamicDetectionRecorderNode(Node):
         self.latest_image_stamp = _stamp_to_sec(msg.header.stamp)
         self.latest_image_frame_id = msg.header.frame_id
 
-    def on_odom(self, msg):
-        """保存最近机器人位姿；记录时同时保留坐标系和姿态四元数。"""
+    def on_depth(self, msg):
+        """缓存深度米制数组；仅在与 RGB 时间接近时才作为证据帧落盘。"""
+
+        depth = _depth_message_to_meters(msg)
+        if depth is None:
+            self.get_logger().warn(f'不支持保存的深度编码：{msg.encoding}', throttle_duration_sec=5.0)
+            return
+        self.latest_depth_image = depth
+        self.latest_depth_stamp = _stamp_to_sec(msg.header.stamp)
+        self.latest_depth_frame_id = msg.header.frame_id
+
+    def on_legal_pose(self, msg):
+        """保存调用方声明的合法 SLAM 位姿，供正式证据追溯。"""
 
         pose = msg.pose.pose
-        self.latest_odom = {
+        self.latest_legal_pose = {
             'frame_id': msg.header.frame_id,
             'child_frame_id': msg.child_frame_id,
             'position': {'x': pose.position.x, 'y': pose.position.y, 'z': pose.position.z},
@@ -94,6 +167,13 @@ class DynamicDetectionRecorderNode(Node):
             },
             'stamp_sec': _stamp_to_sec(msg.header.stamp),
         }
+        pose_stamp = self.latest_legal_pose['stamp_sec']
+        interval = float(self.get_parameter('trajectory_sample_interval_sec').value)
+        if pose_stamp - self.last_pose_save_sec >= interval:
+            with (self.output_dir / 'trajectory.jsonl').open('a', encoding='utf-8') as handle:
+                handle.write(json.dumps(self.latest_legal_pose, ensure_ascii=False) + '\n')
+            self.last_pose_save_sec = pose_stamp
+            self.trajectory_sample_count += 1
 
     def on_detections(self, msg):
         """记录一条感知输出，并为当前候选生成一次主动观察建议。"""
@@ -111,16 +191,23 @@ class DynamicDetectionRecorderNode(Node):
         self._publish_recommendation(recommendation_dict)
 
         stamp_sec = _payload_stamp_to_sec(detections, fallback=time.time())
-        image_path = self._save_evidence_image(stamp_sec, detections, recommendation_dict)
+        image_path, depth_path = self._save_evidence_image(
+            stamp_sec, detections, list(payload.get('hazards', [])), recommendation_dict,
+        )
         record = {
             'timestamp_sec': stamp_sec,
             'image_frame_id': self.latest_image_frame_id,
-            'robot_pose': self.latest_odom,
+            'robot_pose': self.latest_legal_pose,
+            'localization_provenance': str(
+                payload.get('localization_provenance',
+                            self.get_parameter('localization_provenance').value)
+            ),
             'detections_2d': detections,
             'hazards': list(payload.get('hazards', [])),
             'localization_ready': bool(payload.get('localization_ready', False)),
             'view_recommendation': recommendation_dict,
             'evidence_image': image_path,
+            'evidence_depth': depth_path,
         }
         self.records.append(record)
         with (self.output_dir / 'frames.jsonl').open('a', encoding='utf-8') as handle:
@@ -130,10 +217,23 @@ class DynamicDetectionRecorderNode(Node):
         """在节点退出时写入汇总和测试组 CSV/JSON。"""
 
         summary = build_dynamic_summary(self.records)
+        failure_reasons = _derive_failure_reasons(
+            self.records, self.trajectory_sample_count, self.evidence_contract,
+        )
+        _write_json(self.output_dir / 'failure_reasons.json', {
+            'observed_failure_reasons': failure_reasons,
+            'generated_at_unix_sec': round(time.time(), 3),
+            'note': '只记录本次采集可直接观察到的失败信号；不根据真值推测漏检或虚警。',
+        })
         summary.update({
             'scenario': str(self.get_parameter('scenario_name').value),
             'generated_at_unix_sec': round(time.time(), 3),
             'record_file': 'frames.jsonl',
+            'trajectory_file': 'trajectory.jsonl' if self.trajectory_sample_count else '',
+            'trajectory_sample_count': self.trajectory_sample_count,
+            'run_manifest_file': 'run_manifest.json',
+            'failure_reasons_file': 'failure_reasons.json',
+            'evidence_contract': self.evidence_contract,
         })
         _write_json(self.output_dir / 'summary.json', summary)
 
@@ -150,19 +250,22 @@ class DynamicDetectionRecorderNode(Node):
             return 0, 0
         return int(self.latest_image.shape[0]), int(self.latest_image.shape[1])
 
-    def _save_evidence_image(self, stamp_sec, detections, recommendation):
+    def _save_evidence_image(self, stamp_sec, detections, hazards, recommendation):
         """保存叠加检测框和当前重观察建议的展示帧。"""
 
+        has_confirmed_hazard = any(item.get('status') == 'confirmed' for item in hazards)
+        if not detections and not has_confirmed_hazard:
+            return '', ''
         if not bool(self.get_parameter('save_images').value) or self.latest_image is None:
-            return ''
+            return '', ''
         interval = float(self.get_parameter('min_image_save_interval_sec').value)
         if stamp_sec - self.last_image_save_sec < interval:
-            return ''
+            return '', ''
         try:
             import cv2
         except ImportError:
             self.get_logger().warn('未安装 OpenCV，跳过动态截图保存。', throttle_duration_sec=10.0)
-            return ''
+            return '', ''
         filename = f'frame_{len(self.records) + 1:06d}_{stamp_sec:.3f}.png'
         path = self.image_dir / filename
         annotated = self.latest_image.copy()
@@ -172,13 +275,39 @@ class DynamicDetectionRecorderNode(Node):
             y_min = int(bbox.get('y_min', 0))
             x_max = int(bbox.get('x_max', x_min))
             y_max = int(bbox.get('y_max', y_min))
-            label = f"id={detection.get('id', '?')} conf={float(detection.get('confidence', 0.0)):.2f}"
-            cv2.rectangle(annotated, (x_min, y_min), (x_max, y_max), (0, 255, 0), 2)
-            cv2.putText(annotated, label, (x_min, max(18, y_min - 6)), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (0, 255, 0), 1)
+            # 黄色框是“仅供导航复查”的局部/粘连/非球体疑似候选，绝不能在展示图中
+            # 与红色严格二维候选混为“已识别红球”。即使红框也仍需多视角确认，最终
+            # 是否提交由 hazards 的 confirmed 状态决定。
+            reobserve = bool(detection.get('requires_reobservation', False))
+            color = (0, 165, 255) if reobserve else (0, 0, 255)
+            status = 'reobserve' if reobserve else '2d_candidate'
+            label = '#%s %.2f %s' % (
+                detection.get('id', '?'), float(detection.get('confidence', 0.0)), status,
+            )
+            cv2.rectangle(annotated, (x_min, y_min), (x_max, y_max), color, 2)
+            cv2.putText(annotated, label, (x_min, max(18, y_min - 6)),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.45, color, 1)
         action_label = f"view: {recommendation.get('action', 'unknown')}"
         cv2.putText(annotated, action_label, (12, 24), cv2.FONT_HERSHEY_SIMPLEX, 0.65, (0, 255, 255), 2)
         cv2.imwrite(str(path), annotated)
+        depth_path = self._save_depth_evidence(filename)
         self.last_image_save_sec = stamp_sec
+        return (
+            str(path.relative_to(self.output_dir).as_posix()),
+            depth_path,
+        )
+
+    def _save_depth_evidence(self, image_filename):
+        """保存与 RGB 时间严格配对的米制深度，供赛后独立复核。"""
+
+        if (not bool(self.get_parameter('save_depth_evidence').value)
+                or self.latest_depth_image is None):
+            return ''
+        max_delta = float(self.get_parameter('max_rgb_depth_evidence_delta_sec').value)
+        if abs(self.latest_depth_stamp - self.latest_image_stamp) > max_delta:
+            return ''
+        path = self.depth_dir / (Path(image_filename).stem + '.npy')
+        np.save(str(path), self.latest_depth_image)
         return str(path.relative_to(self.output_dir).as_posix())
 
     def _publish_recommendation(self, recommendation):
@@ -199,6 +328,32 @@ def _image_message_to_array(msg):
     if msg.encoding.lower() == 'rgb8':
         image = image[:, :, ::-1]
     return image
+
+
+def _depth_message_to_meters(msg):
+    """解码官方常用 16UC1/32FC1 深度图，输出米制 float32 数组。"""
+
+    encoding = msg.encoding.upper()
+    if encoding == '16UC1':
+        dtype = np.dtype('<u2')
+        scale = 0.001
+    elif encoding == '32FC1':
+        dtype = np.dtype('<f4')
+        scale = 1.0
+    else:
+        return None
+    item_size = dtype.itemsize
+    if msg.step < msg.width * item_size:
+        return None
+    raw = np.frombuffer(bytes(msg.data), dtype=np.uint8)
+    expected = msg.step * msg.height
+    if raw.size < expected:
+        return None
+    rows = raw[:expected].reshape((msg.height, msg.step))[:, :msg.width * item_size].copy()
+    depth = rows.reshape((msg.height, msg.width * item_size)).view(dtype).reshape(
+        (msg.height, msg.width),
+    )
+    return depth.astype(np.float32, copy=True) * scale
 
 
 def _stamp_to_sec(stamp):
@@ -227,6 +382,23 @@ def _write_single_row_csv(path, value):
         writer.writerow(row)
 
 
+def _derive_failure_reasons(records, trajectory_sample_count, evidence_contract):
+    """仅从实际采集状态归纳失败原因，禁止使用场景真值猜测指标。"""
+
+    reasons = []
+    if not records:
+        reasons.append('no_detection_messages_recorded')
+    if not trajectory_sample_count:
+        reasons.append('no_legal_slam_pose_samples_recorded')
+    if not evidence_contract.get('formal_evidence_eligible', False):
+        reasons.extend(evidence_contract.get('contract_violations', []))
+    if records and not any(
+            hazard.get('status') == 'confirmed'
+            for record in records for hazard in record.get('hazards', [])):
+        reasons.append('no_confirmed_red_ball_recorded')
+    return sorted(set(reasons))
+
+
 def main():
     rclpy.init()
     node = DynamicDetectionRecorderNode()
@@ -240,3 +412,7 @@ def main():
         if rclpy.ok():
             node.destroy_node()
             rclpy.shutdown()
+
+
+if __name__ == '__main__':
+    main()

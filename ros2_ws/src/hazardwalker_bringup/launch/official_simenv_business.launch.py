@@ -20,16 +20,30 @@ def generate_launch_description():
     start_perception = LaunchConfiguration('start_perception')
     start_decision = LaunchConfiguration('start_decision')
     start_navigation = LaunchConfiguration('start_navigation')
+    perception_output_frame = LaunchConfiguration('perception_output_frame')
+    localization_provenance = LaunchConfiguration('localization_provenance')
     return LaunchDescription([
         DeclareLaunchArgument('start_perception', default_value='true'),
         DeclareLaunchArgument('start_decision', default_value='true'),
         # 当前 waypoint_patrol_node 是固定航点诊断节点，正式自主探索接入前保持关闭。
         DeclareLaunchArgument('start_navigation', default_value='false'),
+        # 默认 fail-closed：没有导航组合法 SLAM 时只输出 map 候选，最终结果构建器会拒绝导出。
+        # 正式联调由导航组显式传入 world + lidar_imu_slam 或 visual_inertial_slam。
+        DeclareLaunchArgument('perception_output_frame', default_value='map'),
+        DeclareLaunchArgument('localization_provenance', default_value='unverified'),
         Node(
             package='hazardwalker_perception',
             executable='hsv_detector_node',
             name='hsv_detector_node',
             output='screen',
+            # Gazebo 官方 ``real_sense`` 的 TF 是机体链路系（X 前），不是 ROS 光学系。
+            # 官方规则禁止使用 /Odometry_gazebo 和 ground_truth；因此在导航组提供
+            # 合法 SLAM 的 map→camera TF 前只输出候选，不允许冒充 world 结果提交。
+            parameters=[{
+                'camera_axis_convention': 'gazebo_link_x_forward',
+                'output_frame': perception_output_frame,
+                'localization_provenance': localization_provenance,
+            }],
             condition=IfCondition(start_perception),
         ),
         Node(

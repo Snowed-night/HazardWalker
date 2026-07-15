@@ -23,6 +23,7 @@ from hazardwalker_perception.localize_hazard import (
     localize_bbox_from_depth_image,
     localize_bbox_with_depth,
     make_yaw_transform,
+    optical_point_to_camera_link,
     pixel_to_camera_point,
     transform_point,
 )
@@ -57,6 +58,16 @@ def test_pixel_to_camera_point_projects_offset_pixel():
     assert math.isclose(point.x, 0.2)
     assert math.isclose(point.y, -0.2)
     assert math.isclose(point.z, 2.0)
+
+
+"""验证官方 Gazebo real_sense 链路会把光学 z 前向改为链路 x 前向。"""
+def test_gazebo_camera_link_axis_convention_converts_optical_point():
+    point = optical_point_to_camera_link(
+        Point3D(x=0.2, y=-0.3, z=2.0),
+        convention='gazebo_link_x_forward',
+    )
+
+    assert point == Point3D(x=2.0, y=-0.2, z=0.3)
 
 
 """验证刚体变换能把相机坐标点转换到目标坐标系。"""
