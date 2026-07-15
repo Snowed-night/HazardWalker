@@ -59,6 +59,21 @@ RGB 为 640×480 `rgb8`，深度为 640×480 `32FC1`，相机内参已进入 `/h
 - `ros2_ws/src/hazardwalker_bringup/launch/official_simenv_business.launch.py`：只启动业务节点，不启动
   fake 平台或 Harmonic。
 
+部署或拉取该分支后，必须从 ROS2 工作区而非仓库根目录构建，否则启动脚本找不到
+`ros2_ws/install/setup.bash`：
+
+~~~bash
+cd HazardWalker/ros2_ws
+source /opt/ros/jazzy/setup.bash
+colcon build --symlink-install --packages-select \
+  hazardwalker_platform hazardwalker_nav hazardwalker_perception \
+  hazardwalker_decision hazardwalker_bringup
+~~~
+
+如主机通过虚拟环境提供 `websocket-client`，启动前也需 `source /tmp/hazardwalker_adapter_venv/bin/activate`；
+随后回到仓库根目录执行下方的 `bash scripts/...` 命令。所有脚本均显式以 `bash` 运行，不依赖共享目录、
+Windows 挂载或 Git checkout 保留可执行位。
+
 示例（必须由平台组先启动共享官方场景）：
 
 ~~~bash

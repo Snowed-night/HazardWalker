@@ -23,6 +23,12 @@
     "ros_domain_42_nodes": 0,
     "owner_integration_processes_remaining": 0
   },
+  "clean_checkout_reproduction": {
+    "commit": "3609068",
+    "workspace_build_directory": "ros2_ws",
+    "packages_built": 5,
+    "adapter_shutdown_traceback": false
+  },
   "conclusion": "passed_for_startup_data_and_cleanup_only",
   "not_claimed": [
     "effective_navigation_completion",
