@@ -1,0 +1,80 @@
+{
+  "case_id": "complex_partial_left_85pct_view02",
+  "image_stamp": {
+    "sec": 173,
+    "nanosec": 383000000
+  },
+  "localization_ready": true,
+  "camera_stable": true,
+  "stable_view_frame_count": 49,
+  "detections_2d": [
+    {
+      "id": 1,
+      "frame_id": "hazardwalker_camera",
+      "view_id": "pos:3.6:8.4:3.6|yaw:90",
+      "stamp": {
+        "sec": 173,
+        "nanosec": 350000000
+      },
+      "bbox": {
+        "x_min": 134,
+        "y_min": 137,
+        "x_max": 252,
+        "y_max": 252
+      },
+      "confidence": 0.9561614403656326,
+      "red_pixel_count": 10837,
+      "is_partial": false,
+      "requires_reobservation": false,
+      "may_be_merged": false,
+      "from_merged_split": false,
+      "quality_reason": "stable_shape",
+      "shape": {
+        "circularity": 0.8956841908226467,
+        "aspect_ratio": 0.9747899159663865,
+        "extent": 0.7730005795421617
+      },
+      "depth_shape": {
+        "status": "spherical",
+        "center_depth_m": 1.2937161922454834,
+        "outer_depth_m": 1.3328526020050049,
+        "curvature_m": 0.039136409759521484,
+        "center_points": 1324,
+        "outer_points": 4488
+      },
+      "confirmation_eligible": true,
+      "apparent_diameter_m": 0.3082,
+      "localization_status": "localized",
+      "source": "hsv_minimal",
+      "detector_backend": "hsv_opencv"
+    }
+  ],
+  "hazards": [
+    {
+      "status": "tentative",
+      "position": [
+        3.3041,
+        10.0416,
+        3.2969
+      ],
+      "position_frame_id": "world",
+      "confidence": 0.9587,
+      "observation_count": 77,
+      "distinct_view_count": 2,
+      "source": "hsv_depth_tf",
+      "eligible_observation_count": 77,
+      "eligible_view_ids": [
+        "pos:3.2:8.4:3.6|yaw:90",
+        "pos:3.6:8.4:3.6|yaw:90"
+      ],
+      "flat_view_ids": [],
+      "apparent_diameter_cv": 0.0247,
+      "min_multiview_aspect_ratio": 0.886,
+      "depth_curvature_cv": 0.0641,
+      "median_normalized_depth_curvature": 0.1175,
+      "evidence_status": "collecting_views"
+    }
+  ],
+  "raw_image": "complex_partial_left_85pct_view02_raw.png",
+  "annotated_image": "complex_partial_left_85pct_view02_annotated.png"
+}
