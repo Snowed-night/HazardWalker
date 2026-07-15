@@ -1,0 +1,9 @@
+Type: geometry_msgs/Twist
+
+Publishers: 
+ * /rosbridge_websocket (http://hxbl:39663/)
+
+Subscribers: 
+ * /unitree_gazebo_servo (http://hxbl:35781/)
+
+

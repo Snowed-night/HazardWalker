@@ -1,0 +1,200 @@
+--------------------------------------------------------------------------------
+Node [/unitree_gazebo_servo]
+Publications: 
+ * /a1_gazebo/FL_calf_controller/command [unitree_legged_msgs/MotorCmd]
+ * /a1_gazebo/FL_hip_controller/command [unitree_legged_msgs/MotorCmd]
+ * /a1_gazebo/FL_thigh_controller/command [unitree_legged_msgs/MotorCmd]
+ * /a1_gazebo/FR_calf_controller/command [unitree_legged_msgs/MotorCmd]
+ * /a1_gazebo/FR_hip_controller/command [unitree_legged_msgs/MotorCmd]
+ * /a1_gazebo/FR_thigh_controller/command [unitree_legged_msgs/MotorCmd]
+ * /a1_gazebo/RL_calf_controller/command [unitree_legged_msgs/MotorCmd]
+ * /a1_gazebo/RL_hip_controller/command [unitree_legged_msgs/MotorCmd]
+ * /a1_gazebo/RL_thigh_controller/command [unitree_legged_msgs/MotorCmd]
+ * /a1_gazebo/RR_calf_controller/command [unitree_legged_msgs/MotorCmd]
+ * /a1_gazebo/RR_hip_controller/command [unitree_legged_msgs/MotorCmd]
+ * /a1_gazebo/RR_thigh_controller/command [unitree_legged_msgs/MotorCmd]
+ * /odom [nav_msgs/Odometry]
+ * /rosout [rosgraph_msgs/Log]
+ * /tf [tf2_msgs/TFMessage]
+
+Subscriptions: 
+ * /a1_gazebo/FL_calf_controller/state [unitree_legged_msgs/MotorState]
+ * /a1_gazebo/FL_hip_controller/state [unitree_legged_msgs/MotorState]
+ * /a1_gazebo/FL_thigh_controller/state [unitree_legged_msgs/MotorState]
+ * /a1_gazebo/FR_calf_controller/state [unitree_legged_msgs/MotorState]
+ * /a1_gazebo/FR_hip_controller/state [unitree_legged_msgs/MotorState]
+ * /a1_gazebo/FR_thigh_controller/state [unitree_legged_msgs/MotorState]
+ * /a1_gazebo/RL_calf_controller/state [unitree_legged_msgs/MotorState]
+ * /a1_gazebo/RL_hip_controller/state [unitree_legged_msgs/MotorState]
+ * /a1_gazebo/RL_thigh_controller/state [unitree_legged_msgs/MotorState]
+ * /a1_gazebo/RR_calf_controller/state [unitree_legged_msgs/MotorState]
+ * /a1_gazebo/RR_hip_controller/state [unitree_legged_msgs/MotorState]
+ * /a1_gazebo/RR_thigh_controller/state [unitree_legged_msgs/MotorState]
+ * /clock [rosgraph_msgs/Clock]
+ * /cmd_vel [geometry_msgs/Twist]
+ * /ground_truth/FL_foot [nav_msgs/Odometry]
+ * /ground_truth/FR_foot [nav_msgs/Odometry]
+ * /ground_truth/RL_foot [nav_msgs/Odometry]
+ * /ground_truth/RR_foot [nav_msgs/Odometry]
+ * /ground_truth/base_trunk [nav_msgs/Odometry]
+ * /ground_truth/base_w [nav_msgs/Odometry]
+ * /joy [sensor_msgs/Joy]
+ * /trunk_imu [sensor_msgs/Imu]
+
+Services: 
+ * /unitree_gazebo_servo/get_loggers
+ * /unitree_gazebo_servo/set_logger_level
+
+
+contacting node http://hxbl:35781/ ...
+Pid: 181
+Connections:
+ * topic: /rosout
+    * to: /rosout
+    * direction: outbound (43821 - 127.0.0.1:43068) [22]
+    * transport: TCPROS
+ * topic: /a1_gazebo/FR_hip_controller/command
+    * to: /gazebo
+    * direction: outbound (43821 - 127.0.0.1:43100) [62]
+    * transport: TCPROS
+ * topic: /a1_gazebo/FR_thigh_controller/command
+    * to: /gazebo
+    * direction: outbound (43821 - 127.0.0.1:43132) [47]
+    * transport: TCPROS
+ * topic: /a1_gazebo/FR_calf_controller/command
+    * to: /gazebo
+    * direction: outbound (43821 - 127.0.0.1:43110) [64]
+    * transport: TCPROS
+ * topic: /a1_gazebo/FL_hip_controller/command
+    * to: /gazebo
+    * direction: outbound (43821 - 127.0.0.1:43104) [63]
+    * transport: TCPROS
+ * topic: /a1_gazebo/FL_thigh_controller/command
+    * to: /gazebo
+    * direction: outbound (43821 - 127.0.0.1:43120) [65]
+    * transport: TCPROS
+ * topic: /a1_gazebo/FL_calf_controller/command
+    * to: /gazebo
+    * direction: outbound (43821 - 127.0.0.1:43096) [61]
+    * transport: TCPROS
+ * topic: /a1_gazebo/RR_hip_controller/command
+    * to: /gazebo
+    * direction: outbound (43821 - 127.0.0.1:43158) [72]
+    * transport: TCPROS
+ * topic: /a1_gazebo/RR_thigh_controller/command
+    * to: /gazebo
+    * direction: outbound (43821 - 127.0.0.1:43140) [49]
+    * transport: TCPROS
+ * topic: /a1_gazebo/RR_calf_controller/command
+    * to: /gazebo
+    * direction: outbound (43821 - 127.0.0.1:43144) [69]
+    * transport: TCPROS
+ * topic: /a1_gazebo/RL_hip_controller/command
+    * to: /gazebo
+    * direction: outbound (43821 - 127.0.0.1:43126) [66]
+    * transport: TCPROS
+ * topic: /a1_gazebo/RL_thigh_controller/command
+    * to: /gazebo
+    * direction: outbound (43821 - 127.0.0.1:43160) [75]
+    * transport: TCPROS
+ * topic: /a1_gazebo/RL_calf_controller/command
+    * to: /gazebo
+    * direction: outbound (43821 - 127.0.0.1:43156) [71]
+    * transport: TCPROS
+ * topic: /tf
+    * to: /pointcloud2livox
+    * direction: outbound (43821 - 127.0.0.1:43080) [28]
+    * transport: TCPROS
+ * topic: /tf
+    * to: /rosbridge_websocket
+    * direction: outbound (43821 - 127.0.0.1:43092) [31]
+    * transport: TCPROS
+ * topic: /clock
+    * to: /gazebo (http://hxbl:36873/)
+    * direction: inbound (37504 - hxbl:35811) [33]
+    * transport: TCPROS
+ * topic: /trunk_imu
+    * to: /gazebo (http://hxbl:36873/)
+    * direction: inbound (37580 - hxbl:35811) [36]
+    * transport: TCPROS
+ * topic: /a1_gazebo/FR_hip_controller/state
+    * to: /gazebo (http://hxbl:36873/)
+    * direction: inbound (37872 - hxbl:35811) [70]
+    * transport: TCPROS
+ * topic: /a1_gazebo/FR_thigh_controller/state
+    * to: /gazebo (http://hxbl:36873/)
+    * direction: inbound (37876 - hxbl:35811) [73]
+    * transport: TCPROS
+ * topic: /a1_gazebo/FR_calf_controller/state
+    * to: /gazebo (http://hxbl:36873/)
+    * direction: inbound (37884 - hxbl:35811) [74]
+    * transport: TCPROS
+ * topic: /a1_gazebo/FL_hip_controller/state
+    * to: /gazebo (http://hxbl:36873/)
+    * direction: inbound (37840 - hxbl:35811) [67]
+    * transport: TCPROS
+ * topic: /a1_gazebo/FL_thigh_controller/state
+    * to: /gazebo (http://hxbl:36873/)
+    * direction: inbound (37848 - hxbl:35811) [48]
+    * transport: TCPROS
+ * topic: /a1_gazebo/FL_calf_controller/state
+    * to: /gazebo (http://hxbl:36873/)
+    * direction: inbound (37864 - hxbl:35811) [68]
+    * transport: TCPROS
+ * topic: /a1_gazebo/RR_hip_controller/state
+    * to: /gazebo (http://hxbl:36873/)
+    * direction: inbound (37912 - hxbl:35811) [37]
+    * transport: TCPROS
+ * topic: /a1_gazebo/RR_thigh_controller/state
+    * to: /gazebo (http://hxbl:36873/)
+    * direction: inbound (37914 - hxbl:35811) [38]
+    * transport: TCPROS
+ * topic: /a1_gazebo/RR_calf_controller/state
+    * to: /gazebo (http://hxbl:36873/)
+    * direction: inbound (37920 - hxbl:35811) [39]
+    * transport: TCPROS
+ * topic: /a1_gazebo/RL_hip_controller/state
+    * to: /gazebo (http://hxbl:36873/)
+    * direction: inbound (37892 - hxbl:35811) [76]
+    * transport: TCPROS
+ * topic: /a1_gazebo/RL_thigh_controller/state
+    * to: /gazebo (http://hxbl:36873/)
+    * direction: inbound (37896 - hxbl:35811) [30]
+    * transport: TCPROS
+ * topic: /a1_gazebo/RL_calf_controller/state
+    * to: /gazebo (http://hxbl:36873/)
+    * direction: inbound (37902 - hxbl:35811) [34]
+    * transport: TCPROS
+ * topic: /ground_truth/FL_foot
+    * to: /gazebo (http://hxbl:36873/)
+    * direction: inbound (37730 - hxbl:35811) [51]
+    * transport: TCPROS
+ * topic: /ground_truth/FR_foot
+    * to: /gazebo (http://hxbl:36873/)
+    * direction: inbound (37732 - hxbl:35811) [52]
+    * transport: TCPROS
+ * topic: /ground_truth/RL_foot
+    * to: /gazebo (http://hxbl:36873/)
+    * direction: inbound (37748 - hxbl:35811) [53]
+    * transport: TCPROS
+ * topic: /ground_truth/RR_foot
+    * to: /gazebo (http://hxbl:36873/)
+    * direction: inbound (37756 - hxbl:35811) [54]
+    * transport: TCPROS
+ * topic: /ground_truth/base_w
+    * to: /gazebo (http://hxbl:36873/)
+    * direction: inbound (37766 - hxbl:35811) [55]
+    * transport: TCPROS
+ * topic: /ground_truth/base_trunk
+    * to: /gazebo (http://hxbl:36873/)
+    * direction: inbound (37728 - hxbl:35811) [50]
+    * transport: TCPROS
+ * topic: /joy
+    * to: /joy_node (http://hxbl:32815/)
+    * direction: inbound (48548 - hxbl:33749) [24]
+    * transport: TCPROS
+ * topic: /cmd_vel
+    * to: /rosbridge_websocket (http://hxbl:39663/)
+    * direction: inbound (41154 - hxbl:39759) [35]
+    * transport: TCPROS
+

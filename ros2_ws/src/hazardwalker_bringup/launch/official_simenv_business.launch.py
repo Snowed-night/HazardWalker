@@ -44,6 +44,8 @@ def generate_launch_description():
             executable='waypoint_patrol_node',
             name='waypoint_patrol_node',
             output='screen',
+            # 官方 A1 对低角速度 RL 指令存在实测死区；仅官方 profile 设置下限。
+            parameters=[{'minimum_turn_speed': 0.45}],
             condition=IfCondition(start_navigation),
         ),
     ])

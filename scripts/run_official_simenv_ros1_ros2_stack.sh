@@ -6,8 +6,12 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CONTAINER="${SIMENV_CONTAINER:-simenv_run}"
 
+# Jazzy 的 setup.bash 会读取若干可选变量；在 set -u 下未定义时会提前退出。
+# 与独立适配器入口保持同一加载方式，避免一键业务栈还未启动就中断。
+set +u
 source /opt/ros/jazzy/setup.bash
 source "$ROOT/ros2_ws/install/setup.bash"
+set -u
 export ROS_DOMAIN_ID="${ROS_DOMAIN_ID:?请先设置与官方 dynamic_bridge 相同的 ROS_DOMAIN_ID}"
 export RMW_IMPLEMENTATION="${RMW_IMPLEMENTATION:-rmw_fastrtps_cpp}"
 
@@ -21,6 +25,20 @@ if ! docker inspect -f '{{.State.Running}}' "$CONTAINER" 2>/dev/null | grep -qx 
   bash -lc "$SIMENV_START_COMMAND"
 fi
 
-"$ROOT/scripts/run_official_simenv_rosbridge_adapter.sh"
+"$ROOT/scripts/check_official_simenv_exclusive_session.sh" --container "$CONTAINER" --require-exclusive
+# 显式经 bash 调用，不依赖 Git checkout、共享目录或 Windows 挂载是否保留可执行位。
+bash "$ROOT/scripts/run_official_simenv_rosbridge_adapter.sh" &
+ADAPTER_PID=$!
+cleanup_adapter() {
+  # ros2 launch 会派生导航、感知和决策子进程；只杀 launch 父进程会留下多个
+  # /hw/cmd_vel 发布者。setsid 为业务栈创建独立进程组后统一回收。
+  if [[ -n "${BUSINESS_PID:-}" ]]; then
+    kill -- "-$BUSINESS_PID" 2>/dev/null || true
+  fi
+  kill "$ADAPTER_PID" 2>/dev/null || true
+}
+trap cleanup_adapter EXIT INT TERM
 echo '[stack] 启动 ROS2 业务层（不含 fake 平台；固定航点导航默认关闭）。'
-exec ros2 launch hazardwalker_bringup official_simenv_business.launch.py "$@"
+setsid ros2 launch hazardwalker_bringup official_simenv_business.launch.py "$@" &
+BUSINESS_PID=$!
+wait "$BUSINESS_PID"

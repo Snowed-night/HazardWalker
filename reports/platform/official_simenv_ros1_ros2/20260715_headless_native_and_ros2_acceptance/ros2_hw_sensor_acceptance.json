@@ -1,0 +1,68 @@
+{
+  "required": [
+    "depth",
+    "depth_camera_info",
+    "odom",
+    "rgb",
+    "rgb_camera_info"
+  ],
+  "samples": {
+    "odom": {
+      "stamp": 21.445,
+      "frame_id": "odom",
+      "x": -0.1013729436761942,
+      "y": -0.3182388564178904
+    },
+    "depth": {
+      "stamp": 20.467,
+      "frame_id": "real_sense",
+      "width": 640,
+      "height": 480,
+      "encoding": "32FC1",
+      "bytes": 1228800
+    },
+    "rgb_camera_info": {
+      "stamp": 21.518,
+      "frame_id": "real_sense",
+      "width": 640,
+      "height": 480,
+      "k": [
+        554.5940455214144,
+        0.0,
+        320.5,
+        0.0,
+        554.5940455214144,
+        240.5,
+        0.0,
+        0.0,
+        1.0
+      ]
+    },
+    "depth_camera_info": {
+      "stamp": 21.518,
+      "frame_id": "real_sense",
+      "width": 640,
+      "height": 480,
+      "k": [
+        554.5940455214144,
+        0.0,
+        320.5,
+        0.0,
+        554.5940455214144,
+        240.5,
+        0.0,
+        0.0,
+        1.0
+      ]
+    },
+    "rgb": {
+      "stamp": 20.467,
+      "frame_id": "real_sense",
+      "width": 640,
+      "height": 480,
+      "encoding": "rgb8",
+      "bytes": 921600
+    }
+  },
+  "pass": true
+}
