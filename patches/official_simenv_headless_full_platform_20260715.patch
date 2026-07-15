@@ -1,0 +1,1174 @@
+diff --git a/auto.sh b/auto.sh
+index 36b1384..6c700a7 100755
+--- a/auto.sh
++++ b/auto.sh
+@@ -4,14 +4,6 @@ set -euo pipefail
+ WORKSPACE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ cd "$WORKSPACE_DIR"
+ 
+-as_ros_bool() {
+-  case "$1" in
+-    1|true|TRUE|True|yes|YES|on|ON) printf "true" ;;
+-    0|false|FALSE|False|no|NO|off|OFF) printf "false" ;;
+-    *) printf "%s" "$1" ;;
+-  esac
+-}
+-
+ SEED="${SEED:-}"
+ FLOOR_COUNT="${FLOOR_COUNT:-3}"
+ ROOMS_PER_FLOOR="${ROOMS_PER_FLOOR:-4}"
+@@ -20,109 +12,45 @@ BUILDING_LENGTH="${BUILDING_LENGTH:-36.0}"
+ DANGER_COUNT="${DANGER_COUNT:-3:6}"
+ DISTRACTOR_COUNT="${DISTRACTOR_COUNT:-4:8}"
+ GUI="${GUI:-true}"
+-PAUSED="${PAUSED:-false}"
+-AUTO_UNPAUSE="$(as_ros_bool "${AUTO_UNPAUSE:-1}")"
+-AUTO_UNPAUSE_DELAY="${AUTO_UNPAUSE_DELAY:-6}"
++PAUSED="${PAUSED:-true}"
+ START_CONTROLLER="${START_CONTROLLER:-1}"
+ START_VIRTUAL_JOY="${START_VIRTUAL_JOY:-0}"
++START_ROSBRIDGE="${START_ROSBRIDGE:-1}"
++START_ODOM_RELAY="${START_ODOM_RELAY:-1}"
+ CONTROLLER_FOREGROUND="${CONTROLLER_FOREGROUND:-1}"
+ START_BUILDING_CONTROL="${START_BUILDING_CONTROL:-1}"
+-ENABLE_SENSOR_DATA_DEFAULT="${ENABLE_SENSORS:-1}"
+-ENABLE_SENSOR_DATA="$(as_ros_bool "${ENABLE_SENSOR_DATA:-$ENABLE_SENSOR_DATA_DEFAULT}")"
+-ENABLE_LIVOX="$(as_ros_bool "${ENABLE_LIVOX:-$ENABLE_SENSOR_DATA}")"
+-ENABLE_LIVOX_IMU="$(as_ros_bool "${ENABLE_LIVOX_IMU:-$ENABLE_LIVOX}")"
+-ENABLE_REALSENSE_INPUT="${ENABLE_REALSENSE:-${ENABLE_DEPTH_CAMERA:-$ENABLE_SENSOR_DATA}}"
+-ENABLE_REALSENSE="$(as_ros_bool "$ENABLE_REALSENSE_INPUT")"
+-ENABLE_FRONT_CAMERA="$(as_ros_bool "${ENABLE_FRONT_CAMERA:-0}")"
+-ENABLE_REFEREE_ODOM="$(as_ros_bool "${ENABLE_REFEREE_ODOM:-1}")"
+-ENABLE_GROUND_TRUTH="$(as_ros_bool "${ENABLE_GROUND_TRUTH:-1}")"
+-ENABLE_FOOT_CONTACT_SENSOR="$(as_ros_bool "${ENABLE_FOOT_CONTACT_SENSOR:-0}")"
+-ENABLE_FOOT_FORCE_VISUAL="$(as_ros_bool "${ENABLE_FOOT_FORCE_VISUAL:-0}")"
+-ENABLE_JOY_NODE="$(as_ros_bool "${ENABLE_JOY_NODE:-0}")"
+-ENABLE_POINTCLOUD_CONVERTER="$(as_ros_bool "${ENABLE_POINTCLOUD_CONVERTER:-$ENABLE_LIVOX}")"
+-POINTCLOUD_USE_GROUND_TRUTH_ODOM="$(as_ros_bool "${POINTCLOUD_USE_GROUND_TRUTH_ODOM:-1}")"
+-WRITE_GENERATED_TRUTH_COPY="$(as_ros_bool "${WRITE_GENERATED_TRUTH_COPY:-1}")"
+ UNITREE_CTRL_DT="${UNITREE_CTRL_DT:-0.004}"
+-UNITREE_LOG_WAIT_WARNINGS="$(as_ros_bool "${UNITREE_LOG_WAIT_WARNINGS:-0}")"
+-ROBOT_SPAWN_TIMEOUT="${ROBOT_SPAWN_TIMEOUT:-120}"
+-CONTROLLER_SPAWNER_TIMEOUT="${CONTROLLER_SPAWNER_TIMEOUT:-120}"
+-GAZEBO_PHYSICS_MAX_STEP_SIZE="${GAZEBO_PHYSICS_MAX_STEP_SIZE:-0.002}"
+-GAZEBO_PHYSICS_REAL_TIME_UPDATE_RATE="${GAZEBO_PHYSICS_REAL_TIME_UPDATE_RATE:-500}"
+-GAZEBO_PHYSICS_ODE_ITERS="${GAZEBO_PHYSICS_ODE_ITERS:-40}"
+-GAZEBO_PHYSICS_CONTACT_MAX_CORRECTING_VEL="${GAZEBO_PHYSICS_CONTACT_MAX_CORRECTING_VEL:-5.0}"
++AUTO_UNPAUSE_AFTER_CONTROLLER="${AUTO_UNPAUSE_AFTER_CONTROLLER:-1}"
++CONTROLLER_SENSOR_READY_TIMEOUT_SEC="${CONTROLLER_SENSOR_READY_TIMEOUT_SEC:-5}"
++# GUI=false 只禁用 gzclient，不能等价于 Gazebo 渲染禁用；headless profile 通过 Xvfb 提供软件 GL。
++GAZEBO_HEADLESS="${GAZEBO_HEADLESS:-false}"
++# 后台 junior_ctrl 必须实际完成 FSM 初始化后再解除暂停，避免 A1 在控制器接管前跌倒。
++CONTROLLER_READY_TIMEOUT_SEC="${CONTROLLER_READY_TIMEOUT_SEC:-12}"
++# 让 rosbridge 从稳定仿真时刻开始订阅，避免其高频 /Odometry_gazebo 队列保留启动期旧消息。
++ROSBRIDGE_START_AFTER_SIM_TIME_SEC="${ROSBRIDGE_START_AFTER_SIM_TIME_SEC:-2}"
+ ROBOT_X="${ROBOT_X:-0.0}"
+-ROBOT_Y="${ROBOT_Y:--3.2}"
++ROBOT_Y="${ROBOT_Y:--2.2}"
+ ROBOT_Z="${ROBOT_Z:-0.6}"
+ ROBOT_YAW="${ROBOT_YAW:-1.5708}"
+ 
+-schedule_unpause_physics() {
+-  if [ "$AUTO_UNPAUSE" != "true" ]; then
+-    return
+-  fi
+-
+-  (
+-    sleep "$AUTO_UNPAUSE_DELAY"
+-    for _ in $(seq 1 40); do
+-      if rosservice list 2>/dev/null | grep -q '^/gazebo/unpause_physics$'; then
+-        rosservice call /gazebo/unpause_physics >/dev/null 2>&1 || true
+-        exit 0
+-      fi
+-      sleep 0.25
+-    done
+-  ) &
+-}
+-
+-wait_for_robot_spawn() {
+-  local timeout="$ROBOT_SPAWN_TIMEOUT"
+-  local deadline=$((SECONDS + timeout))
+-  while [ "$SECONDS" -lt "$deadline" ]; do
+-    if ! kill -0 "$LAUNCH_PID" 2>/dev/null; then
+-      echo "roslaunch exited during startup. Last log lines:" >&2
+-      tail -n 80 "$WORKSPACE_DIR/logs/competition_gazebo.log" >&2
+-      exit 1
+-    fi
+-    if timeout 1s rosservice call /gazebo/get_model_state "{model_name: 'a1_gazebo', relative_entity_name: 'world'}" 2>/dev/null | grep -q "success: True"; then
+-      return
+-    fi
+-    if grep -a -q "Successfully spawned entity" "$WORKSPACE_DIR/logs/competition_gazebo.log" 2>/dev/null; then
+-      return
+-    fi
+-    if grep -a -E -q "Spawn service failed|Service call failed" "$WORKSPACE_DIR/logs/competition_gazebo.log" 2>/dev/null; then
+-      echo "Robot spawn failed. Last log lines:" >&2
+-      tail -n 80 "$WORKSPACE_DIR/logs/competition_gazebo.log" >&2
+-      exit 1
+-    fi
+-    sleep 0.2
+-  done
+-
+-  echo "Timed out waiting for robot spawn. Last log lines:" >&2
+-  tail -n 80 "$WORKSPACE_DIR/logs/competition_gazebo.log" >&2
+-  exit 1
+-}
+-
+ echo "Terminating previous Gazebo, launch, controller, and optional joystick processes..."
+ pkill -f "roslaunch unitree_guide multi_floor_gazeboSim.launch" 2>/dev/null || true
+ pkill -f "building_generator_classic_control" 2>/dev/null || true
+ pkill -f "gzserver|gzclient|gazebo" 2>/dev/null || true
+ pkill -f "junior_ctrl" 2>/dev/null || true
+ pkill -f "virtual_joy.py" 2>/dev/null || true
++pkill -f "rosbridge_odom_relay.py" 2>/dev/null || true
+ 
+ echo "Sourcing ROS environment..."
++# auto.sh 使用 set -u；首次容器启动时 ROS_MASTER_URI 可能尚未定义。
++export ROS_MASTER_URI="${ROS_MASTER_URI:-http://127.0.0.1:11311}"
+ source /opt/ros/noetic/setup.bash
+-if [ ! -f "$WORKSPACE_DIR/devel/setup.bash" ]; then
+-  echo "Missing $WORKSPACE_DIR/devel/setup.bash. Run catkin_make in this workspace before starting the simulation." >&2
+-  exit 1
+-fi
+ source "$WORKSPACE_DIR/devel/setup.bash"
+-export ROS_PACKAGE_PATH="$WORKSPACE_DIR/src:${ROS_PACKAGE_PATH:-}"
+-export CMAKE_PREFIX_PATH="$WORKSPACE_DIR/devel:${CMAKE_PREFIX_PATH:-}"
+-export PYTHONPATH="$WORKSPACE_DIR/src/building_generator_classic:$WORKSPACE_DIR/src/building_generator_core:${PYTHONPATH:-}"
+ 
+-GENERATOR_SCRIPT="$WORKSPACE_DIR/src/building_obstacles/scripts/generate_competition_scene.py"
+-BUILDING_CONTROL_SCRIPT="$WORKSPACE_DIR/src/building_generator_classic/scripts/building_generator_classic_control"
+-UNITREE_GAZEBO_MODELS="$WORKSPACE_DIR/src/unitree_guide/unitree_ros/unitree_gazebo/models"
++BUILDING_OBSTACLES_DIR="$(rospack find building_obstacles)"
++UNITREE_GAZEBO_MODELS="$(rospack find unitree_gazebo)/models"
+ SCENE_OUTPUT_DIR="$WORKSPACE_DIR/generated_building"
+-RESULTS_DIR="$WORKSPACE_DIR/results"
++RESULTS_DIR="${RESULTS_DIR:-$WORKSPACE_DIR/results}"
+ mkdir -p "$SCENE_OUTPUT_DIR" "$RESULTS_DIR" "$WORKSPACE_DIR/logs"
+ 
+ echo "Generating competition scene..."
+@@ -143,15 +71,13 @@ GENERATOR_ARGS=(
+ if [ -n "$SEED" ]; then
+   GENERATOR_ARGS+=(--seed "$SEED")
+ fi
+-GENERATOR_ARGS+=(--physics-max-step-size "$GAZEBO_PHYSICS_MAX_STEP_SIZE")
+-GENERATOR_ARGS+=(--physics-real-time-update-rate "$GAZEBO_PHYSICS_REAL_TIME_UPDATE_RATE")
+-GENERATOR_ARGS+=(--physics-ode-iters "$GAZEBO_PHYSICS_ODE_ITERS")
+-GENERATOR_ARGS+=(--physics-contact-max-correcting-vel "$GAZEBO_PHYSICS_CONTACT_MAX_CORRECTING_VEL")
+-if [ "$WRITE_GENERATED_TRUTH_COPY" = "false" ]; then
+-  GENERATOR_ARGS+=(--no-generated-truth-copy)
++if [ "${SIMENV_PRACTICE:-0}" = "1" ]; then
++  "$WORKSPACE_DIR/devel/lib/building_obstacles/generate_competition_scene.py" "${GENERATOR_ARGS[@]}" \
++    > "$SCENE_OUTPUT_DIR/scene_manifest.stdout.json"
++else
++  python3 "$BUILDING_OBSTACLES_DIR/scripts/generate_competition_scene.py" "${GENERATOR_ARGS[@]}" \
++    > "$SCENE_OUTPUT_DIR/scene_manifest.stdout.json"
+ fi
+-python3 "$GENERATOR_SCRIPT" "${GENERATOR_ARGS[@]}" \
+-  > "$SCENE_OUTPUT_DIR/scene_manifest.stdout.json"
+ 
+ export BUILDING_WORLD_FILE="$SCENE_OUTPUT_DIR/competition_scene.world"
+ export COMPETITION_ROBOT_X="$ROBOT_X"
+@@ -159,36 +85,14 @@ export COMPETITION_ROBOT_Y="$ROBOT_Y"
+ export COMPETITION_ROBOT_Z="$ROBOT_Z"
+ export COMPETITION_ROBOT_YAW="$ROBOT_YAW"
+ export UNITREE_CTRL_DT
+-export UNITREE_LOG_WAIT_WARNINGS
+-export CONTROLLER_SPAWNER_TIMEOUT
+ export GAZEBO_MODEL_PATH="${GAZEBO_MODEL_PATH:-}:$SCENE_OUTPUT_DIR:$UNITREE_GAZEBO_MODELS"
+-export GAZEBO_PLUGIN_PATH="$WORKSPACE_DIR/devel/lib:${GAZEBO_PLUGIN_PATH:-}"
+ 
+ echo "=========================================="
+ echo "Competition scene is ready"
+-echo "  Workspace: $WORKSPACE_DIR"
+ echo "  World:   $BUILDING_WORLD_FILE"
+ echo "  Truth:   $RESULTS_DIR/danger_truth.json"
+ echo "  Manifest:$SCENE_OUTPUT_DIR/scene_manifest.json"
+ echo "  Result:  $RESULTS_DIR/detected_danger.json"
+-echo "  Robot pose: x=$ROBOT_X y=$ROBOT_Y z=$ROBOT_Z yaw=$ROBOT_YAW"
+-echo "  Sensor data default: $ENABLE_SENSOR_DATA"
+-echo "  Livox lidar: $ENABLE_LIVOX"
+-echo "  Livox IMU: $ENABLE_LIVOX_IMU"
+-echo "  RealSense depth camera: $ENABLE_REALSENSE"
+-echo "  Front RGB camera: $ENABLE_FRONT_CAMERA"
+-echo "  PointCloud2 converter: $ENABLE_POINTCLOUD_CONVERTER"
+-echo "  Ground truth topics: $ENABLE_GROUND_TRUTH"
+-echo "  Referee odom: $ENABLE_REFEREE_ODOM"
+-echo "  Foot contact sensors: $ENABLE_FOOT_CONTACT_SENSOR"
+-echo "  Foot force visual: $ENABLE_FOOT_FORCE_VISUAL"
+-echo "  Gazebo starts paused: $PAUSED"
+-echo "  Auto unpause: $AUTO_UNPAUSE after ${AUTO_UNPAUSE_DELAY}s"
+-echo "  Unitree wait warnings: $UNITREE_LOG_WAIT_WARNINGS"
+-echo "  Robot spawn timeout: ${ROBOT_SPAWN_TIMEOUT}s"
+-echo "  Controller spawner timeout: ${CONTROLLER_SPAWNER_TIMEOUT}s"
+-echo "  Gazebo physics: max_step=$GAZEBO_PHYSICS_MAX_STEP_SIZE update_rate=$GAZEBO_PHYSICS_REAL_TIME_UPDATE_RATE ode_iters=$GAZEBO_PHYSICS_ODE_ITERS"
+-echo "  Gazebo plugin path: $GAZEBO_PLUGIN_PATH"
+ echo "=========================================="
+ 
+ if [ "$START_VIRTUAL_JOY" = "1" ]; then
+@@ -200,6 +104,7 @@ fi
+ echo "Launching Gazebo, Unitree A1 model, sensors, and ROS interfaces..."
+ roslaunch unitree_guide multi_floor_gazeboSim.launch \
+   gui:="$GUI" \
++  headless:="$GAZEBO_HEADLESS" \
+   paused:="$PAUSED" \
+   user_debug:=False \
+   rname:=a1 \
+@@ -207,27 +112,25 @@ roslaunch unitree_guide multi_floor_gazeboSim.launch \
+   robot_y:="$ROBOT_Y" \
+   robot_z:="$ROBOT_Z" \
+   robot_yaw:="$ROBOT_YAW" \
+-  controller_spawner_timeout:="$CONTROLLER_SPAWNER_TIMEOUT" \
+-  enable_sensor_data:="$ENABLE_SENSOR_DATA" \
+-  enable_livox:="$ENABLE_LIVOX" \
+-  enable_livox_imu:="$ENABLE_LIVOX_IMU" \
+-  enable_realsense:="$ENABLE_REALSENSE" \
+-  enable_front_camera:="$ENABLE_FRONT_CAMERA" \
+-  enable_referee_odom:="$ENABLE_REFEREE_ODOM" \
+-  enable_ground_truth:="$ENABLE_GROUND_TRUTH" \
+-  enable_foot_contact_sensor:="$ENABLE_FOOT_CONTACT_SENSOR" \
+-  enable_foot_force_visual:="$ENABLE_FOOT_FORCE_VISUAL" \
+-  enable_joy_node:="$ENABLE_JOY_NODE" \
+-  enable_pointcloud_converter:="$ENABLE_POINTCLOUD_CONVERTER" \
+-  pointcloud_use_ground_truth_odom:="$POINTCLOUD_USE_GROUND_TRUTH_ODOM" \
+   > "$WORKSPACE_DIR/logs/competition_gazebo.log" 2>&1 &
+ LAUNCH_PID=$!
+ echo "$LAUNCH_PID" > "$WORKSPACE_DIR/logs/competition_gazebo.pid"
+-wait_for_robot_spawn
++
++# Do not blindly wait six seconds before starting junior_ctrl: an unpowered A1 can fold before the
++# controller receives it. In a running world wait for the first real joint-state sample instead.
++if [ "$START_CONTROLLER" = "1" ] && [ "$PAUSED" != "true" ]; then
++  echo "Waiting for the first A1 joint-state sample before starting controller..."
++  timeout "$CONTROLLER_SENSOR_READY_TIMEOUT_SEC" rostopic echo -n 1 "/a1_gazebo/FL_hip_controller/state" >/dev/null || {
++    echo "A1 joint state was not ready; refusing to start controller with uninitialized state." >&2
++    exit 1
++  }
++else
++  sleep 1
++fi
+ 
+ if [ "$START_BUILDING_CONTROL" = "1" ]; then
+   echo "Starting building door/elevator control service..."
+-  python3 "$BUILDING_CONTROL_SCRIPT" \
++  rosrun building_generator_classic building_generator_classic_control \
+     --door-config "$SCENE_OUTPUT_DIR/door_config.yaml" \
+     --elevator-config "$SCENE_OUTPUT_DIR/elevator_config.yaml" \
+     > "$WORKSPACE_DIR/logs/building_control.log" 2>&1 &
+@@ -238,25 +141,85 @@ if [ "$START_CONTROLLER" = "1" ]; then
+   if [ "$CONTROLLER_FOREGROUND" = "1" ]; then
+     echo "Starting junior_ctrl controller in the foreground."
+     echo "UNITREE_CTRL_DT=$UNITREE_CTRL_DT seconds."
+-    echo "Use keyboard input in this terminal: 2 = stand, 4 = RL keyboard walk, 6 = RL /cmd_vel mode, 8 = reset."
+-    echo "In RL keyboard walk mode: W/S = forward/back, A/D = left/right, J/L = turn, Space = stop."
+-    schedule_unpause_physics
+-    "$WORKSPACE_DIR/devel/lib/unitree_guide/junior_ctrl" || true
+-    echo "junior_ctrl exited; keeping Gazebo running for inspection. Press Ctrl-C to stop this script."
+-    wait "$LAUNCH_PID"
+-    exit 0
++    echo "Use keyboard input in this terminal: 2 = stand, 6 = RL mode."
++    "$WORKSPACE_DIR/devel/lib/unitree_guide/junior_ctrl"
+   else
+     echo "Starting junior_ctrl controller in the background. Keyboard state switching may not be available."
+     echo "UNITREE_CTRL_DT=$UNITREE_CTRL_DT seconds."
+     "$WORKSPACE_DIR/devel/lib/unitree_guide/junior_ctrl" \
+       > "$WORKSPACE_DIR/logs/junior_ctrl.log" 2>&1 &
+     echo $! > "$WORKSPACE_DIR/logs/junior_ctrl.pid"
+-    schedule_unpause_physics
++
++    # 不以“进程已 fork”当作控制器就绪。FSM 初始化标记由 junior_ctrl 本身打印，
++    # 既覆盖 SIMENV_AUTO_RL=1，也保留交互模式下的可诊断性。
++    controller_deadline=$((SECONDS + CONTROLLER_READY_TIMEOUT_SEC))
++    until grep -q '\[HEADLESS_FSM\]' "$WORKSPACE_DIR/logs/junior_ctrl.log" 2>/dev/null; do
++      if ! kill -0 "$(cat "$WORKSPACE_DIR/logs/junior_ctrl.pid")" 2>/dev/null; then
++        echo 'junior_ctrl exited before FSM initialization; see logs/junior_ctrl.log.' >&2
++        exit 1
++      fi
++      if [ "$SECONDS" -ge "$controller_deadline" ]; then
++        echo 'Timed out waiting for junior_ctrl FSM initialization; physics remains paused.' >&2
++        exit 1
++      fi
++      sleep 0.2
++    done
++    echo 'junior_ctrl FSM is ready.'
+   fi
+-else
+-  schedule_unpause_physics
++fi
++
++# 竞争场景的初始机器人高度高于地面。若先让物理运行再等待 Gazebo 6 秒，A1 会在控制器
++# 接管前跌倒，造成 /cmd_vel 看似订阅却不能稳定变速。headless 默认先暂停、待控制器建立后再解除暂停。
++if [ "$PAUSED" = "true" ] && [ "$START_CONTROLLER" = "1" ] && [ "$AUTO_UNPAUSE_AFTER_CONTROLLER" = "1" ]; then
++  echo "Controller launched while physics is paused; unpausing after controller warm-up..."
++  sleep 1
++  rosservice call /gazebo/unpause_physics >/dev/null || {
++    echo "Failed to unpause Gazebo after controller startup." >&2
++    exit 1
++  }
++fi
++
++# rosbridge 若在 Gazebo 刚建图、/clock 尚未稳定时启动，会缓存启动早期的高频
++# /Odometry_gazebo 消息，使新连接的 ROS2 客户端持续收到陈旧位姿。先完成控制器
++# 就绪和解除暂停，并等待一条真实里程计，再建立 WebSocket 服务。
++if [ "$START_ROSBRIDGE" = "1" ]; then
++  echo "Waiting for current odometry and stable simulation time before starting rosbridge..."
++  timeout "$CONTROLLER_READY_TIMEOUT_SEC" rostopic echo -n 1 /Odometry_gazebo >/dev/null || {
++    echo "Odometry did not become available; refusing to start a stale rosbridge relay." >&2
++    exit 1
++  }
++  rosbridge_deadline=$((SECONDS + CONTROLLER_READY_TIMEOUT_SEC))
++  while true; do
++    current_sim_sec="$(rostopic echo -n 1 /clock 2>/dev/null | awk '/secs:/{print $2; exit}')"
++    if [ -n "$current_sim_sec" ] && [ "$current_sim_sec" -ge "$ROSBRIDGE_START_AFTER_SIM_TIME_SEC" ]; then
++      break
++    fi
++    if [ "$SECONDS" -ge "$rosbridge_deadline" ]; then
++      echo "Simulation clock did not reach ${ROSBRIDGE_START_AFTER_SIM_TIME_SEC}s; refusing to start rosbridge with startup backlog." >&2
++      exit 1
++    fi
++    sleep 0.5
++  done
++  if [ "$START_ODOM_RELAY" = "1" ]; then
++    echo "Starting latest-value odometry relay for rosbridge..."
++    python3 "$WORKSPACE_DIR/scripts/rosbridge_odom_relay.py" \
++      --source /Odometry_gazebo --output /hazardwalker/odom --rate-hz 20 \
++      > "$WORKSPACE_DIR/logs/rosbridge_odom_relay.log" 2>&1 &
++    echo $! > "$WORKSPACE_DIR/logs/rosbridge_odom_relay.pid"
++    timeout "$CONTROLLER_READY_TIMEOUT_SEC" rostopic echo -n 1 /hazardwalker/odom >/dev/null || {
++      echo "Latest-value odometry relay did not become available." >&2
++      exit 1
++    }
++  fi
++  echo "Starting rosbridge WebSocket server on port 9090 after Gazebo/controller readiness..."
++  roslaunch rosbridge_server rosbridge_websocket.launch \
++    > "$WORKSPACE_DIR/logs/rosbridge.log" 2>&1 &
++  echo $! > "$WORKSPACE_DIR/logs/rosbridge.pid"
+ fi
+ 
+ echo "Simulation startup command completed."
+-echo "Controller mode remains governed by unitree_guide keyboard/joy input. Mode 4 uses RL with keyboard axes; mode 6 keeps the original RL /cmd_vel logic."
+-wait "$LAUNCH_PID"
++if [ "${SIMENV_AUTO_RL:-0}" = "1" ]; then
++  echo "SIMENV_AUTO_RL=1: controller entered RL mode without keyboard interaction."
++else
++  echo "Controller mode remains governed by unitree_guide keyboard/joy input."
++fi
+diff --git a/auto_headless.sh b/auto_headless.sh
+new file mode 100644
+index 0000000..0771db1
+--- /dev/null
++++ b/auto_headless.sh
+@@ -0,0 +1,44 @@
++#!/usr/bin/env bash
++# 官方 SimEnv 可复现 headless 入口。
++# 负责人：姜晨。必须在 Gazebo/gzserver 创建渲染传感器前启动 Xvfb，禁止依赖 expect 或键盘 2→6。
++set -euo pipefail
++
++WORKSPACE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
++DISPLAY_VALUE="${SIMENV_HEADLESS_DISPLAY:-:99}"
++XVFB_SCREEN="${SIMENV_XVFB_SCREEN:-1280x1024x24}"
++mkdir -p "$WORKSPACE_DIR/logs"
++
++if ! command -v Xvfb >/dev/null 2>&1; then
++  echo 'Xvfb is not installed. Rebuild simenv:run from docker/Dockerfile.run.' >&2
++  exit 1
++fi
++if ! pgrep -f "Xvfb ${DISPLAY_VALUE}" >/dev/null 2>&1; then
++  echo "Starting Xvfb on ${DISPLAY_VALUE} before Gazebo..."
++  Xvfb "$DISPLAY_VALUE" -screen 0 "$XVFB_SCREEN" +extension GLX +render \
++    > "$WORKSPACE_DIR/logs/xvfb.log" 2>&1 &
++  echo $! > "$WORKSPACE_DIR/logs/xvfb.pid"
++  # X socket existence is a deterministic readiness boundary; gzserver must never race it.
++  display_number="${DISPLAY_VALUE#:}"
++  for _ in $(seq 1 50); do
++    [ -S "/tmp/.X11-unix/X${display_number}" ] && break
++    sleep 0.1
++  done
++  if [ ! -S "/tmp/.X11-unix/X${display_number}" ]; then
++    echo "Xvfb did not create DISPLAY=${DISPLAY_VALUE}; see logs/xvfb.log." >&2
++    exit 1
++  fi
++fi
++
++export DISPLAY="$DISPLAY_VALUE"
++export LIBGL_ALWAYS_SOFTWARE=1
++# `gui=false` 禁用 gzclient；`headless=false` 保留 Gazebo 传感器渲染，由上面的 Xvfb 承担显示后端。
++export GUI=false
++export GAZEBO_HEADLESS=false
++export PAUSED=true
++export START_CONTROLLER=1
++export CONTROLLER_FOREGROUND=0
++export SIMENV_AUTO_RL=1
++export AUTO_UNPAUSE_AFTER_CONTROLLER=1
++
++echo "Official headless profile: DISPLAY=${DISPLAY}, PAUSED=${PAUSED}, SIMENV_AUTO_RL=${SIMENV_AUTO_RL}"
++exec "$WORKSPACE_DIR/auto.sh"
+diff --git a/docker/Dockerfile.run b/docker/Dockerfile.run
+new file mode 100644
+index 0000000..63e1247
+--- /dev/null
++++ b/docker/Dockerfile.run
+@@ -0,0 +1,26 @@
++FROM osrf/ros:noetic-desktop-full
++
++ENV DEBIAN_FRONTEND=noninteractive
++ENV LANG=C.UTF-8
++
++RUN apt-get update && apt-get install -y --no-install-recommends \
++    python3-pip python3-numpy python3-scipy python3-yaml \
++    ros-noetic-controller-manager ros-noetic-gazebo-ros-control \
++    ros-noetic-image-view ros-noetic-joint-state-controller \
++    ros-noetic-joy ros-noetic-robot-state-publisher \
++    ros-noetic-rviz ros-noetic-xacro ros-noetic-tf ros-noetic-tf2-ros \
++    ros-noetic-rosbridge-server ros-noetic-rosbridge-suite \
++    xvfb \
++    && rm -rf /var/lib/apt/lists/*
++
++RUN pip3 install --no-cache-dir -i https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple/ \
++    torch==2.0.1 numpy scipy pyyaml
++
++ENV LD_LIBRARY_PATH=/usr/local/lib/python3.8/dist-packages/torch/lib:${LD_LIBRARY_PATH}
++# Xvfb 由 auto_headless.sh 在 gzserver 前启动；软件 GL 让 RGB/DepthCameraSensor 在无物理显示器时仍可渲染。
++ENV LIBGL_ALWAYS_SOFTWARE=1
++
++RUN echo 'source /opt/ros/noetic/setup.bash' >> /root/.bashrc
++RUN echo 'export LD_LIBRARY_PATH=/usr/local/lib/python3.8/dist-packages/torch/lib:${LD_LIBRARY_PATH}' >> /root/.bashrc
++
++WORKDIR /workspace/SimEnv
+diff --git a/scripts/rosbridge_odom_relay.py b/scripts/rosbridge_odom_relay.py
+new file mode 100644
+index 0000000..588a8a3
+--- /dev/null
++++ b/scripts/rosbridge_odom_relay.py
+@@ -0,0 +1,51 @@
++#!/usr/bin/env python3
++"""将高频 Gazebo 里程计压缩为只含最新值的 ROS1 中继话题。
++
++负责人：姜晨。供官方 SimEnv headless 启动链路调用，避免 rosbridge 对
++/Odometry_gazebo 的历史消息排队，确保 ROS2 导航获得接近当前仿真时间的位姿。
++"""
++
++import argparse
++import threading
++
++import rospy
++from nav_msgs.msg import Odometry
++
++
++class LatestOdometryRelay:
++    """订阅端队列为 1，定时发布当前最后一条而不转发历史积压。"""
++
++    def __init__(self, source_topic: str, output_topic: str, rate_hz: float):
++        self._latest = None
++        self._lock = threading.Lock()
++        self._publisher = rospy.Publisher(output_topic, Odometry, queue_size=1)
++        self._subscriber = rospy.Subscriber(source_topic, Odometry, self._on_odom, queue_size=1)
++        self._timer = rospy.Timer(rospy.Duration(1.0 / rate_hz), self._publish_latest)
++
++    def _on_odom(self, message: Odometry):
++        with self._lock:
++            self._latest = message
++
++    def _publish_latest(self, _event):
++        with self._lock:
++            latest = self._latest
++        if latest is not None:
++            self._publisher.publish(latest)
++
++
++def main():
++    parser = argparse.ArgumentParser()
++    parser.add_argument('--source', default='/Odometry_gazebo')
++    parser.add_argument('--output', default='/hazardwalker/odom')
++    parser.add_argument('--rate-hz', type=float, default=20.0)
++    args = parser.parse_args()
++    if args.rate_hz <= 0:
++        raise SystemExit('--rate-hz 必须大于 0')
++    rospy.init_node('hazardwalker_rosbridge_odom_relay')
++    LatestOdometryRelay(args.source, args.output, args.rate_hz)
++    rospy.loginfo('最新值里程计中继：%s -> %s（%.1f Hz）', args.source, args.output, args.rate_hz)
++    rospy.spin()
++
++
++if __name__ == '__main__':
++    main()
+diff --git a/src/unitree_guide/unitree_guide/unitree_guide/CMakeLists.txt b/src/unitree_guide/unitree_guide/unitree_guide/CMakeLists.txt
+index 8cb811a..5c5fe58 100755
+--- a/src/unitree_guide/unitree_guide/unitree_guide/CMakeLists.txt
++++ b/src/unitree_guide/unitree_guide/unitree_guide/CMakeLists.txt
+@@ -1,16 +1,19 @@
+ cmake_minimum_required(VERSION 3.14)
+ project(unitree_guide)
+-# 添加 torch 依赖，默认使用 /home/ros/Guoyulun/Download/libtorch（如不同，请提供正确路径）
+-# 确保 CMake 可以加载 libtorch 附带的 cmake 模块（例如 CheckLinkerFlag）
+-list(APPEND CMAKE_MODULE_PATH "/home/ros/Guoyulun/Download/libtorch/share/cmake/Caffe2/public")
+-list(APPEND CMAKE_MODULE_PATH "/home/ros/Guoyulun/Download/libtorch/share/cmake")
+-if(NOT DEFINED TORCH_CUDA_ARCH_LIST)
+-    set(TORCH_CUDA_ARCH_LIST "5.2" CACHE STRING "CUDA architectures for libtorch")
+-endif()
+-if(NOT CMAKE_CUDA_FLAGS MATCHES "-arch=sm_")
+-    set(CMAKE_CUDA_FLAGS "${CMAKE_CUDA_FLAGS} -arch=sm_52" CACHE STRING "CUDA flags" FORCE)
++# 无 CUDA 的验收容器仍需单独重编译 ROS 里程计节点。将控制器推理构建设为
++# 可选项：默认行为保持不变，只有显式关闭时才跳过 Torch/CUDA 依赖。
++option(BUILD_JUNIOR_CTRL "Build the Torch-dependent junior_ctrl executable" ON)
++if(BUILD_JUNIOR_CTRL)
++    # 添加 torch 依赖。可通过环境变量 LIBTORCH_ROOT 覆盖，默认保持原开发机路径。
++    if(DEFINED ENV{LIBTORCH_ROOT})
++        set(LIBTORCH_ROOT "$ENV{LIBTORCH_ROOT}")
++    else()
++        set(LIBTORCH_ROOT "/home/ros/Guoyulun/Download/libtorch")
++    endif()
++    list(APPEND CMAKE_MODULE_PATH "${LIBTORCH_ROOT}/share/cmake/Caffe2/public")
++    list(APPEND CMAKE_MODULE_PATH "${LIBTORCH_ROOT}/share/cmake")
++    find_package(Torch REQUIRED PATHS "${LIBTORCH_ROOT}")
+ endif()
+-find_package(Torch REQUIRED PATHS "/home/ros/Guoyulun/Download/libtorch")
+ 
+ set(ROBOT_TYPE A1)         # The type of robot, support Go1 and A1 currently
+ set(PLATFORM amd64)         # The platform to compile, support amd64 and arm64
+@@ -19,7 +22,7 @@ set(CATKIN_MAKE ON)        # Use CATKIN_MAKE or not, ON or OFF
+ set(SIMULATION ON)         # Use Gazebo or not, ON or OFF
+ set(REAL_ROBOT OFF)          # Link real robot or not, ON or OFF
+ set(DEBUG OFF)              # Use debug functions or not, ON or OFF
+-set(MOVE_BASE OFF)               # Need move_base or not, ON or OFF 
++set(MOVE_BASE ON)                # 官方 headless /cmd_vel 模式使用已有 State_move_base，不依赖 RL 推理。
+ 
+ if(NOT DEFINED ROBOT_TYPE)
+     message(FATAL_ERROR "[CMake ERROR] Have not defined ROBOT_TYPE")
+@@ -80,9 +83,6 @@ if(CATKIN_MAKE)
+         message_generation
+         roscpp
+         rospy
+-        gazebo_msgs
+-        sensor_msgs
+-        std_srvs
+         std_msgs
+         tf
+         geometry_msgs
+@@ -104,8 +104,6 @@ if(CATKIN_MAKE)
+     catkin_package(
+         CATKIN_DEPENDS 
+         unitree_legged_msgs 
+-        gazebo_msgs
+-        std_srvs
+     )
+ endif()
+ 
+@@ -155,7 +153,11 @@ file(GLOB_RECURSE SRC_LIST
+     "src/*/*.cc"
+ )
+ 
+-set(CMAKE_CUDA_COMPILER /usr/local/cuda/bin/nvcc)  # torch 编译加速
++if(DEFINED ENV{CUDA_HOME})
++    set(CMAKE_CUDA_COMPILER "$ENV{CUDA_HOME}/bin/nvcc")  # torch 编译加速
++else()
++    set(CMAKE_CUDA_COMPILER /usr/local/cuda/bin/nvcc)  # torch 编译加速
++endif()
+ set(CMAKE_CXX_STANDARD 17) #torch编译加速
+ 
+ 
+@@ -163,28 +165,30 @@ add_executable(state_from_gazebo src/state_from_gazebo.cpp)
+ target_link_libraries(state_from_gazebo ${catkin_LIBRARIES})
+ 
+ 
+-add_executable(junior_ctrl src/main.cpp ${SRC_LIST})
+-target_link_libraries(junior_ctrl ${TORCH_LIBRARIES})
+-if(CATKIN_MAKE)
+-    target_link_libraries(junior_ctrl ${catkin_LIBRARIES})
+-    add_dependencies(junior_ctrl ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
+-endif()
+-if(DEBUG)
+-    target_include_directories(junior_ctrl PRIVATE ${Python2_INCLUDE_DIRS} ${Python2_NumPy_INCLUDE_DIRS})
+-    target_link_libraries(junior_ctrl Python2::Python Python2::NumPy)
+-endif()
+-if(REAL_ROBOT)
+-    if(${ROBOT_TYPE} STREQUAL "A1")
+-        if(${PLATFORM} STREQUAL "amd64")
+-            target_link_libraries(junior_ctrl libunitree_legged_sdk_amd64.so)
+-        elseif(${PLATFORM} STREQUAL "arm64")
+-            target_link_libraries(junior_ctrl libunitree_legged_sdk_arm64.so)
++if(BUILD_JUNIOR_CTRL)
++    add_executable(junior_ctrl src/main.cpp ${SRC_LIST})
++    target_link_libraries(junior_ctrl ${TORCH_LIBRARIES})
++    if(CATKIN_MAKE)
++        target_link_libraries(junior_ctrl ${catkin_LIBRARIES})
++        add_dependencies(junior_ctrl ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
++    endif()
++    if(DEBUG)
++        target_include_directories(junior_ctrl PRIVATE ${Python2_INCLUDE_DIRS} ${Python2_NumPy_INCLUDE_DIRS})
++        target_link_libraries(junior_ctrl Python2::Python Python2::NumPy)
++    endif()
++    if(REAL_ROBOT)
++        if(${ROBOT_TYPE} STREQUAL "A1")
++            if(${PLATFORM} STREQUAL "amd64")
++                target_link_libraries(junior_ctrl libunitree_legged_sdk_amd64.so)
++            elseif(${PLATFORM} STREQUAL "arm64")
++                target_link_libraries(junior_ctrl libunitree_legged_sdk_arm64.so)
++            endif()
++        elseif(${ROBOT_TYPE} STREQUAL "Go1")
++                target_link_libraries(junior_ctrl libunitree_legged_sdk.a)
+         endif()
+-    elseif(${ROBOT_TYPE} STREQUAL "Go1")
+-            target_link_libraries(junior_ctrl libunitree_legged_sdk.a)
+     endif()
++    target_link_libraries(junior_ctrl -pthread lcm)
+ endif()
+-target_link_libraries(junior_ctrl -pthread lcm)
+ if(NOT CATKIN_MAKE)
+     set(EXECUTABLE_OUTPUT_PATH ${PROJECT_SOURCE_DIR}/bin)
+ endif()
+@@ -192,7 +196,6 @@ endif()
+ 
+ catkin_install_python(PROGRAMS
+   scripts/virtual_joy.py
+-  scripts/keyboard_teleop.py
+   DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
+ )
+ 
+diff --git a/src/unitree_guide/unitree_guide/unitree_guide/launch/multi_floor_gazeboSim.launch b/src/unitree_guide/unitree_guide/unitree_guide/launch/multi_floor_gazeboSim.launch
+index 6d188fe..0ddde66 100644
+--- a/src/unitree_guide/unitree_guide/unitree_guide/launch/multi_floor_gazeboSim.launch
++++ b/src/unitree_guide/unitree_guide/unitree_guide/launch/multi_floor_gazeboSim.launch
+@@ -10,24 +10,11 @@
+     <arg name="headless" default="false"/>
+     <arg name="debug" default="false"/>
+     <arg name="user_debug" default="false"/>
+-    <arg name="enable_sensor_data" default="true"/>
+-    <arg name="enable_livox" default="$(arg enable_sensor_data)"/>
+-    <arg name="enable_livox_imu" default="$(arg enable_livox)"/>
+-    <arg name="enable_realsense" default="$(arg enable_sensor_data)"/>
+-    <arg name="enable_front_camera" default="false"/>
+-    <arg name="enable_referee_odom" default="true"/>
+-    <arg name="enable_ground_truth" default="true"/>
+-    <arg name="enable_foot_contact_sensor" default="false"/>
+-    <arg name="enable_foot_force_visual" default="false"/>
+-    <arg name="enable_joy_node" default="false"/>
+-    <arg name="enable_pointcloud_converter" default="true"/>
+-    <arg name="pointcloud_use_ground_truth_odom" default="true"/>
+-    <arg name="controller_spawner_timeout" default="$(optenv CONTROLLER_SPAWNER_TIMEOUT 120)"/>
+ 
+     <arg name="world_file" default="$(optenv BUILDING_WORLD_FILE)"/>
+     <arg name="robot_x" default="$(optenv COMPETITION_ROBOT_X 0.0)"/>
+-    <arg name="robot_y" default="$(optenv COMPETITION_ROBOT_Y -3.2)"/>
+-    <arg name="robot_z" default="$(optenv COMPETITION_ROBOT_Z 0.09)"/>
++    <arg name="robot_y" default="$(optenv COMPETITION_ROBOT_Y -2.2)"/>
++    <arg name="robot_z" default="$(optenv COMPETITION_ROBOT_Z 0.6)"/>
+     <arg name="robot_yaw" default="$(optenv COMPETITION_ROBOT_YAW 1.5708)"/>
+ 
+     <param name="world_file" value="$(arg world_file)"/>
+@@ -42,31 +29,21 @@
+ 
+     <param name="robot_description"
+            command="$(find xacro)/xacro --inorder '$(arg dollar)$(arg robot_path)/xacro/robot.xacro'
+-           DEBUG:=$(arg user_debug)
+-           ENABLE_SENSOR_DATA:=$(arg enable_sensor_data)
+-           ENABLE_LIVOX:=$(arg enable_livox)
+-           ENABLE_LIVOX_IMU:=$(arg enable_livox_imu)
+-           ENABLE_REALSENSE:=$(arg enable_realsense)
+-           ENABLE_FRONT_CAMERA:=$(arg enable_front_camera)
+-           ENABLE_GROUND_TRUTH:=$(arg enable_ground_truth)
+-           ENABLE_FOOT_CONTACT_SENSOR:=$(arg enable_foot_contact_sensor)
+-           ENABLE_FOOT_FORCE_VISUAL:=$(arg enable_foot_force_visual)"/>
++           DEBUG:=$(arg user_debug)"/>
+ 
++    <!-- 不能在这里无条件 -unpause：官方 headless profile 需要等 junior_ctrl 的 FSM 就绪后，
++         由 auto.sh 显式调用 /gazebo/unpause_physics，防止 A1 在控制器接管前跌倒。 -->
+     <node pkg="gazebo_ros" type="spawn_model" name="urdf_spawner" respawn="false" output="screen"
+-              args="-urdf -z $(arg robot_z) -y $(arg robot_y) -x $(arg robot_x) -Y $(arg robot_yaw) -model $(arg rname)_gazebo -param robot_description
+-                    -J FR_hip_joint -0.35 -J FR_thigh_joint 1.36 -J FR_calf_joint -2.65
+-                    -J FL_hip_joint 0.35 -J FL_thigh_joint 1.36 -J FL_calf_joint -2.65
+-                    -J RR_hip_joint -0.50 -J RR_thigh_joint 1.36 -J RR_calf_joint -2.65
+-                    -J RL_hip_joint 0.50 -J RL_thigh_joint 1.36 -J RL_calf_joint -2.65"/>
++              args="-urdf -z $(arg robot_z) -y $(arg robot_y) -x $(arg robot_x) -Y $(arg robot_yaw) -model $(arg rname)_gazebo -param robot_description"/>
+ 
+-    <node if="$(arg enable_referee_odom)" pkg="unitree_guide" type="state_from_gazebo" name="state_from_gazebo" args="0 0 0 0 0 0" output="screen">
++    <node pkg="unitree_guide" type="state_from_gazebo" name="state_from_gazebo" args="0 0 0 0 0 0" output="screen">
+         <param name="robot_name" value="$(arg rname)" />
+     </node>
+ 
+     <rosparam file="$(arg dollar)$(arg robot_path)/config/robot_control.yaml" command="load"/>
+ 
+     <node pkg="controller_manager" type="spawner" name="controller_spawner" respawn="false"
+-           ns="/$(arg rname)_gazebo" args="--timeout $(arg controller_spawner_timeout) joint_state_controller
++           ns="/$(arg rname)_gazebo" args="joint_state_controller
+           FL_hip_controller FL_thigh_controller FL_calf_controller
+           FR_hip_controller FR_thigh_controller FR_calf_controller
+           RL_hip_controller RL_thigh_controller RL_calf_controller
+@@ -77,7 +54,7 @@
+         <remap from="/joint_states" to="/$(arg rname)_gazebo/joint_states"/>
+     </node>
+ 
+-    <node if="$(arg enable_joy_node)" name="joy_node" pkg="joy" type="joy_node" output="screen">
++    <node name="joy_node" pkg="joy" type="joy_node" output="screen">
+         <param name="dev" value="/dev/input/js0" />
+         <param name="deadzone" value="0.05" />
+         <param name="autorepeat_rate" value="20" />
+@@ -87,12 +64,9 @@
+         <arg name="rname" value="$(arg rname)"/>
+     </include>
+ 
+-    <group if="$(arg enable_livox)">
+-        <node if="$(arg enable_pointcloud_converter)" pkg="unitree_guide" type="pointcloud2livox.py" name="pointcloud2livox" output="screen">
+-            <param name="laser_blind" value="0.5" />
+-            <param name="min_angle" value="-7"/>
+-            <param name="max_angle" value="55"/>
+-            <param name="use_ground_truth_odom" value="$(arg pointcloud_use_ground_truth_odom)"/>
+-        </node>
+-    </group>
++    <node pkg="unitree_guide" type="pointcloud2livox.py" name="pointcloud2livox" output="screen">
++        <param name="laser_blind" value="0.5" />
++        <param name="min_angle" value="-7"/>
++        <param name="max_angle" value="55"/>
++    </node>
+ </launch>
+diff --git a/src/unitree_guide/unitree_guide/unitree_guide/src/FSM/FSM.cpp b/src/unitree_guide/unitree_guide/unitree_guide/src/FSM/FSM.cpp
+index 719e5f2..323f004 100755
+--- a/src/unitree_guide/unitree_guide/unitree_guide/src/FSM/FSM.cpp
++++ b/src/unitree_guide/unitree_guide/unitree_guide/src/FSM/FSM.cpp
+@@ -2,69 +2,9 @@
+  Copyright (c) 2020-2023, Unitree Robotics.Co.Ltd. All rights reserved.
+ ***********************************************************************/
+ #include "FSM/FSM.h"
+-#include <array>
+-#include <cerrno>
+-#include <cmath>
+-#include <cstdlib>
+ #include <iostream>
+-#include <string>
+-#include <unistd.h>
+-
+-#ifdef COMPILE_WITH_ROS
+-#include <gazebo_msgs/SetModelConfiguration.h>
+-#include <gazebo_msgs/SetModelState.h>
+-#include <std_srvs/Empty.h>
+-#include <tf/transform_datatypes.h>
+-#endif
+-
+-namespace {
+-const std::array<std::string, 12> kResetJointNames = {{
+-    "FR_hip_joint", "FR_thigh_joint", "FR_calf_joint",
+-    "FL_hip_joint", "FL_thigh_joint", "FL_calf_joint",
+-    "RR_hip_joint", "RR_thigh_joint", "RR_calf_joint",
+-    "RL_hip_joint", "RL_thigh_joint", "RL_calf_joint"
+-}};
+-
+-const std::array<double, 12> kResetJointPositions = {{
+-    -0.35, 1.36, -2.65,
+-     0.35, 1.36, -2.65,
+-    -0.50, 1.36, -2.65,
+-     0.50, 1.36, -2.65
+-}};
+-
+-double getEnvDouble(const char *name, double fallback)
+-{
+-    const char *value = std::getenv(name);
+-    if(value == nullptr || value[0] == '\0'){
+-        return fallback;
+-    }
+-
+-    char *end = nullptr;
+-    errno = 0;
+-    const double parsed = std::strtod(value, &end);
+-    if(errno != 0 || end == value || *end != '\0' || !std::isfinite(parsed)){
+-        return fallback;
+-    }
+-    return parsed;
+-}
+-
+-#ifdef COMPILE_WITH_ROS
+-bool callEmptyService(const std::string &service_name, double timeout_seconds)
+-{
+-    if(!ros::service::waitForService(service_name, ros::Duration(timeout_seconds))){
+-        std::cout << "[WARNING] " << service_name << " is not available." << std::endl;
+-        return false;
+-    }
+-
+-    std_srvs::Empty srv;
+-    if(!ros::service::call(service_name, srv)){
+-        std::cout << "[WARNING] Failed to call " << service_name << "." << std::endl;
+-        return false;
+-    }
+-    return true;
+-}
+-#endif
+-}
++#include <cstdlib>
++#include <cstring>
+ 
+ FSM::FSM(CtrlComponents *ctrlComp)
+     :_ctrlComp(ctrlComp){
+@@ -89,7 +29,23 @@ FSM::~FSM(){
+ }
+ 
+ void FSM::initialize(){
+-    _currentState = _stateList.passive;
++    // Headless 容器没有可交互 stdin。优先使用官方已有 move_base 状态直接消费 /cmd_vel；
++    // 未设置该模式时才按兼容开关进入 RL，GUI/键盘启动仍默认 passive。
++    const char *headlessMode = std::getenv("SIMENV_HEADLESS_MODE");
++    const char *autoRl = std::getenv("SIMENV_AUTO_RL");
++    const bool startInRl = autoRl != nullptr && std::strcmp(autoRl, "1") == 0;
++    std::cout << "[HEADLESS_FSM] mode=" << (headlessMode == nullptr ? "" : headlessMode)
++              << " auto_rl=" << (startInRl ? "1" : "0") << std::endl;
++#ifdef COMPILE_WITH_MOVE_BASE
++    const bool startInMoveBase = headlessMode != nullptr && std::strcmp(headlessMode, "move_base") == 0;
++    // MoveBase 必须先经过官方 fixed-stand 插值，避免机器人尚未站稳就进入步态并在地面滑移。
++    _currentState = startInMoveBase ? static_cast<FSMState *>(_stateList.fixedStand) :
++                    startInRl ? static_cast<FSMState *>(_stateList.rl) :
++                                static_cast<FSMState *>(_stateList.passive);
++#else
++    _currentState = startInRl ? static_cast<FSMState *>(_stateList.rl) :
++                                static_cast<FSMState *>(_stateList.passive);
++#endif
+     _currentState -> enter();
+     _nextState = _currentState;
+     _mode = FSMMode::NORMAL;
+@@ -98,41 +54,16 @@ void FSM::initialize(){
+ void FSM::run(){
+     _startTime = getSystemTime();
+     _ctrlComp->sendRecv();
+-    _ctrlComp->ioInterFreeDog->sendRecv();
+-    if(handleResetCommand()){
+-        absoluteWait(_startTime, (long long)(_ctrlComp->dt * 1000000));
+-        return;
+-    }
+-    if(!_ctrlComp->ioInter->hasFullStateFeedback()){
+-        if(!_waitingForStateFeedback){
+-            std::cout << "[INFO] Waiting for Gazebo joint state feedback before accepting stand command." << std::endl;
+-            _waitingForStateFeedback = true;
+-        }
+-        absoluteWait(_startTime, (long long)(_ctrlComp->dt * 1000000));
+-        return;
+-    }
+-    if(_waitingForStateFeedback){
+-        std::cout << "[INFO] Gazebo joint state feedback is ready." << std::endl;
+-        _waitingForStateFeedback = false;
+-    }
+-    if(!_ctrlComp->lowState->isFinite()){
+-        std::cout << "[WARNING] Gazebo state feedback is not finite; skipping control update." << std::endl;
+-        absoluteWait(_startTime, (long long)(_ctrlComp->dt * 1000000));
+-        return;
++    // FreeDog SDK is a real-robot transport. In official Gazebo it has no peer and can block the
++    // entire 250 Hz loop before motor commands are published; simulation uses IOROS only.
++    if (_ctrlComp->ctrlPlatform == CtrlPlatform::REALROBOT){
++        _ctrlComp->ioInterFreeDog->sendRecv();
+     }
+     _ctrlComp->runWaveGen();
+     _ctrlComp->estimator->run();
+     if(!checkSafty()){
+-        if(!_fallSafetyLatched){
+-            std::cout << "[WARNING] Robot appears to have fallen. Switching to passive/down. Press 8 to reset pose." << std::endl;
+-            _fallSafetyLatched = true;
+-        }
+-        forcePassiveState();
+-        _ctrlComp->ioInter->sendRecv(_ctrlComp->lowCmd, _ctrlComp->lowState);
+-        absoluteWait(_startTime, (long long)(_ctrlComp->dt * 1000000));
+-        return;
++        // _ctrlComp->ioInter->setPassive();
+     }
+-    _fallSafetyLatched = false;
+ 
+     if(_mode == FSMMode::NORMAL){
+         _currentState->run();
+@@ -203,146 +134,4 @@ bool FSM::checkSafty(){
+     }else{
+         return true;
+     }
+-}
+-
+-bool FSM::handleResetCommand(){
+-    if(_ctrlComp->lowState->userCmd != UserCommand::RESET){
+-        _resetCommandLatched = false;
+-        return false;
+-    }
+-    if(_resetCommandLatched){
+-        return true;
+-    }
+-    _resetCommandLatched = true;
+-
+-    std::cout << "[INFO] Reset command received. Returning robot to the start pose." << std::endl;
+-    forcePassiveState();
+-
+-    if(_ctrlComp->ctrlPlatform == CtrlPlatform::GAZEBO){
+-        if(resetGazeboRobot()){
+-            std::cout << "[INFO] Gazebo robot reset complete. Press 2 to stand again." << std::endl;
+-        }else{
+-            std::cout << "[WARNING] Gazebo robot reset request failed. Check Gazebo service availability." << std::endl;
+-        }
+-    }else{
+-        std::cout << "[WARNING] Reset command is only supported in Gazebo simulation." << std::endl;
+-    }
+-
+-    return true;
+-}
+-
+-bool FSM::resetGazeboRobot(){
+-#ifndef COMPILE_WITH_ROS
+-    return false;
+-#else
+-    ros::NodeHandle nh;
+-
+-    if(!callEmptyService("/gazebo/pause_physics", 1.0)){
+-        return false;
+-    }
+-
+-    setResetDownCommand();
+-    _ctrlComp->ioInter->sendRecv(_ctrlComp->lowCmd, _ctrlComp->lowState);
+-    usleep(30000);
+-
+-    if(!ros::service::waitForService("/gazebo/set_model_configuration", ros::Duration(1.0))){
+-        std::cout << "[WARNING] /gazebo/set_model_configuration is not available." << std::endl;
+-        callEmptyService("/gazebo/unpause_physics", 1.0);
+-        return false;
+-    }
+-    if(!ros::service::waitForService("/gazebo/set_model_state", ros::Duration(1.0))){
+-        std::cout << "[WARNING] /gazebo/set_model_state is not available." << std::endl;
+-        callEmptyService("/gazebo/unpause_physics", 1.0);
+-        return false;
+-    }
+-
+-    std::string robot_name = "a1";
+-    nh.getParam("/robot_name", robot_name);
+-    const std::string model_name = robot_name + "_gazebo";
+-
+-    gazebo_msgs::SetModelState state_srv;
+-    state_srv.request.model_state.model_name = model_name;
+-    state_srv.request.model_state.reference_frame = "world";
+-    state_srv.request.model_state.pose.position.x = getEnvDouble("COMPETITION_ROBOT_X", 0.0);
+-    state_srv.request.model_state.pose.position.y = getEnvDouble("COMPETITION_ROBOT_Y", -3.2);
+-    state_srv.request.model_state.pose.position.z =
+-        getEnvDouble("COMPETITION_ROBOT_Z", 0.6) + getEnvDouble("COMPETITION_RESET_Z_OFFSET", 0.05);
+-    state_srv.request.model_state.pose.orientation =
+-        tf::createQuaternionMsgFromYaw(getEnvDouble("COMPETITION_ROBOT_YAW", 1.5708));
+-    state_srv.request.model_state.twist.linear.x = 0.0;
+-    state_srv.request.model_state.twist.linear.y = 0.0;
+-    state_srv.request.model_state.twist.linear.z = 0.0;
+-    state_srv.request.model_state.twist.angular.x = 0.0;
+-    state_srv.request.model_state.twist.angular.y = 0.0;
+-    state_srv.request.model_state.twist.angular.z = 0.0;
+-
+-    ros::ServiceClient state_client =
+-        nh.serviceClient<gazebo_msgs::SetModelState>("/gazebo/set_model_state");
+-    if(!state_client.call(state_srv) || !state_srv.response.success){
+-        std::cout << "[WARNING] Failed to reset A1 model state: "
+-                  << state_srv.response.status_message << std::endl;
+-        callEmptyService("/gazebo/unpause_physics", 1.0);
+-        return false;
+-    }
+-
+-    gazebo_msgs::SetModelConfiguration config_srv;
+-    config_srv.request.model_name = model_name;
+-    config_srv.request.urdf_param_name = "robot_description";
+-    config_srv.request.joint_names.assign(kResetJointNames.begin(), kResetJointNames.end());
+-    config_srv.request.joint_positions.assign(kResetJointPositions.begin(), kResetJointPositions.end());
+-
+-    ros::ServiceClient config_client =
+-        nh.serviceClient<gazebo_msgs::SetModelConfiguration>("/gazebo/set_model_configuration");
+-    if(!config_client.call(config_srv) || !config_srv.response.success){
+-        std::cout << "[WARNING] Failed to reset A1 joint configuration: "
+-                  << config_srv.response.status_message << std::endl;
+-        callEmptyService("/gazebo/unpause_physics", 1.0);
+-        return false;
+-    }
+-
+-    if(!state_client.call(state_srv) || !state_srv.response.success){
+-        std::cout << "[WARNING] Failed to apply A1 model state after joint reset: "
+-                  << state_srv.response.status_message << std::endl;
+-        callEmptyService("/gazebo/unpause_physics", 1.0);
+-        return false;
+-    }
+-
+-    setResetDownCommand();
+-    _ctrlComp->ioInter->sendRecv(_ctrlComp->lowCmd, _ctrlComp->lowState);
+-    usleep(150000);
+-
+-    const bool unpause_ok = callEmptyService("/gazebo/unpause_physics", 1.0);
+-    return unpause_ok;
+-#endif
+-}
+-
+-void FSM::forcePassiveState(){
+-    _ctrlComp->ioInter->zeroCmdPanel();
+-    _ctrlComp->ioInter->setPassive();
+-    _ctrlComp->lowState->userCmd = UserCommand::L2_B;
+-    _ctrlComp->lowState->userValue.setZero();
+-
+-    if(_currentState != _stateList.passive){
+-        if(_currentState != nullptr){
+-            _currentState->exit();
+-        }
+-        _currentState = _stateList.passive;
+-        _currentState->enter();
+-    }
+-
+-    _nextState = _currentState;
+-    _mode = FSMMode::NORMAL;
+-    setResetDownCommand();
+-}
+-
+-void FSM::setResetDownCommand(){
+-    for(int i = 0; i < 12; ++i){
+-        _ctrlComp->lowCmd->motorCmd[i].mode = 10;
+-        _ctrlComp->lowCmd->motorCmd[i].q = static_cast<float>(kResetJointPositions[i]);
+-        _ctrlComp->lowCmd->motorCmd[i].dq = 0.0f;
+-        _ctrlComp->lowCmd->motorCmd[i].tau = 0.0f;
+-        _ctrlComp->lowCmd->motorCmd[i].Kp = 12.0f;
+-        _ctrlComp->lowCmd->motorCmd[i].Kd = 2.0f;
+-    }
+-    _ctrlComp->setAllSwing();
+-}
++}
+\ No newline at end of file
+diff --git a/src/unitree_guide/unitree_guide/unitree_guide/src/state_from_gazebo.cpp b/src/unitree_guide/unitree_guide/unitree_guide/src/state_from_gazebo.cpp
+index aac8c61..1c0f009 100755
+--- a/src/unitree_guide/unitree_guide/unitree_guide/src/state_from_gazebo.cpp
++++ b/src/unitree_guide/unitree_guide/unitree_guide/src/state_from_gazebo.cpp
+@@ -7,23 +7,21 @@
+ #include <tf/transform_listener.h>
+ #include <nav_msgs/Odometry.h>
+ #include <boost/bind.hpp>   // 将tf监听绑定到ROS回调函数
++#include <mutex>
+ 
+ 
+ using namespace std;
+ ros::Publisher robotVelocity_BASE_frame_pub;
+ string robot_name = "a1";
+-nav_msgs::Odometry Odom;
+ double x=0, y=0, z=0, roll=0, pitch=0, yaw=0;
++std::mutex callback_mutex;
+ 
+ 
+ void callback_BASE(const gazebo_msgs::LinkStates::ConstPtr &msg) {
+-    ros::Time stamp = ros::Time::now();
+-    static ros::Time last_tf_stamp;
+-    static bool has_last_tf_stamp = false;
+-    if (has_last_tf_stamp && stamp <= last_tf_stamp) {
+-        return;
+-    }
+-
++    // Gazebo 会高频发布 LinkStates。只保留最新消息并避免在回调中 sleep，
++    // 否则 /clock 与位姿回调会在同一个 ROS 回调队列内持续积压，导致里程计
++    // 时间戳远落后于仿真当前时间，进而使 ROS2 桥接和导航误判机器人未移动。
++    std::lock_guard<std::mutex> lock(callback_mutex);
+     int index = 0;
+     for (auto &linkName : msg->name) {
+         if (linkName == robot_name+"_gazebo::base")
+@@ -31,11 +29,9 @@ void callback_BASE(const gazebo_msgs::LinkStates::ConstPtr &msg) {
+         ++index;
+     }
+     if (index >= static_cast<int>(msg->name.size())) {
+-        ROS_WARN_THROTTLE(5.0, "Could not find link '%s_gazebo::base' in /gazebo/link_states", robot_name.c_str());
++        ROS_WARN_THROTTLE(2.0, "未在 /gazebo/link_states 中找到机器人 base 链接");
+         return;
+     }
+-    last_tf_stamp = stamp;
+-    has_last_tf_stamp = true;
+ 
+     //map到odom的tf变换
+     static tf::TransformBroadcaster bf1;
+@@ -50,7 +46,7 @@ void callback_BASE(const gazebo_msgs::LinkStates::ConstPtr &msg) {
+                                     y,
+                                     z));
+     // 发布odom到map的tf关系
+-    bf1.sendTransform(tf::StampedTransform(transform_odom2map, stamp, "map", "odom"));
++    bf1.sendTransform(tf::StampedTransform(transform_odom2map, ros::Time::now(), "map", "odom"));
+     
+     //求变化矩阵的逆解，用于推算map到odom的关系，以便能得到base到map的关系，及
+     tf::Transform transform_map2odom = transform_odom2map.inverse();
+@@ -69,13 +65,13 @@ void callback_BASE(const gazebo_msgs::LinkStates::ConstPtr &msg) {
+         msg->twist[index].linear.x,
+         msg->twist[index].linear.y,
+         msg->twist[index].linear.z);
+-    tf::Vector3 transformed_linear_vel = transform_map2odom.getBasis() * linear_vel;
++    tf::Vector3 transformed_linear_vel = transform_map2odom * linear_vel;
+ 
+     tf::Vector3 angular_vel(
+         msg->twist[index].angular.x,
+         msg->twist[index].angular.y,
+         msg->twist[index].angular.z);
+-    tf::Vector3 transformed_angular_vel = transform_map2odom.getBasis() * angular_vel;
++    tf::Vector3 transformed_angular_vel = transform_map2odom * angular_vel;
+     
+     //发布base到odom的tf变换
+     static tf::TransformBroadcaster bf2;
+@@ -83,38 +79,37 @@ void callback_BASE(const gazebo_msgs::LinkStates::ConstPtr &msg) {
+     transform_odom2base.setRotation(q_odom);
+     transform_odom2base.setOrigin(pt_odom);
+ 
+-    bf2.sendTransform(tf::StampedTransform(transform_odom2base, stamp, "odom", "base"));
++    bf2.sendTransform(tf::StampedTransform(transform_odom2base, ros::Time::now(), "odom", "base"));
+ 
+-    Odom.header.stamp = stamp;
+-    Odom.header.frame_id = "odom";
+-    Odom.child_frame_id = "base";
++    nav_msgs::Odometry odom;
++    odom.header.stamp = ros::Time::now();
++    odom.header.frame_id = "odom";
++    odom.child_frame_id = "base";
+ 
+     // set the position
+-    Odom.pose.pose.position.x = pt_odom.x();
+-    Odom.pose.pose.position.y = pt_odom.y();
+-    Odom.pose.pose.position.z = pt_odom.z();
++    odom.pose.pose.position.x = pt_odom.x();
++    odom.pose.pose.position.y = pt_odom.y();
++    odom.pose.pose.position.z = pt_odom.z();
+ 
+-    Odom.pose.pose.orientation.w = q_odom.w();
+-    Odom.pose.pose.orientation.x = q_odom.x();
+-    Odom.pose.pose.orientation.y = q_odom.y();
+-    Odom.pose.pose.orientation.z = q_odom.z();
++    odom.pose.pose.orientation.w = q_odom.w();
++    odom.pose.pose.orientation.x = q_odom.x();
++    odom.pose.pose.orientation.y = q_odom.y();
++    odom.pose.pose.orientation.z = q_odom.z();
+ 
+ 
+     // set the velocity
+-    Odom.twist.twist.linear.x = transformed_linear_vel.x();
+-    Odom.twist.twist.linear.y = transformed_linear_vel.y();
+-    Odom.twist.twist.linear.z = transformed_linear_vel.z();
++    odom.twist.twist.linear.x = transformed_linear_vel.x();
++    odom.twist.twist.linear.y = transformed_linear_vel.y();
++    odom.twist.twist.linear.z = transformed_linear_vel.z();
+ 
+ 
+-    Odom.twist.twist.angular.x = transformed_angular_vel.x();
+-    Odom.twist.twist.angular.y = transformed_angular_vel.y();
+-    Odom.twist.twist.angular.z = transformed_angular_vel.z();
++    odom.twist.twist.angular.x = transformed_angular_vel.x();
++    odom.twist.twist.angular.y = transformed_angular_vel.y();
++    odom.twist.twist.angular.z = transformed_angular_vel.z();
+ 
+ 
+-    robotVelocity_BASE_frame_pub.publish(Odom);
++    robotVelocity_BASE_frame_pub.publish(odom);
+ }
+-
+-
+ int main(int argc, char **argv) {
+     ros::init(argc, argv, "state_from_gazebo");
+     ros::NodeHandle nh("~");
+@@ -133,14 +128,20 @@ int main(int argc, char **argv) {
+     y = atof(argv[2]);
+     z = atof(argv[3]);
+ 
+-    yaw   = atof(argv[4]);
+-    pitch = atof(argv[5]);
+-    roll  = atof(argv[6]);
++    double yaw   = atof(argv[4]);
++    double pitch = atof(argv[5]);
++    double roll  = atof(argv[6]);
+   
+     nh.param<std::string>("robot_name", robot_name, string("a1"));
+-    tfState_BASE_sub = node.subscribe<gazebo_msgs::LinkStates>("/gazebo/link_states", 10, callback_BASE);
++    // 队列长度为 1：发布频率高于消费者时丢弃旧状态，始终输出当前机器人位姿。
++    tfState_BASE_sub = node.subscribe<gazebo_msgs::LinkStates>("/gazebo/link_states", 1, callback_BASE);
+     robotVelocity_BASE_frame_pub = node.advertise<nav_msgs::Odometry>("/Odometry_gazebo", 1);
+ 
+-    ros::spin();
++    // 单线程 spin 在高频 LinkStates 回调时会阻塞 ROS 时间更新；额外线程保证
++    // /clock 能及时推进。回调内部已加锁，避免 TF 与里程计并发写入。
++    ros::AsyncSpinner spinner(2);
++    spinner.start();
++    ros::waitForShutdown();
+     return 0;
+ }
++

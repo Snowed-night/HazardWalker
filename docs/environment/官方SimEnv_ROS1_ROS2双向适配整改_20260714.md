@@ -1,6 +1,6 @@
 # 官方 SimEnv ROS1 ↔ ROS2 双向适配整改
 
-负责人：姜晨。平台组协作。
+负责人：姜晨。
 
 ## 背景与边界
 
@@ -16,7 +16,7 @@ ROS2，仅使用稳定 `/hw/*`。本整改新增的不是第二套业务系统�
 
 | 方向 | 官方 ROS1 | 稳定接口 | 类型 | 说明 |
 |---|---|---|---|---|
-| 输入 ROS2 | `/Odometry_gazebo` | `/hw/odom` | `nav_msgs/Odometry` | 必须以实际位姿变化验证 |
+| 输入 ROS2 | `/hazardwalker/odom` | `/hw/odom` | `nav_msgs/Odometry` | 由官方端最新值中继从 `/Odometry_gazebo` 生成，避免历史积压 |
 | 输入 ROS2 | `/real_sense/rgb/image_raw` | `/hw/camera/image_raw` | `sensor_msgs/Image` | 可按官方实际传感器话题调整 |
 | 输入 ROS2 | `/real_sense/depth/image_raw` | `/hw/camera/depth_image` | `sensor_msgs/Image` | RGB-D 定位输入 |
 | 输入 ROS2 | RGB/深度 `camera_info` | `/hw/camera/*camera_info` | `sensor_msgs/CameraInfo` | 内参输入 |
@@ -40,6 +40,18 @@ export OFFICIAL_SIMENV_RGB_CAMERA_INFO_TOPIC=/camera/camera_info
 ## 文件与运行
 
 - `scripts/official_simenv_rosbridge_ros2_adapter_node.py`：ROS2 主机 WebSocket 适配、分片重组、安全速度门和状态审计。
+
+## 2026-07-15 已验证 headless 接入
+
+负责人姜晨已在独占 `simenv_run` 中验证：Xvfb 在 `gzserver` 前启动，`DISPLAY=:99` 与
+`LIBGL_ALWAYS_SOFTWARE=1` 生效；ROS1 RGB、深度、内参、`/scan`、`/clock`、里程计均有真实消息。
+原始高频 `/Odometry_gazebo` 不能直接交给 rosbridge：它会使新 WebSocket 客户端接收启动期旧位姿。
+官方启动补丁新增 `/hazardwalker/odom` 最新值 20 Hz 中继，ROS2 适配器默认订阅该话题；若接入旧环境，
+必须显式设置 `OFFICIAL_SIMENV_ODOM_TOPIC=/Odometry_gazebo`，且不得将其当作稳定导航验收。
+
+本次证据显示 ROS2 `/hw/cmd_vel` 已实际驱动 A1：前进 0.872 m、转向 0.515 rad、停止漂移 0.0014 m；
+RGB 为 640×480 `rgb8`，深度为 640×480 `32FC1`，相机内参已进入 `/hw/*`。详见
+`reports/platform/official_simenv_ros1_ros2/20260715_headless_native_and_ros2_acceptance/`。
 - `scripts/run_official_simenv_rosbridge_adapter.sh`：在 ROS2 主机启动 rosbridge 双向适配器。
 - `scripts/run_official_simenv_ros1_adapter.sh`：兼容旧入口，转发到前一启动脚本，不再假设容器内存在 dynamic_bridge。
 - `scripts/verify_official_simenv_ros1_adapter.sh`：逐段检查原始 ROS1 与 ROS2 `/hw/*`。
