@@ -1,0 +1,38 @@
+{
+  "case_id": "complex_partial_left_55pct_view01",
+  "image_stamp": {
+    "sec": 130,
+    "nanosec": 285000000
+  },
+  "localization_ready": true,
+  "camera_stable": true,
+  "stable_view_frame_count": 60,
+  "detections_2d": [],
+  "hazards": [
+    {
+      "status": "tentative",
+      "position": [
+        3.3945,
+        10.6196,
+        3.2415
+      ],
+      "position_frame_id": "world",
+      "confidence": 0.8103,
+      "observation_count": 42,
+      "distinct_view_count": 1,
+      "source": "hsv_depth_tf",
+      "eligible_observation_count": 42,
+      "eligible_view_ids": [
+        "pos:3.2:8.4:3.6|yaw:90"
+      ],
+      "flat_view_ids": [],
+      "apparent_diameter_cv": 0.0,
+      "min_multiview_aspect_ratio": 0.5526,
+      "depth_curvature_cv": 0.0,
+      "median_normalized_depth_curvature": 0.0898,
+      "evidence_status": "collecting_views"
+    }
+  ],
+  "raw_image": "complex_partial_left_55pct_view01_raw.png",
+  "annotated_image": "complex_partial_left_55pct_view01_annotated.png"
+}

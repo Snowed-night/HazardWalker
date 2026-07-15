@@ -1,0 +1,80 @@
+{
+  "case_id": "complex_multiview_03_sphere_large_view01",
+  "image_stamp": {
+    "sec": 2000,
+    "nanosec": 98000000
+  },
+  "localization_ready": true,
+  "camera_stable": true,
+  "stable_view_frame_count": 59,
+  "detections_2d": [
+    {
+      "id": 1,
+      "frame_id": "hazardwalker_camera",
+      "view_id": "pos:3.2:9.2:3.2|yaw:90",
+      "stamp": {
+        "sec": 2000,
+        "nanosec": 65000000
+      },
+      "bbox": {
+        "x_min": 127,
+        "y_min": 14,
+        "x_max": 511,
+        "y_max": 400
+      },
+      "confidence": 0.9605615289721712,
+      "red_pixel_count": 116347,
+      "is_partial": false,
+      "requires_reobservation": false,
+      "may_be_merged": false,
+      "from_merged_split": false,
+      "quality_reason": "stable_shape",
+      "shape": {
+        "circularity": 0.8923820615991659,
+        "aspect_ratio": 0.9948320413436692,
+        "extent": 0.7772106446525051
+      },
+      "depth_shape": {
+        "status": "spherical",
+        "center_depth_m": 0.45304539799690247,
+        "outer_depth_m": 0.4915658235549927,
+        "curvature_m": 0.03852042555809021,
+        "center_points": 14345,
+        "outer_points": 48508
+      },
+      "confirmation_eligible": true,
+      "apparent_diameter_m": 0.4682,
+      "localization_status": "localized",
+      "source": "hsv_minimal",
+      "detector_backend": "hsv_opencv"
+    }
+  ],
+  "hazards": [
+    {
+      "status": "tentative",
+      "position": [
+        3.299,
+        10.0065,
+        3.302
+      ],
+      "position_frame_id": "world",
+      "confidence": 0.9637,
+      "observation_count": 121,
+      "distinct_view_count": 2,
+      "source": "hsv_depth_tf",
+      "eligible_observation_count": 121,
+      "eligible_view_ids": [
+        "pos:3.2:8.4:3.6|yaw:90",
+        "pos:3.2:9.2:3.2|yaw:90"
+      ],
+      "flat_view_ids": [],
+      "apparent_diameter_cv": 0.0216,
+      "min_multiview_aspect_ratio": 0.9974,
+      "depth_curvature_cv": 0.1616,
+      "median_normalized_depth_curvature": 0.1008,
+      "evidence_status": "collecting_views"
+    }
+  ],
+  "raw_image": "complex_multiview_03_sphere_large_view01_raw.png",
+  "annotated_image": "complex_multiview_03_sphere_large_view01_annotated.png"
+}

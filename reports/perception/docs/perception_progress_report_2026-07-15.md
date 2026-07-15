@@ -61,6 +61,8 @@
 
 原始 RGB、标注图、单帧 JSON、`cases.csv/json` 与 `summary.json` 已保留在本地工作区
 等待与其余四类实测一起按最终五目录规范归档；未将旧的简化 7 月 10 日结果混入该统计。
+本次恢复到 Git 的 `official_simenv_20260710_rgbd_*` 目录仍是旧历史基线，不是本节所述
+ROS1/Gazebo Classic 新一轮统计；两者不得合并计算通过率。
 
 ## 尚未完成与当前阻塞
 
@@ -125,13 +127,14 @@ TF 后，才可按本文档的正式证据契约启动无人工干预的感知�
 后续正式验证必须在进程唯一、可记录固定 SEED 的独占官方启动会话中进行，并以自身扫描—IMU输出与
 赛后真值评测计算漂移；不得使用共享容器中的 `/Odometry_gazebo`、`map -> odom` 或 `odom -> base`。
 
-### 旧五类素材清理依据
+### 旧五类素材保留与重跑约定
 
 对旧 `official_simenv_20260710_rgbd_*` 五目录运行原有归档校验器时，`active_multiview` 因
 `strict_view_semantics_audited != true` 失败：未证明水平基线/朝向造成的真实多视角，也未达到
-25° 侧向视差要求。按“只保留重做后的有效证据”要求，这五套旧素材和对应测试表将移出
-`reports/perception/`；不将其作为内部回归成功或官方正式成绩保留。重做版本必须在每目录中
-明确写 `internal_regression`，并通过独立的多视角语义审计后才允许归档。
+25° 侧向视差要求。为保留算法优化路径，这五套旧素材和对应测试表恢复到 `reports/perception/`，
+但统一标记为 `historical_internal_regression`、`official_score_eligible=false`，不得作为内部回归
+成功率或官方成绩。后续重做版本放在同一目录的 `reruns/YYYYMMDD_<seed>/`，必须明确写入
+`internal_regression` 或 `official_random_scene`，并通过独立视角语义、真值隔离和证据契约审计。
 
 ### 2026-07-15 平台接口复验与合规启动冒烟
 

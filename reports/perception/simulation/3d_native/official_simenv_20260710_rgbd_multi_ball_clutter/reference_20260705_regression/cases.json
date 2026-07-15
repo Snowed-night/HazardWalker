@@ -1,0 +1,86 @@
+[
+  {
+    "case_id": "native3d_official_red00_complete",
+    "reference_suite": "official_simenv_20260705_native_3d_validation",
+    "expected_semantics": "complex_room_single_target_presence_only",
+    "result": "recorded_not_scored",
+    "raw_detection_count": 2,
+    "strict_candidate_count": 2,
+    "reobserve_candidate_count": 0,
+    "merged_split_candidate_count": 0,
+    "max_confidence": 0.9604,
+    "annotation": "images/native3d_official_red00_complete_current_detector.png"
+  },
+  {
+    "case_id": "native3d_official_red00_fov_left_partial",
+    "reference_suite": "official_simenv_20260705_native_3d_validation",
+    "expected_semantics": "complex_room_single_target_presence_only",
+    "result": "recorded_not_scored",
+    "raw_detection_count": 2,
+    "strict_candidate_count": 2,
+    "reobserve_candidate_count": 0,
+    "merged_split_candidate_count": 0,
+    "max_confidence": 0.9245,
+    "annotation": "images/native3d_official_red00_fov_left_partial_current_detector.png"
+  },
+  {
+    "case_id": "native3d_official_red00_fov_right_partial",
+    "reference_suite": "official_simenv_20260705_native_3d_validation",
+    "expected_semantics": "complex_room_single_target_presence_only",
+    "result": "recorded_not_scored",
+    "raw_detection_count": 2,
+    "strict_candidate_count": 2,
+    "reobserve_candidate_count": 0,
+    "merged_split_candidate_count": 0,
+    "max_confidence": 0.923,
+    "annotation": "images/native3d_official_red00_fov_right_partial_current_detector.png"
+  },
+  {
+    "case_id": "native3d_official_red00_fov_top_partial",
+    "reference_suite": "official_simenv_20260705_native_3d_validation",
+    "expected_semantics": "complex_room_single_target_presence_only",
+    "result": "recorded_not_scored",
+    "raw_detection_count": 2,
+    "strict_candidate_count": 2,
+    "reobserve_candidate_count": 0,
+    "merged_split_candidate_count": 0,
+    "max_confidence": 0.932,
+    "annotation": "images/native3d_official_red00_fov_top_partial_current_detector.png"
+  },
+  {
+    "case_id": "native3d_official_red_box_distractor",
+    "reference_suite": "official_simenv_20260705_native_3d_validation",
+    "expected_semantics": "complex_room_single_target_presence_only",
+    "result": "recorded_not_scored",
+    "raw_detection_count": 1,
+    "strict_candidate_count": 1,
+    "reobserve_candidate_count": 0,
+    "merged_split_candidate_count": 0,
+    "max_confidence": 0.8524,
+    "annotation": "images/native3d_official_red_box_distractor_current_detector.png"
+  },
+  {
+    "case_id": "native3d_spawned_10_red_with_distractors",
+    "reference_suite": "official_simenv_20260705_native_3d_validation",
+    "expected_semantics": "10_merged_sphere_candidates_required_before_multiview_confirmation",
+    "result": "pass",
+    "raw_detection_count": 10,
+    "strict_candidate_count": 0,
+    "reobserve_candidate_count": 10,
+    "merged_split_candidate_count": 10,
+    "max_confidence": 0.9972,
+    "annotation": "images/native3d_spawned_10_red_with_distractors_current_detector.png"
+  },
+  {
+    "case_id": "native3d_spawned_multi_red_oblique_view",
+    "reference_suite": "official_simenv_20260705_native_3d_validation",
+    "expected_semantics": "oblique_multi_ball_count_needs_multiview_truth_matching",
+    "result": "recorded_not_scored",
+    "raw_detection_count": 6,
+    "strict_candidate_count": 2,
+    "reobserve_candidate_count": 4,
+    "merged_split_candidate_count": 4,
+    "max_confidence": 1.0,
+    "annotation": "images/native3d_spawned_multi_red_oblique_view_current_detector.png"
+  }
+]

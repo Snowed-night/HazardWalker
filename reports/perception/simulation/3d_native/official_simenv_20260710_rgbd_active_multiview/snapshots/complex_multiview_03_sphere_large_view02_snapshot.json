@@ -1,0 +1,104 @@
+{
+  "case_id": "complex_multiview_03_sphere_large_view02",
+  "image_stamp": {
+    "sec": 2009,
+    "nanosec": 800000000
+  },
+  "localization_ready": true,
+  "camera_stable": true,
+  "stable_view_frame_count": 99,
+  "detections_2d": [
+    {
+      "id": 1,
+      "frame_id": "hazardwalker_camera",
+      "view_id": "pos:2.4:9.2:3.2|yaw:30",
+      "stamp": {
+        "sec": 2009,
+        "nanosec": 734000000
+      },
+      "bbox": {
+        "x_min": 215,
+        "y_min": 122,
+        "x_max": 436,
+        "y_max": 345
+      },
+      "confidence": 0.8989034275445912,
+      "red_pixel_count": 38486,
+      "is_partial": false,
+      "requires_reobservation": false,
+      "may_be_merged": false,
+      "from_merged_split": false,
+      "quality_reason": "stable_shape",
+      "shape": {
+        "circularity": 0.7195330515840391,
+        "aspect_ratio": 0.9910714285714286,
+        "extent": 0.7668416184041184
+      },
+      "depth_shape": {
+        "status": "spherical",
+        "center_depth_m": 0.9316629469394684,
+        "outer_depth_m": 0.9854049384593964,
+        "curvature_m": 0.05374199151992798,
+        "center_points": 4780,
+        "outer_points": 16184
+      },
+      "confirmation_eligible": true,
+      "apparent_diameter_m": 0.4528,
+      "localization_status": "localized",
+      "source": "hsv_minimal",
+      "detector_backend": "hsv_opencv"
+    }
+  ],
+  "hazards": [
+    {
+      "status": "confirmed",
+      "position": [
+        3.2971,
+        9.9978,
+        3.3008
+      ],
+      "position_frame_id": "world",
+      "confidence": 0.9637,
+      "observation_count": 233,
+      "distinct_view_count": 3,
+      "source": "hsv_depth_tf",
+      "eligible_observation_count": 233,
+      "eligible_view_ids": [
+        "pos:3.2:8.4:3.6|yaw:90",
+        "pos:3.2:9.2:3.2|yaw:90",
+        "pos:2.4:9.2:3.2|yaw:30"
+      ],
+      "flat_view_ids": [],
+      "apparent_diameter_cv": 0.0182,
+      "min_multiview_aspect_ratio": 0.9865,
+      "depth_curvature_cv": 0.1398,
+      "median_normalized_depth_curvature": 0.1163,
+      "evidence_status": "multi_view_sphere_consistent"
+    },
+    {
+      "status": "tentative",
+      "position": [
+        2.2547,
+        10.4628,
+        3.1495
+      ],
+      "position_frame_id": "world",
+      "confidence": 0.9167,
+      "observation_count": 1,
+      "distinct_view_count": 0,
+      "source": "hsv_depth_tf",
+      "eligible_observation_count": 0,
+      "eligible_view_ids": [],
+      "flat_view_ids": [
+        "pos:2.4:9.2:3.2|yaw:90"
+      ],
+      "apparent_diameter_cv": 0.0,
+      "min_multiview_aspect_ratio": 0.9775,
+      "depth_curvature_cv": 0.0,
+      "median_normalized_depth_curvature": 0.0,
+      "evidence_status": "collecting_views"
+    }
+  ],
+  "raw_image": "complex_multiview_03_sphere_large_view02_raw.png",
+  "annotated_image": "complex_multiview_03_sphere_large_view02_annotated.png"
+}
