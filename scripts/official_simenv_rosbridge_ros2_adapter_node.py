@@ -224,6 +224,18 @@ class RosbridgeHwAdapter(Node):
             for name in ('x', 'y', 'z'):
                 setattr(message.twist.twist.angular, name, float(twist.get('angular', {}).get(name, 0.0)))
             self._queue_message('odom', message)
+            # /hazardwalker/odom 已是由 Gazebo 真值压缩得到的最新位姿。以它生成唯一的
+            # odom→base 动态 TF，避免官方控制器估计 TF 与真值 TF 同名冲突，从而保证
+            # world→map→odom→base→real_sense 可供三维定位查询。
+            odom_tf = TransformStamped()
+            odom_tf.header.stamp = message.header.stamp
+            odom_tf.header.frame_id = message.header.frame_id or 'odom'
+            odom_tf.child_frame_id = message.child_frame_id or 'base'
+            odom_tf.transform.translation.x = message.pose.pose.position.x
+            odom_tf.transform.translation.y = message.pose.pose.position.y
+            odom_tf.transform.translation.z = message.pose.pose.position.z
+            odom_tf.transform.rotation = message.pose.pose.orientation
+            self._queue_message('tf', TFMessage(transforms=[odom_tf]))
         elif topic in (self.rgb_topic, self.depth_topic):
             message = Image(); _stamp(message.header.stamp, header.get('stamp')); message.header.frame_id = header.get('frame_id', '')
             message.height = int(source.get('height', 0)); message.width = int(source.get('width', 0))
@@ -244,6 +256,12 @@ class RosbridgeHwAdapter(Node):
             message.p = [float(value) for value in source.get('P', source.get('p', []))]
             self._queue_message('rgb_info' if topic == self.rgb_info_topic else 'depth_info', message)
         elif self.enable_tf_relay and topic in ('/tf', '/tf_static'):
+            # 官方 rosbridge 会对高频 /tf 回放历史消息。动态位姿已由上面的
+            # /hazardwalker/odom 真值提供，map→odom 在官方场景为恒等变换；不再
+            # 转发任何 ROS1 /tf，避免旧时间戳污染 tf2 缓存。
+            if topic == '/tf':
+                self._counts[topic] = self._counts.get(topic, 0) + 1
+                return
             message = TFMessage()
             for source_transform in source.get('transforms', []):
                 header_value = source_transform.get('header', {})
@@ -251,15 +269,11 @@ class RosbridgeHwAdapter(Node):
                 parent = header_value.get('frame_id', '')
                 child = source_transform.get('child_frame_id', '')
                 translation_value = transform_value.get('translation', {})
-                # 官方环境同时有控制器估计和 Gazebo 真值两路 odom→base TF。它们冲突时，
-                # tf2 最后收到哪一路不可预测；只保留与 /Odometry_gazebo 一致的真值变换。
-                if (topic == '/tf' and parent == 'odom' and child == 'base' and
-                        self._official_odom_xy is not None):
-                    dx = float(translation_value.get('x', 0.0)) - self._official_odom_xy[0]
-                    dy = float(translation_value.get('y', 0.0)) - self._official_odom_xy[1]
-                    if math.hypot(dx, dy) > self.tf_odom_consistency_tolerance_m:
-                        self._dropped_inconsistent_tf += 1
-                        continue
+                # 所有官方 odom→base 动态边均由上方的 /hazardwalker/odom 真值替代。
+                # 即使某一帧数值接近，也不能让 tf2 在两个同名发布者间非确定性选择。
+                if topic == '/tf' and parent == 'odom' and child == 'base':
+                    self._dropped_inconsistent_tf += 1
+                    continue
                 transform = TransformStamped()
                 _stamp(transform.header.stamp, header_value.get('stamp'))
                 transform.header.frame_id = parent
@@ -277,7 +291,14 @@ class RosbridgeHwAdapter(Node):
                 alias.child_frame_id = self.map_frame
                 alias.transform.rotation.w = 1.0
                 message.transforms.append(alias)
-            self._queue_message('tf' if topic == '/tf' else 'tf_static', message)
+                map_odom = TransformStamped()
+                map_odom.header.frame_id = self.map_frame
+                map_odom.child_frame_id = 'odom'
+                map_odom.transform.rotation.w = 1.0
+                message.transforms.append(map_odom)
+            # 不发布空 TFMessage，否则会覆盖由真值里程计排队的 odom→base。
+            if message.transforms:
+                self._queue_message('tf' if topic == '/tf' else 'tf_static', message)
         else:
             return
         self._counts[topic] = self._counts.get(topic, 0) + 1
