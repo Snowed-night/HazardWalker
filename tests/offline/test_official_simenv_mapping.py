@@ -124,6 +124,7 @@ def test_stack_keeps_adapter_alive_while_business_launch_runs():
     # 否则下一次联调会残留多个 /hw/cmd_vel 发布者。
     assert 'setsid ros2 launch hazardwalker_bringup official_simenv_business.launch.py' in source
     assert 'kill -- "-$BUSINESS_PID"' in source
+    assert 'set +u\nsource /opt/ros/jazzy/setup.bash' in source
     assert 'ros2 launch hazardwalker_bringup official_simenv_business.launch.py' in source
 
 

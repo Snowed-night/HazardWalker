@@ -6,8 +6,12 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CONTAINER="${SIMENV_CONTAINER:-simenv_run}"
 
+# Jazzy 的 setup.bash 会读取若干可选变量；在 set -u 下未定义时会提前退出。
+# 与独立适配器入口保持同一加载方式，避免一键业务栈还未启动就中断。
+set +u
 source /opt/ros/jazzy/setup.bash
 source "$ROOT/ros2_ws/install/setup.bash"
+set -u
 export ROS_DOMAIN_ID="${ROS_DOMAIN_ID:?请先设置与官方 dynamic_bridge 相同的 ROS_DOMAIN_ID}"
 export RMW_IMPLEMENTATION="${RMW_IMPLEMENTATION:-rmw_fastrtps_cpp}"
 
