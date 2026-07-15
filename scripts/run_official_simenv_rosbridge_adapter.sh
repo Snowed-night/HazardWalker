@@ -19,11 +19,24 @@ ODOM_THROTTLE_RATE_MS="${OFFICIAL_SIMENV_ODOM_THROTTLE_RATE_MS:-20}"
 ODOM_TOPIC="${OFFICIAL_SIMENV_ODOM_TOPIC:-/hazardwalker/odom}"
 ROS2_SETUP="${OFFICIAL_SIMENV_ROS2_SETUP:-/opt/ros/jazzy/setup.bash}"
 
+as_ros_bool() {
+  case "${1,,}" in
+    1|true|yes|on) echo true ;;
+    *) echo false ;;
+  esac
+}
+ENABLE_CONTROL="$(as_ros_bool "$ENABLE_CONTROL")"
+ENABLE_IMAGE_RELAY="$(as_ros_bool "$ENABLE_IMAGE_RELAY")"
+
 if [[ ! -f "$ROS2_SETUP" ]]; then
   echo "[rosbridge-adapter] 找不到 ROS2 环境：$ROS2_SETUP；请设置 OFFICIAL_SIMENV_ROS2_SETUP。" >&2; exit 1
 fi
+# ROS 2 Jazzy 的 setup.bash 在未定义 AMENT_TRACE_SETUP_FILES 时会被本脚本的
+# set -u 中断；加载环境期间暂时关闭 nounset，随后立即恢复严格模式。
+set +u
 source "$ROS2_SETUP"
 source "$ROOT/ros2_ws/install/setup.bash"
+set -u
 if ! command -v ros2 >/dev/null || ! python3 -c 'import rclpy, websocket' 2>/dev/null; then
   echo '[rosbridge-adapter] ROS2 主机缺少 ros2/rclpy 或 websocket-client；未启动适配器。' >&2
   echo '请安装完整 ROS2 运行时和 websocket-client 后重试，不能在仅 ROS1 的官方容器内运行。' >&2
@@ -39,9 +52,11 @@ if ! docker exec "$CONTAINER" bash -lc "source /opt/ros/noetic/setup.bash; timeo
   echo "[rosbridge-adapter] 官方最新值里程计未就绪：$ODOM_TOPIC；请应用官方 headless 补丁，或显式设置 OFFICIAL_SIMENV_ODOM_TOPIC=/Odometry_gazebo（旧环境回退）。" >&2
   exit 1
 fi
-exec python3 "$ROOT/scripts/official_simenv_rosbridge_ros2_adapter_node.py" --ros-args \
-  -p rosbridge_url:="$ROSBRIDGE_URL" \
-  -p rosbridge_host_header:="$ROSBRIDGE_HOST_HEADER" \
+ARGS=(--ros-args -p rosbridge_url:="$ROSBRIDGE_URL")
+if [[ -n "$ROSBRIDGE_HOST_HEADER" ]]; then
+  ARGS+=(-p rosbridge_host_header:="$ROSBRIDGE_HOST_HEADER")
+fi
+exec python3 "$ROOT/scripts/official_simenv_rosbridge_ros2_adapter_node.py" "${ARGS[@]}" \
   -p enable_cmd_vel_relay:="$ENABLE_CONTROL" \
   -p rgb_topic:="$RGB_TOPIC" -p depth_topic:="$DEPTH_TOPIC" \
   -p rgb_camera_info_topic:="$RGB_INFO_TOPIC" \
