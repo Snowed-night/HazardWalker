@@ -37,9 +37,6 @@ class WaypointPatrolNode(Node):
         self.declare_parameter('goal_tolerance_m', 0.5)
         self.declare_parameter('linear_speed', 0.35)
         self.declare_parameter('angular_speed', 0.8)
-        # 官方 A1 RL 控制器对较小角速度存在死区；官方 profile 可设置该下限，
-        # 其它本地 profile 默认 0，保持原控制律不变。
-        self.declare_parameter('minimum_turn_speed', 0.0)
         self.declare_parameter('heading_tolerance_rad', 0.25)
         self.declare_parameter('waypoints', [1.0, 0.0, 2.0, 0.0, 2.0, 1.0, 0.0, 0.0])
 
@@ -115,9 +112,6 @@ class WaypointPatrolNode(Node):
         state.data = result.state
         cmd.linear.x = result.linear_x
         cmd.angular.z = result.angular_z
-        minimum_turn_speed = float(self.get_parameter('minimum_turn_speed').value)
-        if minimum_turn_speed > 0.0 and abs(cmd.angular.z) > 1e-6:
-            cmd.angular.z = math.copysign(max(abs(cmd.angular.z), minimum_turn_speed), cmd.angular.z)
         self.state_pub.publish(state)
         self.cmd_pub.publish(cmd)
 
