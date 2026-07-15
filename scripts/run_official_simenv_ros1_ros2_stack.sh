@@ -21,6 +21,12 @@ if ! docker inspect -f '{{.State.Running}}' "$CONTAINER" 2>/dev/null | grep -qx 
   bash -lc "$SIMENV_START_COMMAND"
 fi
 
-"$ROOT/scripts/run_official_simenv_rosbridge_adapter.sh"
+"$ROOT/scripts/check_official_simenv_exclusive_session.sh" --container "$CONTAINER" --require-exclusive
+"$ROOT/scripts/run_official_simenv_rosbridge_adapter.sh" &
+ADAPTER_PID=$!
+cleanup_adapter() {
+  kill "$ADAPTER_PID" 2>/dev/null || true
+}
+trap cleanup_adapter EXIT INT TERM
 echo '[stack] 启动 ROS2 业务层（不含 fake 平台；固定航点导航默认关闭）。'
-exec ros2 launch hazardwalker_bringup official_simenv_business.launch.py "$@"
+ros2 launch hazardwalker_bringup official_simenv_business.launch.py "$@"
