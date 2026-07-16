@@ -162,7 +162,6 @@ if [[ "$START_CONTROLLER" == "1" ]]; then
   echo $! > "$WORKSPACE_DIR/logs/junior_ctrl.pid"
   echo "junior_ctrl started with auto RL mode"
 fi
-fi
 
 echo "Noetic simulation startup completed, script keep running to hold gazebo and control services."
 # 关键：无限阻塞循环，脚本不会退出，relay进程不会被销毁

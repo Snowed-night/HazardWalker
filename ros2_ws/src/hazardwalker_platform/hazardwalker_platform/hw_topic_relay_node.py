@@ -11,7 +11,7 @@ import rclpy
 from geometry_msgs.msg import Twist
 from nav_msgs.msg import Odometry
 from rclpy.node import Node
-from sensor_msgs.msg import Image, Imu, PointCloud2
+from sensor_msgs.msg import Image, Imu, LaserScan, PointCloud2
 from tf2_msgs.msg import TFMessage
 
 
@@ -52,6 +52,10 @@ class HwTopicRelayNode(Node):
             PointCloud2, "/real_sense/depth/points", self._forward_rs_depth_pts, 10
         )
 
+        # ---- LaserScan: /scan → /hw/scan ----
+        self._pub_scan = self.create_publisher(LaserScan, "/hw/scan", 10)
+        self.create_subscription(LaserScan, "/scan", self._forward_scan, 10)
+
         # ---- TF 坐标变换: /tf → /hw/tf ----
         self._pub_tf = self.create_publisher(TFMessage, "/hw/tf", 10)
         self.create_subscription(TFMessage, "/tf", self._forward_tf, 10)
@@ -74,6 +78,9 @@ class HwTopicRelayNode(Node):
 
     def _forward_livox_imu(self, msg: Imu) -> None:
         self._pub_livox_imu.publish(msg)
+
+    def _forward_scan(self, msg: LaserScan) -> None:
+        self._pub_scan.publish(msg)
 
     def _forward_imu(self, msg: Imu) -> None:
         self._pub_imu.publish(msg)
