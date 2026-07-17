@@ -1,0 +1,57 @@
+# SLAM Toolbox 在线异步建图配置
+# 用于 HazardWalker 官方 SimEnv 自主探索
+#
+# 数据源: /hw/scan (官方 rosbridge 适配器提供)
+# TF:     odom → base_link (适配器从 /hazardwalker/odom 真值生成)
+# 输出:   map → odom (SLAM 修正), /map (OccupancyGrid)
+
+slam_toolbox:
+  ros__parameters:
+
+    # ---- 模式 ----
+    mode: mapping
+    solver_plugin: solver_plugins::CeresSolver
+    ceres_linear_solver: SPARSE_NORMAL_CHOLESKY
+    ceres_preconditioner: SCHUR_JACOBI
+    ceres_trust_strategy: LEVENBERG_MARQUARDT
+    ceres_diagonal_type: COLUMN
+    ceres_loss_type: HuberLoss
+
+    # ---- 扫描匹配 ----
+    minimum_time_interval: 0.3
+    transform_timeout: 0.2
+    map_update_interval: 2.0
+    scan_topic: /hw/scan
+
+    max_laser_range: 20.0
+    minimum_travel_distance: 0.2
+    minimum_travel_heading: 0.2
+    scan_buffer_size: 40
+
+    # 闭环检测
+    loop_search_maximum_distance: 8.0
+    loop_match_minimum_chain_size: 10
+    loop_match_maximum_variance_coarse: 3.0
+    loop_match_minimum_response_coarse: 0.35
+    loop_match_minimum_response_fine: 0.45
+
+    correlation_search_space_dimension: 0.5
+    correlation_search_space_resolution: 0.01
+    correlation_search_space_smear_deviation: 0.1
+
+    # ---- 地图 ----
+    map_frame: map
+    odom_frame: odom
+    base_frame: base_link
+    resolution: 0.05
+    map_start_pose: [0.0, 0.0, 0.0]
+    map_start_at_dock: true
+    throttle_scans: 1
+    online_async: true
+    max_poses_to_keep: 1000
+
+    # ---- 调试 ----
+    debug_logging: false
+    enable_interactive_mode: false
+    publish_map: true
+    publish_pose: true
