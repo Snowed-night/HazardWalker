@@ -37,7 +37,7 @@ def scan_cb(m):
     print(json.dumps({'t':'scan','fid':m.header.frame_id,
         'angle_min':m.angle_min,'angle_max':m.angle_max,'angle_inc':m.angle_increment,
         'range_min':m.range_min,'range_max':m.range_max,
-        'ranges':list(m.ranges)[:10],'ranges_len':len(m.ranges)}))
+        'ranges':list(m.ranges)}))
     sys.stdout.flush()
 
 def img_cb(m, topic_name):

@@ -1,15 +1,15 @@
 # SLAM Toolbox 在线异步建图配置
 # 用于 HazardWalker 官方 SimEnv 自主探索
 #
-# 数据源: /hw/scan (官方 rosbridge 适配器提供)
-# TF:     odom → base_link (适配器从 /hazardwalker/odom 真值生成)
+# 数据源: /hw/scan (Livox LiDAR → LaserScan)
+# TF:     odom → base_link (机器人里程计)
 # 输出:   map → odom (SLAM 修正), /map (OccupancyGrid)
 
 slam_toolbox:
   ros__parameters:
 
     # ---- 模式 ----
-    mode: mapping
+    mode: mapping           # mapping 模式持续建图，不做定位
     solver_plugin: solver_plugins::CeresSolver
     ceres_linear_solver: SPARSE_NORMAL_CHOLESKY
     ceres_preconditioner: SCHUR_JACOBI
@@ -23,6 +23,7 @@ slam_toolbox:
     map_update_interval: 2.0
     scan_topic: /hw/scan
 
+    # 扫描匹配参数
     max_laser_range: 20.0
     minimum_travel_distance: 0.2
     minimum_travel_heading: 0.2
@@ -35,6 +36,7 @@ slam_toolbox:
     loop_match_minimum_response_coarse: 0.35
     loop_match_minimum_response_fine: 0.45
 
+    # 相关性扫描匹配
     correlation_search_space_dimension: 0.5
     correlation_search_space_resolution: 0.01
     correlation_search_space_smear_deviation: 0.1
@@ -47,6 +49,8 @@ slam_toolbox:
     map_start_pose: [0.0, 0.0, 0.0]
     map_start_at_dock: true
     throttle_scans: 1
+
+    # 在线异步
     online_async: true
     max_poses_to_keep: 1000
 

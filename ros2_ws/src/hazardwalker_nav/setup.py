@@ -4,12 +4,9 @@
 文件作用：
 - 让 ROS 2/colcon 能安装 `hazardwalker_nav` 包。
 - 注册导航相关 console script 并安装启动/配置文件。
-
-入口：
-- `waypoint_patrol_node`：固定航点巡检节点（诊断/回退）。
-- `frontier_explorer_node`：Frontier 自主探索节点（正式）。
 """
 import glob
+import os
 
 from setuptools import find_packages, setup
 
