@@ -1,0 +1,106 @@
+{
+  "before": {
+    "t": 87.293,
+    "x": 0.6256563165316079,
+    "y": -1.3307207168801025,
+    "yaw": 1.3598291243728513
+  },
+  "after_motion": {
+    "t": 89.107,
+    "x": 0.7402369202137429,
+    "y": -0.8401209903348331,
+    "yaw": 1.4000648003977898
+  },
+  "after_stop": {
+    "t": 91.107,
+    "x": 0.7493586948705216,
+    "y": -0.8027676536433482,
+    "yaw": 1.4518298290452198
+  },
+  "distance_m": 0.5038023485717942,
+  "zero_drift_m": 0.038450988737306645,
+  "wall_motion_s": 38.045252707001055,
+  "rgbd_samples": {
+    "rgb": {
+      "width": 640,
+      "height": 480,
+      "encoding": "rgb8",
+      "bytes": 921600
+    },
+    "depth": {
+      "width": 640,
+      "height": 480,
+      "encoding": "32FC1",
+      "bytes": 1228800
+    },
+    "rgb_info": {
+      "width": 640,
+      "height": 480,
+      "k": [
+        554.5940455214144,
+        0.0,
+        320.5,
+        0.0,
+        554.5940455214144,
+        240.5,
+        0.0,
+        0.0,
+        1.0
+      ]
+    },
+    "depth_info": {
+      "width": 640,
+      "height": 480,
+      "k": [
+        554.5940455214144,
+        0.0,
+        320.5,
+        0.0,
+        554.5940455214144,
+        240.5,
+        0.0,
+        0.0,
+        1.0
+      ]
+    }
+  },
+  "adapter_status": {
+    "adapter": "rosbridge_ros2",
+    "dropped_inconsistent_tf": 891,
+    "dropped_invalid_image_frames": {},
+    "enable_cmd_vel_relay": true,
+    "enable_image_relay": true,
+    "enable_tf_relay": true,
+    "forwarded_cmd_count": 725,
+    "image_throttle_rate_ms": 500,
+    "last_forwarded_cmd": {
+      "angular": {
+        "x": 0.0,
+        "y": 0.0,
+        "z": 0.0
+      },
+      "linear": {
+        "x": 0.0,
+        "y": 0.0,
+        "z": 0.0
+      }
+    },
+    "received": {
+      "/Odometry_gazebo": 4500,
+      "/real_sense/depth/camera_info": 85,
+      "/real_sense/depth/image_raw": 136,
+      "/real_sense/rgb/camera_info": 84,
+      "/real_sense/rgb/image_raw": 137,
+      "/tf": 9015,
+      "/tf_static": 1
+    },
+    "rosbridge_host_header": "127.0.0.1:9090",
+    "sources": {
+      "depth": "/real_sense/depth/image_raw",
+      "depth_camera_info": "/real_sense/depth/camera_info",
+      "rgb": "/real_sense/rgb/image_raw",
+      "rgb_camera_info": "/real_sense/rgb/camera_info"
+    },
+    "url": "ws://127.0.0.1:9091"
+  }
+}

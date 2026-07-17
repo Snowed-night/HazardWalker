@@ -1,0 +1,6 @@
+record_id,test_item,expected_evidence,status,owner,notes
+P-20260714-01,ROS1 direct forward >=1m,odometry delta >=1m plus video and controller log,not_verified,姜晨,requires official A1 controller
+P-20260714-02,ROS1 turn and stop,heading or video plus zero velocity/odom evidence,not_verified,姜晨,requires official A1 controller
+P-20260714-03,RGB-D to ROS2,ROS1 and ROS2 echo timestamps plus encoding/intrinsics,not_verified,姜晨,headless rendering must be checked first
+P-20260714-04,ROS2 cmd_vel to motion,adapter status ROS1 cmd_vel controller log odometry video,not_verified,姜晨,relay count is insufficient evidence
+P-20260714-05,business closed loop,result file plus screenshots/video and records,not_verified,姜晨,depends on prior items

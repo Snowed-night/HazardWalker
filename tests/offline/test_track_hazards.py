@@ -97,7 +97,6 @@ def test_tracker_requires_distinct_views_before_confirmation():
             )
         ])
     assert tracks[0].status == 'tentative'
-
     tracks = tracker.update([
         HazardObservation(
             position=(1.1, 0.0, 0.5), confidence=0.85,
@@ -106,6 +105,89 @@ def test_tracker_requires_distinct_views_before_confirmation():
     ])
     assert tracks[0].status == 'confirmed'
     assert tracks[0].view_ids == ['pos:0.0:0.0:0.0|yaw:0', 'pos:0.4:0.0:0.0|yaw:30']
+
+
+def test_official_rgbd_profile_requires_two_spherical_depth_views_before_confirmation():
+    """正式模式不得由仅 RGB 圆形或深度未知的三视角确认红色圆柱端面。"""
+    tracker = HazardTracker(HazardTrackerConfig(
+        confirm_observation_count=3,
+        min_distinct_views=3,
+        min_spherical_views_for_confirm=2,
+        expected_sphere_diameter_m=0.30,
+        max_sphere_diameter_relative_error=0.35,
+        merge_distance_m=0.5,
+    ))
+    for view_id in ('front', 'left', 'right'):
+        tracks = tracker.update([HazardObservation(
+            position=(1.0, 0.0, 0.5), confidence=0.9,
+            view_id=view_id, confirmation_eligible=True,
+            depth_shape_status='unknown', apparent_diameter_m=0.30,
+            aspect_ratio=0.95, depth_curvature_m=0.06,
+        )])
+
+    assert tracks[0].status == 'needs_reobservation'
+    assert tracks[0].evidence_status == 'insufficient_multiview_spherical_depth'
+
+    for view_id in ('left_depth', 'right_depth'):
+        tracks = tracker.update([HazardObservation(
+            position=(1.0, 0.0, 0.5), confidence=0.9,
+            view_id=view_id, confirmation_eligible=True,
+            depth_shape_status='spherical', apparent_diameter_m=0.30,
+            aspect_ratio=0.95, depth_curvature_m=0.06,
+        )])
+
+    assert tracks[0].status == 'confirmed'
+
+
+def test_partial_or_unstable_spherical_observations_do_not_supply_confirmation_evidence():
+    """局部可见弧段即使深度看似球面，也只能触发复查而不能补齐正证据。"""
+    tracker = HazardTracker(HazardTrackerConfig(
+        confirm_observation_count=3,
+        min_distinct_views=3,
+        min_spherical_views_for_confirm=2,
+        merge_distance_m=0.5,
+    ))
+    for view_id in ('front', 'left', 'right'):
+        tracks = tracker.update([HazardObservation(
+            position=(1.0, 0.0, 0.5), confidence=0.9,
+            view_id=view_id, confirmation_eligible=True,
+            depth_shape_status='unknown', apparent_diameter_m=0.30,
+            aspect_ratio=0.95, depth_curvature_m=0.06,
+        )])
+    for view_id in ('partial_left', 'partial_right'):
+        tracks = tracker.update([HazardObservation(
+            position=(1.0, 0.0, 0.5), confidence=0.5,
+            view_id=view_id, confirmation_eligible=False,
+            depth_shape_status='spherical', apparent_diameter_m=0.30,
+            aspect_ratio=0.30, depth_curvature_m=0.06,
+        )])
+
+    assert tracks[0].status == 'needs_reobservation'
+    assert tracks[0].spherical_view_ids == []
+    assert tracks[0].evidence_status == 'insufficient_multiview_spherical_depth'
+
+
+def test_official_size_prior_rechecks_a_spherical_but_wrong_sized_red_object():
+    """题目目标尺寸固定为直径 0.30 m，不能把明显更大的红球/圆物直接提交。"""
+    tracker = HazardTracker(HazardTrackerConfig(
+        confirm_observation_count=3,
+        min_distinct_views=3,
+        min_spherical_views_for_confirm=2,
+        expected_sphere_diameter_m=0.30,
+        max_sphere_diameter_relative_error=0.35,
+        merge_distance_m=0.5,
+    ))
+    for view_id in ('front', 'left', 'right'):
+        tracks = tracker.update([HazardObservation(
+            position=(1.0, 0.0, 0.5), confidence=0.9,
+            view_id=view_id, confirmation_eligible=True,
+            depth_shape_status='spherical', apparent_diameter_m=0.55,
+            aspect_ratio=0.95, depth_curvature_m=0.08,
+        )])
+
+    assert tracks[0].status == 'needs_reobservation'
+    assert tracks[0].evidence_status == 'inconsistent_absolute_sphere_diameter'
+    assert track_to_hazard_dict(tracks[0])['median_apparent_diameter_m'] == 0.55
 
 
 """验证轨迹可以转换为结果 JSON 使用的危险源字段。"""
@@ -124,3 +206,269 @@ def test_track_to_hazard_dict_preserves_confirmation_fields():
     assert hazard['status'] == 'confirmed'
     assert hazard['observation_count'] == 1
     assert hazard['source_ids'] == ['box_1']
+
+
+def test_flat_evidence_from_two_views_rejects_non_spherical_track():
+    tracker = HazardTracker(HazardTrackerConfig(
+        confirm_observation_count=2,
+        min_distinct_views=2,
+        merge_distance_m=0.5,
+        min_non_spherical_views_to_reject=2,
+    ))
+    tracker.update([HazardObservation(
+        position=(1.0, 0.0, 0.5), confidence=0.8,
+        view_id='left', confirmation_eligible=False, depth_shape_status='flat',
+    )])
+    tracks = tracker.update([HazardObservation(
+        position=(1.02, 0.0, 0.5), confidence=0.82,
+        view_id='right', confirmation_eligible=False, depth_shape_status='flat',
+    )])
+
+    assert tracks == []
+    assert tracker.tracks[0].status == 'rejected_non_spherical'
+    assert tracker.tracks[0].evidence_status == 'multi_view_flat_or_non_spherical'
+
+
+def test_single_flat_round_view_is_explicitly_marked_for_reobservation():
+    """圆柱端面首帧不能当普通 tentative，也不能只凭一帧永久拒绝。"""
+    tracker = HazardTracker(HazardTrackerConfig(
+        confirm_observation_count=3,
+        min_distinct_views=3,
+        min_view_bearing_span_deg=25.0,
+    ))
+
+    tracks = tracker.update([HazardObservation(
+        position=(1.0, 0.0, 0.2), confidence=0.9, stamp_sec=1.0,
+        view_id='front', confirmation_eligible=False, depth_shape_status='flat',
+        apparent_diameter_m=0.30, aspect_ratio=1.0, depth_curvature_m=0.0,
+        view_bearing_rad=0.0,
+    )])
+
+    assert len(tracks) == 1
+    assert tracks[0].status == 'needs_reobservation'
+    assert tracks[0].evidence_status == 'single_view_flat_or_non_spherical'
+
+
+def test_inconsistent_apparent_size_stays_needs_reobservation():
+    tracker = HazardTracker(HazardTrackerConfig(
+        confirm_observation_count=2,
+        min_distinct_views=2,
+        merge_distance_m=0.5,
+        max_apparent_diameter_cv=0.20,
+    ))
+    tracker.update([HazardObservation(
+        position=(1.0, 0.0, 0.5), confidence=0.8,
+        view_id='left', apparent_diameter_m=0.30,
+    )])
+    tracks = tracker.update([HazardObservation(
+        position=(1.01, 0.0, 0.5), confidence=0.85,
+        view_id='right', apparent_diameter_m=0.80,
+    )])
+
+    assert tracks[0].status == 'needs_reobservation'
+    assert tracks[0].evidence_status == 'inconsistent_apparent_size'
+
+
+def test_positive_views_can_outvote_one_flat_depth_outlier():
+    tracker = HazardTracker(HazardTrackerConfig(
+        confirm_observation_count=3,
+        min_distinct_views=2,
+        merge_distance_m=0.5,
+    ))
+    tracker.update([HazardObservation(
+        position=(1.0, 0.0, 0.5), confidence=0.8,
+        view_id='flat_outlier', confirmation_eligible=False, depth_shape_status='flat',
+    )])
+    for index, view_id in enumerate(('left', 'center', 'right'), start=1):
+        tracks = tracker.update([HazardObservation(
+            position=(1.0 + index * 0.01, 0.0, 0.5), confidence=0.85,
+            view_id=view_id, confirmation_eligible=True,
+            depth_shape_status='sphere_like', apparent_diameter_m=0.30 + index * 0.005,
+        )])
+
+    assert tracks[0].status == 'confirmed'
+
+
+def test_forward_only_views_cannot_confirm_without_lateral_parallax():
+    """圆柱正面在连续前后帧可近似圆形，必须取得真正侧向视角才可确认。"""
+    tracker = HazardTracker(HazardTrackerConfig(
+        confirm_observation_count=3,
+        min_distinct_views=3,
+        min_view_bearing_span_deg=25.0,
+        merge_distance_m=0.5,
+    ))
+    for index, bearing in enumerate((0.00, 0.03, -0.02), start=1):
+        tracks = tracker.update([HazardObservation(
+            position=(2.0, 0.0, 0.3), confidence=0.95,
+            view_id='front_%d' % index, confirmation_eligible=True,
+            apparent_diameter_m=0.30, aspect_ratio=0.98, depth_curvature_m=0.06,
+            view_bearing_rad=bearing,
+        )])
+
+    assert tracks[0].status == 'needs_reobservation'
+    assert tracks[0].evidence_status == 'insufficient_lateral_parallax'
+
+    tracks = tracker.update([HazardObservation(
+        position=(2.01, 0.0, 0.3), confidence=0.95,
+        view_id='side', confirmation_eligible=True,
+        apparent_diameter_m=0.30, aspect_ratio=0.98, depth_curvature_m=0.06,
+        view_bearing_rad=0.55,
+    )])
+    assert tracks[0].status == 'confirmed'
+    assert track_to_hazard_dict(tracks[0])['view_bearing_span_deg'] >= 25.0
+    assert tracks[0].eligible_observation_count == 4
+    assert tracks[0].evidence_status == 'multi_view_sphere_consistent'
+
+
+def test_ineligible_occluded_aspect_does_not_poison_later_complete_views():
+    tracker = HazardTracker(HazardTrackerConfig(
+        confirm_observation_count=3,
+        min_distinct_views=3,
+        min_multiview_aspect_ratio=0.88,
+    ))
+    tracker.update([HazardObservation(
+        (1.0, 2.0, 0.3), 0.75, view_id='occluded',
+        confirmation_eligible=False, aspect_ratio=0.54,
+    )])
+    for index, x in enumerate((1.00, 1.02, 0.98), start=1):
+        tracks = tracker.update([HazardObservation(
+            (x, 2.0, 0.3), 0.95, view_id=f'complete_{index}',
+            confirmation_eligible=True, aspect_ratio=0.97,
+            apparent_diameter_m=0.30, depth_curvature_m=0.04,
+        )])
+
+    assert tracks[0].status == 'confirmed'
+    assert tracks[0].eligible_view_ids == ['complete_1', 'complete_2', 'complete_3']
+    assert min(tracks[0].aspect_ratios) == 0.97
+    assert tracks[0].eligible_observation_count == 3
+    assert tracks[0].evidence_status == 'multi_view_sphere_consistent'
+
+
+def test_elliptical_multiview_shape_never_confirms_as_sphere():
+    tracker = HazardTracker(HazardTrackerConfig(
+        confirm_observation_count=3,
+        min_distinct_views=2,
+        merge_distance_m=0.5,
+        min_multiview_aspect_ratio=0.82,
+    ))
+    for index, view_id in enumerate(('left', 'left', 'right'), start=1):
+        tracks = tracker.update([HazardObservation(
+            position=(1.0 + index * 0.01, 0.0, 0.5), confidence=0.9,
+            view_id=view_id, confirmation_eligible=True,
+            depth_shape_status='spherical', apparent_diameter_m=0.35,
+            aspect_ratio=0.74,
+        )])
+
+    assert tracks[0].status == 'needs_reobservation'
+    assert tracks[0].evidence_status == 'inconsistent_multiview_aspect'
+
+
+def test_unstable_cone_depth_curvature_never_confirms_as_sphere():
+    tracker = HazardTracker(HazardTrackerConfig(
+        confirm_observation_count=3,
+        min_distinct_views=2,
+        merge_distance_m=0.5,
+        max_depth_curvature_cv=0.35,
+    ))
+    curvatures = (0.17, 0.073, 0.074)
+    for index, (view_id, curvature) in enumerate(zip(('front', 'left', 'right'), curvatures), start=1):
+        tracks = tracker.update([HazardObservation(
+            position=(1.0 + index * 0.01, 0.0, 0.5), confidence=0.9,
+            view_id=view_id, confirmation_eligible=True, depth_shape_status='spherical',
+            apparent_diameter_m=0.30, aspect_ratio=0.9, depth_curvature_m=curvature,
+        )])
+
+    assert tracks[0].status == 'needs_reobservation'
+    assert tracks[0].evidence_status == 'inconsistent_depth_curvature'
+
+
+def test_one_nonround_side_view_overrides_two_round_frontal_views():
+    tracker = HazardTracker(HazardTrackerConfig(
+        confirm_observation_count=3,
+        min_distinct_views=3,
+        merge_distance_m=0.5,
+        min_multiview_aspect_ratio=0.90,
+    ))
+    for view_id, aspect in (('front', 0.99), ('near', 0.98), ('side', 0.86)):
+        tracks = tracker.update([HazardObservation(
+            position=(1.0, 0.0, 0.5), confidence=0.9,
+            view_id=view_id, confirmation_eligible=True,
+            depth_shape_status='spherical', apparent_diameter_m=0.30,
+            aspect_ratio=aspect, depth_curvature_m=0.06,
+        )])
+
+    assert tracks[0].status == 'needs_reobservation'
+    assert tracks[0].evidence_status == 'inconsistent_multiview_aspect'
+
+
+def test_near_round_cone_side_view_still_blocks_confirmation():
+    tracker = HazardTracker(HazardTrackerConfig(
+        confirm_observation_count=3,
+        min_distinct_views=3,
+        merge_distance_m=0.5,
+        min_multiview_aspect_ratio=0.88,
+    ))
+    for view_id, aspect in (('front', 0.99), ('near', 0.99), ('side', 0.87)):
+        tracks = tracker.update([HazardObservation(
+            position=(1.0, 0.0, 0.5), confidence=0.9,
+            view_id=view_id, confirmation_eligible=True,
+            depth_shape_status='spherical', apparent_diameter_m=0.30,
+            aspect_ratio=aspect, depth_curvature_m=0.08,
+        )])
+
+    assert tracks[0].status == 'needs_reobservation'
+    assert tracks[0].evidence_status == 'inconsistent_multiview_aspect'
+
+
+def test_cone_face_with_excessive_median_curvature_is_rejected():
+    tracker = HazardTracker(HazardTrackerConfig(
+        confirm_observation_count=3,
+        min_distinct_views=3,
+        merge_distance_m=0.5,
+        max_median_normalized_depth_curvature=0.30,
+    ))
+    for view_id, curvature in (('front', 0.17), ('near', 0.15), ('side', 0.12)):
+        tracks = tracker.update([HazardObservation(
+            position=(1.0, 0.0, 0.5), confidence=0.9,
+            view_id=view_id, confirmation_eligible=True,
+            depth_shape_status='spherical', apparent_diameter_m=0.30,
+            aspect_ratio=0.96, depth_curvature_m=curvature,
+        )])
+
+    assert tracks[0].status == 'needs_reobservation'
+    assert tracks[0].evidence_status == 'excessive_normalized_depth_curvature'
+
+
+def test_flat_round_object_is_rejected_by_low_normalized_curvature():
+    tracker = HazardTracker(HazardTrackerConfig(
+        confirm_observation_count=2,
+        min_distinct_views=2,
+        merge_distance_m=0.5,
+        min_normalized_depth_curvature=0.10,
+    ))
+    for view_id in ('left', 'right'):
+        tracks = tracker.update([HazardObservation(
+            position=(1.0, 0.0, 0.5), confidence=0.9,
+            view_id=view_id, confirmation_eligible=True,
+            depth_shape_status='spherical', apparent_diameter_m=0.32,
+            aspect_ratio=0.90, depth_curvature_m=0.017,
+        )])
+
+    assert tracks[0].status == 'needs_reobservation'
+    assert tracks[0].evidence_status == 'insufficient_normalized_depth_curvature'
+
+
+def test_confirmed_track_survives_short_camera_miss_sequence():
+    tracker = HazardTracker(HazardTrackerConfig(
+        confirm_observation_count=2, min_distinct_views=2,
+        reject_after_missed_count=2, merge_distance_m=0.5,
+    ))
+    tracker.update([HazardObservation(position=(1.0, 0.0, 0.5), confidence=0.9, view_id='left')])
+    tracks = tracker.update([HazardObservation(position=(1.0, 0.0, 0.5), confidence=0.9, view_id='right')])
+    assert tracks[0].status == 'confirmed'
+
+    tracker.update([])
+    tracks = tracker.update([])
+
+    assert tracks[0].status == 'confirmed'
+    assert tracks[0].missed_count == 2

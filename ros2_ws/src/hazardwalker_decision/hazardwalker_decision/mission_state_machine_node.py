@@ -23,12 +23,17 @@
 import json
 import os
 from datetime import datetime
+from pathlib import Path
 
 import rclpy
+from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
 from std_msgs.msg import String
 
-from hazardwalker_decision.result_builder import build_mission_result
+from hazardwalker_decision.result_builder import (
+    build_mission_result,
+    build_official_detected_danger_result,
+)
 
 
 class MissionStateMachineNode(Node):
@@ -36,6 +41,12 @@ class MissionStateMachineNode(Node):
         super().__init__('mission_state_machine_node')
         self.declare_parameter('result_dir', 'reports/run_results')
         self.declare_parameter('mission_id', 'minimal_demo')
+        # 官方 SimEnv 评估器只读取这个结果文件。正式运行时感知节点必须提供
+        # 合法 SLAM 的 world 坐标；Gazebo /Odometry_gazebo 与 ground_truth 均不得使用。
+        self.declare_parameter('official_result_path', 'results/detected_danger.json')
+        self.declare_parameter('official_result_frame', 'world')
+        self.declare_parameter('official_result_dedup_distance_m', 0.30)
+        self.declare_parameter('official_require_legal_localization', True)
 
         # nav_state 保存导航组当前状态；hazards 用字典按 id 去重保存候选危险源。
         # 当前版本只做简单覆盖，后续要替换为多帧确认和状态管理。
@@ -116,12 +127,45 @@ class MissionStateMachineNode(Node):
         with open(path, 'w', encoding='utf-8') as f:
             json.dump(result, f, ensure_ascii=False, indent=2)
 
+        # 另外写出官方评分格式。仅 `confirmed` 且 world 坐标的球体轨迹会进入此文件，
+        # 所以红圆柱/圆锥候选、部分可见候选和被拒绝的非球体不会形成虚警提交。
+        official = build_official_detected_danger_result(
+            result['hazards'],
+            result['metrics']['duration_sec'],
+            expected_frame=self.get_parameter('official_result_frame').value,
+            dedup_distance_m=float(
+                self.get_parameter('official_result_dedup_distance_m').value
+            ),
+            require_legal_localization=bool(
+                self.get_parameter('official_require_legal_localization').value
+            ),
+            require_multiview_sphere_evidence=True,
+        )
+        official_value = self.get_parameter('official_result_path').value
+        official_path = Path(official_value)
+        if not official_path.is_absolute():
+            official_path = Path(repo_root) / official_path
+        official_path.parent.mkdir(parents=True, exist_ok=True)
+        temporary_path = official_path.with_suffix(official_path.suffix + '.tmp')
+        temporary_path.write_text(
+            json.dumps(official, ensure_ascii=False, indent=2) + '\n', encoding='utf-8',
+        )
+        temporary_path.replace(official_path)
+        self.get_logger().info(
+            f'Official danger result written: {official_path} '
+            f'({len(official["detected_danger_sources"])} confirmed world-frame sources).'
+        )
+
 
 def main():
     rclpy.init()
     node = MissionStateMachineNode()
     try:
         rclpy.spin(node)
+    except ExternalShutdownException:
+        # 栈统一停止时避免二次 shutdown 产生误导性的 RCLError。
+        pass
     finally:
-        node.destroy_node()
-        rclpy.shutdown()
+        if rclpy.ok():
+            node.destroy_node()
+            rclpy.shutdown()

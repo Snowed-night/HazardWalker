@@ -9,11 +9,16 @@ perception:
     upper_red_1: [10, 255, 255]
     lower_red_2: [170, 80, 80]
     upper_red_2: [180, 255, 255]
-    min_area_px: 80
-    min_circularity: 0.60
+    # 严格正证据至少 200 px；更小红色弧段交由 partial/reobserve 流程，
+    # 不能与远处红色杂物一起直接累加为危险源。
+    min_area_px: 200
+    # 0.65 可排除 7 月 5 日复杂多球图中的红方块轮廓（0.644），同时保留
+    # 45% 可见球的严格边界（约 0.66）。
+    min_circularity: 0.65
     min_aspect_ratio: 0.45
     min_extent: 0.35
-    max_extent: 0.92
+    # 圆形投影理论值约 0.785；超过 0.82 的近矩形区域只允许作为重观察候选。
+    max_extent: 0.82
     min_confidence: 0.5
 
   localization:
@@ -31,15 +36,34 @@ perception:
 
   tracking:
     confirm_observation_count: 3
-    # 正式确认要求至少两个离散视角，避免圆柱/圆盘单视角投影直接确认为红球。
-    confirm_distinct_views: 2
-    reject_after_missed_count: 10
+    # 正式确认要求三个稳定停靠视角，避免正面+靠近被误算成充分侧视证据。
+    confirm_distinct_views: 3
+    # 三个停靠点还必须让“相机 -> 目标”的水平视线至少跨越 25°。
+    # 只从正面前后靠近无法排除圆柱、圆锥或圆盘端面。
+    min_view_bearing_span_deg: 25.0
+    reject_after_missed_count: 300
     merge_distance_m: 0.5
+    max_apparent_diameter_cv: 0.35
+    # 官方目标直径 0.30 m；保持一定裕量以覆盖 RGB-D 投影/深度噪声。
+    expected_sphere_diameter_m: 0.30
+    max_sphere_diameter_relative_error: 0.35
+    # 至少一个侧视轮廓低于该比例即保留为待复查，不能用正面帧中位数掩盖。
+    min_multiview_aspect_ratio: 0.82
+    # 只有至少两个独立视角产生 RGB-D 球面正证据，轨迹才允许 confirmed。
+    min_spherical_views_for_confirm: 2
+    max_depth_curvature_cv: 0.65
+    # 球体深度曲率/表观直径的三视角中位数有效区间。
+    min_normalized_depth_curvature: 0.10
+    max_median_normalized_depth_curvature: 0.30
 
   active_reobservation:
     # 宽松候选只触发换视角，不进入危险源确认轨迹。
     emit_partial_candidates: true
-    partial_min_area_px: 30
-    partial_min_circularity: 0.30
-    partial_min_aspect_ratio: 0.30
+    # 保留约 5% 可见球面的最小红色弧段；输出仅为 reobserve，不可直接确认。
+    partial_min_area_px: 20
+    partial_min_circularity: 0.18
+    partial_min_aspect_ratio: 0.12
     partial_min_value: 50
+    stable_view_min_frames: 3
+    stable_view_max_translation_m: 0.002
+    stable_view_max_yaw_deg: 0.3

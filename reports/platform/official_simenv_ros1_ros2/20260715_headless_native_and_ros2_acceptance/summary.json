@@ -1,0 +1,13 @@
+{
+  "ros1_direct_control": {
+    "forward_displacement_m": 1.1766,
+    "forward_at_least_1m": true,
+    "turn_yaw_change_rad": 0.4096,
+    "turn_observed": true,
+    "stop_command_published": true,
+    "video_reference": "camera_before.png",
+    "video_reference_provided": true
+  },
+  "conclusion": "pass",
+  "note": "结论只基于本轮前后 /Odometry_gazebo；仍需人工核对视频、控制器日志与场景安全。"
+}

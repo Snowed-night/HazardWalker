@@ -1,3 +1,0 @@
-﻿case_id,condition,detection_count,annotated_image,note
-official_simenv_basic_case_01,official RealSense topic check,0,selected_images/official_simenv_basic_case_01_real_sense_detected.png,官方 RealSense Gazebo transport 取帧，当前画面未包含红球
-official_simenv_basic_case_02,temporary Gazebo camera check,2,selected_images/official_simenv_basic_case_02_test_camera_detected.png,官方世界中临时 Gazebo 相机取帧，包含红球检测框

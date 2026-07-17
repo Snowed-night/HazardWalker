@@ -1,2 +1,0 @@
-scenario,cmd_angular_z,cmd_duration_sec,before_view_id,after_view_id,distinct_view_count_after,confirmed_count,result,note
-official_simenv_20260710_dynamic_view_trial,0.2,2.0,pos:0.0:-2.0:0.4|yaw:90,pos:0.0:-2.0:0.4|yaw:90,1,0,platform_control_blocked,机器人接收转向命令但未形成有效第二相机视角，禁止将单视角连续帧确认为危险源。

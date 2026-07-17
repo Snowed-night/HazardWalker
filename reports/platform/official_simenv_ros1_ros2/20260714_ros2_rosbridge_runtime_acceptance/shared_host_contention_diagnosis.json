@@ -1,0 +1,25 @@
+{
+  "date": "2026-07-14",
+  "scope": "official_simenv_shared_host_diagnosis",
+  "conclusion": "not_a_formal_navigation_acceptance",
+  "observations": {
+    "simenv_containers_running": 3,
+    "docker_cpu_percent": {
+      "simenv_rl_door_acceptance": 287.96,
+      "simenv_run": 312.73,
+      "simenv_ros1_hazard_nav": 217.16
+    },
+    "host_load_average_1m": 45.35,
+    "host_logical_cpus": 32,
+    "sim_time_delta_sec_without_ros2_adapter_over_12_wall_sec": 1.282,
+    "near_entry_waypoint": [0.0, 1.0],
+    "near_entry_odom_start_xy_m": [0.1919906715, -1.7838221061],
+    "near_entry_odom_end_xy_m": [0.1661168803, -1.1373168020],
+    "near_entry_sim_time_delta_sec": 2.271
+  },
+  "interpretation": [
+    "官方控制器已对后续不同速度命令产生真实位移，不能把低实时性误判为速度锁死。",
+    "多个 Gazebo 同机运行导致场景不独占、实时性显著下降；停止或隔离遗留容器前，禁止把该轮作为导航性能或完整闭环证据。",
+    "本记录不使用危险源真值坐标，近入口航点仅用于控制链路诊断。"
+  ]
+}

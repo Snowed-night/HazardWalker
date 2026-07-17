@@ -1,0 +1,4 @@
+# 官方 SimEnv 的启动、验收脚本会在 Linux 主机执行；强制 LF，避免 CRLF 破坏 bash 语法。
+*.sh text eol=lf
+*.py text eol=lf
+*.patch text eol=lf

@@ -1,0 +1,4 @@
+record_id,test_item,expected_evidence,status,notes
+ROS1-DIRECT-01,直行至少1米,前后Odometry和视频,pass,见summary.json
+ROS1-DIRECT-02,原地转向,前后姿态和视频,pass,见summary.json
+ROS1-DIRECT-03,停止,零速度命令和视频,pass,见summary.json

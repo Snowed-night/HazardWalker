@@ -1,6 +1,14 @@
-# HazardWalker 仿真平台 — 远程使用手册
+# HazardWalker 仿真平台 — 历史远程使用手册
 
-> 版本：v3.2 | 日期：2026-07-08 | 面向：导航组 / 感知组
+> 历史版本：v3.2 | 日期：2026-07-08 | 面向：导航组 / 感知组
+
+> **重要更新（负责人：姜晨）**：本文件中的 `hw_bridge.py`、JSON 管道、
+> `ros1_bridge dynamic_bridge`、`/hw/Odometry_gazebo` 等描述属于旧实现，不能用于当前官方
+> SimEnv 验收；其中旧 JSON bridge 已被代码默认拒绝启动，因为它不完整转发 RGB-D，也不回传
+> `/hw/cmd_vel`。官方 ROS1 profile 的唯一当前入口、稳定话题名、环境变量和验收顺序以
+> [`docs/environment/官方SimEnv_ROS1_ROS2双向适配整改_20260714.md`](../../../docs/environment/官方SimEnv_ROS1_ROS2双向适配整改_20260714.md)
+> 为准：ROS2 主机运行 rosbridge 适配器，输出 `/hw/odom`、`/hw/camera/image_raw`、
+> `/hw/camera/depth_image` 等。保留本文件仅供追溯历史环境，不应执行下方的“第 3 步”。
 
 ---
 

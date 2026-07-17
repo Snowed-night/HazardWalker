@@ -6,11 +6,13 @@
 
 import os
 import sys
+from pathlib import Path
 
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
 sys.path.insert(0, os.path.join(REPO_ROOT, 'ros2_ws', 'src', 'hazardwalker_perception'))
 
 from hazardwalker_perception.dynamic_detection_records import (
+    build_perception_evidence_contract,
     build_dynamic_summary,
     build_dynamic_testing_record,
 )
@@ -53,3 +55,48 @@ def test_testing_record_leaves_truth_dependent_metrics_empty():
     assert row['truth_count'] == ''
     assert row['missed_count'] == ''
     assert row['false_positive_count'] == ''
+
+
+def test_formal_evidence_contract_requires_fixed_seed_code_version_and_legal_slam_pose():
+    eligible = build_perception_evidence_contract(
+        run_mode='official_random_scene',
+        scenario_seed='20260715_42',
+        code_version='59817d4',
+        legal_pose_topic='/hw/slam/odometry',
+        localization_provenance='lidar_imu_slam',
+    )
+    assert eligible['formal_evidence_eligible'] is True
+    assert eligible['contract_violations'] == []
+    assert eligible['truth_inputs_used'] is False
+
+    rejected = build_perception_evidence_contract(
+        run_mode='internal_regression',
+        scenario_seed='',
+        code_version='',
+        legal_pose_topic='/hw/odom',
+        localization_provenance='unverified',
+    )
+    assert rejected['formal_evidence_eligible'] is False
+    assert set(rejected['contract_violations']) >= {
+        'run_mode_not_official_random_scene',
+        'missing_fixed_scenario_seed',
+        'missing_code_version',
+        'forbidden_pose_topic',
+        'unverified_localization_provenance',
+    }
+
+
+def test_dynamic_recorder_module_has_direct_execution_entrypoint():
+    """避免 ``python -m`` 静默退出，确保官方实验能实际落盘记录。"""
+
+    source_path = Path(REPO_ROOT) / 'ros2_ws' / 'src' / 'hazardwalker_perception' / (
+        'hazardwalker_perception/dynamic_detection_recorder_node.py'
+    )
+    source = source_path.read_text(encoding='utf-8')
+
+    assert "if __name__ == '__main__':" in source
+    assert "declare_parameter('run_mode', 'internal_regression')" in source
+    assert "declare_parameter('depth_topic', '/hw/camera/depth_image')" in source
+    assert "declare_parameter('detection_topic', '/hw/perception/hazard_detections')" in source
+    assert "'forbidden_pose_topic' in self.evidence_contract.get('contract_violations', [])" in source
+    assert 'trajectory.jsonl' in source

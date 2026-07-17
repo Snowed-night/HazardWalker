@@ -1,0 +1,7 @@
+record_id,test_item,evidence,status,owner,notes
+P-20260714-R01,ROS1 odometry availability,received one /Odometry_gazebo message,observed,姜晨,not a motion test
+P-20260714-R02,ROS1 cmd_vel controller subscription,/unitree_gazebo_servo subscribes and publishes MotorCmd,observed,姜晨,subscription does not prove movement
+P-20260714-R03,RGB-D topic availability,/camera and /real_sense topic count is zero,blocked,姜晨,repair headless rendering before bridge test
+P-20260714-R04,Direct motion test,no command sent in shared environment,not_run,姜晨,avoid interference from external publishers
+P-20260714-R05,Physics state,/gazebo/get_physics_properties returns pause false,observed,姜晨,not a motion proof
+P-20260714-R06,Camera source configuration,real_sense xacro config exists but auto.sh omits headless launch argument,blocked,姜晨,apply headless rendering candidate in isolated official copy

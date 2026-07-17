@@ -1,0 +1,40 @@
+{
+  "owner": "姜晨",
+  "date": "2026-07-15",
+  "scope": "official SimEnv one-click ROS1 ROS2 business stack lifecycle",
+  "container": "simenv_run",
+  "ros_domain_id": 42,
+  "run_command": "bash scripts/run_official_simenv_ros1_ros2_stack.sh start_navigation:=true",
+  "during_stack": {
+    "ros2_nodes": [
+      "/hazardwalker_official_rosbridge_adapter",
+      "/hsv_detector_node",
+      "/mission_state_machine_node",
+      "/waypoint_patrol_node"
+    ],
+    "hw_cmd_vel_publishers": 1,
+    "hw_cmd_vel_subscribers": 1,
+    "hw_odom_publishers": 1,
+    "hw_odom_subscribers": 1,
+    "real_rgb_processed": true,
+    "perception_tf_available": true
+  },
+  "after_sigterm": {
+    "ros_domain_42_nodes": 0,
+    "owner_integration_processes_remaining": 0
+  },
+  "clean_checkout_reproduction": {
+    "commit": "3609068",
+    "workspace_build_directory": "ros2_ws",
+    "packages_built": 5,
+    "adapter_shutdown_traceback": false
+  },
+  "conclusion": "passed_for_startup_data_and_cleanup_only",
+  "not_claimed": [
+    "effective_navigation_completion",
+    "red_ball_search",
+    "multiview_confirmation",
+    "3d_localization",
+    "full_mission_closed_loop"
+  ]
+}
