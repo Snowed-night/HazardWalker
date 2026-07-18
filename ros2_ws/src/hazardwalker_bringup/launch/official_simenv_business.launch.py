@@ -129,7 +129,9 @@ def _launch_cartographer(context, nav_pkg):
             ],
             parameters=[{'use_sim_time': use_sim_time}],
             remappings=[
-                ('scan_1', '/hw/scan'),
+                # Cartographer 单雷达模式的标准输入名是 scan；只有配置两个
+                # LaserScan 时才改为 scan_1、scan_2。
+                ('scan', '/hw/scan'),
                 ('imu', '/hw/trunk_imu'),
                 ('odom', '/hazardwalker/slam/odometry'),
             ],

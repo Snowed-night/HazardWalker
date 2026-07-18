@@ -271,7 +271,8 @@ def test_official_business_launch_never_starts_fake_platform_by_default():
     assert "executable='cartographer_node'" in source
     assert "executable='cartographer_occupancy_grid_node'" in source
     assert "executable='depth_to_scan_node'" not in source
-    assert "('scan_1', '/hw/scan')" in source
+    assert "('scan', '/hw/scan')" in source
+    assert "('scan_1', '/hw/scan')" not in source
     assert "('scan_2', '/hw/depth_scan')" not in source
     assert "('odom', '/hazardwalker/slam/odometry')" in source
     assert "'publish_tf': publish_legal_tf_parameter" in source
