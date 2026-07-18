@@ -20,7 +20,7 @@ from nav_msgs.msg import Odometry
 from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
 from rclpy.qos import DurabilityPolicy, QoSProfile
-from sensor_msgs.msg import CameraInfo, Image
+from sensor_msgs.msg import CameraInfo, Image, Imu, LaserScan, PointCloud2
 from std_msgs.msg import String
 from tf2_msgs.msg import TFMessage
 from geometry_msgs.msg import TransformStamped
@@ -47,6 +47,13 @@ class RosbridgeHwAdapter(Node):
         # 原始 640x480 RGB-D 通过 rosbridge 时，前一帧未收全又开始下一帧会造成分片混杂。
         # 默认节流到 2 Hz；平台带宽验证充足后可按毫秒调小此参数。
         self.image_throttle_rate_ms = int(self.declare_parameter('image_throttle_rate_ms', 500).value)
+        # ---- 激光雷达与 IMU 转发 (导航组 SLAM 必需) ----
+        self.enable_scan_relay = bool(self.declare_parameter('enable_scan_relay', True).value)
+        self.enable_lidar_relay = bool(self.declare_parameter('enable_lidar_relay', True).value)
+        self.scan_topic = self.declare_parameter('scan_topic', '/scan').value
+        self.livox_cloud_topic = self.declare_parameter('livox_cloud_topic', '/livox/Pointcloud2').value
+        self.livox_imu_topic = self.declare_parameter('livox_imu_topic', '/livox/imu').value
+        self.trunk_imu_topic = self.declare_parameter('trunk_imu_topic', '/trunk_imu').value
         # 三维定位需要 tf2 查询相机到 world/odom 的外参；官方 ROS1 /tf 必须显式转入 ROS2。
         self.enable_tf_relay = bool(self.declare_parameter('enable_tf_relay', True).value)
         # 官方 state_from_gazebo 可发布约 1 kHz 位姿。rosbridge 序列化每一条会反向拖慢 Gazebo，
@@ -97,10 +104,16 @@ class RosbridgeHwAdapter(Node):
         self.tf_pub = self.create_publisher(TFMessage, '/tf', 20)
         self.tf_static_pub = self.create_publisher(
             TFMessage, '/tf_static', QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL))
+        self.scan_pub = self.create_publisher(LaserScan, '/hw/scan', 10)
+        self.livox_cloud_pub = self.create_publisher(PointCloud2, '/hw/lidar/points', 10)
+        self.livox_imu_pub = self.create_publisher(Imu, '/hw/livox/imu', 10)
+        self.trunk_imu_pub = self.create_publisher(Imu, '/hw/trunk_imu', 10)
         self._ros_publishers = {
             'odom': self.odom_pub, 'rgb': self.rgb_pub, 'depth': self.depth_pub,
             'rgb_info': self.info_pub, 'depth_info': self.depth_info_pub,
             'tf': self.tf_pub, 'tf_static': self.tf_static_pub,
+            'scan': self.scan_pub, 'livox_cloud': self.livox_cloud_pub,
+            'livox_imu': self.livox_imu_pub, 'trunk_imu': self.trunk_imu_pub,
         }
         self.status_pub = self.create_publisher(String, '/hw/platform/official_simenv_adapter_status', 10)
         self.cmd_sub = self.create_subscription(Twist, '/hw/cmd_vel', self._on_cmd, 10)
@@ -158,6 +171,14 @@ class RosbridgeHwAdapter(Node):
                 if self.enable_tf_relay:
                     subscriptions.extend((('/tf', 'tf2_msgs/TFMessage'),
                                           ('/tf_static', 'tf2_msgs/TFMessage')))
+                if self.enable_scan_relay:
+                    subscriptions.append((self.scan_topic, 'sensor_msgs/LaserScan'))
+                if self.enable_lidar_relay:
+                    subscriptions.extend((
+                        (self.livox_cloud_topic, 'sensor_msgs/PointCloud2'),
+                        (self.livox_imu_topic, 'sensor_msgs/Imu'),
+                        (self.trunk_imu_topic, 'sensor_msgs/Imu'),
+                    ))
                 for topic, msg_type in subscriptions:
                     request = {'op': 'subscribe', 'id': 'hw:' + topic, 'topic': topic, 'type': msg_type,
                                'queue_length': 1, 'fragment_size': 60000, 'compression': 'none'}
@@ -300,6 +321,63 @@ class RosbridgeHwAdapter(Node):
             # 不发布空 TFMessage，否则会覆盖由真值里程计排队的 odom→base。
             if message.transforms:
                 self._queue_message('tf' if topic == '/tf' else 'tf_static', message)
+        elif self.enable_scan_relay and topic == self.scan_topic:
+            message = LaserScan()
+            _stamp(message.header.stamp, header.get('stamp'))
+            message.header.frame_id = header.get('frame_id', 'laser_livox')
+            message.angle_min = float(source.get('angle_min', 0.0))
+            message.angle_max = float(source.get('angle_max', 0.0))
+            message.angle_increment = float(source.get('angle_increment', 0.0))
+            message.range_min = float(source.get('range_min', 0.0))
+            message.range_max = float(source.get('range_max', 0.0))
+            message.ranges = [float(r) for r in source.get('ranges', [])]
+            message.intensities = [float(i) for i in source.get('intensities', [])]
+            self._queue_message('scan', message)
+        elif self.enable_lidar_relay and topic == self.livox_cloud_topic:
+            message = PointCloud2()
+            _stamp(message.header.stamp, header.get('stamp'))
+            message.header.frame_id = header.get('frame_id', 'laser_livox')
+            message.height = int(source.get('height', 1))
+            message.width = int(source.get('width', 0))
+            message.point_step = int(source.get('point_step', 0))
+            message.row_step = int(source.get('row_step', 0))
+            message.is_dense = bool(source.get('is_dense', False))
+            from sensor_msgs.msg import PointField
+            message.fields = [PointField(
+                name=f.get('name', ''), offset=int(f.get('offset', 0)),
+                datatype=int(f.get('datatype', 0)), count=int(f.get('count', 1))
+            ) for f in source.get('fields', [])]
+            try:
+                message.data = base64.b64decode(source.get('data', ''), validate=True)
+            except (binascii.Error, ValueError):
+                return
+            self._queue_message('livox_cloud', message)
+        elif self.enable_lidar_relay and topic == self.livox_imu_topic:
+            message = Imu()
+            _stamp(message.header.stamp, header.get('stamp'))
+            message.header.frame_id = header.get('frame_id', 'livox_imu_link')
+            acc = source.get('linear_acceleration', {})
+            message.linear_acceleration.x = float(acc.get('x', 0.0))
+            message.linear_acceleration.y = float(acc.get('y', 0.0))
+            message.linear_acceleration.z = float(acc.get('z', 0.0))
+            ang = source.get('angular_velocity', {})
+            message.angular_velocity.x = float(ang.get('x', 0.0))
+            message.angular_velocity.y = float(ang.get('y', 0.0))
+            message.angular_velocity.z = float(ang.get('z', 0.0))
+            self._queue_message('livox_imu', message)
+        elif self.enable_lidar_relay and topic == self.trunk_imu_topic:
+            message = Imu()
+            _stamp(message.header.stamp, header.get('stamp'))
+            message.header.frame_id = header.get('frame_id', 'imu_link')
+            acc = source.get('linear_acceleration', {})
+            message.linear_acceleration.x = float(acc.get('x', 0.0))
+            message.linear_acceleration.y = float(acc.get('y', 0.0))
+            message.linear_acceleration.z = float(acc.get('z', 0.0))
+            ang = source.get('angular_velocity', {})
+            message.angular_velocity.x = float(ang.get('x', 0.0))
+            message.angular_velocity.y = float(ang.get('y', 0.0))
+            message.angular_velocity.z = float(ang.get('z', 0.0))
+            self._queue_message('trunk_imu', message)
         else:
             return
         self._counts[topic] = self._counts.get(topic, 0) + 1

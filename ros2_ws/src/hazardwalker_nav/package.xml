@@ -1,8 +1,8 @@
 <?xml version="1.0"?>
 <package format="3">
   <name>hazardwalker_nav</name>
-  <version>0.1.0</version>
-  <description>Navigation, waypoint patrol, exploration, and return-home nodes.</description>
+  <version>0.2.0</version>
+  <description>Navigation, waypoint patrol, frontier exploration, SLAM integration, and return-home nodes.</description>
   <maintainer email="todo@example.com">HazardWalker Team</maintainer>
   <license>Apache-2.0</license>
 
@@ -12,6 +12,8 @@
   <exec_depend>nav_msgs</exec_depend>
   <exec_depend>rclpy</exec_depend>
   <exec_depend>std_msgs</exec_depend>
+  <exec_depend>tf2_ros</exec_depend>
+  <exec_depend>python3-numpy</exec_depend>
 
   <test_depend>ament_flake8</test_depend>
   <test_depend>ament_pep257</test_depend>
