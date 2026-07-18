@@ -107,6 +107,9 @@ class FrontierExplorerNode(Node):
         self.robot_x = 0.0
         self.robot_y = 0.0
         self.robot_yaw = 0.0
+        # 第一条合法 TF 代表官方公开起点朝向。INIT 原地旋转只用于积累扫描，
+        # 不能把旋转后的随机朝向误当作“进入建筑”的方向。
+        self._initial_heading_yaw: Optional[float] = None
         self._last_pose_stamp: Optional[Tuple[int, int]] = None
         self._last_pose_monotonic: Optional[float] = None
         self.tf_buffer = tf2_ros.Buffer()
@@ -449,6 +452,8 @@ class FrontierExplorerNode(Node):
             siny_cosp = 2.0 * (q.w * q.z + q.x * q.y)
             cosy_cosp = 1.0 - 2.0 * (q.y * q.y + q.z * q.z)
             self.robot_yaw = math.atan2(siny_cosp, cosy_cosp)
+            if self._initial_heading_yaw is None:
+                self._initial_heading_yaw = self.robot_yaw
             stamp = (
                 int(transform.header.stamp.sec),
                 int(transform.header.stamp.nanosec),
@@ -566,7 +571,15 @@ class FrontierExplorerNode(Node):
                 min_frontier_size=min_size,
                 # 首次用当前朝向选中入楼前沿；随后用首段路径固定“楼内半平面”，
                 # 允许左右房间参与评分，同时拒绝入口背后的巨大楼外前沿。
-                robot_yaw=self.robot_yaw if self._entry_axis is None else None,
+                robot_yaw=(
+                    (
+                        self._initial_heading_yaw
+                        if self._initial_heading_yaw is not None
+                        else self.robot_yaw
+                    )
+                    if self._entry_axis is None
+                    else None
+                ),
                 entry_origin=self._entry_origin,
                 entry_axis=self._entry_axis)
             if best is None:

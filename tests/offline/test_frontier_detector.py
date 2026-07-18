@@ -280,6 +280,8 @@ def test_frontier_node_fails_closed_without_pose_scan_or_safe_return_path():
     assert 'if not new_frontiers and unvisited_frontiers:' in source
     assert 'trying %d largest ' in source
     assert 'unvisited fragments safely.' in source
-    assert 'self.robot_yaw if self._entry_axis is None else None' in source
+    assert 'self._initial_heading_yaw = self.robot_yaw' in source
+    assert 'self._initial_heading_yaw' in source
+    assert 'if self._entry_axis is None' in source
     assert 'self._entry_axis = (' in source
     compile(source, 'frontier_explorer_node.py', 'exec')
