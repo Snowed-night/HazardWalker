@@ -19,7 +19,7 @@ from pathlib import Path
 import numpy as np
 import rclpy
 from rclpy.executors import ExternalShutdownException
-from nav_msgs.msg import Odometry
+from nav_msgs.msg import OccupancyGrid, Odometry
 from rclpy.node import Node
 from sensor_msgs.msg import Image
 from std_msgs.msg import String
@@ -61,6 +61,7 @@ class DynamicDetectionRecorderNode(Node):
         self.declare_parameter('depth_topic', '/hw/camera/depth_image')
         self.declare_parameter('detection_topic', '/hw/perception/hazard_detections')
         self.declare_parameter('mission_state_topic', '/hw/mission/state')
+        self.declare_parameter('map_topic', '/map')
         self.declare_parameter('result_json_path', 'results/detected_danger.json')
         self.declare_parameter('context_save_interval_sec', 10.0)
         self.declare_parameter('max_context_evidence_count', 80)
@@ -96,6 +97,7 @@ class DynamicDetectionRecorderNode(Node):
                 'detections': str(self.get_parameter('detection_topic').value),
                 'legal_pose': str(self.get_parameter('legal_pose_topic').value),
                 'mission_state': str(self.get_parameter('mission_state_topic').value),
+                'map': str(self.get_parameter('map_topic').value),
             },
             'mission_completion_required': True,
             'launch_command': str(self.get_parameter('launch_command').value),
@@ -110,6 +112,7 @@ class DynamicDetectionRecorderNode(Node):
         self.latest_depth_stamp = 0.0
         self.latest_depth_frame_id = ''
         self.latest_legal_pose = None
+        self.latest_map = None
         self.last_image_save_sec = float('-inf')
         self.last_pose_save_sec = float('-inf')
         self.trajectory_sample_count = 0
@@ -143,6 +146,12 @@ class DynamicDetectionRecorderNode(Node):
             str(self.get_parameter('mission_state_topic').value),
             self.on_mission_state,
             10,
+        )
+        self.map_sub = self.create_subscription(
+            OccupancyGrid,
+            str(self.get_parameter('map_topic').value),
+            self.on_map,
+            5,
         )
         self.recommendation_pub = self.create_publisher(String, '/hw/perception/view_recommendation', 10)
         self.get_logger().info(f'动态检测记录将写入 {self.output_dir}')
@@ -244,6 +253,11 @@ class DynamicDetectionRecorderNode(Node):
         if str(message.data).strip() == 'FINISHED':
             self.mission_completed = True
 
+    def on_map(self, message):
+        """缓存最新合法 SLAM 占据栅格，统一收尾时写出可视地图证据。"""
+
+        self.latest_map = message
+
     def close(self):
         """在节点退出时写入汇总和测试组 CSV/JSON。"""
 
@@ -269,6 +283,7 @@ class DynamicDetectionRecorderNode(Node):
             'failure_reasons_file': 'failure_reasons.json',
             'evidence_contract': self.evidence_contract,
             'mission_completed': self.mission_completed,
+            'map_snapshot_file': self._save_map_snapshot(),
         })
         _write_json(self.output_dir / 'summary.json', summary)
 
@@ -285,6 +300,71 @@ class DynamicDetectionRecorderNode(Node):
         _write_json(self.test_record_dir / 'testing_record_perception.json', testing_record)
         _write_single_row_csv(self.test_record_dir / 'testing_record_perception.csv', testing_record)
         self.get_logger().info(f'动态检测汇总已写入 {self.output_dir / "summary.json"}')
+
+    def _save_map_snapshot(self):
+        """用 ROS map_server 兼容格式保存最后一帧地图，不依赖 GUI 或额外服务。"""
+
+        if self.latest_map is None:
+            return ''
+        info = self.latest_map.info
+        width = int(info.width)
+        height = int(info.height)
+        values = list(self.latest_map.data)
+        if width <= 0 or height <= 0 or len(values) != width * height:
+            return ''
+
+        # OccupancyGrid 原点在左下；PGM 首行在上方，因此按行反转。未知、自由、
+        # 占据采用 nav2/map_server 通用灰度，便于测试组直接查看。
+        pixels = bytearray()
+        for row in range(height - 1, -1, -1):
+            start = row * width
+            for value in values[start:start + width]:
+                if value < 0:
+                    pixels.append(205)
+                elif value >= 65:
+                    pixels.append(0)
+                else:
+                    pixels.append(254)
+        pgm_path = self.output_dir / 'cartographer_map.pgm'
+        pgm_path.write_bytes(
+            f'P5\n{width} {height}\n255\n'.encode('ascii') + bytes(pixels)
+        )
+        yaml_path = self.output_dir / 'cartographer_map.yaml'
+        origin = info.origin
+        yaw = _quaternion_yaw(origin.orientation)
+        yaml_path.write_text(
+            '\n'.join([
+                'image: cartographer_map.pgm',
+                'mode: trinary',
+                f'resolution: {float(info.resolution):.8f}',
+                'origin: [%.8f, %.8f, %.8f]' % (
+                    float(origin.position.x),
+                    float(origin.position.y),
+                    yaw,
+                ),
+                'negate: 0',
+                'occupied_thresh: 0.65',
+                'free_thresh: 0.25',
+                '',
+            ]),
+            encoding='utf-8',
+        )
+        _write_json(self.output_dir / 'cartographer_map_metadata.json', {
+            'frame_id': str(self.latest_map.header.frame_id),
+            'stamp_sec': _stamp_to_sec(self.latest_map.header.stamp),
+            'width': width,
+            'height': height,
+            'resolution_m': float(info.resolution),
+            'origin': [
+                float(origin.position.x),
+                float(origin.position.y),
+                yaw,
+            ],
+            'free_cells': sum(1 for value in values if value == 0),
+            'occupied_cells': sum(1 for value in values if value >= 65),
+            'unknown_cells': sum(1 for value in values if value < 0),
+        })
+        return 'cartographer_map.yaml'
 
     def _latest_image_shape(self):
         if self.latest_image is None:
@@ -425,6 +505,19 @@ def _depth_message_to_meters(msg):
 
 def _stamp_to_sec(stamp):
     return float(stamp.sec) + float(stamp.nanosec) * 1e-9
+
+
+def _quaternion_yaw(orientation):
+    """将地图原点四元数转换为二维 yaw。"""
+
+    siny_cosp = 2.0 * (
+        float(orientation.w) * float(orientation.z)
+        + float(orientation.x) * float(orientation.y)
+    )
+    cosy_cosp = 1.0 - 2.0 * (
+        float(orientation.y) ** 2 + float(orientation.z) ** 2
+    )
+    return float(np.arctan2(siny_cosp, cosy_cosp))
 
 
 def _payload_stamp_to_sec(detections, fallback):

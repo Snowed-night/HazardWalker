@@ -253,6 +253,13 @@ def test_official_business_launch_never_starts_fake_platform_by_default():
     assert "LaunchConfigurationEquals(\n                    'nav_mode', expected_value='waypoint')" in source
     assert 'PythonExpression' in source
     assert "'goal_tolerance_m': 0.25" in source
+    cartographer_config = (
+        REPO_ROOT / 'ros2_ws' / 'src' / 'hazardwalker_nav' / 'config' /
+        'cartographer_official_2d.lua'
+    ).read_text(encoding='utf-8')
+    assert 'POSE_GRAPH.constraint_builder.max_constraint_distance = 1.5' in cartographer_config
+    assert 'POSE_GRAPH.constraint_builder.min_score = 0.72' in cartographer_config
+    assert 'POSE_GRAPH.constraint_builder.global_localization_min_score = 0.90' in cartographer_config
     compile(source, 'official_simenv_business.launch.py', 'exec')
 
 

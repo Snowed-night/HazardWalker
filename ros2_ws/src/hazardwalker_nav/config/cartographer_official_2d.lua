@@ -49,5 +49,12 @@ TRAJECTORY_BUILDER_2D.motion_filter.max_angle_radians = math.rad(0.5)
 TRAJECTORY_BUILDER_2D.ceres_scan_matcher.translation_weight = 100.0
 TRAJECTORY_BUILDER_2D.ceres_scan_matcher.rotation_weight = 100.0
 POSE_GRAPH.optimize_every_n_nodes = 60
+-- 官方随机楼宇包含大量外观几乎相同的长直墙。默认 15 m 搜索半径会把相隔
+-- 3~7 m 的重复走廊误连成闭环，实测导致地图折叠、Frontier 在不足 1 m 处
+-- 提前耗尽。只允许与控制/扫描先验相近的局部闭环，并提高接受分数；真正回到
+-- 同一区域时先验已足够接近，仍可形成约束。
+POSE_GRAPH.constraint_builder.max_constraint_distance = 1.5
+POSE_GRAPH.constraint_builder.min_score = 0.72
+POSE_GRAPH.constraint_builder.global_localization_min_score = 0.90
 
 return options

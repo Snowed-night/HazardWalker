@@ -104,6 +104,10 @@ def test_dynamic_recorder_module_has_direct_execution_entrypoint():
     source = source_path.read_text(encoding='utf-8')
 
     assert "if __name__ == '__main__':" in source
+    assert "OccupancyGrid, Odometry" in source
+    assert "self.declare_parameter('map_topic', '/map')" in source
+    assert "self.output_dir / 'cartographer_map.pgm'" in source
+    assert "'map_snapshot_file': self._save_map_snapshot()" in source
     assert "declare_parameter('run_mode', 'internal_regression')" in source
     assert "declare_parameter('depth_topic', '/hw/camera/depth_image')" in source
     assert "declare_parameter('detection_topic', '/hw/perception/hazard_detections')" in source
