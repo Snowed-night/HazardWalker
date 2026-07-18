@@ -180,6 +180,21 @@ def test_return_path_appends_exact_home_without_goal_cell_snapping():
     assert path[-1] == exact_home
 
 
+def test_return_path_rejects_exact_home_outside_current_map():
+    grid = np.zeros((11, 11), dtype=np.int8)
+    message = _grid_message(grid, resolution=0.1)
+
+    path = a_star_path(
+        grid, message, 0.15, 0.55, 2.0, 0.55,
+        inflation_radius_m=0.0,
+        start_search_radius_m=0.2,
+        goal_search_radius_m=0.0,
+        append_exact_goal=True,
+    )
+
+    assert path == []
+
+
 def test_unreachable_frontier_basin_merges_centroid_jitter_and_backs_off():
     basin_keys = [(3.86, -3.42), (8.0, 1.0)]
 
@@ -451,6 +466,8 @@ def test_frontier_node_fails_closed_without_pose_scan_or_safe_return_path():
     assert "declare_parameter('unreachable_frontier_radius_m', 0.45)" in source
     assert "declare_parameter('unreachable_frontier_ttl_s', 45.0)" in source
     assert 'nearest_frontier_basin_key(' in source
+    assert 'for record in self._unreachable_frontiers.values()' in source
+    assert 'record[0] > now_ros' in source
     assert 'compute_exploration_time_limit_s(' in source
     assert "stamp != (0, 0) and stamp != self._last_pose_stamp" in source
     assert "stamp != (0, 0) and stamp != self._last_scan_stamp" in source

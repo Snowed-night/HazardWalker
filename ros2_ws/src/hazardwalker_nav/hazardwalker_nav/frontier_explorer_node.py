@@ -503,6 +503,23 @@ class FrontierExplorerNode(Node):
                             entry_error,
                         )
                 return cmd
+            if any(
+                    record[0] > now_ros
+                    for record in self._unreachable_frontiers.values()):
+                # 仍有失败盆地处于仿真时间退避期时不能用固定 completion
+                # grace 提前宣称“探索完成”；保持扫描，等待盆地到期后换图重试。
+                # 总任务返航截止由 on_timer 的硬门禁独立保证。
+                self._no_reachable_frontier_since = None
+                if self._scan_allows_action(
+                        'turn_left',
+                        float(self.get_parameter(
+                            'rotation_min_clearance_m').value)):
+                    cmd.angular.z = min(
+                        float(self.get_parameter(
+                            'frontier_recovery_turn_speed').value),
+                        float(self.get_parameter('angular_speed').value),
+                    )
+                return cmd
             if self._no_reachable_frontier_since is None:
                 self._no_reachable_frontier_since = now_ros
             elif now_ros < self._no_reachable_frontier_since:

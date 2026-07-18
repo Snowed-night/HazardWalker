@@ -281,6 +281,11 @@ def a_star_path(grid: np.ndarray, grid_msg,
     h, w = grid.shape
     sx, sy = world_to_grid(start_wx, start_wy, grid_msg)
     gx, gy = world_to_grid(goal_wx, goal_wy, grid_msg)
+    goal_was_in_bounds = 0 <= gx < w and 0 <= gy < h
+    if append_exact_goal and not goal_was_in_bounds:
+        # 精确返航目标若尚未落入当前地图，不能先把栅格钳到边界，再追加一段
+        # 穿越未知区的直线到原始世界坐标。
+        return []
 
     # 边界钳制
     sx = max(0, min(w - 1, sx))
