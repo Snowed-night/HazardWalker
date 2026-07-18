@@ -26,6 +26,7 @@ from hazardwalker_nav.frontier_detector import (  # noqa: E402
     nearest_frontier_basin_key,
     return_pose_has_progress,
     select_best_frontier,
+    should_switch_frontier,
     world_to_grid,
 )
 
@@ -396,6 +397,41 @@ def test_entry_axis_excludes_outside_but_keeps_side_rooms():
     assert selected is side_room
 
 
+def test_frontier_selection_keeps_near_small_room_over_far_huge_ray():
+    near_room = Frontier(
+        centroid=(2.0, 0.5), size=6, points=[], info_gain=8,
+    )
+    far_ray = Frontier(
+        centroid=(18.0, 0.0), size=300, points=[], info_gain=900,
+    )
+
+    selected = select_best_frontier(
+        [far_ray, near_room],
+        robot_wx=0.0,
+        robot_wy=0.0,
+        min_frontier_size=10,
+        locality_slack_m=3.0,
+    )
+
+    # 近场带内全是小簇时必须保留门口前沿，不能回退到远端巨大伪前沿。
+    assert selected is near_room
+
+
+def test_frontier_switch_uses_hold_time_and_distance_hysteresis():
+    assert not should_switch_frontier(
+        12.0, 2.0, held_duration_s=3.0,
+        switch_margin_m=1.0, minimum_hold_s=8.0,
+    )
+    assert not should_switch_frontier(
+        5.0, 4.2, held_duration_s=10.0,
+        switch_margin_m=1.0, minimum_hold_s=8.0,
+    )
+    assert should_switch_frontier(
+        12.0, 3.0, held_duration_s=10.0,
+        switch_margin_m=1.0, minimum_hold_s=8.0,
+    )
+
+
 def test_public_building_width_band_excludes_far_side_exterior():
     far_side_exterior = Frontier(
         centroid=(2.0, 18.0),
@@ -475,9 +511,9 @@ def test_frontier_node_fails_closed_without_pose_scan_or_safe_return_path():
     assert "'turn_left'," in source
     assert 'Clock(clock_type=ClockType.STEADY_TIME)' in source
     assert 'clock=self._control_clock' in source
-    assert 'if not new_frontiers and unvisited_frontiers:' in source
-    assert 'trying %d largest ' in source
-    assert 'unvisited fragments safely.' in source
+    assert "declare_parameter('frontier_locality_slack_m', 3.0)" in source
+    assert 'candidates = list(unvisited_frontiers)' in source
+    assert 'should_switch_frontier(' in source
     assert 'self._initial_heading_yaw = self.robot_yaw' in source
     assert 'self._initial_heading_yaw' in source
     assert 'if self._entry_axis is None' in source

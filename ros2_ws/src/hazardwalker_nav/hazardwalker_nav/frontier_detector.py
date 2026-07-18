@@ -154,6 +154,7 @@ def cluster_frontiers(frontier_mask: np.ndarray, grid: np.ndarray,
 def select_best_frontier(frontiers: List[Frontier], robot_wx: float, robot_wy: float,
                          last_target: Optional[Tuple[float, float]] = None,
                          min_frontier_size: int = 10,
+                         locality_slack_m: Optional[float] = None,
                          robot_yaw: Optional[float] = None,
                          robot_yaw_half_angle_rad: float = math.pi / 2.0,
                          require_robot_yaw_candidate: bool = False,
@@ -170,10 +171,9 @@ def select_best_frontier(frontiers: List[Frontier], robot_wx: float, robot_wy: f
     if not frontiers:
         return None
 
-    # 过滤太小前沿
-    valid = [f for f in frontiers if f.size >= min_frontier_size]
-    if not valid:
-        valid = frontiers  # 都太小时退回到所有前沿
+    # 先应用合法空间门禁，再在近场候选带内应用尺寸阈值。若先在整张地图上
+    # 删除小簇，近处门洞会被远处长射线形成的巨大前沿挤掉。
+    valid = list(frontiers)
     if entry_origin is not None and entry_axis is not None:
         # 官方起点在楼外，首个安全前沿给出了“进入建筑”的数据驱动方向。
         # 后续持续排除起点背面的楼外开放区，但不限制入口前方的左右房间。
@@ -229,6 +229,34 @@ def select_best_frontier(frontiers: List[Frontier], robot_wx: float, robot_wy: f
         elif require_robot_yaw_candidate:
             return None
 
+    if locality_slack_m is not None and valid:
+        # 词典序“近场优先”：只让距离最近前沿一定余量内的候选参与信息增益
+        # 竞争。它不读取房间布局或仿真真值，只使用当前合法 SLAM 位姿。
+        slack = max(0.0, float(locality_slack_m))
+        nearest_distance = min(
+            math.hypot(
+                frontier.centroid[0] - robot_wx,
+                frontier.centroid[1] - robot_wy,
+            )
+            for frontier in valid
+        )
+        valid = [
+            frontier for frontier in valid
+            if math.hypot(
+                frontier.centroid[0] - robot_wx,
+                frontier.centroid[1] - robot_wy,
+            ) <= nearest_distance + slack
+        ]
+
+    large_enough = [
+        frontier for frontier in valid
+        if frontier.size >= min_frontier_size
+    ]
+    if large_enough:
+        valid = large_enough
+    if not valid:
+        return None
+
     best = None
     best_score = -float('inf')
 
@@ -251,6 +279,29 @@ def select_best_frontier(frontiers: List[Frontier], robot_wx: float, robot_wy: f
             best = f
 
     return best
+
+
+def should_switch_frontier(current_distance_m: float,
+                           challenger_distance_m: float,
+                           held_duration_s: float,
+                           switch_margin_m: float = 1.0,
+                           minimum_hold_s: float = 8.0) -> bool:
+    """判断是否用新出现的近场前沿替换仍可规划的远目标。
+
+    最短锁定时间和距离滞回共同防止质心抖动；超过锁定期后，只有明显更近的
+    候选才能抢占。距离均来自同一合法 SLAM map 帧，不使用场景真值。
+    """
+
+    if not all(math.isfinite(value) for value in (
+            current_distance_m, challenger_distance_m, held_duration_s,
+            switch_margin_m, minimum_hold_s)):
+        return False
+    if held_duration_s < max(0.0, minimum_hold_s):
+        return False
+    return (
+        challenger_distance_m + max(0.0, switch_margin_m)
+        < current_distance_m
+    )
 
 
 def a_star_path(grid: np.ndarray, grid_msg,

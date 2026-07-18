@@ -41,6 +41,7 @@ from hazardwalker_nav.frontier_detector import (
     occupancy_grid_to_array,
     return_pose_has_progress,
     select_best_frontier,
+    should_switch_frontier,
     world_to_grid,
     OCCUPIED,
     FREE_MAX,
@@ -68,6 +69,11 @@ class FrontierExplorerNode(Node):
         self.declare_parameter('map_frame', 'map')
         self.declare_parameter('base_frame', 'base')
         self.declare_parameter('min_frontier_size', 10)
+        # 优先覆盖最近前沿附近的房间入口，避免远端长走廊/自由射线大簇凭
+        # 线性信息增益耗尽任务预算；0 表示只比较等距最近候选。
+        self.declare_parameter('frontier_locality_slack_m', 3.0)
+        self.declare_parameter('frontier_switch_margin_m', 1.0)
+        self.declare_parameter('frontier_minimum_hold_s', 8.0)
         # 非官方环境默认从第一条合法 TF 推断。官方 profile 会显式传入公开
         # 起点在 map 帧中的朝向，避免 INIT 建图旋转污染入楼方向。
         self.declare_parameter('entry_heading_yaw', float('nan'))
@@ -155,6 +161,7 @@ class FrontierExplorerNode(Node):
         self.last_target_world: Optional[Tuple[float, float]] = None
         self.current_path: List[Tuple[float, float]] = []
         self.path_index: int = 0
+        self._current_target_selected_ros_sec: Optional[float] = None
         self._last_replan_time = 0.0
         self._last_return_plan_time: Optional[float] = None
         self._visited_frontiers: set = set()  # 真正到达的前沿质心
@@ -810,21 +817,6 @@ class FrontierExplorerNode(Node):
             if record[0] >= now_ros - stale_horizon
         }
 
-        if self.current_target is not None:
-            refreshed_path = a_star_path(
-                self.grid, self.latest_map,
-                self.robot_x, self.robot_y,
-                self.current_target.centroid[0],
-                self.current_target.centroid[1],
-            )
-            if refreshed_path:
-                self.current_path = refreshed_path
-                self.path_index = 0
-                return
-            self._mark_frontier_unreachable(self.current_target)
-            self.current_target = None
-            self.current_path = []
-
         frontier_mask = find_frontiers(self.grid)
         if frontier_mask.sum() == 0:
             self.current_target = None
@@ -842,41 +834,22 @@ class FrontierExplorerNode(Node):
                     and not self._frontier_is_unreachable(f, now_ros)):
                 unvisited_frontiers.append(f)
 
-        new_frontiers = [
-            frontier for frontier in unvisited_frontiers
-            if frontier.size >= min_size
-        ]
-        if not new_frontiers and unvisited_frontiers:
-            # 稀疏 1° LaserScan 的自由区边缘会被分割成多个小簇。不能因为人为
-            # min_frontier_size 阈值而谎报“全部探索完成”；按大小取有限个回退
-            # 候选，仍须通过下方 A* 安全可达性检查。
-            new_frontiers = sorted(
-                unvisited_frontiers,
-                key=lambda frontier: frontier.size,
-                reverse=True,
-            )[:8]
-            self.get_logger().warn(
-                'No frontier met min_frontier_size=%d; trying %d largest '
-                'unvisited fragments safely.'
-                % (min_size, len(new_frontiers))
-            )
-
-        if not new_frontiers:
+        if not unvisited_frontiers:
             # 全部访问过 → 探索完成
             self.current_target = None
             self.current_path = []
             self.get_logger().info('All frontiers visited.')
             return
 
-        # 评分最高的前沿不一定能在“只走已知自由区”的安全地图上到达；
-        # 逐个尝试，规划失败的目标本轮不再反复选择。
-        candidates = list(new_frontiers)
-        while candidates:
-            entry_heading = self._entry_heading()
-            best = select_best_frontier(
-                candidates, self.robot_x, self.robot_y,
+        entry_heading = self._entry_heading()
+
+        def select_candidate(candidate_pool):
+            return select_best_frontier(
+                candidate_pool, self.robot_x, self.robot_y,
                 last_target=self.last_target_world,
                 min_frontier_size=min_size,
+                locality_slack_m=float(
+                    self.get_parameter('frontier_locality_slack_m').value),
                 # 首次用当前朝向选中入楼前沿；随后用首段路径固定“楼内半平面”，
                 # 允许左右房间参与评分，同时拒绝入口背后的巨大楼外前沿。
                 robot_yaw=entry_heading if self._entry_axis is None else None,
@@ -892,7 +865,66 @@ class FrontierExplorerNode(Node):
                 entry_origin=self._entry_origin,
                 entry_axis=self._entry_axis,
                 entry_lateral_limit_m=float(
-                    self.get_parameter('entry_lateral_limit_m').value))
+                    self.get_parameter('entry_lateral_limit_m').value),
+            )
+
+        if self.current_target is not None:
+            refreshed_path = a_star_path(
+                self.grid, self.latest_map,
+                self.robot_x, self.robot_y,
+                self.current_target.centroid[0],
+                self.current_target.centroid[1],
+            )
+            if not refreshed_path:
+                self._mark_frontier_unreachable(self.current_target)
+                self.current_target = None
+                self.current_path = []
+                self._current_target_selected_ros_sec = None
+            else:
+                challenger = select_candidate(unvisited_frontiers)
+                current_distance = math.hypot(
+                    self.current_target.centroid[0] - self.robot_x,
+                    self.current_target.centroid[1] - self.robot_y,
+                )
+                challenger_distance = (
+                    float('inf') if challenger is None
+                    else math.hypot(
+                        challenger.centroid[0] - self.robot_x,
+                        challenger.centroid[1] - self.robot_y,
+                    )
+                )
+                held_duration = (
+                    0.0 if self._current_target_selected_ros_sec is None
+                    else max(
+                        0.0,
+                        now_ros - self._current_target_selected_ros_sec,
+                    )
+                )
+                if not should_switch_frontier(
+                        current_distance,
+                        challenger_distance,
+                        held_duration,
+                        float(self.get_parameter(
+                            'frontier_switch_margin_m').value),
+                        float(self.get_parameter(
+                            'frontier_minimum_hold_s').value)):
+                    self.current_path = refreshed_path
+                    self.path_index = 0
+                    return
+                self.get_logger().info(
+                    'Switching frontier to nearer coverage target: '
+                    f'{current_distance:.2f}m -> {challenger_distance:.2f}m.'
+                )
+                # 旧目标既未失败也未到达，不能错误加入 visited/unreachable。
+                self.current_target = None
+                self.current_path = []
+                self._current_target_selected_ros_sec = None
+
+        # 评分最高的前沿不一定能在“只走已知自由区”的安全地图上到达；
+        # 逐个尝试，规划失败的目标本轮不再反复选择。
+        candidates = list(unvisited_frontiers)
+        while candidates:
+            best = select_candidate(candidates)
             if best is None:
                 break
             path = a_star_path(
@@ -910,6 +942,7 @@ class FrontierExplorerNode(Node):
                         math.sin(entry_heading),
                     )
                 self.current_target = best
+                self._current_target_selected_ros_sec = now_ros
                 self.last_target_world = best.centroid
                 self.current_path = path
                 self.path_index = 0
