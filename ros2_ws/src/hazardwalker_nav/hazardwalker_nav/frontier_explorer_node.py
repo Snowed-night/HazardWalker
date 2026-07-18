@@ -65,6 +65,8 @@ class FrontierExplorerNode(Node):
         # 起点在 map 帧中的朝向，避免 INIT 建图旋转污染入楼方向。
         self.declare_parameter('entry_heading_yaw', float('nan'))
         self.declare_parameter('entry_forward_half_angle_deg', 35.0)
+        # 0 表示通用环境不限制；官方 profile 按公开 20 m 楼宽上限加安全裕量。
+        self.declare_parameter('entry_lateral_limit_m', 0.0)
         # 官方场景前沿通常距离较近；过大的容差会把首个目标直接误判为“已到达”。
         self.declare_parameter('goal_tolerance_m', 0.25)
         self.declare_parameter('linear_speed', 0.35)
@@ -622,7 +624,9 @@ class FrontierExplorerNode(Node):
                 )),
                 require_robot_yaw_candidate=self._entry_axis is None,
                 entry_origin=self._entry_origin,
-                entry_axis=self._entry_axis)
+                entry_axis=self._entry_axis,
+                entry_lateral_limit_m=float(
+                    self.get_parameter('entry_lateral_limit_m').value))
             if best is None:
                 break
             path = a_star_path(

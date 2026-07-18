@@ -278,6 +278,32 @@ def test_entry_axis_excludes_outside_but_keeps_side_rooms():
     assert selected is side_room
 
 
+def test_public_building_width_band_excludes_far_side_exterior():
+    far_side_exterior = Frontier(
+        centroid=(2.0, 18.0),
+        size=1000,
+        points=[(0, 0)],
+        info_gain=1000.0,
+    )
+    interior_corridor = Frontier(
+        centroid=(18.0, -2.0),
+        size=80,
+        points=[(0, 0)],
+        info_gain=80.0,
+    )
+
+    selected = select_best_frontier(
+        [far_side_exterior, interior_corridor],
+        1.0,
+        0.0,
+        entry_origin=(0.0, 0.0),
+        entry_axis=(1.0, 0.0),
+        entry_lateral_limit_m=12.0,
+    )
+
+    assert selected is interior_corridor
+
+
 def test_entry_axis_finishes_when_only_outside_frontiers_remain():
     outside = Frontier(
         centroid=(0.0, -4.0),
@@ -329,6 +355,7 @@ def test_frontier_node_fails_closed_without_pose_scan_or_safe_return_path():
     assert 'self._initial_heading_yaw' in source
     assert 'if self._entry_axis is None' in source
     assert "declare_parameter('entry_heading_yaw', float('nan'))" in source
+    assert "declare_parameter('entry_lateral_limit_m', 0.0)" in source
     assert 'require_robot_yaw_candidate=self._entry_axis is None' in source
     assert 'self._entry_heading() - self.robot_yaw' in source
     assert 'if self._entry_axis is None:' in source

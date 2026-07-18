@@ -308,6 +308,9 @@ def generate_launch_description():
                     # 公开别名同为 +pi/2，因此起点在 map 帧的入楼朝向为 0 rad。
                     'entry_heading_yaw': 0.0,
                     'entry_forward_half_angle_deg': 35.0,
+                    # 官方生成器公开 footprint width 上限为 20 m；多留 2 m
+                    # SLAM/墙厚裕量，屏蔽横向远处楼外开放区。
+                    'entry_lateral_limit_m': 12.0,
                     # 0.8 m 会让入口附近的前沿在机器人尚未运动时即被判定完成。
                     'goal_tolerance_m': 0.25,
                     'linear_speed': 0.35,

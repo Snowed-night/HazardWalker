@@ -159,7 +159,9 @@ def select_best_frontier(frontiers: List[Frontier], robot_wx: float, robot_wy: f
                          require_robot_yaw_candidate: bool = False,
                          entry_origin: Optional[Tuple[float, float]] = None,
                          entry_axis: Optional[Tuple[float, float]] = None,
-                         entry_backtrack_margin_m: float = 0.5) -> Optional[Frontier]:
+                         entry_backtrack_margin_m: float = 0.5,
+                         entry_lateral_limit_m: Optional[float] = None
+                         ) -> Optional[Frontier]:
     """选择最优前沿：综合距离、信息增益、大小。
 
     策略：优先选择近距离、高信息增益的前沿。
@@ -183,12 +185,26 @@ def select_best_frontier(frontiers: List[Frontier], robot_wx: float, robot_wy: f
             axis_x /= axis_norm
             axis_y /= axis_norm
             margin = max(0.0, float(entry_backtrack_margin_m))
+            lateral_limit = (
+                None if entry_lateral_limit_m is None
+                else max(0.0, float(entry_lateral_limit_m))
+            )
             valid = [
                 frontier for frontier in valid
                 if (
                     (frontier.centroid[0] - float(entry_origin[0])) * axis_x
                     + (frontier.centroid[1] - float(entry_origin[1])) * axis_y
                 ) >= -margin
+                and (
+                    lateral_limit is None
+                    or lateral_limit <= 0.0
+                    or abs(
+                        -(frontier.centroid[0] - float(entry_origin[0]))
+                        * axis_y
+                        + (frontier.centroid[1] - float(entry_origin[1]))
+                        * axis_x
+                    ) <= lateral_limit
+                )
             ]
             if not valid:
                 return None
