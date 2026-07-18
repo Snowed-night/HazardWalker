@@ -8,6 +8,7 @@
 | `diagnostic_11_interior_width_band` | 合法 SLAM、Frontier 入楼、红球三维候选 | 成功进入楼宇并定位候选；主动复查时钟和相机轴约定有误，未确认、未返航 |
 | `diagnostic_12_stable_active_view` | 仿真时钟复查、X 前向视角、严格 RGB-D 门禁、探索超时 | 三轮主动换视角真实执行并进入返航状态；RGB-D 到达错帧导致 0 定位，按要求停止后未完成返航 |
 | `diagnostic_13_deferred_rgbd_pairing` | 同时间戳 RGB-D 延迟配对 | 未进入红球可见区域；同一不可达前沿连续卡死，感知修复未得到实景判定 |
+| `diagnostic_14_spatial_frontier_backoff_return_guard` | 空间退避、预算返航、真实 home 门禁 | 复杂楼内覆盖与返航在 416 秒闭环；未进入红球有效视野，仍需房间优先探索 |
 
 每轮均保留地图、关键 RGB 帧、逐帧结构化记录、合法 SLAM 轨迹、运行参数、代码版本、
 测试表和失败原因。大体积深度数组与运行日志保存在本地及远程原始证据目录，不提交 Git。

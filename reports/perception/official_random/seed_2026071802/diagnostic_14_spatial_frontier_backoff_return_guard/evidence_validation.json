@@ -1,0 +1,18 @@
+{
+  "schema": "hazardwalker_official_random_perception_evidence_validation_v1",
+  "evidence_dir": "reports\\perception\\official_random\\seed_2026071802\\diagnostic_14_spatial_frontier_backoff_return_guard",
+  "result_path": "reports\\perception\\official_random\\seed_2026071802\\diagnostic_14_spatial_frontier_backoff_return_guard\\detected_danger.json",
+  "frame_count": 5017,
+  "trajectory_sample_count": 755,
+  "rgb_evidence_count": 40,
+  "depth_evidence_count": 40,
+  "structural_evidence_complete": false,
+  "errors": [
+    "no_candidate_to_review",
+    "no_confirmed_red_ball"
+  ],
+  "scope_limitations": [
+    "本校验器不读取真值，不能计算召回率、虚警率或定位误差。",
+    "正式成绩须另用主办方赛后评测程序在运行结束后独立计算。"
+  ]
+}
