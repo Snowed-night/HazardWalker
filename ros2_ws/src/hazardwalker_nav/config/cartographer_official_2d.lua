@@ -40,7 +40,10 @@ options = {
 MAP_BUILDER.use_trajectory_builder_2d = true
 TRAJECTORY_BUILDER_2D.use_imu_data = true
 TRAJECTORY_BUILDER_2D.min_range = 0.40
-TRAJECTORY_BUILDER_2D.max_range = 30.0
+-- 官方 /scan 会用接近 30 m 的有限值表示量程上限。若 max_range 同为 30 m，
+-- Cartographer 会把这些“未击中”端点写成整圈弱占据障碍和伪前沿。室内正式
+-- 建图只把 8 m 内回波作为击中，超出部分按下方有限自由射线处理。
+TRAJECTORY_BUILDER_2D.max_range = 8.0
 TRAJECTORY_BUILDER_2D.missing_data_ray_length = 8.0
 TRAJECTORY_BUILDER_2D.num_accumulated_range_data = 1
 TRAJECTORY_BUILDER_2D.submaps.num_range_data = 60

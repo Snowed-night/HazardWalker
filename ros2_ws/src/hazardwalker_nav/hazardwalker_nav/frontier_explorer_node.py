@@ -74,6 +74,8 @@ class FrontierExplorerNode(Node):
         self.declare_parameter('frontier_locality_slack_m', 3.0)
         self.declare_parameter('frontier_switch_margin_m', 1.0)
         self.declare_parameter('frontier_minimum_hold_s', 8.0)
+        self.declare_parameter('frontier_net_progress_timeout_s', 30.0)
+        self.declare_parameter('frontier_net_progress_distance_m', 0.25)
         # 非官方环境默认从第一条合法 TF 推断。官方 profile 会显式传入公开
         # 起点在 map 帧中的朝向，避免 INIT 建图旋转污染入楼方向。
         self.declare_parameter('entry_heading_yaw', float('nan'))
@@ -165,6 +167,8 @@ class FrontierExplorerNode(Node):
         self.current_path: List[Tuple[float, float]] = []
         self.path_index: int = 0
         self._current_target_selected_ros_sec: Optional[float] = None
+        self._frontier_last_net_progress_ros: Optional[float] = None
+        self._frontier_progress_reference_distance: Optional[float] = None
         self._last_replan_time = 0.0
         self._last_return_plan_time: Optional[float] = None
         self._visited_frontiers: set = set()  # 真正到达的前沿质心
@@ -556,6 +560,22 @@ class FrontierExplorerNode(Node):
             return cmd
         self._no_reachable_frontier_since = None
 
+        if self._frontier_net_progress_expired(now_ros):
+            # 机器人可能持续转动，从而绕过普通“位姿不变”卡死检测；但只要
+            # 到目标的净距离长期不下降，就不能继续耗尽整个探索预算。
+            self.get_logger().warn(
+                'Frontier net-progress watchdog expired; suppressing '
+                'the current target and replanning.'
+            )
+            if self.current_target is not None:
+                self._mark_frontier_unreachable(self.current_target)
+            self.current_target = None
+            self.current_path = []
+            self.path_index = 0
+            self._current_target_selected_ros_sec = None
+            self._reset_frontier_progress_watchdog()
+            return cmd
+
         # 沿路径前进
         cmd = self._follow_path()
         return cmd
@@ -884,6 +904,7 @@ class FrontierExplorerNode(Node):
                 self.current_target = None
                 self.current_path = []
                 self._current_target_selected_ros_sec = None
+                self._reset_frontier_progress_watchdog()
             else:
                 challenger = select_candidate(unvisited_frontiers)
                 current_distance = math.hypot(
@@ -947,6 +968,11 @@ class FrontierExplorerNode(Node):
                     )
                 self.current_target = best
                 self._current_target_selected_ros_sec = now_ros
+                self._frontier_last_net_progress_ros = now_ros
+                self._frontier_progress_reference_distance = math.hypot(
+                    best.centroid[0] - self.robot_x,
+                    best.centroid[1] - self.robot_y,
+                )
                 self.last_target_world = best.centroid
                 self.current_path = path
                 self.path_index = 0
@@ -962,6 +988,42 @@ class FrontierExplorerNode(Node):
         self.current_target = None
         self.current_path = []
         self.get_logger().warn('No safely reachable frontier in the current map.')
+
+    def _frontier_net_progress_expired(self, now_ros: float) -> bool:
+        """目标净距离长期不下降时返回 True，持续原地转向也不能刷新门禁。"""
+
+        if self.current_target is None:
+            self._reset_frontier_progress_watchdog()
+            return False
+        distance = math.hypot(
+            self.current_target.centroid[0] - self.robot_x,
+            self.current_target.centroid[1] - self.robot_y,
+        )
+        threshold = max(
+            0.01,
+            float(self.get_parameter(
+                'frontier_net_progress_distance_m').value),
+        )
+        if (self._frontier_last_net_progress_ros is None
+                or self._frontier_progress_reference_distance is None
+                or now_ros < self._frontier_last_net_progress_ros):
+            self._frontier_last_net_progress_ros = now_ros
+            self._frontier_progress_reference_distance = distance
+            return False
+        if distance <= self._frontier_progress_reference_distance - threshold:
+            self._frontier_last_net_progress_ros = now_ros
+            self._frontier_progress_reference_distance = distance
+            return False
+        timeout = max(
+            0.1,
+            float(self.get_parameter(
+                'frontier_net_progress_timeout_s').value),
+        )
+        return now_ros - self._frontier_last_net_progress_ros >= timeout
+
+    def _reset_frontier_progress_watchdog(self):
+        self._frontier_last_net_progress_ros = None
+        self._frontier_progress_reference_distance = None
 
     @staticmethod
     def _frontier_key(frontier: Frontier):
@@ -1077,6 +1139,7 @@ class FrontierExplorerNode(Node):
                 )
             self.current_path = []
             self.current_target = None
+            self._reset_frontier_progress_watchdog()
             return cmd
 
         goal_x, goal_y = self.current_path[self.path_index]
@@ -1147,6 +1210,7 @@ class FrontierExplorerNode(Node):
                 self.current_path = []
                 self.path_index = 0
                 self._current_target_selected_ros_sec = None
+                self._reset_frontier_progress_watchdog()
                 self._safety_blocked_since_ros = None
         else:
             self._safety_blocked_since_ros = None
@@ -1200,6 +1264,8 @@ class FrontierExplorerNode(Node):
                 self._mark_frontier_unreachable(self.current_target)
             self.current_path = []
             self.current_target = None
+            self._current_target_selected_ros_sec = None
+            self._reset_frontier_progress_watchdog()
             self._pose_history.clear()
             self._stuck_since = None
 
@@ -1216,6 +1282,8 @@ class FrontierExplorerNode(Node):
             self.current_target = None
             self.current_path = []
             self.path_index = 0
+            self._current_target_selected_ros_sec = None
+            self._reset_frontier_progress_watchdog()
             self._last_return_plan_time = None
             self._return_best_distance_home = math.hypot(
                 self.robot_x - self.start_x,

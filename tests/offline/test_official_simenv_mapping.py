@@ -298,6 +298,7 @@ def test_official_business_launch_never_starts_fake_platform_by_default():
         / 'cartographer_official_2d.lua'
     ).read_text(encoding='utf-8')
     assert 'num_laser_scans = 1' in cartographer_config
+    assert 'TRAJECTORY_BUILDER_2D.max_range = 8.0' in cartographer_config
     assert "LaunchConfigurationEquals(\n                    'nav_mode', expected_value='frontier')" in source
     assert "LaunchConfigurationEquals(\n                    'nav_mode', expected_value='waypoint')" in source
     assert 'PythonExpression' in source

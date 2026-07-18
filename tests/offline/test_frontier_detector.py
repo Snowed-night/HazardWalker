@@ -512,10 +512,12 @@ def test_frontier_node_fails_closed_without_pose_scan_or_safe_return_path():
     assert 'Clock(clock_type=ClockType.STEADY_TIME)' in source
     assert 'clock=self._control_clock' in source
     assert "declare_parameter('frontier_locality_slack_m', 3.0)" in source
+    assert "declare_parameter('frontier_net_progress_timeout_s', 30.0)" in source
     assert "declare_parameter('safety_blocked_timeout_s', 8.0)" in source
     assert 'candidates = list(unvisited_frontiers)' in source
     assert 'should_switch_frontier(' in source
     assert 'Safety gate blocked all requested motion' in source
+    assert 'Frontier net-progress watchdog expired' in source
     assert 'self._initial_heading_yaw = self.robot_yaw' in source
     assert 'self._initial_heading_yaw' in source
     assert 'if self._entry_axis is None' in source

@@ -80,8 +80,8 @@ def filter_scan_self_returns(values, minimum_range_m):
     """过滤已标定为机身遮挡的近场回波，同时保留原始数组长度与无回波语义。
 
     官方 A1 的水平 ray 原点位于机身内部，固定产生约 0.10–0.34 m 的自身回波。
-    这些光束不可能看到外部障碍；把它们视作 ``+inf`` 可避免 SLAM 把机器人画进
-    地图，也避免局部安全门禁把所有原地转向永久阻断。
+    这些光束不可能看到外部障碍；应以 ``NaN`` 丢弃，而不能改成表示“该方向
+    无回波”的 ``+inf``，否则 Cartographer 会错误清空一条自由射线。
     """
 
     threshold = max(0.0, float(minimum_range_m))
@@ -89,7 +89,7 @@ def filter_scan_self_returns(values, minimum_range_m):
     for value in values or []:
         distance = float(value)
         if math.isfinite(distance) and 0.0 < distance < threshold:
-            filtered.append(math.inf)
+            filtered.append(math.nan)
         else:
             filtered.append(distance)
     return filtered
