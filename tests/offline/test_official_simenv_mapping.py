@@ -116,6 +116,25 @@ def test_official_controller_discovers_split_cuda_runtime_libraries():
     assert 'export LD_LIBRARY_PATH=' in auto_source
 
 
+def test_official_headless_startup_reuses_display_and_cleans_only_stale_lock():
+    """容器 restart 后不能因陈旧 X 锁静默丢失 RGB-D 插件。"""
+
+    for relative_path in (
+        'ros2_ws/src/hazardwalker_platform/auto.sh',
+        'ros2_ws/src/hazardwalker_platform/auto_noetic_headless.sh',
+    ):
+        source = (REPO_ROOT / relative_path).read_text(encoding='utf-8')
+        assert 'SIMENV_HEADLESS_DISPLAY' in source
+        assert 'display_is_ready()' in source
+        assert 'xdpyinfo -display "$DISPLAY_VALUE"' in source
+        assert 'kill -0 "$LOCK_PID"' in source
+        assert 'rm -f "$DISPLAY_LOCK" "$DISPLAY_SOCKET"' in source
+        assert '> "$XVFB_LOG" 2>&1 &' in source
+        assert 'if [ "$DISPLAY_READY" != "1" ]' in source
+        assert 'pkill Xvfb' not in source
+        assert '&>/dev/null' not in source
+
+
 def test_control_and_tf_contract_do_not_hide_platform_difference():
     assert HW_CMD_VEL == '/hw/cmd_vel'
     assert OFFICIAL_CMD_VEL == '/cmd_vel'
@@ -236,6 +255,16 @@ def test_official_business_launch_never_starts_fake_platform_by_default():
     assert "'online_async_launch.py'" in source
     assert "'autostart': 'true'" in source
     assert "executable='async_slam_toolbox_node'" not in source
+    assert 'def _launch_slam_toolbox(context, slam_config):' in source
+    assert "get_package_share_directory('slam_toolbox')" in source
+    assert (
+        "slam_launch = os.path.join(\n"
+        "        get_package_share_directory('slam_toolbox'),"
+    ) not in source
+    assert (
+        "'start_slam=true and slam_backend=slam_toolbox require '"
+        in source
+    )
     assert "package='cartographer_ros'" in source
     assert "executable='cartographer_node'" in source
     assert "executable='cartographer_occupancy_grid_node'" in source
@@ -338,6 +367,8 @@ def test_official_minimal_navigation_consumes_stable_hw_odom():
               'waypoint_patrol_node.py').read_text(encoding='utf-8')
     assert "Odometry, '/hw/odom'" in source
     assert "'/hw/Odometry_gazebo'" not in source
+    assert "'/hw/nav/diagnostic_state'" in source
+    assert "'/hw/nav/state'" not in source
 
 
 def test_stack_keeps_adapter_alive_while_business_launch_runs():
@@ -373,6 +404,13 @@ def test_stack_keeps_adapter_alive_while_business_launch_runs():
     assert "grep -qx '/hazardwalker_official_rosbridge_adapter'" in source
     assert 'start_navigation=true 但控制适配未显式开启' in source
     assert '"enable_cmd_vel_relay": true' in source
+    assert 'NAV_MODE=frontier' in source
+    assert 'PERCEPTION_OUTPUT_FRAME=map' in source
+    assert 'LOCALIZATION_PROVENANCE=unverified' in source
+    assert '正式一键任务只允许 nav_mode=frontier' in source
+    assert 'perception_output_frame=world' in source
+    assert '白名单内的合法 SLAM localization_provenance' in source
+    assert '必须开启证据记录并提供 SEED、代码版本和输出目录' in source
 
     adapter_runner = (
         REPO_ROOT / 'scripts' / 'run_official_simenv_rosbridge_adapter.sh'

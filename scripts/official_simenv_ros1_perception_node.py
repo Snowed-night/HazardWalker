@@ -399,6 +399,12 @@ class OfficialRgbdPerceptionNode(object):
             item['position_frame_id'] = self.world_frame
             item['localization_provenance'] = self.localization_provenance
             item['source'] = 'official_ros1_rgbd'
+            item['required_min_eligible_observations'] = 3
+            item['required_min_distinct_views'] = 3
+            item['required_min_spherical_views'] = 2
+            item['required_min_view_bearing_span_deg'] = (
+                self.min_view_bearing_span_deg
+            )
             hazards.append(item)
         self._publish_payload(
             hazards, payload_detections, camera_stable,
@@ -545,6 +551,13 @@ class OfficialRgbdPerceptionNode(object):
             item = track_to_hazard_dict(track)
             item['position_frame_id'] = self.world_frame
             item['localization_provenance'] = self.localization_provenance
+            item['source'] = 'official_ros1_rgbd'
+            item['required_min_eligible_observations'] = 3
+            item['required_min_distinct_views'] = 3
+            item['required_min_spherical_views'] = 2
+            item['required_min_view_bearing_span_deg'] = (
+                self.min_view_bearing_span_deg
+            )
             hazards.append(item)
         result = build_official_detected_danger_result(
             hazards, time.monotonic() - self.started_monotonic,

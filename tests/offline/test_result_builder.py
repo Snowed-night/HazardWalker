@@ -23,6 +23,7 @@ sys.path.insert(0, os.path.join(REPO_ROOT, 'ros2_ws', 'src', 'hazardwalker_decis
 from hazardwalker_decision.result_builder import (
     build_mission_result,
     build_official_detected_danger_result,
+    formal_navigation_sequence_completed,
 )
 
 
@@ -124,7 +125,20 @@ def test_official_result_legal_localization_default_allowlist_is_exact():
 
 
 def test_official_result_can_require_multiview_sphere_evidence():
-    """最终评分文件不能仅凭 status=confirmed 接纳未记录球面复查证据的目标。"""
+    """只有完整、可复核的多视角球面轨迹才能进入最终评分文件。"""
+    genuine_evidence = {
+        'source': 'hsv_depth_tf',
+        'evidence_status': 'multi_view_sphere_consistent',
+        'distinct_view_count': 3,
+        'eligible_observation_count': 4,
+        'eligible_view_ids': ['front', 'left', 'right'],
+        'spherical_view_ids': ['front', 'left'],
+        'view_bearing_span_deg': 31.0,
+        'required_min_eligible_observations': 3,
+        'required_min_distinct_views': 3,
+        'required_min_spherical_views': 2,
+        'required_min_view_bearing_span_deg': 25.0,
+    }
     result = build_official_detected_danger_result(
         hazards=[
             {'id': 1, 'status': 'confirmed', 'position_frame_id': 'world',
@@ -132,10 +146,103 @@ def test_official_result_can_require_multiview_sphere_evidence():
              'evidence_status': 'single_view_flat_or_non_spherical'},
             {'id': 2, 'status': 'confirmed', 'position_frame_id': 'world',
              'position': [2.0, 2.0, 0.3], 'confidence': 0.98,
-             'evidence_status': 'multi_view_sphere_consistent'},
+             **genuine_evidence},
         ],
         exploration_time_sec=12.0,
         require_multiview_sphere_evidence=True,
     )
 
     assert result['detected_danger_sources'] == [{'position': [2.0, 2.0, 0.3]}]
+
+
+def test_official_result_rejects_forged_multiview_evidence_label():
+    """只有 confirmed 标签或伪造 evidence_status 不能绕过视角事实门槛。"""
+
+    base = {
+        'status': 'confirmed',
+        'position_frame_id': 'world',
+        'position': [1.0, 2.0, 0.3],
+        'confidence': 0.99,
+        'source': 'hsv_depth_tf',
+        'evidence_status': 'multi_view_sphere_consistent',
+    }
+    forged = [
+        dict(base),
+        dict(base, distinct_view_count=3, eligible_observation_count=3,
+             eligible_view_ids=['same', 'same', 'same'],
+             spherical_view_ids=['same', 'same'],
+             view_bearing_span_deg=30.0,
+             required_min_eligible_observations=3,
+             required_min_distinct_views=3,
+             required_min_spherical_views=2,
+             required_min_view_bearing_span_deg=25.0),
+        dict(base, distinct_view_count=3, eligible_observation_count=3,
+             eligible_view_ids=['front', 'left', 'right'],
+             spherical_view_ids=['front'],
+             view_bearing_span_deg=30.0,
+             required_min_eligible_observations=3,
+             required_min_distinct_views=3,
+             required_min_spherical_views=2,
+             required_min_view_bearing_span_deg=25.0),
+        dict(base, distinct_view_count=3, eligible_observation_count=3,
+             eligible_view_ids=['front', 'left', 'right'],
+             spherical_view_ids=['front', 'left'],
+             view_bearing_span_deg=24.9,
+             required_min_eligible_observations=3,
+             required_min_distinct_views=3,
+             required_min_spherical_views=2,
+             required_min_view_bearing_span_deg=25.0),
+    ]
+
+    result = build_official_detected_danger_result(
+        forged,
+        exploration_time_sec=12.0,
+        require_multiview_sphere_evidence=True,
+    )
+    assert result['detected_danger_sources'] == []
+
+
+def test_official_result_requires_explicit_frame_and_detection_source():
+    """缺失坐标系或检测器来源的记录不得被默认为官方 world 红球。"""
+
+    evidence = {
+        'status': 'confirmed',
+        'position': [1.0, 2.0, 0.3],
+        'confidence': 0.99,
+        'evidence_status': 'multi_view_sphere_consistent',
+        'distinct_view_count': 3,
+        'eligible_observation_count': 3,
+        'eligible_view_ids': ['front', 'left', 'right'],
+        'spherical_view_ids': ['front', 'left'],
+        'view_bearing_span_deg': 30.0,
+        'required_min_eligible_observations': 3,
+        'required_min_distinct_views': 3,
+        'required_min_spherical_views': 2,
+        'required_min_view_bearing_span_deg': 25.0,
+    }
+    hazards = [
+        dict(evidence, source='hsv_depth_tf'),
+        dict(evidence, position_frame_id='world'),
+    ]
+    result = build_official_detected_danger_result(
+        hazards,
+        exploration_time_sec=12.0,
+        require_multiview_sphere_evidence=True,
+    )
+    assert result['detected_danger_sources'] == []
+
+
+def test_formal_navigation_completion_requires_ordered_frontier_return():
+    assert formal_navigation_sequence_completed([
+        'INIT', 'EXPLORING', 'REOBSERVING', 'EXPLORING',
+        'RETURNING', 'FINISHED',
+    ])
+    assert not formal_navigation_sequence_completed([
+        'NAVIGATING', 'RETURNING', 'FINISHED',
+    ])
+    assert not formal_navigation_sequence_completed([
+        'EXPLORING', 'FINISHED',
+    ])
+    assert not formal_navigation_sequence_completed([
+        'EXPLORING', 'RETURNING', 'FINISHED', 'EXPLORING',
+    ])

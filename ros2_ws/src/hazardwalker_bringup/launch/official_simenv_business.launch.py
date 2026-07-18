@@ -39,6 +39,38 @@ def _as_bool(value):
     return str(value).strip().lower() in ('true', '1', 'yes', 'on')
 
 
+def _launch_slam_toolbox(context, slam_config):
+    """仅在显式选择 slam_toolbox 时解析其安装路径并启动生命周期入口。"""
+
+    if not _as_bool(LaunchConfiguration('start_slam').perform(context)):
+        return []
+    if LaunchConfiguration('slam_backend').perform(context) != 'slam_toolbox':
+        return []
+
+    try:
+        slam_toolbox_share = get_package_share_directory('slam_toolbox')
+    except PackageNotFoundError as exc:
+        raise RuntimeError(
+            'start_slam=true and slam_backend=slam_toolbox require '
+            'slam_toolbox; install the ROS package or select cartographer.'
+        ) from exc
+    slam_launch = os.path.join(
+        slam_toolbox_share,
+        'launch',
+        'online_async_launch.py',
+    )
+    return [
+        IncludeLaunchDescription(
+            PythonLaunchDescriptionSource(slam_launch),
+            launch_arguments={
+                'slam_params_file': slam_config,
+                'autostart': 'true',
+                'use_sim_time': LaunchConfiguration('use_sim_time').perform(context),
+            }.items(),
+        ),
+    ]
+
+
 def _launch_cartographer(context, nav_pkg):
     """只在显式选择后准备上游 Lua 目录并返回 Cartographer 节点。
 
@@ -161,15 +193,6 @@ def generate_launch_description():
 
     nav_pkg = get_package_share_directory('hazardwalker_nav')
     slam_config = os.path.join(nav_pkg, 'config', 'slam_toolbox_online_async.yaml')
-    slam_launch = os.path.join(
-        get_package_share_directory('slam_toolbox'),
-        'launch',
-        'online_async_launch.py',
-    )
-    use_slam_toolbox = IfCondition(PythonExpression([
-        "'", start_slam, "'.lower() in ('true', '1', 'yes') and '",
-        slam_backend, "' == 'slam_toolbox'",
-    ]))
 
     return LaunchDescription([
         DeclareLaunchArgument('start_perception', default_value='true'),
@@ -225,14 +248,9 @@ def generate_launch_description():
         # ---- SLAM Toolbox (在线异步建图) ----
         # slam_toolbox 是 lifecycle 节点。直接用普通 Node 只会停在
         # unconfigured，进程存在但永远没有 /map；必须使用官方 autostart 入口。
-        IncludeLaunchDescription(
-            PythonLaunchDescriptionSource(slam_launch),
-            launch_arguments={
-                'slam_params_file': slam_config,
-                'autostart': 'true',
-                'use_sim_time': use_sim_time,
-            }.items(),
-            condition=use_slam_toolbox,
+        OpaqueFunction(
+            function=_launch_slam_toolbox,
+            kwargs={'slam_config': slam_config},
         ),
 
         # ---- Cartographer：官方首选 scan + trunk IMU + 合法控制先验融合 ----
@@ -264,6 +282,7 @@ def generate_launch_description():
             output='screen',
             parameters=[{
                 'official_result_path': official_result_path,
+                'official_require_frontier_sequence': True,
                 'use_sim_time': sim_time_parameter,
             }],
             condition=IfCondition(start_decision),

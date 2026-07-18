@@ -70,6 +70,10 @@ def build_official_detected_danger_result(
         'visual_inertial_slam',
         'lidar_imu_slam+public_floor_action',
     ),
+    allowed_detection_sources=(
+        'hsv_depth_tf',
+        'official_ros1_rgbd',
+    ),
 ):
     """构建官方 SimEnv 的最终危险源输出。
 
@@ -110,9 +114,13 @@ def build_official_detected_danger_result(
                 not in set(allowed_localization_provenance)):
             continue
         if (require_multiview_sphere_evidence
-                and str(hazard.get('evidence_status', '')) != 'multi_view_sphere_consistent'):
+                and not _has_valid_multiview_sphere_evidence(
+                    hazard,
+                    allowed_detection_sources=allowed_detection_sources,
+                )):
             continue
-        frame_id = str(hazard.get('position_frame_id', expected_frame))
+        # 坐标系必须由上游明确声明；字段缺失不能默认为 world。
+        frame_id = str(hazard.get('position_frame_id', ''))
         if frame_id != str(expected_frame):
             # `start` 坐标不能直接冒充 `world` 坐标提交；调用层必须完成 TF/起点变换。
             continue
@@ -137,6 +145,112 @@ def build_official_detected_danger_result(
         'exploration_time': round(duration, 3),
         'detected_danger_sources': exported,
     }
+
+
+def formal_navigation_sequence_completed(states):
+    """仅接受 Frontier 实际经历探索、返航后结束的有序状态序列。"""
+
+    normalized = [str(value).strip().upper() for value in states]
+    try:
+        exploring_index = normalized.index('EXPLORING')
+        returning_index = normalized.index('RETURNING', exploring_index + 1)
+        finished_index = normalized.index('FINISHED', returning_index + 1)
+    except ValueError:
+        return False
+    return finished_index == len(normalized) - 1
+
+
+def _has_valid_multiview_sphere_evidence(
+        hazard, allowed_detection_sources):
+    """复核确认轨迹的完整多视角 RGB-D 证据，拒绝只伪造状态标签的记录。"""
+
+    if str(hazard.get('evidence_status', '')) != 'multi_view_sphere_consistent':
+        return False
+    if str(hazard.get('source', '')) not in set(allowed_detection_sources):
+        return False
+
+    eligible_view_ids = _unique_nonempty_strings(
+        hazard.get('eligible_view_ids'),
+    )
+    spherical_view_ids = _unique_nonempty_strings(
+        hazard.get('spherical_view_ids'),
+    )
+    if eligible_view_ids is None or spherical_view_ids is None:
+        return False
+    if not set(spherical_view_ids).issubset(set(eligible_view_ids)):
+        return False
+
+    distinct_view_count = _validated_integer(
+        hazard.get('distinct_view_count'),
+    )
+    eligible_observation_count = _validated_integer(
+        hazard.get('eligible_observation_count'),
+    )
+    required_observations = _validated_integer(
+        hazard.get('required_min_eligible_observations'),
+    )
+    required_distinct_views = _validated_integer(
+        hazard.get('required_min_distinct_views'),
+    )
+    required_spherical_views = _validated_integer(
+        hazard.get('required_min_spherical_views'),
+    )
+    if any(value is None for value in (
+            distinct_view_count,
+            eligible_observation_count,
+            required_observations,
+            required_distinct_views,
+            required_spherical_views,
+    )):
+        return False
+
+    # 官方比赛策略的安全下限不可由消息发送者自行调低；轨迹携带的门槛只能提高。
+    required_observations = max(required_observations, 3)
+    required_distinct_views = max(required_distinct_views, 3)
+    required_spherical_views = max(required_spherical_views, 2)
+    if distinct_view_count != len(eligible_view_ids):
+        return False
+    if distinct_view_count < required_distinct_views:
+        return False
+    if eligible_observation_count < required_observations:
+        return False
+    if len(spherical_view_ids) < required_spherical_views:
+        return False
+
+    try:
+        bearing_span_deg = float(hazard.get('view_bearing_span_deg'))
+        required_bearing_span_deg = float(
+            hazard.get('required_min_view_bearing_span_deg'),
+        )
+    except (TypeError, ValueError):
+        return False
+    required_bearing_span_deg = max(required_bearing_span_deg, 25.0)
+    return (
+        math.isfinite(bearing_span_deg)
+        and math.isfinite(required_bearing_span_deg)
+        and bearing_span_deg >= required_bearing_span_deg
+    )
+
+
+def _unique_nonempty_strings(value):
+    """返回去重后的非空字符串列表；非列表或重复 ID 都视为证据损坏。"""
+
+    if not isinstance(value, (list, tuple)):
+        return None
+    normalized = [str(item).strip() for item in value]
+    if any(not item for item in normalized):
+        return None
+    if len(set(normalized)) != len(normalized):
+        return None
+    return normalized
+
+
+def _validated_integer(value):
+    """只接受非负整数，避免 True、浮点截断或字符串宽松转换绕过门槛。"""
+
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        return None
+    return value
 
 
 def _validated_position(value):

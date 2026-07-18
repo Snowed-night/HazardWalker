@@ -100,10 +100,54 @@ if [[ "$START_VIRTUAL_JOY" == "1" ]]; then
 fi
 
 # ---- headless OpenGL: Xvfb虚拟显示（相机/LiDAR渲染必需） ----
-pkill Xvfb 2>/dev/null || true
-Xvfb :99 -screen 0 1280x1024x24 +extension GLX +render &>/dev/null &
-sleep 1
-export DISPLAY=:99
+# docker restart 会保留 /tmp；失效的 X 锁若不清理，Gazebo 虽能启动却不会加载
+# 相机插件。与正式 auto.sh 保持同一 fail-fast 合同。
+DISPLAY_VALUE="${SIMENV_HEADLESS_DISPLAY:-${DISPLAY:-:99}}"
+DISPLAY_NUMBER="${DISPLAY_VALUE#:}"
+DISPLAY_LOCK="/tmp/.X${DISPLAY_NUMBER}-lock"
+DISPLAY_SOCKET="/tmp/.X11-unix/X${DISPLAY_NUMBER}"
+XVFB_LOG="$WORKSPACE_DIR/logs/xvfb.log"
+
+display_is_ready() {
+  if command -v xdpyinfo >/dev/null 2>&1; then
+    timeout 1 xdpyinfo -display "$DISPLAY_VALUE" >/dev/null 2>&1
+  else
+    [ -S "$DISPLAY_SOCKET" ] && pgrep -f "Xvfb ${DISPLAY_VALUE}" >/dev/null 2>&1
+  fi
+}
+
+if ! display_is_ready; then
+  if [ -f "$DISPLAY_LOCK" ]; then
+    LOCK_PID="$(tr -dc '0-9' < "$DISPLAY_LOCK")"
+    if [ -n "$LOCK_PID" ] && kill -0 "$LOCK_PID" 2>/dev/null; then
+      echo "DISPLAY=$DISPLAY_VALUE lock owner PID $LOCK_PID is alive but unreachable." >&2
+      exit 1
+    fi
+    rm -f "$DISPLAY_LOCK" "$DISPLAY_SOCKET"
+  elif [ -e "$DISPLAY_SOCKET" ]; then
+    rm -f "$DISPLAY_SOCKET"
+  fi
+  Xvfb "$DISPLAY_VALUE" -screen 0 1280x1024x24 +extension GLX +render \
+    > "$XVFB_LOG" 2>&1 &
+  XVFB_PID=$!
+  DISPLAY_READY=0
+  for _ in $(seq 1 50); do
+    if ! kill -0 "$XVFB_PID" 2>/dev/null; then
+      break
+    fi
+    if display_is_ready; then
+      DISPLAY_READY=1
+      break
+    fi
+    sleep 0.1
+  done
+  if [ "$DISPLAY_READY" != "1" ]; then
+    echo "Xvfb failed on DISPLAY=$DISPLAY_VALUE; see $XVFB_LOG." >&2
+    tail -20 "$XVFB_LOG" >&2 || true
+    exit 1
+  fi
+fi
+export DISPLAY="$DISPLAY_VALUE"
 export LIBGL_ALWAYS_SOFTWARE=1
 echo "Xvfb ready on DISPLAY=$DISPLAY"
 

@@ -33,6 +33,7 @@ from std_msgs.msg import String
 from hazardwalker_decision.result_builder import (
     build_mission_result,
     build_official_detected_danger_result,
+    formal_navigation_sequence_completed,
 )
 
 
@@ -47,12 +48,15 @@ class MissionStateMachineNode(Node):
         self.declare_parameter('official_result_frame', 'world')
         self.declare_parameter('official_result_dedup_distance_m', 0.30)
         self.declare_parameter('official_require_legal_localization', True)
+        self.declare_parameter('official_require_frontier_sequence', True)
 
         # nav_state 保存导航组当前状态；hazards 用字典按 id 去重保存候选危险源。
         # 当前版本只做简单覆盖，后续要替换为多帧确认和状态管理。
         self.nav_state = 'IDLE'
         self.hazards = {}
         self.finished = False
+        self.nav_state_history = []
+        self.invalid_completion_reported = False
         self.start_time = self.get_clock().now()
 
         # 导航状态来自导航组；危险源 JSON 来自感知组。
@@ -68,8 +72,9 @@ class MissionStateMachineNode(Node):
         self.get_logger().info('Mission state machine started.')
 
     def on_nav_state(self, msg: String):
-        # 当前直接信任导航模块发布的状态。后续可以在这里加入合法状态检查。
         self.nav_state = msg.data
+        if not self.nav_state_history or self.nav_state_history[-1] != self.nav_state:
+            self.nav_state_history.append(self.nav_state)
 
     def on_hazards(self, msg: String):
         # 第一阶段感知结果用 String(JSON) 传递，方便快速集成。
@@ -92,6 +97,21 @@ class MissionStateMachineNode(Node):
         self.state_pub.publish(state)
 
         if self.nav_state == 'FINISHED' and not self.finished:
+            if (
+                bool(self.get_parameter(
+                    'official_require_frontier_sequence',
+                ).value)
+                and not formal_navigation_sequence_completed(
+                    self.nav_state_history,
+                )
+            ):
+                if not self.invalid_completion_reported:
+                    self.get_logger().error(
+                        'Rejected FINISHED without ordered '
+                        'EXPLORING -> RETURNING -> FINISHED evidence.'
+                    )
+                    self.invalid_completion_reported = True
+                return
             # 防止重复写文件：第一次看到 FINISHED 时生成一次结果。
             self.finished = True
             result = self.build_result()

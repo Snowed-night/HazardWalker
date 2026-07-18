@@ -457,6 +457,21 @@ class HsvDetectorNode(Node):
                 self.get_parameter('localization_provenance').value
             )
             item['source'] = 'hsv_depth_tf'
+            # 最终结果层不能只相信可伪造的 evidence_status 字符串；把本轮实际
+            # 确认门槛随轨迹一并发布，使决策层可复核视角数、球面深度正证据和
+            # 横向视差。缺少任一字段时比赛结果必须 fail-closed。
+            item['required_min_eligible_observations'] = int(
+                self.get_parameter('confirm_observation_count').value
+            )
+            item['required_min_distinct_views'] = int(
+                self.get_parameter('confirm_distinct_views').value
+            )
+            item['required_min_spherical_views'] = int(
+                self.get_parameter('min_spherical_views_for_confirm').value
+            )
+            item['required_min_view_bearing_span_deg'] = float(
+                self.get_parameter('min_view_bearing_span_deg').value
+            )
             item['observation_time'] = time.time()
             hazards.append(item)
         return hazards

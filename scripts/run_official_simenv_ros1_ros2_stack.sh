@@ -44,6 +44,16 @@ export RMW_IMPLEMENTATION="${RMW_IMPLEMENTATION:-rmw_fastrtps_cpp}"
 NAVIGATION_REQUESTED=0
 SLAM_REQUESTED=0
 SLAM_BACKEND=cartographer
+NAV_MODE=frontier
+PERCEPTION_OUTPUT_FRAME=map
+LOCALIZATION_PROVENANCE=unverified
+PERCEPTION_REQUESTED=1
+DECISION_REQUESTED=1
+EVIDENCE_REQUESTED=0
+SCENARIO_SEED_VALUE=
+CODE_VERSION_VALUE=
+EVIDENCE_OUTPUT_DIR_VALUE=
+TEST_RECORD_DIR_VALUE=
 OFFICIAL_RESULT_VALUE=results/detected_danger.json
 for ARG in "$@"; do
   case "$ARG" in
@@ -55,6 +65,36 @@ for ARG in "$@"; do
       ;;
     slam_backend:=*)
       SLAM_BACKEND="${ARG#slam_backend:=}"
+      ;;
+    nav_mode:=*)
+      NAV_MODE="${ARG#nav_mode:=}"
+      ;;
+    perception_output_frame:=*)
+      PERCEPTION_OUTPUT_FRAME="${ARG#perception_output_frame:=}"
+      ;;
+    localization_provenance:=*)
+      LOCALIZATION_PROVENANCE="${ARG#localization_provenance:=}"
+      ;;
+    start_perception:=false|start_perception:=False|start_perception:=0)
+      PERCEPTION_REQUESTED=0
+      ;;
+    start_decision:=false|start_decision:=False|start_decision:=0)
+      DECISION_REQUESTED=0
+      ;;
+    start_evidence_recorder:=true|start_evidence_recorder:=True|start_evidence_recorder:=1)
+      EVIDENCE_REQUESTED=1
+      ;;
+    scenario_seed:=*)
+      SCENARIO_SEED_VALUE="${ARG#scenario_seed:=}"
+      ;;
+    code_version:=*)
+      CODE_VERSION_VALUE="${ARG#code_version:=}"
+      ;;
+    evidence_output_dir:=*)
+      EVIDENCE_OUTPUT_DIR_VALUE="${ARG#evidence_output_dir:=}"
+      ;;
+    test_record_dir:=*)
+      TEST_RECORD_DIR_VALUE="${ARG#test_record_dir:=}"
       ;;
     official_result_path:=*)
       OFFICIAL_RESULT_VALUE="${ARG#official_result_path:=}"
@@ -82,6 +122,33 @@ fi
 if [[ "$NAVIGATION_REQUESTED" == 1 && "$SLAM_REQUESTED" != 1 ]]; then
   echo '[stack] Frontier 导航要求本轮显式 start_slam=true；拒绝启动无地图导航。' >&2
   exit 1
+fi
+if [[ "$NAVIGATION_REQUESTED" == 1 ]]; then
+  if [[ "$NAV_MODE" != frontier ]]; then
+    echo '[stack] 正式一键任务只允许 nav_mode=frontier；固定航点仅可作为独立诊断。' >&2
+    exit 1
+  fi
+  if [[ "$PERCEPTION_REQUESTED" != 1 || "$DECISION_REQUESTED" != 1 ]]; then
+    echo '[stack] 正式 Frontier 任务必须同时启动感知和决策节点。' >&2
+    exit 1
+  fi
+  if [[ "$PERCEPTION_OUTPUT_FRAME" != world ]]; then
+    echo '[stack] 正式结果要求 perception_output_frame=world；拒绝把 map/start 坐标冒充提交坐标。' >&2
+    exit 1
+  fi
+  case "$LOCALIZATION_PROVENANCE" in
+    lidar_imu_slam|visual_inertial_slam|lidar_imu_slam+public_floor_action) ;;
+    *)
+      echo '[stack] 正式结果要求白名单内的合法 SLAM localization_provenance。' >&2
+      exit 1
+      ;;
+  esac
+  if [[ "$EVIDENCE_REQUESTED" != 1 || -z "$SCENARIO_SEED_VALUE" \
+        || -z "$CODE_VERSION_VALUE" || -z "$EVIDENCE_OUTPUT_DIR_VALUE" \
+        || -z "$TEST_RECORD_DIR_VALUE" ]]; then
+    echo '[stack] 正式 Frontier 任务必须开启证据记录并提供 SEED、代码版本和输出目录。' >&2
+    exit 1
+  fi
 fi
 
 if ! docker inspect -f '{{.State.Running}}' "$CONTAINER" 2>/dev/null | grep -qx true; then
