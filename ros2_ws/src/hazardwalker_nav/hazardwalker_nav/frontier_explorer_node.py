@@ -327,6 +327,31 @@ class FrontierExplorerNode(Node):
 
         # 无前沿 → 探索完成，返航
         if self.current_target is None and len(self.current_path) == 0:
+            if self._entry_axis is None:
+                # INIT 为建图做过原地旋转，深度相机可能停在入口侧面，严格
+                # 入楼锥自然还没有前沿。先主动回正到公开入口朝向并持续采集，
+                # 不能用墙钟宽限把“尚未看向入口”误判为探索完成。
+                self._no_reachable_frontier_since = None
+                entry_error = normalize_angle(
+                    self._entry_heading() - self.robot_yaw
+                )
+                if abs(entry_error) > float(
+                        self.get_parameter('heading_tolerance_rad').value):
+                    action = 'turn_left' if entry_error > 0.0 else 'turn_right'
+                    if self._scan_allows_action(
+                            action,
+                            float(self.get_parameter(
+                                'rotation_min_clearance_m').value)):
+                        cmd.angular.z = math.copysign(
+                            min(
+                                float(self.get_parameter(
+                                    'frontier_recovery_turn_speed').value),
+                                float(self.get_parameter(
+                                    'angular_speed').value),
+                            ),
+                            entry_error,
+                        )
+                return cmd
             if self._no_reachable_frontier_since is None:
                 self._no_reachable_frontier_since = now
             grace = float(
@@ -479,6 +504,16 @@ class FrontierExplorerNode(Node):
         timeout = float(self.get_parameter('pose_fresh_timeout_s').value)
         return time.monotonic() - self._last_pose_monotonic <= max(0.1, timeout)
 
+    def _entry_heading(self) -> float:
+        """返回合法入楼朝向：优先官方 profile 参数，其次第一条动态 TF。"""
+
+        configured = float(self.get_parameter('entry_heading_yaw').value)
+        if math.isfinite(configured):
+            return configured
+        if self._initial_heading_yaw is not None:
+            return self._initial_heading_yaw
+        return self.robot_yaw
+
     def _scan_allows_action(self, action: str, clearance_m: float) -> bool:
         """检查扫描新鲜度与动作对应扇区的净空。"""
 
@@ -569,15 +604,7 @@ class FrontierExplorerNode(Node):
         # 逐个尝试，规划失败的目标本轮不再反复选择。
         candidates = list(new_frontiers)
         while candidates:
-            configured_entry_heading = float(
-                self.get_parameter('entry_heading_yaw').value
-            )
-            if math.isfinite(configured_entry_heading):
-                entry_heading = configured_entry_heading
-            elif self._initial_heading_yaw is not None:
-                entry_heading = self._initial_heading_yaw
-            else:
-                entry_heading = self.robot_yaw
+            entry_heading = self._entry_heading()
             best = select_best_frontier(
                 candidates, self.robot_x, self.robot_y,
                 last_target=self.last_target_world,
