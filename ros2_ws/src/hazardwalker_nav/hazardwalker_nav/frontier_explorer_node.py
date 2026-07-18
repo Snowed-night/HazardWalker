@@ -126,6 +126,8 @@ class FrontierExplorerNode(Node):
         self._last_replan_time = 0.0
         self._last_return_plan_time = 0.0
         self._visited_frontiers: set = set()  # 真正到达的前沿质心
+        self._entry_origin: Optional[Tuple[float, float]] = None
+        self._entry_axis: Optional[Tuple[float, float]] = None
         # 暂时不可达不能永久拉黑：地图继续扩展后路径可能重新出现。
         self._unreachable_frontiers: dict = {}  # key -> monotonic expiry
         self._no_reachable_frontier_since: Optional[float] = None
@@ -562,11 +564,11 @@ class FrontierExplorerNode(Node):
                 candidates, self.robot_x, self.robot_y,
                 last_target=self.last_target_world,
                 min_frontier_size=min_size,
-                # 仅首次从官方起点进入建筑时使用朝向门禁。到达首个前沿后恢复
-                # 全方向选择，避免机器人沿长走廊直冲到底而跳过两侧房间。
-                robot_yaw=(
-                    self.robot_yaw if not self._visited_frontiers else None
-                ))
+                # 首次用当前朝向选中入楼前沿；随后用首段路径固定“楼内半平面”，
+                # 允许左右房间参与评分，同时拒绝入口背后的巨大楼外前沿。
+                robot_yaw=self.robot_yaw if self._entry_axis is None else None,
+                entry_origin=self._entry_origin,
+                entry_axis=self._entry_axis)
             if best is None:
                 break
             path = a_star_path(
@@ -575,6 +577,12 @@ class FrontierExplorerNode(Node):
                 best.centroid[0], best.centroid[1],
             )
             if path:
+                if self._entry_axis is None:
+                    self._entry_origin = (self.start_x, self.start_y)
+                    self._entry_axis = (
+                        best.centroid[0] - self.start_x,
+                        best.centroid[1] - self.start_y,
+                    )
                 self.current_target = best
                 self.last_target_world = best.centroid
                 self.current_path = path

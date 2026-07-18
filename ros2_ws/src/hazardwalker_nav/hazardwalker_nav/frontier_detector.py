@@ -154,7 +154,10 @@ def cluster_frontiers(frontier_mask: np.ndarray, grid: np.ndarray,
 def select_best_frontier(frontiers: List[Frontier], robot_wx: float, robot_wy: float,
                          last_target: Optional[Tuple[float, float]] = None,
                          min_frontier_size: int = 10,
-                         robot_yaw: Optional[float] = None) -> Optional[Frontier]:
+                         robot_yaw: Optional[float] = None,
+                         entry_origin: Optional[Tuple[float, float]] = None,
+                         entry_axis: Optional[Tuple[float, float]] = None,
+                         entry_backtrack_margin_m: float = 0.5) -> Optional[Frontier]:
     """选择最优前沿：综合距离、信息增益、大小。
 
     策略：优先选择近距离、高信息增益的前沿。
@@ -167,6 +170,26 @@ def select_best_frontier(frontiers: List[Frontier], robot_wx: float, robot_wy: f
     valid = [f for f in frontiers if f.size >= min_frontier_size]
     if not valid:
         valid = frontiers  # 都太小时退回到所有前沿
+    if entry_origin is not None and entry_axis is not None:
+        # 官方起点在楼外，首个安全前沿给出了“进入建筑”的数据驱动方向。
+        # 后续持续排除起点背面的楼外开放区，但不限制入口前方的左右房间。
+        # 该门禁只使用 SLAM 前沿和公开起点，不读取楼宇布局或仿真真值。
+        axis_x = float(entry_axis[0])
+        axis_y = float(entry_axis[1])
+        axis_norm = math.hypot(axis_x, axis_y)
+        if axis_norm > 1e-6:
+            axis_x /= axis_norm
+            axis_y /= axis_norm
+            margin = max(0.0, float(entry_backtrack_margin_m))
+            valid = [
+                frontier for frontier in valid
+                if (
+                    (frontier.centroid[0] - float(entry_origin[0])) * axis_x
+                    + (frontier.centroid[1] - float(entry_origin[1])) * axis_y
+                ) >= -margin
+            ]
+            if not valid:
+                return None
     if robot_yaw is not None:
         # 官方起点位于入口外且朝向建筑内部。若不考虑当前视线，外部无障碍区的
         # 巨大前沿会压倒入口/走廊前沿，机器人随即绕楼外圈。只要前方半平面有

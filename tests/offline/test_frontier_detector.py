@@ -205,6 +205,53 @@ def test_frontier_selection_restores_all_directions_after_entry():
     assert selected is nearby_room
 
 
+def test_entry_axis_excludes_outside_but_keeps_side_rooms():
+    """入楼轴只屏蔽起点背面，入口前方的侧向房间仍可正常竞争。"""
+
+    outside = Frontier(
+        centroid=(0.0, -16.0),
+        size=3000,
+        points=[(0, 0)],
+        info_gain=3000.0,
+    )
+    side_room = Frontier(
+        centroid=(5.0, 2.0),
+        size=120,
+        points=[(0, 0)],
+        info_gain=120.0,
+    )
+
+    selected = select_best_frontier(
+        [outside, side_room],
+        0.0,
+        5.0,
+        min_frontier_size=10,
+        entry_origin=(0.0, 0.0),
+        entry_axis=(0.0, 1.0),
+    )
+
+    assert selected is side_room
+
+
+def test_entry_axis_finishes_when_only_outside_frontiers_remain():
+    outside = Frontier(
+        centroid=(0.0, -4.0),
+        size=100,
+        points=[(0, 0)],
+        info_gain=100.0,
+    )
+
+    selected = select_best_frontier(
+        [outside],
+        0.0,
+        2.0,
+        entry_origin=(0.0, 0.0),
+        entry_axis=(0.0, 1.0),
+    )
+
+    assert selected is None
+
+
 def test_frontier_node_fails_closed_without_pose_scan_or_safe_return_path():
     source = (
         NAV_SRC / 'hazardwalker_nav' / 'frontier_explorer_node.py'
@@ -233,5 +280,6 @@ def test_frontier_node_fails_closed_without_pose_scan_or_safe_return_path():
     assert 'if not new_frontiers and unvisited_frontiers:' in source
     assert 'trying %d largest ' in source
     assert 'unvisited fragments safely.' in source
-    assert 'self.robot_yaw if not self._visited_frontiers else None' in source
+    assert 'self.robot_yaw if self._entry_axis is None else None' in source
+    assert 'self._entry_axis = (' in source
     compile(source, 'frontier_explorer_node.py', 'exec')
