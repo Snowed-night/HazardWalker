@@ -128,6 +128,12 @@ class FrontierExplorerNode(Node):
         # 原地转向能力，又不放宽前进/横移净空。
         self.declare_parameter('rotation_min_clearance_m', 0.30)
         self.declare_parameter('frontier_recovery_turn_speed', 0.60)
+        # 到达房间入口或局部前沿后主动完成一圈 RGB-D 环视，避免相机只沿
+        # 路径切线匆匆经过；感知候选仍可随时抢占进入严格 REOBSERVING。
+        self.declare_parameter(
+            'frontier_observation_sweep_rad', 2.0 * math.pi)
+        self.declare_parameter('frontier_observation_sweep_speed', 0.60)
+        self.declare_parameter('frontier_observation_sweep_timeout_s', 18.0)
         self.declare_parameter('unreachable_frontier_ttl_s', 45.0)
         self.declare_parameter('unreachable_frontier_max_ttl_s', 180.0)
         self.declare_parameter('unreachable_frontier_radius_m', 0.45)
@@ -185,6 +191,9 @@ class FrontierExplorerNode(Node):
         # 指数退避；value=(expiry_ros_sec, failure_count)。
         self._unreachable_frontiers: dict = {}
         self._no_reachable_frontier_since: Optional[float] = None
+        self._frontier_observation_remaining_rad: float = 0.0
+        self._frontier_observation_last_yaw: Optional[float] = None
+        self._frontier_observation_started_ros: Optional[float] = None
 
         # ---- 重观察 ----
         self.reobserve_action: Optional[str] = None
@@ -490,6 +499,8 @@ class FrontierExplorerNode(Node):
         # 定期重规划
         now = time.monotonic()
         now_ros = self._ros_time_sec()
+        if self._frontier_observation_remaining_rad > 0.0:
+            return self._handle_frontier_observation_sweep(now_ros)
         replan_interval = float(self.get_parameter('replan_interval_s').value)
 
         # 无目标时也遵守重规划间隔；否则 steady-clock 10 Hz 控制会每帧重复
@@ -585,6 +596,53 @@ class FrontierExplorerNode(Node):
 
         # 沿路径前进
         cmd = self._follow_path()
+        return cmd
+
+    def _handle_frontier_observation_sweep(self, now_ros: float) -> Twist:
+        """到达前沿后原地环视，让 RGB-D 覆盖房间而不是只看路径方向。"""
+
+        cmd = Twist()
+        if self._frontier_observation_last_yaw is None:
+            self._frontier_observation_last_yaw = self.robot_yaw
+        else:
+            delta = abs(normalize_angle(
+                self.robot_yaw - self._frontier_observation_last_yaw
+            ))
+            self._frontier_observation_remaining_rad = max(
+                0.0,
+                self._frontier_observation_remaining_rad - delta,
+            )
+            self._frontier_observation_last_yaw = self.robot_yaw
+
+        timed_out = (
+            self._frontier_observation_started_ros is not None
+            and now_ros >= self._frontier_observation_started_ros
+            and now_ros - self._frontier_observation_started_ros >= max(
+                0.1,
+                float(self.get_parameter(
+                    'frontier_observation_sweep_timeout_s').value),
+            )
+        )
+        if self._frontier_observation_remaining_rad <= 0.05 or timed_out:
+            reason = 'timeout' if timed_out else 'completed'
+            self.get_logger().info(
+                f'Frontier RGB-D observation sweep {reason}; '
+                'resuming exploration.'
+            )
+            self._frontier_observation_remaining_rad = 0.0
+            self._frontier_observation_last_yaw = None
+            self._frontier_observation_started_ros = None
+            return cmd
+
+        if self._scan_allows_action(
+                'turn_left',
+                float(self.get_parameter(
+                    'rotation_min_clearance_m').value)):
+            cmd.angular.z = min(
+                abs(float(self.get_parameter(
+                    'frontier_observation_sweep_speed').value)),
+                abs(float(self.get_parameter('angular_speed').value)),
+            )
         return cmd
 
     def _handle_reobserving(self) -> Twist:
@@ -1173,6 +1231,21 @@ class FrontierExplorerNode(Node):
                 self.get_logger().info(
                     f'Frontier reached and marked visited: {key}'
                 )
+                sweep_rad = max(
+                    0.0,
+                    float(self.get_parameter(
+                        'frontier_observation_sweep_rad').value),
+                )
+                if sweep_rad > 0.0:
+                    self._frontier_observation_remaining_rad = sweep_rad
+                    self._frontier_observation_last_yaw = self.robot_yaw
+                    self._frontier_observation_started_ros = (
+                        self._ros_time_sec()
+                    )
+                    self.get_logger().info(
+                        'Starting frontier RGB-D observation sweep: '
+                        f'{math.degrees(sweep_rad):.0f} deg.'
+                    )
             self.current_path = []
             self.current_target = None
             self._reset_frontier_progress_watchdog()

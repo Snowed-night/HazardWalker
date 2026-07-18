@@ -534,6 +534,11 @@ def test_frontier_node_fails_closed_without_pose_scan_or_safe_return_path():
     assert "declare_parameter('frontier_locality_slack_m', 3.0)" in source
     assert "declare_parameter('frontier_net_progress_timeout_s', 30.0)" in source
     assert "declare_parameter('safety_blocked_timeout_s', 8.0)" in source
+    assert "declare_parameter('frontier_observation_sweep_speed', 0.60)" in source
+    assert "declare_parameter('frontier_observation_sweep_timeout_s', 18.0)" in source
+    assert 'Starting frontier RGB-D observation sweep:' in source
+    assert 'self._handle_frontier_observation_sweep(now_ros)' in source
+    assert 'self._frontier_observation_remaining_rad - delta' in source
     assert 'candidates = list(unvisited_frontiers)' in source
     assert 'should_switch_frontier(' in source
     assert 'Safety gate blocked all requested motion' in source
