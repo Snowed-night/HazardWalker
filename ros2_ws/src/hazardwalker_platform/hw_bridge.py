@@ -94,6 +94,7 @@ class HwBridge(Node):
         if t == 'odom':
             self._ensure_pub('/hw/Odometry_gazebo', Odometry)
             msg = Odometry()
+            h = self.get_clock().now().to_msg(); msg.header.stamp = h
             msg.header.frame_id = m.get('fid','odom')
             msg.child_frame_id = m.get('cid','base_link')
             msg.pose.pose.position.x = m['x']; msg.pose.pose.position.y = m['y']; msg.pose.pose.position.z = m['z']
@@ -101,6 +102,22 @@ class HwBridge(Node):
             msg.pose.pose.orientation.z = m['oz']; msg.pose.pose.orientation.w = m['ow']
             msg.twist.twist.linear.x = m['vx']; msg.twist.twist.angular.z = m['wz']
             self._pub['/hw/Odometry_gazebo'].publish(msg)
+            # 同时发布 odom→base_link TF 供 SLAM 使用
+            tf_msg = TFMessage()
+            ts = TransformStamped()
+            ts.header.stamp = self.get_clock().now().to_msg()
+            ts.header.frame_id = 'odom'
+            ts.child_frame_id = 'base_link'
+            ts.transform.translation.x = float(m['x'])
+            ts.transform.translation.y = float(m['y'])
+            ts.transform.translation.z = float(m.get('z', 0.0))
+            ts.transform.rotation.x = float(m['ox'])
+            ts.transform.rotation.y = float(m['oy'])
+            ts.transform.rotation.z = float(m['oz'])
+            ts.transform.rotation.w = float(m['ow'])
+            tf_msg.transforms.append(ts)
+            self._pub['/hw/tf'].publish(tf_msg)
+            self._pub['/tf'].publish(tf_msg)
         elif t == 'imu':
             fid = m.get('fid','imu_link')
             hw_topic = '/hw/trunk_imu' if fid == 'imu_link' else '/hw/livox/imu'
@@ -126,6 +143,7 @@ class HwBridge(Node):
             msg = TFMessage()
             for tf in m['tfs']:
                 ts = TransformStamped()
+                ts.header.stamp = self.get_clock().now().to_msg()
                 ts.header.frame_id = tf['fid']; ts.child_frame_id = tf['cid']
                 ts.transform.translation.x = tf['tx']; ts.transform.translation.y = tf['ty']; ts.transform.translation.z = tf['tz']
                 ts.transform.rotation.x = tf['rx']; ts.transform.rotation.y = tf['ry']
@@ -160,6 +178,7 @@ class HwBridge(Node):
             self._ensure_pub('/hw/scan', LaserScan)
             self._ensure_pub('/scan', LaserScan)   # 原生话题供 SLAM Toolbox
             msg = LaserScan()
+            msg.header.stamp = self.get_clock().now().to_msg()
             msg.header.frame_id = m.get('fid','laser_livox')
             msg.angle_min = m['angle_min']; msg.angle_max = m['angle_max']
             msg.angle_increment = m['angle_inc']
