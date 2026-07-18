@@ -42,7 +42,9 @@ def parse_reobservation_request(payload):
         'action': action,
         'reason': str(recommendation.get('reason', '')).strip(),
         'priority': max(0, min(priority, 100)),
-        'target_id': str(recommendation.get('target_id', '')).strip(),
+        # 感知在首帧会使用 ``untracked:<id>``，轨迹建立后改用 ``<id>``。
+        # 两者必须共用一次复查预算，否则同一目标可绕过最大尝试次数。
+        'target_id': _canonical_target_id(recommendation.get('target_id')),
     }
     try:
         required_bearing_change_deg = float(
@@ -95,10 +97,17 @@ def reobservation_request_is_eligible(
 
     if request is None or str(state) != 'EXPLORING':
         return False
-    target_id = str(request.get('target_id', '')).strip()
+    target_id = _canonical_target_id(request.get('target_id'))
     if not target_id:
         return False
-    attempts = int(attempts_by_target.get(target_id, 0))
+    attempts = max(
+        (
+            int(value)
+            for key, value in attempts_by_target.items()
+            if _canonical_target_id(key) == target_id
+        ),
+        default=0,
+    )
     return attempts < max(1, int(max_attempts_per_target))
 
 
@@ -153,13 +162,16 @@ def find_target_status(payload, target_id):
     return ''
 
 
-def _same_target_id(left, right):
-    def canonical(value):
-        text = str(value or '').strip()
-        return text.split(':', 1)[1] if text.startswith('untracked:') else text
+def _canonical_target_id(value):
+    """统一首帧未跟踪 ID 与后续轨迹 ID。"""
 
-    normalized_left = canonical(left)
-    normalized_right = canonical(right)
+    text = str(value or '').strip()
+    return text.split(':', 1)[1] if text.startswith('untracked:') else text
+
+
+def _same_target_id(left, right):
+    normalized_left = _canonical_target_id(left)
+    normalized_right = _canonical_target_id(right)
     return bool(normalized_left and normalized_left == normalized_right)
 
 

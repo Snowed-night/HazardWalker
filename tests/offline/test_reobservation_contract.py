@@ -55,6 +55,10 @@ def test_same_target_has_bounded_reobservation_attempts_and_state_gate():
     assert reobservation_request_is_eligible(
         request, 'EXPLORING', {'7': 4}, 4,
     ) is False
+    assert reobservation_request_is_eligible(
+        {'action': 'move_left', 'target_id': 'untracked:7'},
+        'EXPLORING', {'7': 4}, 4,
+    ) is False
 
 
 def test_reobservation_motion_requires_clear_relevant_scan_sector():
@@ -150,6 +154,14 @@ def test_untracked_candidate_matches_the_track_created_during_reobservation():
     assert find_target_detection(payload, 'untracked:1')['track_id'] == '1'
     assert abs(bearing_change_deg(170.0, -170.0) - 20.0) < 1e-9
 
+    request = parse_reobservation_request({
+        'view_recommendation': {
+            'action': 'move_left',
+            'target_id': 'untracked:1',
+        },
+    })
+    assert request['target_id'] == '1'
+
 
 def test_reobservation_uses_sim_time_and_has_feedback_bounded_lateral_motion():
     source_path = os.path.join(
@@ -165,6 +177,8 @@ def test_reobservation_uses_sim_time_and_has_feedback_bounded_lateral_motion():
     )[0]
 
     assert "declare_parameter('reobserve_lateral_motion_duration_s', 10.0)" in source
+    assert "declare_parameter('reobserve_lateral_speed', 0.45)" in source
+    assert "declare_parameter('reobserve_forward_speed', 0.30)" in source
     assert 'now = self._ros_time_sec()' in trigger
     assert 'time.monotonic()' not in trigger
     assert 'now = self._ros_time_sec()' in handler

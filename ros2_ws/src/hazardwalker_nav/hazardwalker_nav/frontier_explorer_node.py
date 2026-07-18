@@ -97,8 +97,11 @@ class FrontierExplorerNode(Node):
         self.declare_parameter('reobserve_lateral_motion_duration_s', 10.0)
         self.declare_parameter('reobserve_settle_duration_s', 1.0)
         self.declare_parameter('reobserve_observe_duration_s', 1.5)
-        self.declare_parameter('reobserve_lateral_speed', 0.15)
-        self.declare_parameter('reobserve_forward_speed', 0.18)
+        # 官方 A1 RL 控制器实测会完整接收 0.15 m/s 横移指令却不产生可测位移；
+        # 平移复查使用与正式导航相同量级的有效指令，并继续由激光门禁及 25°
+        # 视线变化反馈提前停车，避免盲走完整 10 秒。
+        self.declare_parameter('reobserve_lateral_speed', 0.45)
+        self.declare_parameter('reobserve_forward_speed', 0.30)
         self.declare_parameter('reobserve_turn_speed', 0.60)
         self.declare_parameter('reobserve_max_attempts_per_target', 4)
         self.declare_parameter('stuck_timeout_s', 15.0)
