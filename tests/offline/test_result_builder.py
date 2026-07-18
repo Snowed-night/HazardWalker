@@ -14,6 +14,7 @@
 - 如果 result 增加定位误差、运行距离、虚警估计等字段，这里同步补测试。
 """
 import os
+import inspect
 import sys
 
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
@@ -92,6 +93,34 @@ def test_official_result_can_require_legal_slam_provenance():
     )
 
     assert result['detected_danger_sources'] == [{'position': [2.0, 2.0, 0.3]}]
+
+
+def test_official_result_accepts_slam_with_public_floor_action_provenance():
+    """公开电梯动作补楼层高度仍属合法定位，不应被官方结果层静默丢弃。"""
+    result = build_official_detected_danger_result(
+        hazards=[
+            {'id': 1, 'status': 'confirmed', 'position_frame_id': 'world',
+             'position': [1.0, 2.0, 2.9], 'confidence': 0.99,
+             'localization_provenance': 'lidar_imu_slam+public_floor_action'},
+        ],
+        exploration_time_sec=12.0,
+        require_legal_localization=True,
+    )
+
+    assert result['detected_danger_sources'] == [{'position': [1.0, 2.0, 2.9]}]
+
+
+def test_official_result_legal_localization_default_allowlist_is_exact():
+    """合法来源白名单必须精确，不能通过相似前缀放入任何真值来源。"""
+    allowed = inspect.signature(
+        build_official_detected_danger_result
+    ).parameters['allowed_localization_provenance'].default
+
+    assert set(allowed) == {
+        'lidar_imu_slam',
+        'lidar_imu_slam+public_floor_action',
+        'visual_inertial_slam',
+    }
 
 
 def test_official_result_can_require_multiview_sphere_evidence():

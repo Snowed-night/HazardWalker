@@ -5,24 +5,71 @@ set -euo pipefail
 # 负责人：姜晨。先确认官方容器，再启动独立适配，再启动不含 fake/Harmonic 的 ROS2 业务层。
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CONTAINER="${SIMENV_CONTAINER:-simenv_run}"
+export HAZARDWALKER_ROOT="$ROOT"
 
 # Jazzy 的 setup.bash 会读取若干可选变量；在 set -u 下未定义时会提前退出。
 # 与独立适配器入口保持同一加载方式，避免一键业务栈还未启动就中断。
 set +u
 source /opt/ros/jazzy/setup.bash
+# 部分官方工作站通过离线解包提供 Cartographer，而不是安装到 /opt/ros。
+# 调用方只需显式传 ROS 前缀；入口统一补齐 ament、可执行文件和动态库搜索路径，
+# 避免依赖某个交互 shell 里偶然残留的环境变量。
+CARTOGRAPHER_PREFIX="${OFFICIAL_SIMENV_CARTOGRAPHER_PREFIX:-}"
+if [[ -n "$CARTOGRAPHER_PREFIX" ]]; then
+  if [[ ! -d "$CARTOGRAPHER_PREFIX/share/cartographer_ros" ]]; then
+    echo "[stack] Cartographer 前缀无效：$CARTOGRAPHER_PREFIX" >&2
+    echo '[stack] 需要包含 share/cartographer_ros；请修正 OFFICIAL_SIMENV_CARTOGRAPHER_PREFIX。' >&2
+    exit 1
+  fi
+  export AMENT_PREFIX_PATH="$CARTOGRAPHER_PREFIX${AMENT_PREFIX_PATH:+:$AMENT_PREFIX_PATH}"
+  export CMAKE_PREFIX_PATH="$CARTOGRAPHER_PREFIX${CMAKE_PREFIX_PATH:+:$CMAKE_PREFIX_PATH}"
+  export PATH="$CARTOGRAPHER_PREFIX/bin${PATH:+:$PATH}"
+  export LD_LIBRARY_PATH="$CARTOGRAPHER_PREFIX/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+  for PACKAGE_SETUP in \
+    "$CARTOGRAPHER_PREFIX/share/cartographer_ros_msgs/local_setup.bash" \
+    "$CARTOGRAPHER_PREFIX/share/cartographer_ros/local_setup.bash"; do
+    if [[ -f "$PACKAGE_SETUP" ]]; then
+      source "$PACKAGE_SETUP"
+    fi
+  done
+  if [[ -n "${OFFICIAL_SIMENV_CARTOGRAPHER_LIBRARY_PATH:-}" ]]; then
+    export LD_LIBRARY_PATH="${OFFICIAL_SIMENV_CARTOGRAPHER_LIBRARY_PATH}:$LD_LIBRARY_PATH"
+  fi
+fi
 source "$ROOT/ros2_ws/install/setup.bash"
 set -u
 export ROS_DOMAIN_ID="${ROS_DOMAIN_ID:?请先设置与官方 dynamic_bridge 相同的 ROS_DOMAIN_ID}"
 export RMW_IMPLEMENTATION="${RMW_IMPLEMENTATION:-rmw_fastrtps_cpp}"
 
 NAVIGATION_REQUESTED=0
+SLAM_REQUESTED=0
+SLAM_BACKEND=cartographer
+OFFICIAL_RESULT_VALUE=results/detected_danger.json
 for ARG in "$@"; do
   case "$ARG" in
     start_navigation:=true|start_navigation:=True|start_navigation:=1)
       NAVIGATION_REQUESTED=1
       ;;
+    start_slam:=true|start_slam:=True|start_slam:=1)
+      SLAM_REQUESTED=1
+      ;;
+    slam_backend:=*)
+      SLAM_BACKEND="${ARG#slam_backend:=}"
+      ;;
+    official_result_path:=*)
+      OFFICIAL_RESULT_VALUE="${ARG#official_result_path:=}"
+      ;;
   esac
 done
+
+if [[ "$SLAM_REQUESTED" == 1 && "$SLAM_BACKEND" == cartographer ]]; then
+  if ! ros2 pkg prefix cartographer_ros >/dev/null 2>&1; then
+    echo '[stack] 已请求 Cartographer SLAM，但当前环境找不到 cartographer_ros。' >&2
+    echo '[stack] 请安装该包，或设置 OFFICIAL_SIMENV_CARTOGRAPHER_PREFIX 指向离线 ROS 前缀。' >&2
+    exit 1
+  fi
+fi
+
 case "${OFFICIAL_SIMENV_ENABLE_CONTROL:-0}" in
   1|true|True|TRUE|yes|YES|on|ON) CONTROL_REQUESTED=1 ;;
   *) CONTROL_REQUESTED=0 ;;
@@ -30,6 +77,10 @@ esac
 if [[ "$NAVIGATION_REQUESTED" == 1 && "$CONTROL_REQUESTED" != 1 ]]; then
   echo '[stack] start_navigation=true 但控制适配未显式开启；拒绝启动“看似运行、实际不可控”的导航。' >&2
   echo '[stack] 独占验收时请设置 OFFICIAL_SIMENV_ENABLE_CONTROL=1。' >&2
+  exit 1
+fi
+if [[ "$NAVIGATION_REQUESTED" == 1 && "$SLAM_REQUESTED" != 1 ]]; then
+  echo '[stack] Frontier 导航要求本轮显式 start_slam=true；拒绝启动无地图导航。' >&2
   exit 1
 fi
 
@@ -53,12 +104,28 @@ fi
 bash "$ROOT/scripts/run_official_simenv_rosbridge_adapter.sh" &
 ADAPTER_PID=$!
 cleanup_adapter() {
+  if [[ "${CLEANUP_DONE:-0}" == 1 ]]; then
+    return
+  fi
+  CLEANUP_DONE=1
   # ros2 launch 会派生导航、感知和决策子进程；只杀 launch 父进程会留下多个
   # /hw/cmd_vel 发布者。setsid 为业务栈创建独立进程组后统一回收。
   if [[ -n "${BUSINESS_PID:-}" ]]; then
-    kill -- "-$BUSINESS_PID" 2>/dev/null || true
+    kill -TERM -- "-$BUSINESS_PID" 2>/dev/null || true
+    for _ in {1..50}; do
+      kill -0 -- "-$BUSINESS_PID" 2>/dev/null || break
+      sleep 0.1
+    done
+    kill -KILL -- "-$BUSINESS_PID" 2>/dev/null || true
+    wait "$BUSINESS_PID" 2>/dev/null || true
   fi
-  kill "$ADAPTER_PID" 2>/dev/null || true
+  kill -TERM "$ADAPTER_PID" 2>/dev/null || true
+  for _ in {1..50}; do
+    kill -0 "$ADAPTER_PID" 2>/dev/null || break
+    sleep 0.1
+  done
+  kill -KILL "$ADAPTER_PID" 2>/dev/null || true
+  wait "$ADAPTER_PID" 2>/dev/null || true
 }
 trap cleanup_adapter EXIT INT TERM
 # 业务节点统一使用仿真时间；必须等到适配器转发出两帧递增的 /clock。
@@ -97,4 +164,47 @@ fi
 echo '[stack] 启动 ROS2 业务层（不含 fake 平台；固定航点导航默认关闭）。'
 setsid ros2 launch hazardwalker_bringup official_simenv_business.launch.py "$@" &
 BUSINESS_PID=$!
+case "$OFFICIAL_RESULT_VALUE" in
+  /*) OFFICIAL_RESULT_PATH="$OFFICIAL_RESULT_VALUE" ;;
+  *) OFFICIAL_RESULT_PATH="$ROOT/$OFFICIAL_RESULT_VALUE" ;;
+esac
+RUN_START_EPOCH="$(date +%s)"
+case "${OFFICIAL_SIMENV_AUTO_STOP_ON_FINISHED:-1}" in
+  1|true|True|TRUE|yes|YES|on|ON) AUTO_STOP_ON_FINISHED=1 ;;
+  *) AUTO_STOP_ON_FINISHED=0 ;;
+esac
+if [[ "$AUTO_STOP_ON_FINISHED" != 1 ]]; then
+  wait "$BUSINESS_PID"
+  exit $?
+fi
+
+# FINISHED 必须同时伴随本轮新写出的官方结果；旧文件不能让脚本误报成功。
+STACK_TIMEOUT_SEC="${OFFICIAL_SIMENV_STACK_TIMEOUT_SEC:-3600}"
+DEADLINE_EPOCH=$((RUN_START_EPOCH + STACK_TIMEOUT_SEC))
+while kill -0 "$BUSINESS_PID" 2>/dev/null; do
+  MISSION_STATE="$(
+    timeout 3 ros2 topic echo /hw/mission/state --field data --once 2>/dev/null || true
+  )"
+  if [[ "$MISSION_STATE" == *FINISHED* ]]; then
+    for _ in {1..20}; do
+      if [[ -f "$OFFICIAL_RESULT_PATH" ]]; then
+        RESULT_MTIME="$(stat -c %Y "$OFFICIAL_RESULT_PATH" 2>/dev/null || echo 0)"
+        if (( RESULT_MTIME >= RUN_START_EPOCH )) \
+          && python3 -c 'import json,sys; json.load(open(sys.argv[1], encoding="utf-8"))' \
+            "$OFFICIAL_RESULT_PATH" 2>/dev/null; then
+          echo "[stack] 本轮任务完成，官方结果已写出：$OFFICIAL_RESULT_PATH"
+          exit 0
+        fi
+      fi
+      sleep 0.25
+    done
+    echo '[stack] 收到 FINISHED，但未找到本轮新写出的有效官方结果。' >&2
+    exit 1
+  fi
+  if (( $(date +%s) >= DEADLINE_EPOCH )); then
+    echo "[stack] 超过 ${STACK_TIMEOUT_SEC}s 壁钟上限，任务未完成。" >&2
+    exit 124
+  fi
+  sleep 1
+done
 wait "$BUSINESS_PID"

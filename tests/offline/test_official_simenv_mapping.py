@@ -235,6 +235,8 @@ def test_official_business_launch_never_starts_fake_platform_by_default():
     assert "'publish_tf': publish_legal_tf_parameter" in source
     assert 'OpaqueFunction(' in source
     assert "get_package_share_directory('cartographer_ros')" in source
+    assert 'except PackageNotFoundError as exc:' in source
+    assert "'cartographer_ros; configure the official stack Cartographer prefix.'" in source
     assert (
         "builtin_dir = os.path.join(\n"
         "        get_package_share_directory('cartographer'),"
@@ -266,6 +268,8 @@ def test_legacy_simenv_demo_is_a_safe_official_business_wrapper():
     assert "'start_navigation': start_navigation" in source
     assert "'start_slam': start_slam" in source
     assert "'slam_backend': slam_backend" in source
+    assert "DeclareLaunchArgument('exploration_timeout_s', default_value='540.0')" in source
+    assert "'exploration_timeout_s': exploration_timeout_s" in source
     assert "start_evidence_recorder': 'false'" in source
     assert "executable='async_slam_toolbox_node'" not in source
     assert "('/tf', '/hw/tf')" not in source
@@ -302,6 +306,11 @@ def test_official_perception_world_export_requires_explicit_legal_slam_contract(
               'official_simenv_business.launch.py').read_text(encoding='utf-8')
     assert "DeclareLaunchArgument('perception_output_frame', default_value='map')" in source
     assert "DeclareLaunchArgument('localization_provenance', default_value='unverified')" in source
+    assert "DeclareLaunchArgument('exploration_timeout_s', default_value='540.0')" in source
+    assert "exploration_timeout_s = LaunchConfiguration('exploration_timeout_s')" in source
+    assert "'exploration_timeout_s': exploration_timeout_parameter" in source
+    assert "ParameterValue(\n        exploration_timeout_s, value_type=float" in source
+    assert "'exploration_timeout_s': 540.0" not in source
     assert "'output_frame': perception_output_frame" in source
     assert "'localization_provenance': localization_provenance" in source
 
@@ -322,8 +331,21 @@ def test_stack_keeps_adapter_alive_while_business_launch_runs():
     # 业务 launch 会派生多个节点；必须拥有独立进程组并在退出时整体回收，
     # 否则下一次联调会残留多个 /hw/cmd_vel 发布者。
     assert 'setsid ros2 launch hazardwalker_bringup official_simenv_business.launch.py' in source
-    assert 'kill -- "-$BUSINESS_PID"' in source
+    assert 'kill -TERM -- "-$BUSINESS_PID"' in source
     assert 'set +u\nsource /opt/ros/jazzy/setup.bash' in source
+    assert 'OFFICIAL_SIMENV_CARTOGRAPHER_PREFIX' in source
+    assert 'OFFICIAL_SIMENV_CARTOGRAPHER_LIBRARY_PATH' in source
+    assert 'ros2 pkg prefix cartographer_ros' in source
+    assert 'share/cartographer_ros' in source
+    assert 'share/cartographer_ros_msgs/local_setup.bash' in source
+    assert 'export HAZARDWALKER_ROOT="$ROOT"' in source
+    assert 'Frontier 导航要求本轮显式 start_slam=true' in source
+    assert 'OFFICIAL_SIMENV_AUTO_STOP_ON_FINISHED' in source
+    assert 'OFFICIAL_SIMENV_STACK_TIMEOUT_SEC' in source
+    assert 'ros2 topic echo /hw/mission/state --field data --once' in source
+    assert 'RESULT_MTIME >= RUN_START_EPOCH' in source
+    assert 'kill -KILL -- "-$BUSINESS_PID"' in source
+    assert 'wait "$ADAPTER_PID"' in source
     assert 'ros2 launch hazardwalker_bringup official_simenv_business.launch.py' in source
     assert 'ros2 topic echo /clock --once' in source
     assert 'CLOCK_NSEC=' in source

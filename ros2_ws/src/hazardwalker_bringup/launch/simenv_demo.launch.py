@@ -36,6 +36,7 @@ def generate_launch_description():
     start_legal_localization = LaunchConfiguration('start_legal_localization')
     perception_output_frame = LaunchConfiguration('perception_output_frame')
     localization_provenance = LaunchConfiguration('localization_provenance')
+    exploration_timeout_s = LaunchConfiguration('exploration_timeout_s')
 
     return LaunchDescription([
         DeclareLaunchArgument('start_perception', default_value='true'),
@@ -46,6 +47,7 @@ def generate_launch_description():
         DeclareLaunchArgument('start_legal_localization', default_value='true'),
         DeclareLaunchArgument('perception_output_frame', default_value='map'),
         DeclareLaunchArgument('localization_provenance', default_value='unverified'),
+        DeclareLaunchArgument('exploration_timeout_s', default_value='540.0'),
         LogInfo(msg=(
             '[DEPRECATED] simenv_demo.launch.py 仅为兼容入口；'
             '正式运行请使用 scripts/run_official_simenv_ros1_ros2_stack.sh。'
@@ -62,6 +64,7 @@ def generate_launch_description():
                 'start_evidence_recorder': 'false',
                 'perception_output_frame': perception_output_frame,
                 'localization_provenance': localization_provenance,
+                'exploration_timeout_s': exploration_timeout_s,
             }.items(),
         ),
     ])

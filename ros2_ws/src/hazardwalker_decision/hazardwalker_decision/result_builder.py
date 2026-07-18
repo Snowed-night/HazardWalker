@@ -65,7 +65,11 @@ def build_official_detected_danger_result(
     dedup_distance_m=0.30,
     require_legal_localization=False,
     require_multiview_sphere_evidence=False,
-    allowed_localization_provenance=('lidar_imu_slam', 'visual_inertial_slam'),
+    allowed_localization_provenance=(
+        'lidar_imu_slam',
+        'visual_inertial_slam',
+        'lidar_imu_slam+public_floor_action',
+    ),
 ):
     """构建官方 SimEnv 的最终危险源输出。
 
@@ -81,6 +85,8 @@ def build_official_detected_danger_result(
             生成器源之间最小间距约 0.65m，0.30m 不会合并两个合法独立源。
         require_legal_localization: 为真时仅导出明确标为合法 SLAM 定位的轨迹，
             防止调试用 Gazebo 真值里程计/TF 混入比赛提交。
+            `lidar_imu_slam+public_floor_action` 只表示 SLAM 位姿的楼层高度来自
+            主办方公开电梯动作/楼层状态，不包含 Gazebo ground truth。
         require_multiview_sphere_evidence: 为真时仅导出已完成 RGB-D 多视角球面
             一致性确认的轨迹，防止红色圆柱端面或圆锥端面误入最终评分文件。
 

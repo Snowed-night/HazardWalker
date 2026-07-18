@@ -15,7 +15,10 @@ import os
 import shutil
 import tempfile
 
-from ament_index_python.packages import get_package_share_directory
+from ament_index_python.packages import (
+    PackageNotFoundError,
+    get_package_share_directory,
+)
 from launch import LaunchDescription
 from launch.actions import (
     DeclareLaunchArgument,
@@ -53,7 +56,13 @@ def _launch_cartographer(context, nav_pkg):
     # 配置，却不一定把它注册为可被 ament_index 查询的独立包。因此从已注册的
     # cartographer_ros 共享目录回到同一 share 前缀，避免正式 launch 因
     # get_package_share_directory('cartographer') 直接退出。
-    cartographer_ros_share = get_package_share_directory('cartographer_ros')
+    try:
+        cartographer_ros_share = get_package_share_directory('cartographer_ros')
+    except PackageNotFoundError as exc:
+        raise RuntimeError(
+            'start_slam=true and slam_backend=cartographer require '
+            'cartographer_ros; configure the official stack Cartographer prefix.'
+        ) from exc
     builtin_dir = os.path.join(
         os.path.dirname(cartographer_ros_share),
         'cartographer',
@@ -126,6 +135,7 @@ def generate_launch_description():
     nav_mode = LaunchConfiguration('nav_mode')
     perception_output_frame = LaunchConfiguration('perception_output_frame')
     localization_provenance = LaunchConfiguration('localization_provenance')
+    exploration_timeout_s = LaunchConfiguration('exploration_timeout_s')
     evidence_output_dir = LaunchConfiguration('evidence_output_dir')
     test_record_dir = LaunchConfiguration('test_record_dir')
     scenario_seed = LaunchConfiguration('scenario_seed')
@@ -135,6 +145,9 @@ def generate_launch_description():
     scenario_seed_string = ParameterValue(scenario_seed, value_type=str)
     code_version_string = ParameterValue(code_version, value_type=str)
     sim_time_parameter = ParameterValue(use_sim_time, value_type=bool)
+    exploration_timeout_parameter = ParameterValue(
+        exploration_timeout_s, value_type=float,
+    )
     # Cartographer 融合模式需要合法前端只发布 Odometry；否则由该前端直接拥有
     # odom→base。表达式同时考虑 start_slam=false 的安全默认启动。
     publish_legal_tf_parameter = ParameterValue(
@@ -180,6 +193,8 @@ def generate_launch_description():
         # 只有调用方确认合法 SLAM 已实际运行后才能声明来源；默认值必须
         # fail-closed，避免把缺失/错误 TF 下的候选导出为 world 危险源。
         DeclareLaunchArgument('localization_provenance', default_value='unverified'),
+        # 正式评分使用 540 秒探索预算；诊断轮可显式缩短，但不得再修改源码。
+        DeclareLaunchArgument('exploration_timeout_s', default_value='540.0'),
         DeclareLaunchArgument('evidence_output_dir', default_value=''),
         DeclareLaunchArgument('test_record_dir', default_value=''),
         DeclareLaunchArgument('scenario_seed', default_value=''),
@@ -287,7 +302,7 @@ def generate_launch_description():
                 name='frontier_explorer_node',
                 output='screen',
                 parameters=[{
-                    'exploration_timeout_s': 540.0,
+                    'exploration_timeout_s': exploration_timeout_parameter,
                     'min_frontier_size': 10,
                     # 0.8 m 会让入口附近的前沿在机器人尚未运动时即被判定完成。
                     'goal_tolerance_m': 0.25,
