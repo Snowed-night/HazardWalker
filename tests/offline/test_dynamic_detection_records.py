@@ -116,4 +116,6 @@ def test_dynamic_recorder_module_has_direct_execution_entrypoint():
     assert 'self.mission_completed = True' in source
     assert "'mission_completed': self.mission_completed" in source
     assert "'forbidden_pose_topic' in self.evidence_contract.get('contract_violations', [])" in source
+    assert 'result_path.resolve() != result_copy_path.resolve()' in source
+    assert "self.test_record_dir / 'testing_record_perception.json'" in source
     assert 'trajectory.jsonl' in source

@@ -291,7 +291,12 @@ class DynamicDetectionRecorderNode(Node):
             str(self.get_parameter('result_json_path').value)
         ).expanduser()
         if result_path.exists():
-            shutil.copy2(result_path, self.output_dir / 'detected_danger.json')
+            result_copy_path = self.output_dir / 'detected_danger.json'
+            # 正式全链路通常直接把结果写入证据目录。成功收尾时若再次把文件
+            # 复制到自身，shutil 会抛 SameFileError，导致后续测试组 CSV/JSON
+            # 永远缺失；只有源、目标确实不同才执行复制。
+            if result_path.resolve() != result_copy_path.resolve():
+                shutil.copy2(result_path, result_copy_path)
 
         testing_record = build_dynamic_testing_record(
             summary,
