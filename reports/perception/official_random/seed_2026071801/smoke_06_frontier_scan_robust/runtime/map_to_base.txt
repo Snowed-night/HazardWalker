@@ -1,0 +1,3 @@
+[INFO] [1784375628.256130181] [tf2_echo]: Waiting for transform map ->  base: Invalid frame ID "map" passed to canTransform argument target_frame - frame does not exist
+[INFO] [1784375630.245313550] [tf2_echo]: Waiting for transform map ->  base: Could not find a connection between 'map' and 'base' because they are not part of the same tree.Tf has two or more unconnected trees.
+[INFO] [1784375631.146564888] [rclcpp]: signal_handler(SIGINT/SIGTERM)

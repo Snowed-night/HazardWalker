@@ -1,0 +1,52 @@
+[INFO] [1784382324.582819585] [tf2_echo]: Waiting for transform map ->  base: Invalid frame ID "map" passed to canTransform argument target_frame - frame does not exist
+At time 123.960000000
+- Translation: [-0.322, 1.531, 0.000]
+- Rotation: in Quaternion (xyzw) [0.000, 0.000, 0.566, 0.825]
+- Rotation: in RPY (radian) [0.000, -0.000, 1.202]
+- Rotation: in RPY (degree) [0.000, -0.000, 68.882]
+- Matrix:
+  0.360 -0.933  0.000 -0.322
+  0.933  0.360  0.000  1.531
+  0.000  0.000  1.000  0.000
+  0.000  0.000  0.000  1.000
+At time 124.154000000
+- Translation: [-0.331, 1.467, 0.000]
+- Rotation: in Quaternion (xyzw) [0.000, 0.000, 0.565, 0.825]
+- Rotation: in RPY (radian) [0.000, -0.000, 1.200]
+- Rotation: in RPY (degree) [0.000, -0.000, 68.779]
+- Matrix:
+  0.362 -0.932  0.000 -0.331
+  0.932  0.362  0.000  1.467
+  0.000  0.000  1.000  0.000
+  0.000  0.000  0.000  1.000
+At time 124.356000000
+- Translation: [-0.334, 1.403, 0.000]
+- Rotation: in Quaternion (xyzw) [0.000, 0.000, 0.564, 0.826]
+- Rotation: in RPY (radian) [0.000, -0.000, 1.199]
+- Rotation: in RPY (degree) [0.000, -0.000, 68.680]
+- Matrix:
+  0.364 -0.932  0.000 -0.334
+  0.932  0.364  0.000  1.403
+  0.000  0.000  1.000  0.000
+  0.000  0.000  0.000  1.000
+At time 124.556000000
+- Translation: [-0.334, 1.348, 0.000]
+- Rotation: in Quaternion (xyzw) [0.000, 0.000, 0.563, 0.826]
+- Rotation: in RPY (radian) [0.000, -0.000, 1.197]
+- Rotation: in RPY (degree) [0.000, -0.000, 68.596]
+- Matrix:
+  0.365 -0.931  0.000 -0.334
+  0.931  0.365  0.000  1.348
+  0.000  0.000  1.000  0.000
+  0.000  0.000  0.000  1.000
+At time 124.756000000
+- Translation: [-0.336, 1.308, 0.000]
+- Rotation: in Quaternion (xyzw) [0.000, 0.000, 0.563, 0.827]
+- Rotation: in RPY (radian) [0.000, -0.000, 1.195]
+- Rotation: in RPY (degree) [0.000, -0.000, 68.496]
+- Matrix:
+  0.367 -0.930  0.000 -0.336
+  0.930  0.367  0.000  1.308
+  0.000  0.000  1.000  0.000
+  0.000  0.000  0.000  1.000
+[INFO] [1784382330.465468224] [rclcpp]: signal_handler(SIGINT/SIGTERM)

@@ -13,7 +13,13 @@ PLATFORM_SRC = REPO_ROOT / 'ros2_ws' / 'src' / 'hazardwalker_platform'
 if str(PLATFORM_SRC) not in sys.path:
     sys.path.insert(0, str(PLATFORM_SRC))
 
-from hazardwalker_platform.rosbridge_protocol import FragmentAssembler, decode_packet  # noqa: E402
+from hazardwalker_platform.rosbridge_protocol import (  # noqa: E402
+    FragmentAssembler,
+    decode_laser_ranges,
+    decode_packet,
+    decode_ros_time,
+    filter_scan_self_returns,
+)
 
 
 def _fragment(identity, number, total, data):
@@ -71,3 +77,27 @@ def test_new_frame_zero_fragment_discards_incomplete_previous_frame():
     assert assembler.accept(_fragment('rgb-subscription', 0, 3, 'new-0')) is None
     assert assembler.accept(_fragment('rgb-subscription', 1, 3, 'new-1')) is None
     assert assembler.accept(_fragment('rgb-subscription', 2, 3, 'new-2')) == 'new-0new-1new-2'
+
+
+def test_laserscan_null_ranges_are_restored_as_positive_infinity():
+    """rosbridge 的严格 JSON null 是 LaserScan +inf，不得使适配器重连。"""
+
+    decoded = decode_laser_ranges([None, 1.25, '2.5'])
+
+    assert decoded[0] == float('inf')
+    assert decoded[1:] == [1.25, 2.5]
+
+
+def test_scan_self_filter_removes_only_calibrated_body_returns():
+    filtered = filter_scan_self_returns(
+        [float('inf'), 0.10, 0.34, 0.40, 0.75, float('nan')],
+        0.40,
+    )
+    assert filtered[:3] == [float('inf')] * 3
+    assert filtered[3:5] == [0.40, 0.75]
+    assert filtered[5] != filtered[5]  # NaN 仍保持无效，由下游按标准规则忽略。
+
+
+def test_clock_decoder_accepts_ros1_and_ros2_field_names():
+    assert decode_ros_time({'secs': 94, 'nsecs': 12}) == (94, 12)
+    assert decode_ros_time({'sec': 95, 'nanosec': 13}) == (95, 13)

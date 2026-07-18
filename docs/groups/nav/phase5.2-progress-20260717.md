@@ -1,5 +1,18 @@
 # 导航组 Phase 5.2 进度总结
 
+> [!CAUTION]
+> 本文是 PR #33 合并前后的历史排障记录，不是当前启动手册。下文中的
+> `hw_bridge.py`、`hw_topic_relay_node`、直接运行 `async_slam_toolbox_node`、
+> `-r /tf:=/hw/tf` 和 `simenv_demo.launch.py` 旧链路均禁止用于正式比赛或联调：
+> 它们可能混入 Gazebo 派生 TF、遗漏 lifecycle 激活、合并动态/静态 TF，或产生重复
+> `/hw/cmd_vel` 发布者。
+>
+> 当前正式入口为仓库根目录
+> `bash scripts/run_official_simenv_ros1_ros2_stack.sh`。该入口使用 rosbridge
+> 适配器和 `official_simenv_business.launch.py`，默认关闭导航；只有确认独占会话后才可
+> 显式传 `start_navigation:=true` 并按正式适配流程开启控制。本文下方命令仅用于还原
+> 算法优化路径，不得复制执行。
+
 > 日期：2026-07-17 | 分支：`feature/nav` | 提交：`848e90a`
 
 ---

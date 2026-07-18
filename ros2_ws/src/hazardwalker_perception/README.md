@@ -85,6 +85,10 @@ ros2 launch hazardwalker_bringup official_simenv_business.launch.py \
 `official_simenv_lidar_imu_slam_node.py`：它只以扫描端点相关匹配和 IMU 朝向维护
 `start -> slam_base -> real_sense`，并发布 `/hazardwalker/slam/odometry`；不订阅任何 Gazebo
 里程计或真值话题。使用独立 `slam_base` 避免与官方已有 `odom -> base` 形成多父 TF 冲突。
+多楼层高度使用官方生成器公开的固定层高 `2.6 m`，订阅
+`/hazardwalker/navigation/floor_index`。该楼层号必须由导航在电梯服务确认成功或楼梯状态机
+确认到层后发布，不能从 layout、manifest 或真值读取；换层时定位器清空旧楼层的二维匹配地图，
+同时保留 x/y/yaw 连续值。
 
 ~~~text
 # 先启动合法定位（不发送控制命令）
@@ -94,11 +98,12 @@ SIMENV_ROOT=/path/to/SimEnv \
 # 再启动感知；参数显式声明定位来源，未启动上述节点则不会导出最终危险源。
 SIMENV_ROOT=/path/to/SimEnv \
   bash scripts/run_official_simenv_ros1_perception.sh \
-    _localization_provenance:=lidar_imu_slam
+    _localization_provenance:=lidar_imu_slam+public_floor_action
 ~~~
 
 这只是增量定位实现，正式评分前仍必须在官方随机 SEED 场景验证长程漂移、重定位和
-`start -> base -> real_sense` TF 完整性；它不替代导航组的建图、探索或返航模块。
+`start -> base -> real_sense` TF 完整性，并验证导航不会提前或错误发布楼层号；它不替代
+导航组的建图、探索或返航模块。
 
 为处理官方 SimEnv 中的遮挡、圆柱干扰和单视角风险，检测输出分为两层：
 
@@ -114,6 +119,12 @@ SIMENV_ROOT=/path/to/SimEnv \
 中位表观直径与题目标准值 `0.30 m` 对比（默认允许 35% 相对误差）。因此，红色圆柱正面、
 红色圆锥端面、局部可见弧段、尺寸明显不符的红色圆物都只能提出复查请求；只有完整证据链才
 允许导出为红球。
+
+每个 RGB-D 视角的球面正证据不仅检查“中心比外环更近”，还分别计算水平、竖直和两条对角线
+四个方向的深度曲率。四个方向都有凸曲率且最小/最大曲率比例不低于
+`min_sphere_axis_curvature_ratio`（默认 `0.35`）时才记为 `spherical`；只在一个方向弯曲的
+任意角度的圆柱侧面或弧形板标为 `anisotropic`，只可触发侧向复查。方向有效深度不足时标为 `unknown`，
+不会误充球面正证据，也不会永久拒绝可能被遮挡的真实红球。
 
 官方 SimEnv 的 RGB 与深度经 rosbridge 独立到达，节点只会在二者时间戳差不超过
 `max_rgb_depth_sync_delta_sec`（默认 0.15 s）时使用深度做球形判别和三维反投影。超出窗口时该帧仅保留 RGB 候选，不能把旧深度当作当前物体的反证或错误坐标。

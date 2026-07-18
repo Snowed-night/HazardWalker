@@ -57,6 +57,10 @@ def validate(evidence_dir, result_path):
         errors.append('truth_input_declaration_invalid')
     if summary.get('evidence_contract') != contract:
         errors.append('summary_manifest_contract_mismatch')
+    if manifest.get('mission_completion_required') is not True:
+        errors.append('mission_completion_contract_missing')
+    if summary.get('mission_completed') is not True:
+        errors.append('mission_not_completed')
     if not isinstance(failure_reasons.get('observed_failure_reasons'), list):
         errors.append('failure_reasons_not_list')
 

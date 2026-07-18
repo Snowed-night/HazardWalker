@@ -58,8 +58,9 @@ class HazardLocalization3D:
 class DepthShapeEvidence:
     """目标 ROI 的深度曲率证据。
 
-    球面中心比边缘更靠近相机，平面板和圆柱正面则近似等深。该证据只用于
-    抑制明显平面误报；深度稀疏时返回 unknown，交给多视角复查而不是误杀目标。
+    球面中心比边缘更靠近相机，而且水平、竖直及两条对角线都应表现出相近的凸曲率。
+    平面板和圆柱正面近似等深；圆柱侧面等单轴曲面则只在一个方向弯曲。
+    深度稀疏时返回 unknown，交给多视角复查而不是误杀目标。
     """
 
     status: str
@@ -69,6 +70,15 @@ class DepthShapeEvidence:
     curvature_m: Optional[float]
     center_points: int
     outer_points: int
+    horizontal_curvature_m: Optional[float] = None
+    vertical_curvature_m: Optional[float] = None
+    diagonal_positive_curvature_m: Optional[float] = None
+    diagonal_negative_curvature_m: Optional[float] = None
+    curvature_isotropy_ratio: Optional[float] = None
+    horizontal_points: int = 0
+    vertical_points: int = 0
+    diagonal_positive_points: int = 0
+    diagonal_negative_points: int = 0
 
 
 """从 ROS CameraInfo 风格的 K 矩阵提取针孔相机内参。"""
@@ -194,12 +204,20 @@ def estimate_depth_from_bbox(depth_image, bbox, padding_px=0, max_depth_m=20.0, 
 
 def evaluate_sphere_depth_shape(depth_image, bbox, max_depth_m=20.0,
                                 min_points_per_region=8,
-                                min_curvature_m=0.008):
-    """用 bbox 内椭圆的中心/外环深度差区分球面与近似平面。
+                                min_curvature_m=0.008,
+                                min_axis_points=4,
+                                min_axis_curvature_ratio=0.35):
+    """用中心/外环曲率及四方向曲率一致性筛选球面。
 
-    返回 ``spherical``、``flat`` 或 ``unknown``。这是保守过滤：只有中心与
-    外环都有足够有效点且深度差很小时才判为 ``flat``；遮挡、过小目标和深度
-    缺失均不作负判定，仍可进入主动重观察流程。
+    返回 ``spherical``、``flat``、``anisotropic`` 或 ``unknown``：
+
+    1. 中心和外环近似等深时为 ``flat``；
+    2. 外环有凸曲率、但四个采样方向中存在近似平坦方向时为 ``anisotropic``；
+    3. 四个方向均有曲率且比例足够接近时才为 ``spherical``；
+    4. 遮挡、过小目标或轴向采样不足时为 ``unknown``，只触发主动复查。
+
+    这比单一中心—外环差更能抑制圆柱侧面、弧形板和条状曲面误报，同时对
+    深度证据不足的真实红球保持 fail-safe，不做永久负判定。
     """
 
     height = len(depth_image)
@@ -219,10 +237,16 @@ def evaluate_sphere_depth_shape(depth_image, bbox, max_depth_m=20.0,
     center_y = (y0 + y1) / 2.0
     center_values = []
     outer_values = []
+    horizontal_outer_values = []
+    vertical_outer_values = []
+    diagonal_positive_outer_values = []
+    diagonal_negative_outer_values = []
     for y in range(y0, y1 + 1):
         row = depth_image[y]
         for x in range(x0, x1 + 1):
-            radial = math.sqrt(((x - center_x) / radius_x) ** 2 + ((y - center_y) / radius_y) ** 2)
+            normalized_x = (x - center_x) / radius_x
+            normalized_y = (y - center_y) / radius_y
+            radial = math.sqrt(normalized_x ** 2 + normalized_y ** 2)
             if radial > 0.90:
                 continue
             value = float(row[x])
@@ -232,6 +256,17 @@ def evaluate_sphere_depth_shape(depth_image, bbox, max_depth_m=20.0,
                 center_values.append(value)
             elif 0.60 <= radial <= 0.88:
                 outer_values.append(value)
+                # 沿四条穿过中心的直径取窄扇区。这样无论圆柱轴如何旋转，
+                # 至少有一个采样方向接近其平坦轴，不会因固定横纵方向而漏掉斜放圆柱。
+                directional_tolerance = 0.28 * radial
+                if abs(normalized_y) <= directional_tolerance:
+                    horizontal_outer_values.append(value)
+                if abs(normalized_x) <= directional_tolerance:
+                    vertical_outer_values.append(value)
+                if abs(normalized_y - normalized_x) <= directional_tolerance:
+                    diagonal_positive_outer_values.append(value)
+                if abs(normalized_y + normalized_x) <= directional_tolerance:
+                    diagonal_negative_outer_values.append(value)
     required = max(1, int(min_points_per_region))
     if len(center_values) < required or len(outer_values) < required:
         return DepthShapeEvidence(
@@ -241,10 +276,59 @@ def evaluate_sphere_depth_shape(depth_image, bbox, max_depth_m=20.0,
     center_depth = _median(center_values)
     outer_depth = _median(outer_values)
     curvature = outer_depth - center_depth
-    status = 'spherical' if curvature >= float(min_curvature_m) else 'flat'
+    axis_required = max(1, int(min_axis_points))
+    if curvature < float(min_curvature_m):
+        return DepthShapeEvidence(
+            'flat', center_depth, outer_depth, curvature,
+            len(center_values), len(outer_values),
+            horizontal_points=len(horizontal_outer_values),
+            vertical_points=len(vertical_outer_values),
+            diagonal_positive_points=len(diagonal_positive_outer_values),
+            diagonal_negative_points=len(diagonal_negative_outer_values),
+        )
+    directional_samples = (
+        horizontal_outer_values,
+        vertical_outer_values,
+        diagonal_positive_outer_values,
+        diagonal_negative_outer_values,
+    )
+    if any(len(values) < axis_required for values in directional_samples):
+        return DepthShapeEvidence(
+            'unknown', center_depth, outer_depth, curvature,
+            len(center_values), len(outer_values),
+            horizontal_points=len(horizontal_outer_values),
+            vertical_points=len(vertical_outer_values),
+            diagonal_positive_points=len(diagonal_positive_outer_values),
+            diagonal_negative_points=len(diagonal_negative_outer_values),
+        )
+
+    directional_curvatures = tuple(
+        _median(values) - center_depth for values in directional_samples
+    )
+    horizontal_curvature, vertical_curvature = directional_curvatures[:2]
+    diagonal_positive_curvature, diagonal_negative_curvature = directional_curvatures[2:]
+    maximum_axis_curvature = max(directional_curvatures)
+    isotropy_ratio = (
+        max(0.0, min(directional_curvatures))
+        / max(maximum_axis_curvature, 1e-9)
+    )
+    axis_is_spherical = (
+        min(directional_curvatures) >= float(min_curvature_m)
+        and isotropy_ratio >= float(min_axis_curvature_ratio)
+    )
+    status = 'spherical' if axis_is_spherical else 'anisotropic'
     return DepthShapeEvidence(
         status, center_depth, outer_depth, curvature,
         len(center_values), len(outer_values),
+        horizontal_curvature_m=horizontal_curvature,
+        vertical_curvature_m=vertical_curvature,
+        diagonal_positive_curvature_m=diagonal_positive_curvature,
+        diagonal_negative_curvature_m=diagonal_negative_curvature,
+        curvature_isotropy_ratio=isotropy_ratio,
+        horizontal_points=len(horizontal_outer_values),
+        vertical_points=len(vertical_outer_values),
+        diagonal_positive_points=len(diagonal_positive_outer_values),
+        diagonal_negative_points=len(diagonal_negative_outer_values),
     )
 
 

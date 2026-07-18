@@ -229,6 +229,28 @@ def test_flat_evidence_from_two_views_rejects_non_spherical_track():
     assert tracker.tracks[0].evidence_status == 'multi_view_flat_or_non_spherical'
 
 
+def test_anisotropic_depth_evidence_rejects_cylindrical_track():
+    """两个视角均呈单轴曲率时，圆柱轨迹必须作为非球体拒绝。"""
+
+    tracker = HazardTracker(HazardTrackerConfig(
+        confirm_observation_count=3,
+        min_distinct_views=3,
+        min_non_spherical_views_to_reject=2,
+    ))
+    tracker.update([HazardObservation(
+        position=(1.0, 0.0, 0.2), confidence=0.9,
+        view_id='left', confirmation_eligible=False, depth_shape_status='anisotropic',
+    )])
+    tracker.update([HazardObservation(
+        position=(1.02, 0.0, 0.2), confidence=0.9,
+        view_id='right', confirmation_eligible=False, depth_shape_status='anisotropic',
+    )])
+
+    assert tracker.active_tracks() == []
+    assert tracker.tracks[0].status == 'rejected_non_spherical'
+    assert tracker.tracks[0].evidence_status == 'multi_view_flat_or_non_spherical'
+
+
 def test_single_flat_round_view_is_explicitly_marked_for_reobservation():
     """圆柱端面首帧不能当普通 tentative，也不能只凭一帧永久拒绝。"""
     tracker = HazardTracker(HazardTrackerConfig(
@@ -472,3 +494,35 @@ def test_confirmed_track_survives_short_camera_miss_sequence():
 
     assert tracks[0].status == 'confirmed'
     assert tracks[0].missed_count == 2
+
+
+def test_rejected_non_sphere_is_not_recreated_as_new_candidate_next_frame():
+    """同一圆柱被多视角拒绝后必须继续关联到拒绝记忆，不能逐帧换新 ID。"""
+
+    tracker = HazardTracker(HazardTrackerConfig(
+        min_non_spherical_views_to_reject=2,
+        merge_distance_m=0.5,
+    ))
+    for view_id in ('left', 'right'):
+        tracker.update([HazardObservation(
+            position=(1.0, 0.0, 0.5),
+            confidence=0.9,
+            view_id=view_id,
+            confirmation_eligible=False,
+            depth_shape_status='anisotropic',
+        )])
+
+    assert len(tracker.tracks) == 1
+    assert tracker.tracks[0].status == 'rejected_non_spherical'
+
+    active = tracker.update([HazardObservation(
+        position=(1.02, 0.0, 0.5),
+        confidence=0.9,
+        view_id='third',
+        confirmation_eligible=False,
+        depth_shape_status='anisotropic',
+    )])
+
+    assert active == []
+    assert len(tracker.tracks) == 1
+    assert tracker.tracks[0].track_id == 1

@@ -1,0 +1,33 @@
+[INFO] [1784383625.125109528] [tf2_echo]: Waiting for transform map ->  base: Invalid frame ID "map" passed to canTransform argument target_frame - frame does not exist
+[INFO] [1784383627.112076399] [tf2_echo]: Waiting for transform map ->  base: Could not find a connection between 'map' and 'base' because they are not part of the same tree.Tf has two or more unconnected trees.
+At time 383.234000000
+- Translation: [0.004, 0.001, 0.000]
+- Rotation: in Quaternion (xyzw) [0.000, 0.000, -0.002, 1.000]
+- Rotation: in RPY (radian) [0.000, 0.000, -0.005]
+- Rotation: in RPY (degree) [0.000, 0.000, -0.268]
+- Matrix:
+  1.000  0.005  0.000  0.004
+ -0.005  1.000 -0.000  0.001
+ -0.000  0.000  1.000  0.000
+  0.000  0.000  0.000  1.000
+At time 383.402000000
+- Translation: [0.004, 0.001, 0.000]
+- Rotation: in Quaternion (xyzw) [0.000, 0.000, -0.003, 1.000]
+- Rotation: in RPY (radian) [0.000, 0.000, -0.005]
+- Rotation: in RPY (degree) [0.000, 0.000, -0.288]
+- Matrix:
+  1.000  0.005  0.000  0.004
+ -0.005  1.000 -0.000  0.001
+ -0.000  0.000  1.000  0.000
+  0.000  0.000  0.000  1.000
+At time 383.566000000
+- Translation: [0.004, 0.001, 0.000]
+- Rotation: in Quaternion (xyzw) [0.000, 0.000, -0.002, 1.000]
+- Rotation: in RPY (radian) [0.000, 0.000, -0.005]
+- Rotation: in RPY (degree) [0.000, 0.000, -0.281]
+- Matrix:
+  1.000  0.005  0.000  0.004
+ -0.005  1.000 -0.000  0.001
+ -0.000  0.000  1.000  0.000
+  0.000  0.000  0.000  1.000
+[INFO] [1784383631.013448975] [rclcpp]: signal_handler(SIGINT/SIGTERM)

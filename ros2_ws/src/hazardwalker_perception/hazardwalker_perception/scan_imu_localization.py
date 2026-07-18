@@ -43,6 +43,22 @@ class ScanImuLocalizerConfig:
     # official A1 中激光相对 base 的公开静态外参；可按平台标定显式覆盖。
     laser_offset_x_m: float = 0.20
     laser_offset_y_m: float = 0.0
+    laser_offset_z_m: float = 0.08
+    # 官方 Livox Mid-360 相对 base 绕 Y 轴上仰 45°。PointCloud2 必须先按
+    # 公开外参转换到 base，不能把传感器局部 x/y 直接冒充水平平面。
+    laser_pitch_rad: float = 0.785
+    # 排除随机器人运动的近地面点和过高顶棚点，保留墙面、家具等稳定配准端点。
+    min_endpoint_z_m: float = -0.25
+    max_endpoint_z_m: float = 1.50
+    # IMU 已锁定旋转后，用相邻帧点集 ICP 只估计平移。相邻帧比累计占据图
+    # 更不易在长直墙上发生“沿墙滑移”；历史图只在 ICP 证据不足时回退。
+    icp_max_correspondence_m: float = 0.45
+    icp_iteration_count: int = 4
+    icp_trim_fraction: float = 0.70
+    # scan-to-scan 在平行墙走廊中存在沿墙多解；它只能给命令积分提供毫米级校正，
+    # 不能每帧覆盖运动方向。全局闭环由 SLAM Toolbox 负责。
+    scan_correction_gain: float = 0.02
+    max_scan_correction_m: float = 0.001
 
 
 class ScanImuLocalizer:
@@ -54,57 +70,168 @@ class ScanImuLocalizer:
         self._initial_imu_yaw = None
         self._occupancy = set()
         self._map_points = []
+        self._previous_world_points = []
 
-    def update_scan(self, ranges, angle_min, angle_increment, imu_yaw_rad):
+    def reset_matching_map(self):
+        """换层后保留平面位姿，但清空只属于旧楼层的扫描匹配地图。
+
+        官方楼层平面结构可能高度相似。若电梯或楼梯到层后仍拿上一层端点做 ICP，
+        定位器会把不同楼层错误拼成同一张二维地图。楼层编号由公开动作状态提供；
+        本方法只隔离各层匹配历史，不读取场景布局或真值。
+        """
+
+        self._occupancy.clear()
+        self._map_points = []
+        self._previous_world_points = []
+
+    def update_scan(
+            self, ranges, angle_min, angle_increment, imu_yaw_rad,
+            motion_prior_base=(0.0, 0.0)):
         """用一帧 LaserScan 与最新 IMU 朝向更新 start→base 位姿。"""
 
         points = scan_ranges_to_points(
             ranges, angle_min, angle_increment,
             self.config.min_range_m, self.config.max_range_m, self.config.endpoint_stride,
         )
-        return self.update_points(points, imu_yaw_rad)
+        return self.update_points(points, imu_yaw_rad, motion_prior_base)
 
-    def update_points(self, laser_points, imu_yaw_rad):
+    def update_points(
+            self, laser_points, imu_yaw_rad, motion_prior_base=(0.0, 0.0)):
         """允许测试或点云前端直接输入 laser_link 坐标系二维端点。"""
+
+        base_points = _laser_to_base_points(laser_points, self.config)
+        return self.update_base_points(
+            base_points, imu_yaw_rad, motion_prior_base)
+
+    def update_base_points(
+            self, base_points, imu_yaw_rad, motion_prior_base=(0.0, 0.0)):
+        """使用已经按公开外参转换到 base 坐标系的二维端点。"""
 
         if self._initial_imu_yaw is None:
             self._initial_imu_yaw = float(imu_yaw_rad)
         yaw = normalize_angle(float(imu_yaw_rad) - self._initial_imu_yaw)
-        base_points = _laser_to_base_points(laser_points, self.config)
+        base_points = list(base_points)
         if not base_points:
             return ScanMatchResult(self.pose, 'no_valid_scan_points', 0, 0.0)
 
         if not self._occupancy:
             self.pose = Pose2D(0.0, 0.0, yaw)
             self._integrate_points(base_points, self.pose)
+            self._previous_world_points = _transform_planar_points(base_points, self.pose)
             return ScanMatchResult(self.pose, 'initialized', 0, 0.0)
 
-        best_pose, best_count = self._search_translation(base_points, yaw)
+        try:
+            prior_forward = float(motion_prior_base[0])
+            prior_left = float(motion_prior_base[1])
+        except (IndexError, TypeError, ValueError):
+            prior_forward = 0.0
+            prior_left = 0.0
+        if not math.isfinite(prior_forward) or not math.isfinite(prior_left):
+            prior_forward = 0.0
+            prior_left = 0.0
+        predicted_pose = Pose2D(
+            self.pose.x + math.cos(yaw) * prior_forward
+            - math.sin(yaw) * prior_left,
+            self.pose.y + math.sin(yaw) * prior_forward
+            + math.cos(yaw) * prior_left,
+            yaw,
+        )
+
+        best_pose, best_count = self._match_translation_icp(
+            base_points, yaw, predicted_pose)
         if best_count < self.config.min_match_count:
-            # 朝向仍由 IMU 更新；平移保持上一帧，避免低纹理/开阔区把错误相关写入地图。
-            self.pose = Pose2D(self.pose.x, self.pose.y, yaw)
-            return ScanMatchResult(self.pose, 'weak_scan_match', best_count,
+            best_pose, best_count = self._search_translation(
+                base_points, yaw, predicted_pose)
+        if best_count < self.config.min_match_count:
+            # 弱纹理时沿已下发控制的短时运动先验推进；先验只约束方向并有节点侧
+            # dt/新鲜度上限，不读取 Gazebo 里程计或场景真值。
+            self.pose = predicted_pose
+            return ScanMatchResult(self.pose, 'motion_prior_only', best_count,
                                    best_count / float(max(1, len(base_points))))
 
-        self.pose = best_pose
+        self.pose = _bound_translation_correction(
+            best_pose,
+            predicted_pose,
+            gain=self.config.scan_correction_gain,
+            max_correction_m=self.config.max_scan_correction_m,
+        )
         self._integrate_points(base_points, self.pose)
+        self._previous_world_points = _transform_planar_points(base_points, self.pose)
         return ScanMatchResult(self.pose, 'tracking', best_count,
                                best_count / float(max(1, len(base_points))))
 
-    def _search_translation(self, base_points, yaw):
-        best_pose = Pose2D(self.pose.x, self.pose.y, yaw)
+    def _match_translation_icp(self, base_points, yaw, predicted_pose=None):
+        """在 IMU 给定 yaw 下，以鲁棒相邻帧 ICP 仅估计 x/y 平移。"""
+
+        if not self._previous_world_points:
+            return Pose2D(self.pose.x, self.pose.y, yaw), 0
+        candidate = predicted_pose or Pose2D(self.pose.x, self.pose.y, yaw)
+        matched_count = 0
+        iteration_count = max(1, int(self.config.icp_iteration_count))
+        trim_fraction = min(1.0, max(0.20, float(self.config.icp_trim_fraction)))
+        max_distance_sq = float(self.config.icp_max_correspondence_m) ** 2
+        for _iteration in range(iteration_count):
+            current_world = _transform_planar_points(base_points, candidate)
+            residuals = []
+            for current_x, current_y in current_world:
+                nearest = None
+                nearest_distance_sq = float('inf')
+                for previous_x, previous_y in self._previous_world_points:
+                    distance_sq = (
+                        (previous_x - current_x) ** 2
+                        + (previous_y - current_y) ** 2
+                    )
+                    if distance_sq < nearest_distance_sq:
+                        nearest = (previous_x, previous_y)
+                        nearest_distance_sq = distance_sq
+                if nearest is not None and nearest_distance_sq <= max_distance_sq:
+                    residuals.append((
+                        nearest_distance_sq,
+                        nearest[0] - current_x,
+                        nearest[1] - current_y,
+                    ))
+            if not residuals:
+                return candidate, 0
+            residuals.sort(key=lambda item: item[0])
+            keep_count = max(1, int(math.ceil(len(residuals) * trim_fraction)))
+            trimmed = residuals[:keep_count]
+            matched_count = len(trimmed)
+            delta_x = _median([item[1] for item in trimmed])
+            delta_y = _median([item[2] for item in trimmed])
+            candidate = Pose2D(
+                candidate.x + delta_x,
+                candidate.y + delta_y,
+                yaw,
+            )
+            if math.hypot(delta_x, delta_y) < 0.002:
+                break
+        return candidate, matched_count
+
+    def _search_translation(self, base_points, yaw, predicted_pose=None):
+        center = predicted_pose or Pose2D(self.pose.x, self.pose.y, yaw)
+        best_pose = Pose2D(center.x, center.y, yaw)
         best_count = -1
+        best_motion_sq = float('inf')
         radius_steps = int(round(self.config.search_radius_m / self.config.search_step_m))
         for dx_step in range(-radius_steps, radius_steps + 1):
             for dy_step in range(-radius_steps, radius_steps + 1):
                 candidate = Pose2D(
-                    self.pose.x + dx_step * self.config.search_step_m,
-                    self.pose.y + dy_step * self.config.search_step_m,
+                    center.x + dx_step * self.config.search_step_m,
+                    center.y + dy_step * self.config.search_step_m,
                     yaw,
                 )
                 count = self._occupancy_score(base_points, candidate)
-                if count > best_count:
+                # 走廊、平墙和体素邻域常产生多个同分解。若只保留遍历到的
+                # 第一个候选，静止机器人也会每帧向搜索窗口左下角漂移。
+                # 同分时选择相对上一位姿运动最小的解，符合连续运动先验。
+                motion_sq = (
+                    (candidate.x - center.x) ** 2
+                    + (candidate.y - center.y) ** 2
+                )
+                if (count > best_count
+                        or (count == best_count and motion_sq < best_motion_sq)):
                     best_pose, best_count = candidate, count
+                    best_motion_sq = motion_sq
         return best_pose, best_count
 
     def _occupancy_score(self, points, pose):
@@ -157,6 +284,67 @@ def quaternion_to_yaw(x, y, z, w):
     return math.atan2(numerator, denominator)
 
 
+def floor_index_to_elevation(floor_index, floor_height_m=2.6,
+                             min_floor_index=0, max_floor_index=31):
+    """把公开动作链确认的楼层编号转换为相对起点高度。
+
+    官方随机楼栋生成器公开固定层高为 2.6 m。该函数只接受整数且限制合理范围，
+    避免损坏的导航消息把危险源写到异常高度；它不读取 layout、manifest 或真值。
+    """
+
+    if isinstance(floor_index, bool):
+        raise ValueError('floor_index 必须是整数，不能是布尔值。')
+    try:
+        value = int(floor_index)
+    except (TypeError, ValueError):
+        raise ValueError('floor_index 必须是整数。')
+    if value != floor_index:
+        raise ValueError('floor_index 必须是整数。')
+    if value < int(min_floor_index) or value > int(max_floor_index):
+        raise ValueError('floor_index 超出允许范围。')
+    height = float(floor_height_m)
+    if not math.isfinite(height) or height <= 0.0:
+        raise ValueError('floor_height_m 必须是正有限数。')
+    return value * height
+
+
+def point_cloud_xyz_to_base_points(points_xyz, config):
+    """把官方 Livox PointCloud2 的 xyz 转为可用于二维匹配的 base 平面端点。
+
+    输入只来自公开点云。转换使用文档公开的 ``base -> laser_livox`` 静态外参，
+    并按 base 高度过滤地面/顶棚；不读取 Gazebo TF、场景布局或真值。
+    """
+
+    cosine, sine = math.cos(config.laser_pitch_rad), math.sin(config.laser_pitch_rad)
+    result = []
+    stride = max(1, int(config.endpoint_stride))
+    for index, point in enumerate(points_xyz):
+        if index % stride:
+            continue
+        try:
+            laser_x, laser_y, laser_z = (
+                float(point[0]), float(point[1]), float(point[2]),
+            )
+        except (IndexError, TypeError, ValueError):
+            continue
+        if not all(math.isfinite(value) for value in (laser_x, laser_y, laser_z)):
+            continue
+        range_m = math.sqrt(laser_x * laser_x + laser_y * laser_y + laser_z * laser_z)
+        if range_m < config.min_range_m or range_m > config.max_range_m:
+            continue
+        base_x = (
+            cosine * laser_x + sine * laser_z + config.laser_offset_x_m
+        )
+        base_y = laser_y + config.laser_offset_y_m
+        base_z = (
+            -sine * laser_x + cosine * laser_z + config.laser_offset_z_m
+        )
+        if base_z < config.min_endpoint_z_m or base_z > config.max_endpoint_z_m:
+            continue
+        result.append((base_x, base_y))
+    return result
+
+
 def normalize_angle(angle):
     return math.atan2(math.sin(float(angle)), math.cos(float(angle)))
 
@@ -166,6 +354,52 @@ def _laser_to_base_points(points, config):
         (float(x) + config.laser_offset_x_m, float(y) + config.laser_offset_y_m)
         for x, y in points
     ]
+
+
+def _transform_planar_points(points, pose):
+    """把 base 平面点按给定位姿转换到 start 坐标。"""
+
+    cosine, sine = math.cos(pose.yaw), math.sin(pose.yaw)
+    return [
+        (
+            pose.x + cosine * float(x) - sine * float(y),
+            pose.y + sine * float(x) + cosine * float(y),
+        )
+        for x, y in points
+    ]
+
+
+def _median(values):
+    ordered = sorted(float(value) for value in values)
+    if not ordered:
+        return 0.0
+    middle = len(ordered) // 2
+    if len(ordered) % 2:
+        return ordered[middle]
+    return (ordered[middle - 1] + ordered[middle]) / 2.0
+
+
+def _bound_translation_correction(candidate, predicted, gain, max_correction_m):
+    """把退化 scan match 限制为命令积分附近的毫米级校正。
+
+    官方长走廊的两侧墙面会让最近邻 ICP 沿墙产生大幅同分跳变。这里不把控制
+    当作真值，只用系统自己已发布的动作限定“下一帧不可能瞬移”；SLAM Toolbox
+    仍可通过 ``map -> odom`` 完成全局扫描匹配与回环。
+    """
+
+    delta_x = float(candidate.x) - float(predicted.x)
+    delta_y = float(candidate.y) - float(predicted.y)
+    distance = math.hypot(delta_x, delta_y)
+    safe_gain = min(1.0, max(0.0, float(gain)))
+    safe_limit = max(0.0, float(max_correction_m))
+    if distance <= 1e-12 or safe_gain <= 0.0 or safe_limit <= 0.0:
+        return Pose2D(predicted.x, predicted.y, candidate.yaw)
+    correction = min(distance * safe_gain, safe_limit)
+    return Pose2D(
+        predicted.x + delta_x / distance * correction,
+        predicted.y + delta_y / distance * correction,
+        candidate.yaw,
+    )
 
 
 def _cell(x, y, resolution):

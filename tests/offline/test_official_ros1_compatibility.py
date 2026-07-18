@@ -18,6 +18,7 @@ def test_official_ros1_node_and_pure_modules_parse_as_python38():
         'scripts/official_simenv_ros1_perception_node.py',
         'scripts/official_simenv_ros1_evidence_recorder.py',
         'scripts/official_simenv_lidar_imu_slam_node.py',
+        'scripts/official_simenv_ros1_perception_sweep.py',
         'ros2_ws/src/hazardwalker_perception/hazardwalker_perception/red_ball_detector.py',
         'ros2_ws/src/hazardwalker_perception/hazardwalker_perception/localize_hazard.py',
         'ros2_ws/src/hazardwalker_perception/hazardwalker_perception/track_hazards.py',
@@ -78,6 +79,13 @@ def test_official_ros1_evidence_recorder_uses_legal_inputs_and_archives_result()
     assert "Subscriber('/hazardwalker/odom'" not in source
     assert "shutil.copy2" in source
     assert "'trajectory.jsonl'" in source
+    assert "'~save_context_frames': True" in source
+    assert "'~context_image_save_interval_sec': 10.0" in source
+    assert "'~max_context_images': 80" in source
+    assert "'official random scene context (no candidate)'" in source
+    assert "'~mission_state_topic': '/hazardwalker/mission/state'" in source
+    assert "self.mission_completed = True" in source
+    assert "'mission_not_completed'" in source
 
 
 def test_official_perception_evidence_orchestrator_fails_closed_and_never_owns_cmd_vel():
@@ -125,7 +133,28 @@ def test_official_ros1_node_calls_depth_localizer_with_named_arguments():
     assert not calls[0].args
     assert {
         item.arg for item in calls[0].keywords
-    } >= {'bbox', 'intrinsics', 'depth_image', 'camera_to_output'}
+    } >= {
+        'bbox', 'intrinsics', 'depth_image', 'camera_to_output',
+        'camera_axis_convention',
+    }
+
+
+def test_official_ros1_node_converts_optical_depth_axis_to_gazebo_camera_link():
+    """官方 CameraInfo 是光学投影，world TF 却连接 X 向前的 real_sense 链路。"""
+    node_path = os.path.join(REPO_ROOT, 'scripts', 'official_simenv_ros1_perception_node.py')
+    launcher_paths = (
+        os.path.join(REPO_ROOT, 'scripts', 'run_official_simenv_ros1_perception.sh'),
+        os.path.join(REPO_ROOT, 'scripts', 'run_official_simenv_perception_evidence.sh'),
+    )
+    with open(node_path, encoding='utf-8') as handle:
+        source = handle.read()
+
+    assert "'~camera_axis_convention', 'gazebo_link_x_forward'" in source
+    assert 'camera_axis_convention=self.camera_axis_convention' in source
+    for launcher_path in launcher_paths:
+        with open(launcher_path, encoding='utf-8') as handle:
+            launcher_source = handle.read()
+        assert '_camera_axis_convention:=gazebo_link_x_forward' in launcher_source
 
 
 def test_official_ros1_node_emits_navigation_owned_reobservation_requests():
@@ -153,6 +182,9 @@ def test_official_ros1_result_export_requires_legal_slam_and_multiview_sphere_ev
     assert 'require_legal_localization=True' in source
     assert 'require_multiview_sphere_evidence=True' in source
     assert "item['localization_provenance'] = self.localization_provenance" in source
+    assert "'localization_ready': bool(localization_ready)" in source
+    assert "'localization_provenance': self.localization_provenance" in source
+    assert "'stamp_sec': round(float(stamp_sec), 6)" in source
 
 
 def test_official_joy_activation_sequence_requires_stand_settle_then_cmd_vel():
@@ -183,10 +215,66 @@ def test_legal_lidar_imu_localizer_never_uses_gazebo_truth_inputs():
     assert "'~slam_base_frame', 'slam_base'" in source
     assert "'~camera_frame', 'real_sense'" in source
     assert '/Odometry_gazebo' in source  # 文档禁止说明必须存在。
-    assert "Subscriber(self.scan_topic, LaserScan" in source
+    assert "rospy.get_published_topics()" in source
+    assert "self.scan_topic, PointCloud2, self._on_point_cloud" in source
+    assert "self.scan_topic, LaserScan, self._on_laser_scan" in source
+    assert "point_cloud2.read_points(" in source
+    assert "point_cloud_xyz_to_base_points" in source
     assert "Subscriber(self.imu_topic, Imu" in source
+    assert "'~floor_index_topic', '/hazardwalker/navigation/floor_index'" in source
+    assert 'floor_index_to_elevation' in source
+    assert 'message.pose.pose.position.z = self.floor_elevation_m' in source
     assert "Subscriber('/Odometry_gazebo'" not in source
     assert "Subscriber('/hazardwalker/odom'" not in source
+
+
+def test_ros2_legal_localizer_uses_only_public_scan_imu_and_floor_action():
+    path = os.path.join(
+        REPO_ROOT,
+        'ros2_ws',
+        'src',
+        'hazardwalker_perception',
+        'hazardwalker_perception',
+        'scan_imu_localizer_node.py',
+    )
+    with open(path, encoding='utf-8') as handle:
+        source = handle.read()
+
+    assert "declare_parameter('scan_topic', '/hw/scan')" in source
+    assert "declare_parameter('imu_topic', '/hw/trunk_imu')" in source
+    assert "declare_parameter('cmd_vel_topic', '/hw/cmd_vel')" in source
+    assert 'motion_prior_base=motion_prior' in source
+    assert "'/hazardwalker/navigation/floor_index'" in source
+    assert "TransformBroadcaster(self)" in source
+    assert '/hw/odom' in source  # 文件头的显式禁止说明必须存在。
+    assert "create_subscription(\n            Odometry" not in source
+    assert '/Odometry_gazebo' in source  # 文件头的显式禁止说明必须存在。
+
+
+def test_perception_sweep_is_autonomous_exclusive_and_truth_safe():
+    """入口环视只能用 IMU 闭环，且与导航发布者冲突时必须停车。"""
+    path = os.path.join(
+        REPO_ROOT, 'scripts', 'official_simenv_ros1_perception_sweep.py',
+    )
+    with open(path, encoding='utf-8') as handle:
+        source = handle.read()
+
+    assert "'~exclusive_session', False" in source
+    assert "'~scenario_seed', ''" in source
+    assert "'~code_version', ''" in source
+    assert "'~imu_topic', '/trunk_imu'" in source
+    assert "rospy.Publisher(self.cmd_vel_topic, Twist" in source
+    assert 'getSystemState()' in source
+    assert "'foreign_cmd_vel_publisher'" in source
+    assert 'self._stop()' in source
+    assert "'official_score_eligible': False" in source
+    assert "'scenario_seed': self.scenario_seed" in source
+    assert "'code_version': self.code_version" in source
+    assert "'truth_or_layout_inputs_used': False" in source
+    assert '/Odometry_gazebo' not in source
+    assert '/ground_truth/' not in source
+    assert 'danger_truth' not in source
+    assert 'scene_manifest' not in source
 
 
 def test_ros1_perception_launchers_explicitly_include_noetic_python3_packages():

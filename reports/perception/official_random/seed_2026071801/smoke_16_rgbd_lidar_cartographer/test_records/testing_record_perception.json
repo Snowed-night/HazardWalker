@@ -1,0 +1,10 @@
+{
+  "scenario": "2026071801",
+  "experiment": "rgbd_lidar_cartographer",
+  "status": "sensor_fusion_pass_mapping_quality_partial",
+  "truth_used_at_runtime": false,
+  "depth_scan_rays": 320,
+  "map_snapshots": 3,
+  "mission_complete": false,
+  "notes": "双扫描均进入 Cartographer 并生成地图；障碍边界质量仍需优化。"
+}

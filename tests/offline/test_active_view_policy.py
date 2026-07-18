@@ -6,11 +6,16 @@
 
 import os
 import sys
+from types import SimpleNamespace
 
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
 sys.path.insert(0, os.path.join(REPO_ROOT, 'ros2_ws', 'src', 'hazardwalker_perception'))
 
-from hazardwalker_perception.active_view_policy import bbox_iou, choose_active_view_action
+from hazardwalker_perception.active_view_policy import (
+    annotate_detections_with_tracks,
+    bbox_iou,
+    choose_active_view_action,
+)
 
 
 def _detection(identifier='one', x_min=100, y_min=100, x_max=150, y_max=150,
@@ -107,6 +112,20 @@ def test_flat_depth_candidate_requests_lateral_shape_recheck():
     assert '非球体' in action.reason
 
 
+"""单轴曲率候选疑似圆柱侧面，必须优先获取独立侧视。"""
+def test_anisotropic_depth_candidate_requests_lateral_shape_recheck():
+    candidate = _detection(
+        identifier='cylinder_side', x_min=200, y_min=150, x_max=300, y_max=250,
+    )
+    candidate['depth_shape'] = {'status': 'anisotropic'}
+
+    action = choose_active_view_action([candidate], 640, 480)
+
+    assert action.action == 'move_left'
+    assert action.priority == 94
+    assert '单轴曲面' in action.reason
+
+
 def test_lateral_recheck_chooses_right_for_right_side_candidate():
     candidate = _detection(identifier='right', x_min=430, y_min=150, x_max=530, y_max=250)
     candidate['depth_shape'] = {'status': 'flat'}
@@ -115,3 +134,26 @@ def test_lateral_recheck_chooses_right_for_right_side_candidate():
 
     assert action.action == 'move_right'
     assert '向右横移' in action.reason
+
+
+def test_detection_uses_stable_track_id_and_preserves_rejected_status():
+    tracks = [
+        SimpleNamespace(
+            track_id=7,
+            position=(1.0, 2.0, 0.3),
+            status='rejected_non_spherical',
+        ),
+    ]
+    detections = [{
+        'id': 1,
+        'localized_position': [1.05, 2.0, 0.3],
+        'bbox': {'x_min': 10, 'y_min': 10, 'x_max': 30, 'y_max': 30},
+    }]
+
+    annotated = annotate_detections_with_tracks(
+        detections, tracks, merge_distance_m=0.5,
+    )
+
+    assert annotated[0]['id'] == '7'
+    assert annotated[0]['track_id'] == '7'
+    assert annotated[0]['track_status'] == 'rejected_non_spherical'

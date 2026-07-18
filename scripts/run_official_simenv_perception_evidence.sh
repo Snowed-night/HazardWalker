@@ -13,6 +13,7 @@ OFFICIAL_EVIDENCE_DIR="${OFFICIAL_EVIDENCE_DIR:?必须指定正式证据目录}"
 OFFICIAL_TEST_RECORD_DIR="${OFFICIAL_TEST_RECORD_DIR:?必须指定测试表目录}"
 OFFICIAL_RESULT_PATH="${OFFICIAL_RESULT_PATH:-$SIMENV_ROOT/results/detected_danger.json}"
 OFFICIAL_MISSION_STATE_TOPIC="${OFFICIAL_MISSION_STATE_TOPIC:-/hazardwalker/mission/state}"
+OFFICIAL_FLOOR_INDEX_TOPIC="${OFFICIAL_FLOOR_INDEX_TOPIC:-/hazardwalker/navigation/floor_index}"
 OFFICIAL_MAX_RUNTIME_SEC="${OFFICIAL_MAX_RUNTIME_SEC:-600}"
 OFFICIAL_PUBLIC_START_X="${OFFICIAL_PUBLIC_START_X:-0.0}"
 OFFICIAL_PUBLIC_START_Y="${OFFICIAL_PUBLIC_START_Y:--2.2}"
@@ -43,7 +44,7 @@ for node in /hazardwalker_official_lidar_imu_slam /hazardwalker_official_rgbd_pe
 done
 
 mkdir -p "$OFFICIAL_EVIDENCE_DIR/runtime_logs" "$OFFICIAL_TEST_RECORD_DIR"
-LAUNCH_NOTE="official_random_scene seed=$OFFICIAL_SCENARIO_SEED code=$OFFICIAL_CODE_VERSION mission_topic=$OFFICIAL_MISSION_STATE_TOPIC"
+LAUNCH_NOTE="official_random_scene seed=$OFFICIAL_SCENARIO_SEED code=$OFFICIAL_CODE_VERSION mission_topic=$OFFICIAL_MISSION_STATE_TOPIC floor_topic=$OFFICIAL_FLOOR_INDEX_TOPIC"
 SLAM_PID=''
 PERCEPTION_PID=''
 RECORDER_PID=''
@@ -64,6 +65,7 @@ trap cleanup EXIT INT TERM
 
 python3 "$REPO_ROOT/scripts/official_simenv_lidar_imu_slam_node.py" \
   _output_topic:=/hazardwalker/slam/odometry \
+  _floor_index_topic:="$OFFICIAL_FLOOR_INDEX_TOPIC" \
   >"$OFFICIAL_EVIDENCE_DIR/runtime_logs/lidar_imu_slam.log" 2>&1 &
 SLAM_PID=$!
 
@@ -71,11 +73,12 @@ python3 "$REPO_ROOT/scripts/official_simenv_ros1_perception_node.py" \
   _output_path:="$OFFICIAL_RESULT_PATH" \
   _localization_frame:=start \
   _world_frame:=world \
+  _camera_axis_convention:=gazebo_link_x_forward \
   _public_start_world_x:="$OFFICIAL_PUBLIC_START_X" \
   _public_start_world_y:="$OFFICIAL_PUBLIC_START_Y" \
   _public_start_world_z:="$OFFICIAL_PUBLIC_START_Z" \
   _public_start_world_yaw:="$OFFICIAL_PUBLIC_START_YAW" \
-  _localization_provenance:=lidar_imu_slam \
+  _localization_provenance:=lidar_imu_slam+public_floor_action \
   _mission_state_topic:="$OFFICIAL_MISSION_STATE_TOPIC" \
   _auto_activate_cmd_vel:=false \
   >"$OFFICIAL_EVIDENCE_DIR/runtime_logs/rgbd_perception.log" 2>&1 &
@@ -89,7 +92,7 @@ python3 "$REPO_ROOT/scripts/official_simenv_ros1_evidence_recorder.py" \
   _scenario_seed:="$OFFICIAL_SCENARIO_SEED" \
   _code_version:="$OFFICIAL_CODE_VERSION" \
   _legal_pose_topic:=/hazardwalker/slam/odometry \
-  _localization_provenance:=lidar_imu_slam \
+  _localization_provenance:=lidar_imu_slam+public_floor_action \
   _launch_command:="$LAUNCH_NOTE" \
   _result_json_path:="$OFFICIAL_RESULT_PATH" \
   >"$OFFICIAL_EVIDENCE_DIR/runtime_logs/evidence_recorder.log" 2>&1 &

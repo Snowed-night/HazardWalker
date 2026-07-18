@@ -1,0 +1,52 @@
+[INFO] [1784383285.356628303] [tf2_echo]: Waiting for transform map ->  base: Invalid frame ID "map" passed to canTransform argument target_frame - frame does not exist
+At time 315.487000000
+- Translation: [-0.582, 0.976, 0.000]
+- Rotation: in Quaternion (xyzw) [0.000, 0.000, 0.736, 0.677]
+- Rotation: in RPY (radian) [0.000, -0.000, 1.655]
+- Rotation: in RPY (degree) [0.000, -0.000, 94.834]
+- Matrix:
+ -0.084 -0.996  0.000 -0.582
+  0.996 -0.084  0.000  0.976
+  0.000  0.000  1.000  0.000
+  0.000  0.000  0.000  1.000
+At time 315.688000000
+- Translation: [-0.579, 0.968, 0.000]
+- Rotation: in Quaternion (xyzw) [0.000, 0.000, 0.738, 0.675]
+- Rotation: in RPY (radian) [0.000, -0.000, 1.659]
+- Rotation: in RPY (degree) [0.000, -0.000, 95.078]
+- Matrix:
+ -0.089 -0.996  0.000 -0.579
+  0.996 -0.089  0.000  0.968
+  0.000  0.000  1.000  0.000
+  0.000  0.000  0.000  1.000
+At time 315.887000000
+- Translation: [-0.580, 0.964, 0.000]
+- Rotation: in Quaternion (xyzw) [0.000, 0.000, 0.739, 0.673]
+- Rotation: in RPY (radian) [0.000, -0.000, 1.664]
+- Rotation: in RPY (degree) [0.000, -0.000, 95.343]
+- Matrix:
+ -0.093 -0.996  0.000 -0.580
+  0.996 -0.093  0.000  0.964
+  0.000  0.000  1.000  0.000
+  0.000  0.000  0.000  1.000
+At time 316.93000000
+- Translation: [-0.580, 0.964, 0.000]
+- Rotation: in Quaternion (xyzw) [0.000, 0.000, 0.740, 0.673]
+- Rotation: in RPY (radian) [0.000, -0.000, 1.666]
+- Rotation: in RPY (degree) [0.000, -0.000, 95.428]
+- Matrix:
+ -0.095 -0.996  0.000 -0.580
+  0.996 -0.095  0.000  0.964
+  0.000  0.000  1.000  0.000
+  0.000  0.000  0.000  1.000
+At time 316.292000000
+- Translation: [-0.580, 0.968, 0.000]
+- Rotation: in Quaternion (xyzw) [0.000, 0.000, 0.740, 0.673]
+- Rotation: in RPY (radian) [0.000, -0.000, 1.665]
+- Rotation: in RPY (degree) [0.000, -0.000, 95.416]
+- Matrix:
+ -0.094 -0.996  0.000 -0.580
+  0.996 -0.094  0.000  0.968
+  0.000  0.000  1.000  0.000
+  0.000  0.000  0.000  1.000
+[INFO] [1784383291.241327146] [rclcpp]: signal_handler(SIGINT/SIGTERM)

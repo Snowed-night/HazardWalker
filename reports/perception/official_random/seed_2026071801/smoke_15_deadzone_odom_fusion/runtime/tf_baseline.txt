@@ -1,0 +1,52 @@
+[INFO] [1784383583.524252658] [tf2_echo]: Waiting for transform map ->  base: Invalid frame ID "map" passed to canTransform argument target_frame - frame does not exist
+At time 375.391000000
+- Translation: [0.005, 0.003, 0.000]
+- Rotation: in Quaternion (xyzw) [0.000, 0.000, 0.001, 1.000]
+- Rotation: in RPY (radian) [0.000, -0.000, 0.001]
+- Rotation: in RPY (degree) [0.000, -0.000, 0.062]
+- Matrix:
+  1.000 -0.001  0.000  0.005
+  0.001  1.000  0.000  0.003
+  0.000  0.000  1.000  0.000
+  0.000  0.000  0.000  1.000
+At time 375.600000000
+- Translation: [0.005, 0.003, 0.000]
+- Rotation: in Quaternion (xyzw) [0.000, 0.000, 0.001, 1.000]
+- Rotation: in RPY (radian) [0.000, -0.000, 0.001]
+- Rotation: in RPY (degree) [0.000, -0.000, 0.071]
+- Matrix:
+  1.000 -0.001  0.000  0.005
+  0.001  1.000  0.000  0.003
+  0.000  0.000  1.000  0.000
+  0.000  0.000  0.000  1.000
+At time 375.802000000
+- Translation: [0.005, 0.003, 0.000]
+- Rotation: in Quaternion (xyzw) [0.000, 0.000, 0.001, 1.000]
+- Rotation: in RPY (radian) [0.000, -0.000, 0.001]
+- Rotation: in RPY (degree) [0.000, -0.000, 0.080]
+- Matrix:
+  1.000 -0.001  0.000  0.005
+  0.001  1.000  0.000  0.003
+  0.000  0.000  1.000  0.000
+  0.000  0.000  0.000  1.000
+At time 376.6000000
+- Translation: [0.005, 0.004, 0.000]
+- Rotation: in Quaternion (xyzw) [0.000, 0.000, 0.001, 1.000]
+- Rotation: in RPY (radian) [0.000, -0.000, 0.001]
+- Rotation: in RPY (degree) [0.000, -0.000, 0.083]
+- Matrix:
+  1.000 -0.001  0.000  0.005
+  0.001  1.000  0.000  0.004
+  0.000  0.000  1.000  0.000
+  0.000  0.000  0.000  1.000
+At time 376.211000000
+- Translation: [0.005, 0.004, 0.000]
+- Rotation: in Quaternion (xyzw) [0.000, 0.000, 0.001, 1.000]
+- Rotation: in RPY (radian) [0.000, -0.000, 0.001]
+- Rotation: in RPY (degree) [0.000, -0.000, 0.077]
+- Matrix:
+  1.000 -0.001  0.000  0.005
+  0.001  1.000  0.000  0.004
+  0.000  0.000  1.000  0.000
+  0.000  0.000  0.000  1.000
+[INFO] [1784383589.412161783] [rclcpp]: signal_handler(SIGINT/SIGTERM)

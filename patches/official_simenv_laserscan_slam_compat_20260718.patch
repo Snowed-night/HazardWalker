@@ -1,0 +1,104 @@
+diff --git a/src/unitree_guide/unitree_guide/unitree_guide/launch/multi_floor_gazeboSim.launch b/src/unitree_guide/unitree_guide/unitree_guide/launch/multi_floor_gazeboSim.launch
+--- a/src/unitree_guide/unitree_guide/unitree_guide/launch/multi_floor_gazeboSim.launch
++++ b/src/unitree_guide/unitree_guide/unitree_guide/launch/multi_floor_gazeboSim.launch
+@@ -9,6 +9,9 @@
+     <arg name="headless" default="false"/>
+     <arg name="debug" default="false"/>
+     <arg name="user_debug" default="false"/>
++    <!-- 当前官方 /scan 是 sensor_msgs/LaserScan；旧转换脚本按 PointCloud 订阅
++         同名话题会触发类型冲突并使 Gazebo 退出。仅旧版 PointCloud 环境显式开启。 -->
++    <arg name="enable_legacy_pointcloud2livox" default="false"/>
+
+     <arg name="world_file" default="$(optenv BUILDING_WORLD_FILE)"/>
+     <arg name="robot_x" default="$(optenv COMPETITION_ROBOT_X 0.0)"/>
+@@ -62,7 +65,9 @@
+         <arg name="rname" value="$(arg rname)"/>
+     </include>
+
+-    <node pkg="unitree_guide" type="pointcloud2livox.py" name="pointcloud2livox" output="screen">
++    <node if="$(arg enable_legacy_pointcloud2livox)"
++          pkg="unitree_guide" type="pointcloud2livox.py"
++          name="pointcloud2livox" output="screen">
+         <param name="laser_blind" value="0.5" />
+         <param name="min_angle" value="-7"/>
+         <param name="max_angle" value="55"/>
+diff --git a/src/unitree_guide/unitree_ros/robots/a1_description/xacro/robot.xacro b/src/unitree_guide/unitree_ros/robots/a1_description/xacro/robot.xacro
+--- a/src/unitree_guide/unitree_ros/robots/a1_description/xacro/robot.xacro
++++ b/src/unitree_guide/unitree_ros/robots/a1_description/xacro/robot.xacro
+@@ -147,6 +147,15 @@
+         <child link="laser_livox"/>
+     </joint>
+
++    <!-- Gazebo ray 经 -45° 补偿后实际是水平扫描；用独立水平帧表达这一
++         几何关系，避免 LaserScan 数据挂在上仰的 laser_livox 帧上污染 SLAM。 -->
++    <link name="laser_scan"/>
++    <joint name="laser_scan_joint" type="fixed">
++        <origin xyz="0.2 0 0.08" rpy="0 0 0"/>
++        <parent link="base"/>
++        <child link="laser_scan"/>
++    </joint>
++
+     <!-- livox mid360-imu -->
+     <!-- 对于本体 -->
+     <link name="livox_imu_link">
+diff --git a/src/unitree_guide/unitree_ros/robots/a1_description/xacro/gazebo.xacro b/src/unitree_guide/unitree_ros/robots/a1_description/xacro/gazebo.xacro
+--- a/src/unitree_guide/unitree_ros/robots/a1_description/xacro/gazebo.xacro
++++ b/src/unitree_guide/unitree_ros/robots/a1_description/xacro/gazebo.xacro
+@@ -344,31 +344,34 @@
+     <xacro:property name="M_PI" value="3.14159"/>
+     <gazebo reference="laser_livox">
+         <sensor type="ray" name="laser_livox">
+-            <pose>0 0 0 0 0 0</pose>
++            <!-- laser_livox 链路俯仰约 +45°；反向补偿后 ray 扫描面保持水平。 -->
++            <pose>0 0 0 0 -0.785 0</pose>
+             <visualize>true</visualize>
+             <update_rate>10</update_rate>
++            <!-- ray 是 sensor 的 SDF 子元素，不能嵌在 ROS plugin 内；错误嵌套
++                 会退回 640 个全 inf、量程和角度均为 0 的无效默认扫描。 -->
++            <ray>
++                <scan>
++                    <horizontal>
++                        <samples>360</samples>
++                        <resolution>1</resolution>
++                        <min_angle>${-M_PI}</min_angle>
++                        <max_angle>${M_PI}</max_angle>
++                    </horizontal>
++                </scan>
++                <range>
++                    <min>0.1</min>
++                    <max>40.0</max>
++                    <resolution>0.01</resolution>
++                </range>
++                <noise>
++                    <type>gaussian</type>
++                    <mean>0.0</mean>
++                    <stddev>0.005</stddev>
++                </noise>
++            </ray>
+             <plugin name="gazebo_ros_laser_controller" filename="libgazebo_ros_laser.so">
+                 <topicName>/scan</topicName>
+-                <frameName>laser_livox</frameName>
++                <frameName>laser_scan</frameName>
+-                <ray>
+-                    <scan>
+-                        <horizontal>
+-                            <samples>360</samples>
+-                            <resolution>1</resolution>
+-                            <min_angle>${-M_PI}</min_angle>
+-                            <max_angle>${M_PI}</max_angle>
+-                        </horizontal>
+-                    </scan>
+-                    <range>
+-                        <min>0.1</min>
+-                        <max>40.0</max>
+-                        <resolution>0.01</resolution>
+-                    </range>
+-                    <noise>
+-                        <type>gaussian</type>
+-                        <mean>0.0</mean>
+-                        <stddev>0.005</stddev>
+-                    </noise>
+-                </ray>
+             </plugin>
+         </sensor>
+     </gazebo>

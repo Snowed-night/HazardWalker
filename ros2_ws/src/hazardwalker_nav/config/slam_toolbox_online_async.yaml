@@ -2,7 +2,7 @@
 # 用于 HazardWalker 官方 SimEnv 自主探索
 #
 # 数据源: /hw/scan (Livox LiDAR → LaserScan)
-# TF:     odom → base_link (机器人里程计)
+# TF:     odom → base（感知定位组合法 scan/IMU 里程计）
 # 输出:   map → odom (SLAM 修正), /map (OccupancyGrid)
 
 slam_toolbox:
@@ -20,10 +20,14 @@ slam_toolbox:
     # ---- 扫描匹配 ----
     minimum_time_interval: 0.3
     transform_timeout: 0.2
+    # map→odom 继续使用扫描时间戳；禁止因版本/配置变化重新盖成墙钟。
+    restamp_tf: false
     map_update_interval: 2.0
     scan_topic: /hw/scan
 
     # 扫描匹配参数
+    # 原始扫描保留给局部安全；SLAM 忽略 A1 机身约 0.34 m 的固定近场回波。
+    min_laser_range: 0.40
     max_laser_range: 20.0
     minimum_travel_distance: 0.2
     minimum_travel_heading: 0.2
@@ -44,7 +48,7 @@ slam_toolbox:
     # ---- 地图 ----
     map_frame: map
     odom_frame: odom
-    base_frame: base_link
+    base_frame: base
     resolution: 0.05
     map_start_pose: [0.0, 0.0, 0.0]
     map_start_at_dock: true

@@ -25,6 +25,7 @@ import math
 import os
 import re
 import shlex
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -41,6 +42,14 @@ from official_simenv_classic_evidence_cases import BUILDERS, build_suite
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 CAPTURE_SCRIPT = PROJECT_ROOT / 'scripts' / 'capture_official_simenv_rgbd_case.py'
 SHARED_CONTAINER_NAMES = {'simenv_run', 'simenv'}
+SUITE_ARCHIVE_DIRS = {
+    'multi_ball_clutter': 'official_simenv_20260710_rgbd_multi_ball_clutter',
+    'partial_visibility': 'official_simenv_20260710_rgbd_partial_visibility',
+    'red_objects': 'official_simenv_20260710_rgbd_red_objects',
+    'active_multiview': 'official_simenv_20260710_rgbd_active_multiview',
+    'complex_localization': 'official_simenv_20260710_rgbd_complex_localization',
+}
+RUN_ID_PATTERN = re.compile(r'^[0-9]{8}_[A-Za-z0-9][A-Za-z0-9._-]*$')
 
 
 def _run(command: list[str], env: dict[str, str], *, timeout: float = 30.0, check: bool = True) -> subprocess.CompletedProcess:
@@ -63,6 +72,38 @@ def _validate_isolated_container(container: str, env: dict[str, str]) -> None:
     result = _run(['docker', 'inspect', '--format', '{{.State.Running}}', normalized], env, check=False)
     if result.returncode != 0 or result.stdout.strip().lower() != 'true':
         raise RuntimeError(f'隔离容器未运行：{normalized}')
+
+
+def _suite_output_dir(output_root: Path, suite: str, run_id: str = '') -> Path:
+    """把有效复跑结果固定放回五类历史目录下，空 run_id 保持旧临时布局兼容。"""
+
+    if suite not in SUITE_ARCHIVE_DIRS:
+        raise ValueError(f'未知五类实验：{suite}')
+    normalized_run_id = str(run_id or '').strip()
+    if not normalized_run_id:
+        return Path(output_root) / f'official_simenv_{time.strftime("%Y%m%d")}_{suite}'
+    if RUN_ID_PATTERN.fullmatch(normalized_run_id) is None:
+        raise ValueError('--run-id 必须符合 YYYYMMDD_<seed或批次标识>。')
+    return (
+        Path(output_root)
+        / SUITE_ARCHIVE_DIRS[suite]
+        / 'reruns'
+        / normalized_run_id
+    )
+
+
+def _test_record_output_dir(test_record_root: Path, suite: str, run_id: str) -> Path:
+    """测试表与效果图使用同一 run_id，防止跨批次错配。"""
+
+    normalized_run_id = str(run_id or '').strip()
+    if RUN_ID_PATTERN.fullmatch(normalized_run_id) is None:
+        raise ValueError('生成测试记录时必须提供合法 --run-id。')
+    return (
+        Path(test_record_root)
+        / SUITE_ARCHIVE_DIRS[suite]
+        / 'reruns'
+        / normalized_run_id
+    )
 
 
 def _ros1_bash(container: str, command: str, env: dict[str, str], *, timeout: float = 30.0, check: bool = True):
@@ -441,6 +482,10 @@ def _write_suite_report(suite_dir: Path, suite: str, rows: list[dict[str, Any]],
     (suite_dir / 'cases.json').write_text(json.dumps(rows, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
     summary = {
         'schema': 'hazardwalker_official_simenv_classic_evidence_v1',
+        'run_id': args.run_id or suite_dir.name,
+        'code_version': args.code_version or 'unrecorded',
+        'evidence_class': 'internal_regression',
+        'official_score_eligible': False,
         'suite': suite,
         'case_count': len(rows),
         'pass_count': sum(item['result'] == 'pass' for item in rows),
@@ -458,6 +503,7 @@ def _write_suite_report(suite_dir: Path, suite: str, rows: list[dict[str, Any]],
     (suite_dir / 'summary.json').write_text(json.dumps(summary, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
     (suite_dir / 'README.md').write_text(
         f'# 官方 SimEnv Gazebo Classic：{suite}\n\n'
+        '> 证据类别：内部回归；人工生成受控物体，不属于官方随机场景全流程成绩。\n\n'
         '本目录的每张原图和标注图都由当前官方 ROS1/Gazebo Classic 世界的 `/hw/*` 话题采集。'
         '模型只在隔离容器中临时生成；案例结束后删除。\n\n'
         f'- 案例数：{summary["case_count"]}\n'
@@ -467,6 +513,18 @@ def _write_suite_report(suite_dir: Path, suite: str, rows: list[dict[str, Any]],
         '- 失败案例保留在 `cases.csv` 和 `images/`，不得删除或改写为成功。\n',
         encoding='utf-8',
     )
+    if args.test_record_root is not None:
+        record_dir = _test_record_output_dir(args.test_record_root, suite, args.run_id)
+        record_dir.mkdir(parents=True, exist_ok=True)
+        source_csv = suite_dir / 'cases.csv'
+        if source_csv.exists():
+            shutil.copyfile(source_csv, record_dir / 'testing_record_perception.csv')
+        record_payload = dict(summary)
+        record_payload['records'] = rows
+        (record_dir / 'testing_record_perception.json').write_text(
+            json.dumps(record_payload, ensure_ascii=False, indent=2) + '\n',
+            encoding='utf-8',
+        )
 
 
 def main() -> int:
@@ -484,6 +542,14 @@ def main() -> int:
     parser.add_argument('--fixture-world-frame', default='map')
     parser.add_argument('--fixture-camera-frame', default='real_sense')
     parser.add_argument('--output-root', type=Path, required=True)
+    parser.add_argument('--run-id', default='', help=(
+        '归档批次标识，格式 YYYYMMDD_<seed或批次>。提供后自动写入五类既有目录的 '
+        'reruns/<run-id>/；省略时仅使用旧临时输出布局。'
+    ))
+    parser.add_argument('--code-version', default='', help='本轮 Git commit；归档模式必须显式提供。')
+    parser.add_argument('--test-record-root', type=Path, default=None, help=(
+        '例如 reports/perception/test_records；归档模式必须提供，并使用相同 run_id 写测试表。'
+    ))
     parser.add_argument('--detection-topic', default='/hw/perception/hazard_detections')
     parser.add_argument('--ros-domain-id', default=os.environ.get('ROS_DOMAIN_ID', '0'))
     parser.add_argument('--capture-timeout-sec', type=float, default=20.0)
@@ -505,6 +571,15 @@ def main() -> int:
                         help='可选：每个案例独立启动的检测节点命令。启用后不能同时保留外部同话题检测器。')
     parser.add_argument('--detector-warmup-sec', type=float, default=2.0)
     args = parser.parse_args()
+    if args.run_id:
+        if RUN_ID_PATTERN.fullmatch(args.run_id.strip()) is None:
+            parser.error('--run-id 必须符合 YYYYMMDD_<seed或批次标识>。')
+        if not args.code_version.strip():
+            parser.error('归档模式必须显式提供 --code-version。')
+        if args.test_record_root is None:
+            parser.error('归档模式必须显式提供 --test-record-root。')
+    elif args.test_record_root is not None:
+        parser.error('--test-record-root 只能与 --run-id 一起使用，防止无批次测试表。')
 
     env = dict(os.environ)
     env['ROS_DOMAIN_ID'] = str(args.ros_domain_id)
@@ -545,7 +620,7 @@ def main() -> int:
                     cases = selected_cases
             if args.case_limit > 0:
                 cases = cases[:args.case_limit]
-            suite_dir = args.output_root / f'official_simenv_{time.strftime("%Y%m%d")}_{suite}'
+            suite_dir = _suite_output_dir(args.output_root, suite, args.run_id)
             rows = []
             baseline_red_pixel_count = 0
             for case in cases:

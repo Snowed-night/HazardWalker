@@ -1,0 +1,16 @@
+{
+  "schema": "hazardwalker_official_perception_sweep_v1",
+  "run_scope": "entry_room_perception_sweep",
+  "official_score_eligible": false,
+  "completed_full_building_exploration": false,
+  "truth_or_layout_inputs_used": false,
+  "termination_reason": "timeout",
+  "target_sweep_deg": 360.0,
+  "actual_sweep_deg": 65.518,
+  "elapsed_wall_sec": 45.237,
+  "angular_speed_rad_s": 0.45,
+  "detection_message_count": 184,
+  "candidate_frame_count": 0,
+  "max_candidate_count": 0,
+  "confirmed_track_ids": []
+}

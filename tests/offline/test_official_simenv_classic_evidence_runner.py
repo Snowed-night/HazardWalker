@@ -80,6 +80,39 @@ def test_background_complexity_does_not_count_the_red_ball_edge():
     assert ratio == 0.0
 
 
+def test_rerun_output_uses_existing_five_suite_directory_and_shared_run_id():
+    """有效截图和测试表必须回到既有五目录，不能再散落成新顶层目录。"""
+
+    result_dir = runner._suite_output_dir(
+        Path('reports/perception/simulation/3d_native'),
+        'red_objects',
+        '20260718_seed42',
+    )
+    record_dir = runner._test_record_output_dir(
+        Path('reports/perception/test_records'),
+        'red_objects',
+        '20260718_seed42',
+    )
+
+    assert result_dir.as_posix().endswith(
+        'official_simenv_20260710_rgbd_red_objects/reruns/20260718_seed42'
+    )
+    assert record_dir.as_posix().endswith(
+        'official_simenv_20260710_rgbd_red_objects/reruns/20260718_seed42'
+    )
+
+
+def test_rerun_output_rejects_untraceable_run_id():
+    """缺少日期或批次标识的截图目录不可进入规范归档。"""
+
+    try:
+        runner._suite_output_dir(Path('reports'), 'red_objects', 'latest')
+    except ValueError as error:
+        assert 'YYYYMMDD' in str(error)
+    else:
+        raise AssertionError('untraceable run_id should be rejected')
+
+
 def test_localization_case_reports_error_after_snapshot_not_as_runtime_input():
     case = build_suite('complex_localization', (0.0, 0.0, 0.15))[0]
     truth = case.expected_sphere_positions[0]

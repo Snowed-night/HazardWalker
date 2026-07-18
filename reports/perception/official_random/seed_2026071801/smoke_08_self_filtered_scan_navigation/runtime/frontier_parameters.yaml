@@ -1,0 +1,30 @@
+/frontier_explorer_node:
+  ros__parameters:
+    angular_speed: 1.5
+    base_frame: base
+    exploration_timeout_s: 540.0
+    frontier_completion_grace_s: 15.0
+    goal_tolerance_m: 0.25
+    heading_tolerance_rad: 0.25
+    linear_speed: 0.35
+    map_frame: map
+    min_frontier_size: 10
+    navigation_min_clearance_m: 0.45
+    pose_fresh_timeout_s: 1.0
+    reobserve_forward_speed: 0.18
+    reobserve_lateral_speed: 0.15
+    reobserve_max_attempts_per_target: 4
+    reobserve_min_clearance_m: 0.6
+    reobserve_motion_duration_s: 2.0
+    reobserve_observe_duration_s: 1.5
+    reobserve_settle_duration_s: 1.0
+    reobserve_turn_speed: 0.6
+    replan_interval_s: 3.0
+    rotation_min_clearance_m: 0.3
+    scan_fresh_timeout_s: 1.0
+    start_type_description_service: true
+    start_x: 0.0
+    start_y: 0.0
+    stuck_timeout_s: 15.0
+    unreachable_frontier_ttl_s: 12.0
+    use_sim_time: true

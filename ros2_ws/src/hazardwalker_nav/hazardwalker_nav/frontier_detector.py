@@ -5,19 +5,22 @@
 - 提供不依赖 ROS 的前沿检测、聚类、评分和 A* 路径规划。
 - 被 frontier_explorer_node.py 调用。
 
-前沿定义：OccupancyGrid 中值为 FREE (0) 且四邻域至少有一个 UNKNOWN (-1) 的格子。
+前沿定义：OccupancyGrid 中概率值 0..25（nav2 默认 free_thresh）且四邻域至少
+有一个 UNKNOWN (-1) 的格子。Cartographer 的边缘自由格常不是精确 0。
 """
 from __future__ import annotations
 
 import math
 from collections import deque
 from dataclasses import dataclass
+import heapq
 from typing import List, Optional, Tuple
 
 import numpy as np
 
 # OccupancyGrid 常量
 FREE = 0
+FREE_MAX = 25
 OCCUPIED = 100
 UNKNOWN = -1
 
@@ -57,8 +60,8 @@ def world_to_grid(wx: float, wy: float, grid_msg) -> Tuple[int, int]:
     return gx, gy
 
 
-def find_frontiers(grid: np.ndarray) -> np.ndarray:
-    """查找所有前沿格子：FREE (0) 且四邻域中有 UNKNOWN (-1)。
+def find_frontiers(grid: np.ndarray, free_max: int = FREE_MAX) -> np.ndarray:
+    """查找所有前沿格子：0..free_max 且四邻域中有 UNKNOWN (-1)。
 
     Returns:
         (height, width) 布尔数组，True 表示该格子是前沿。
@@ -67,7 +70,7 @@ def find_frontiers(grid: np.ndarray) -> np.ndarray:
     frontiers = np.zeros((h, w), dtype=bool)
     for y in range(1, h - 1):
         for x in range(1, w - 1):
-            if grid[y, x] == FREE:
+            if FREE <= grid[y, x] <= int(free_max):
                 # 检查四邻域
                 if (grid[y - 1, x] == UNKNOWN or grid[y + 1, x] == UNKNOWN or
                         grid[y, x - 1] == UNKNOWN or grid[y, x + 1] == UNKNOWN):
@@ -115,10 +118,19 @@ def cluster_frontiers(frontier_mask: np.ndarray, grid: np.ndarray,
                 points = _bfs_cluster(y, x, frontier_mask, visited, grid)
                 if len(points) < 3:  # 忽略太小的聚类
                     continue
-                # 质心 (网格坐标)
+                # 算术质心可能落进凹形聚类的未知区/障碍区；导航目标必须选取
+                # 距质心最近的真实前沿自由格，避免把可见前沿误判为不可达。
                 gx_mean = sum(p[0] for p in points) / len(points)
                 gy_mean = sum(p[1] for p in points) / len(points)
-                wx, wy = grid_to_world(int(gx_mean), int(gy_mean), grid_msg)
+                representative = min(
+                    points,
+                    key=lambda point: (
+                        (point[0] - gx_mean) ** 2
+                        + (point[1] - gy_mean) ** 2
+                    ),
+                )
+                wx, wy = grid_to_world(
+                    representative[0], representative[1], grid_msg)
 
                 # 信息增益：每个前沿格子的未知邻居数之和
                 info = 0
@@ -180,11 +192,15 @@ def select_best_frontier(frontiers: List[Frontier], robot_wx: float, robot_wy: f
 
 def a_star_path(grid: np.ndarray, grid_msg,
                 start_wx: float, start_wy: float,
-                goal_wx: float, goal_wy: float) -> List[Tuple[float, float]]:
+                goal_wx: float, goal_wy: float,
+                inflation_radius_m: float = 0.25,
+                endpoint_search_radius_m: float = 0.50,
+                max_expansions: int = 250000) -> List[Tuple[float, float]]:
     """A* 网格路径规划。
 
     在 OccupancyGrid 上查找从起点到终点的最短路径。
-    未知格子 (-1) 视为可通行（乐观策略），占用格子 (>=65) 视为障碍。
+    只允许经过已知自由格；未知格禁止穿越，占用格按机器狗安全半径膨胀，
+    对角移动还要防止从两个障碍角之间穿过。
 
     Returns:
         世界坐标路径点列表，若不可达返回空列表。
@@ -199,23 +215,40 @@ def a_star_path(grid: np.ndarray, grid_msg,
     gx = max(0, min(w - 1, gx))
     gy = max(0, min(h - 1, gy))
 
-    if grid[sy, sx] >= 65 or grid[gy, gx] >= 65:
-        return []  # 起点或终点被阻挡
+    traversable = _build_traversable_mask(
+        grid,
+        float(grid_msg.info.resolution),
+        inflation_radius_m,
+    )
+    # 实测 SLAM 会因机身近场回波或栅格离散把“机器人当前格”标成占用；
+    # 在小范围内吸附到最近安全自由格，不能因此把整张可用地图判为不可达。
+    start_cell = _nearest_traversable_cell(
+        traversable, sx, sy,
+        float(grid_msg.info.resolution), endpoint_search_radius_m)
+    goal_cell = _nearest_traversable_cell(
+        traversable, gx, gy,
+        float(grid_msg.info.resolution), endpoint_search_radius_m)
+    if start_cell is None or goal_cell is None:
+        return []
+    sx, sy = start_cell
+    gx, gy = goal_cell
 
     # A* 数据结构
     open_set = [(0.0, sy, sx)]
     came_from = {}
     g_score = {(sy, sx): 0.0}
-    f_score = {(sy, sx): _heuristic(sx, sy, gx, gy)}
     closed = set()
+    expansion_count = 0
 
     while open_set:
-        open_set.sort(key=lambda x: x[0])
-        _, cy, cx = open_set.pop(0)
+        _, cy, cx = heapq.heappop(open_set)
 
         if (cy, cx) in closed:
             continue
         closed.add((cy, cx))
+        expansion_count += 1
+        if expansion_count > max(1, int(max_expansions)):
+            return []
 
         if cy == gy and cx == gx:
             # 重建路径
@@ -232,7 +265,11 @@ def a_star_path(grid: np.ndarray, grid_msg,
             ny, nx = cy + dy, cx + dx
             if not (0 <= ny < h and 0 <= nx < w):
                 continue
-            if grid[ny, nx] >= 65:  # 障碍
+            if not traversable[ny, nx]:
+                continue
+            if dx != 0 and dy != 0 and (
+                    not traversable[cy, nx] or not traversable[ny, cx]):
+                # 两个正交邻格至少一个不可通行时，禁止对角穿角。
                 continue
 
             cost = 1.414 if dx != 0 and dy != 0 else 1.0
@@ -242,10 +279,68 @@ def a_star_path(grid: np.ndarray, grid_msg,
                 came_from[(ny, nx)] = (cy, cx)
                 g_score[(ny, nx)] = new_g
                 f = new_g + _heuristic(nx, ny, gx, gy)
-                f_score[(ny, nx)] = f
-                open_set.append((f, ny, nx))
+                heapq.heappush(open_set, (f, ny, nx))
 
     return []  # 不可达
+
+
+def _build_traversable_mask(grid: np.ndarray, resolution_m: float,
+                            inflation_radius_m: float) -> np.ndarray:
+    """生成 A1 机体中心可通行掩膜；未知区始终不可通行。"""
+
+    if resolution_m <= 0.0:
+        raise ValueError('map resolution must be positive')
+    # OccupancyGrid 是概率栅格；Cartographer 的已知自由区包含 1..25，
+    # 只接受精确 0 会让实时地图“没有前沿、没有路径”，而 map_saver 离线图正常。
+    traversable = (grid >= FREE) & (grid <= FREE_MAX)
+    radius_cells = max(0, int(math.ceil(float(inflation_radius_m) / resolution_m)))
+    if radius_cells == 0:
+        return traversable
+
+    occupied = grid >= 65
+    inflated = occupied.copy()
+    height, width = grid.shape
+    for delta_y in range(-radius_cells, radius_cells + 1):
+        for delta_x in range(-radius_cells, radius_cells + 1):
+            if delta_x * delta_x + delta_y * delta_y > radius_cells * radius_cells:
+                continue
+            source_y = slice(max(0, -delta_y), min(height, height - delta_y))
+            source_x = slice(max(0, -delta_x), min(width, width - delta_x))
+            target_y = slice(max(0, delta_y), min(height, height + delta_y))
+            target_x = slice(max(0, delta_x), min(width, width + delta_x))
+            inflated[target_y, target_x] |= occupied[source_y, source_x]
+    traversable[inflated] = False
+    return traversable
+
+
+def _nearest_traversable_cell(traversable: np.ndarray, x: int, y: int,
+                              resolution_m: float,
+                              search_radius_m: float):
+    """返回端点附近最近的安全自由格；超出吸附半径则失败。"""
+
+    if traversable[y, x]:
+        return x, y
+    radius_cells = max(
+        0, int(math.ceil(max(0.0, float(search_radius_m)) / resolution_m)))
+    if radius_cells == 0:
+        return None
+    height, width = traversable.shape
+    x_min, x_max = max(0, x - radius_cells), min(width, x + radius_cells + 1)
+    y_min, y_max = max(0, y - radius_cells), min(height, y + radius_cells + 1)
+    candidates = np.argwhere(traversable[y_min:y_max, x_min:x_max])
+    if candidates.size == 0:
+        return None
+    candidates[:, 0] += y_min
+    candidates[:, 1] += x_min
+    squared_distance = (
+        (candidates[:, 1] - x) ** 2 + (candidates[:, 0] - y) ** 2
+    )
+    best_index = int(np.argmin(squared_distance))
+    if (math.sqrt(float(squared_distance[best_index])) * resolution_m
+            > float(search_radius_m)):
+        return None
+    best_y, best_x = candidates[best_index]
+    return int(best_x), int(best_y)
 
 
 def _heuristic(x1: int, y1: int, x2: int, y2: int) -> float:

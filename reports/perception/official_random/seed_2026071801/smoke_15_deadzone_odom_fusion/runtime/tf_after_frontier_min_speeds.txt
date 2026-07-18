@@ -1,0 +1,52 @@
+[INFO] [1784384555.473031960] [tf2_echo]: Waiting for transform map ->  base: Invalid frame ID "map" passed to canTransform argument target_frame - frame does not exist
+At time 558.603000000
+- Translation: [1.102, 0.278, 0.000]
+- Rotation: in Quaternion (xyzw) [0.000, 0.000, 0.715, 0.700]
+- Rotation: in RPY (radian) [0.000, -0.000, 1.592]
+- Rotation: in RPY (degree) [0.000, -0.000, 91.213]
+- Matrix:
+ -0.021 -1.000  0.000  1.102
+  1.000 -0.021  0.000  0.278
+  0.000  0.000  1.000  0.000
+  0.000  0.000  0.000  1.000
+At time 558.801000000
+- Translation: [1.102, 0.278, 0.000]
+- Rotation: in Quaternion (xyzw) [0.000, 0.000, 0.715, 0.700]
+- Rotation: in RPY (radian) [0.000, -0.000, 1.592]
+- Rotation: in RPY (degree) [0.000, -0.000, 91.213]
+- Matrix:
+ -0.021 -1.000  0.000  1.102
+  1.000 -0.021  0.000  0.278
+  0.000  0.000  1.000  0.000
+  0.000  0.000  0.000  1.000
+At time 559.9000000
+- Translation: [1.102, 0.278, 0.000]
+- Rotation: in Quaternion (xyzw) [0.000, 0.000, 0.714, 0.700]
+- Rotation: in RPY (radian) [0.000, -0.000, 1.592]
+- Rotation: in RPY (degree) [0.000, -0.000, 91.189]
+- Matrix:
+ -0.021 -1.000  0.000  1.102
+  1.000 -0.021  0.000  0.278
+  0.000  0.000  1.000  0.000
+  0.000  0.000  0.000  1.000
+At time 559.223000000
+- Translation: [1.102, 0.278, 0.000]
+- Rotation: in Quaternion (xyzw) [0.000, 0.000, 0.714, 0.700]
+- Rotation: in RPY (radian) [0.000, -0.000, 1.591]
+- Rotation: in RPY (degree) [0.000, -0.000, 91.185]
+- Matrix:
+ -0.021 -1.000  0.000  1.102
+  1.000 -0.021  0.000  0.278
+  0.000  0.000  1.000  0.000
+  0.000  0.000  0.000  1.000
+At time 559.429000000
+- Translation: [1.102, 0.278, 0.000]
+- Rotation: in Quaternion (xyzw) [0.000, 0.000, 0.715, 0.700]
+- Rotation: in RPY (radian) [0.000, -0.000, 1.592]
+- Rotation: in RPY (degree) [0.000, -0.000, 91.205]
+- Matrix:
+ -0.021 -1.000  0.000  1.102
+  1.000 -0.021  0.000  0.278
+  0.000  0.000  1.000  0.000
+  0.000  0.000  0.000  1.000
+[INFO] [1784384561.370791875] [rclcpp]: signal_handler(SIGINT/SIGTERM)

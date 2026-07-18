@@ -12,6 +12,7 @@
 
 import csv
 import json
+import shutil
 import time
 from pathlib import Path
 
@@ -59,6 +60,10 @@ class DynamicDetectionRecorderNode(Node):
         self.declare_parameter('image_topic', '/hw/camera/image_raw')
         self.declare_parameter('depth_topic', '/hw/camera/depth_image')
         self.declare_parameter('detection_topic', '/hw/perception/hazard_detections')
+        self.declare_parameter('mission_state_topic', '/hw/mission/state')
+        self.declare_parameter('result_json_path', 'results/detected_danger.json')
+        self.declare_parameter('context_save_interval_sec', 10.0)
+        self.declare_parameter('max_context_evidence_count', 80)
 
         output_dir = str(self.get_parameter('output_dir').value).strip()
         test_record_dir = str(self.get_parameter('test_record_dir').value).strip()
@@ -90,7 +95,9 @@ class DynamicDetectionRecorderNode(Node):
                 'depth': str(self.get_parameter('depth_topic').value),
                 'detections': str(self.get_parameter('detection_topic').value),
                 'legal_pose': str(self.get_parameter('legal_pose_topic').value),
+                'mission_state': str(self.get_parameter('mission_state_topic').value),
             },
+            'mission_completion_required': True,
             'launch_command': str(self.get_parameter('launch_command').value),
             'started_at_unix_sec': round(time.time(), 3),
         })
@@ -106,6 +113,9 @@ class DynamicDetectionRecorderNode(Node):
         self.last_image_save_sec = float('-inf')
         self.last_pose_save_sec = float('-inf')
         self.trajectory_sample_count = 0
+        self.mission_completed = False
+        self.last_context_save_sec = float('-inf')
+        self.context_evidence_count = 0
 
         self.image_sub = self.create_subscription(
             Image, str(self.get_parameter('image_topic').value), self.on_image, 10,
@@ -127,6 +137,12 @@ class DynamicDetectionRecorderNode(Node):
                 '未配置 legal_pose_topic：记录中不会写入机器人位姿，且不能作为正式定位证据。')
         self.detection_sub = self.create_subscription(
             String, str(self.get_parameter('detection_topic').value), self.on_detections, 20,
+        )
+        self.mission_state_sub = self.create_subscription(
+            String,
+            str(self.get_parameter('mission_state_topic').value),
+            self.on_mission_state,
+            10,
         )
         self.recommendation_pub = self.create_publisher(String, '/hw/perception/view_recommendation', 10)
         self.get_logger().info(f'动态检测记录将写入 {self.output_dir}')
@@ -186,11 +202,20 @@ class DynamicDetectionRecorderNode(Node):
 
         detections = list(payload.get('detections_2d', []))
         image_height, image_width = self._latest_image_shape()
-        recommendation = choose_active_view_action(detections, image_width, image_height)
-        recommendation_dict = recommendation.to_dict()
+        recommendation_dict = payload.get('view_recommendation')
+        if not isinstance(recommendation_dict, dict):
+            recommendation_dict = choose_active_view_action(
+                detections, image_width, image_height,
+            ).to_dict()
         self._publish_recommendation(recommendation_dict)
 
-        stamp_sec = _payload_stamp_to_sec(detections, fallback=time.time())
+        stamp_sec = float(payload.get(
+            'stamp_sec',
+            _payload_stamp_to_sec(
+                detections,
+                fallback=self.latest_image_stamp or time.time(),
+            ),
+        ))
         image_path, depth_path = self._save_evidence_image(
             stamp_sec, detections, list(payload.get('hazards', [])), recommendation_dict,
         )
@@ -213,12 +238,21 @@ class DynamicDetectionRecorderNode(Node):
         with (self.output_dir / 'frames.jsonl').open('a', encoding='utf-8') as handle:
             handle.write(json.dumps(record, ensure_ascii=False) + '\n')
 
+    def on_mission_state(self, message):
+        """只有导航返航后发布 FINISHED 才允许证据被视为完整任务。"""
+
+        if str(message.data).strip() == 'FINISHED':
+            self.mission_completed = True
+
     def close(self):
         """在节点退出时写入汇总和测试组 CSV/JSON。"""
 
         summary = build_dynamic_summary(self.records)
         failure_reasons = _derive_failure_reasons(
-            self.records, self.trajectory_sample_count, self.evidence_contract,
+            self.records,
+            self.trajectory_sample_count,
+            self.evidence_contract,
+            self.mission_completed,
         )
         _write_json(self.output_dir / 'failure_reasons.json', {
             'observed_failure_reasons': failure_reasons,
@@ -234,8 +268,15 @@ class DynamicDetectionRecorderNode(Node):
             'run_manifest_file': 'run_manifest.json',
             'failure_reasons_file': 'failure_reasons.json',
             'evidence_contract': self.evidence_contract,
+            'mission_completed': self.mission_completed,
         })
         _write_json(self.output_dir / 'summary.json', summary)
+
+        result_path = Path(
+            str(self.get_parameter('result_json_path').value)
+        ).expanduser()
+        if result_path.exists():
+            shutil.copy2(result_path, self.output_dir / 'detected_danger.json')
 
         testing_record = build_dynamic_testing_record(
             summary,
@@ -254,19 +295,31 @@ class DynamicDetectionRecorderNode(Node):
         """保存叠加检测框和当前重观察建议的展示帧。"""
 
         has_confirmed_hazard = any(item.get('status') == 'confirmed' for item in hazards)
-        if not detections and not has_confirmed_hazard:
-            return '', ''
+        is_context_frame = not detections and not has_confirmed_hazard
+        if is_context_frame:
+            if self.context_evidence_count >= int(
+                    self.get_parameter('max_context_evidence_count').value):
+                return '', ''
+            context_interval = float(
+                self.get_parameter('context_save_interval_sec').value
+            )
+            if stamp_sec - self.last_context_save_sec < context_interval:
+                return '', ''
         if not bool(self.get_parameter('save_images').value) or self.latest_image is None:
             return '', ''
-        interval = float(self.get_parameter('min_image_save_interval_sec').value)
-        if stamp_sec - self.last_image_save_sec < interval:
+        interval = (
+            0.0 if is_context_frame
+            else float(self.get_parameter('min_image_save_interval_sec').value)
+        )
+        if not is_context_frame and stamp_sec - self.last_image_save_sec < interval:
             return '', ''
         try:
             import cv2
         except ImportError:
             self.get_logger().warn('未安装 OpenCV，跳过动态截图保存。', throttle_duration_sec=10.0)
             return '', ''
-        filename = f'frame_{len(self.records) + 1:06d}_{stamp_sec:.3f}.png'
+        prefix = 'context' if is_context_frame else 'frame'
+        filename = f'{prefix}_{len(self.records) + 1:06d}_{stamp_sec:.3f}.png'
         path = self.image_dir / filename
         annotated = self.latest_image.copy()
         for detection in detections:
@@ -289,9 +342,23 @@ class DynamicDetectionRecorderNode(Node):
                         cv2.FONT_HERSHEY_SIMPLEX, 0.45, color, 1)
         action_label = f"view: {recommendation.get('action', 'unknown')}"
         cv2.putText(annotated, action_label, (12, 24), cv2.FONT_HERSHEY_SIMPLEX, 0.65, (0, 255, 255), 2)
+        if is_context_frame:
+            cv2.putText(
+                annotated,
+                'official random scene context (no candidate)',
+                (12, 50),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.55,
+                (255, 255, 255),
+                1,
+            )
         cv2.imwrite(str(path), annotated)
         depth_path = self._save_depth_evidence(filename)
-        self.last_image_save_sec = stamp_sec
+        if is_context_frame:
+            self.last_context_save_sec = stamp_sec
+            self.context_evidence_count += 1
+        else:
+            self.last_image_save_sec = stamp_sec
         return (
             str(path.relative_to(self.output_dir).as_posix()),
             depth_path,
@@ -382,7 +449,8 @@ def _write_single_row_csv(path, value):
         writer.writerow(row)
 
 
-def _derive_failure_reasons(records, trajectory_sample_count, evidence_contract):
+def _derive_failure_reasons(
+        records, trajectory_sample_count, evidence_contract, mission_completed):
     """仅从实际采集状态归纳失败原因，禁止使用场景真值猜测指标。"""
 
     reasons = []
@@ -392,6 +460,8 @@ def _derive_failure_reasons(records, trajectory_sample_count, evidence_contract)
         reasons.append('no_legal_slam_pose_samples_recorded')
     if not evidence_contract.get('formal_evidence_eligible', False):
         reasons.extend(evidence_contract.get('contract_violations', []))
+    if not mission_completed:
+        reasons.append('mission_not_completed')
     if records and not any(
             hazard.get('status') == 'confirmed'
             for record in records for hazard in record.get('hazards', [])):

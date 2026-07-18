@@ -1,0 +1,7 @@
+{
+  "observed_failure_reasons": [
+    "no_confirmed_red_ball_recorded"
+  ],
+  "generated_at_unix_sec": 1784368532.257,
+  "note": "只记录本次采集可观察到的失败信号；不根据真值推测漏检或虚警。"
+}

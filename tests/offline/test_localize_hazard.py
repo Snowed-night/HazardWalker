@@ -147,6 +147,108 @@ def test_depth_shape_marks_flat_surface_as_non_spherical():
     assert evidence.curvature_m is not None and abs(evidence.curvature_m) < 1e-9
 
 
+"""验证只在水平方向弯曲的圆柱侧面不会被中心—外环差误判为球面。"""
+def test_depth_shape_marks_single_axis_cylinder_surface_as_anisotropic():
+    depth_image = [[0.0 for _x in range(41)] for _y in range(41)]
+    for y in range(5, 36):
+        for x in range(5, 36):
+            dx = (x - 20) / 15.5
+            dy = (y - 20) / 15.5
+            if dx * dx + dy * dy <= 0.90 * 0.90:
+                # 圆柱轴沿图像竖直方向：深度只随水平位置变化。
+                depth_image[y][x] = 2.00 + 0.08 * dx * dx
+
+    evidence = evaluate_sphere_depth_shape(
+        depth_image, {'x_min': 5, 'y_min': 5, 'x_max': 35, 'y_max': 35},
+        min_points_per_region=8, min_curvature_m=0.008,
+        min_axis_points=4, min_axis_curvature_ratio=0.35,
+    )
+
+    assert evidence.status == 'anisotropic'
+    assert evidence.horizontal_curvature_m is not None
+    assert evidence.horizontal_curvature_m > 0.02
+    assert evidence.vertical_curvature_m is not None
+    assert evidence.vertical_curvature_m < 0.008
+    assert evidence.curvature_isotropy_ratio is not None
+    assert evidence.curvature_isotropy_ratio < 0.35
+
+
+"""验证斜放圆柱也会在对角方向暴露平坦轴，不能绕过固定横纵检查。"""
+def test_depth_shape_marks_rotated_cylinder_surface_as_anisotropic():
+    depth_image = [[0.0 for _x in range(41)] for _y in range(41)]
+    for y in range(5, 36):
+        for x in range(5, 36):
+            dx = (x - 20) / 15.5
+            dy = (y - 20) / 15.5
+            if dx * dx + dy * dy <= 0.90 * 0.90:
+                perpendicular = (dx - dy) / math.sqrt(2.0)
+                depth_image[y][x] = 2.00 + 0.08 * perpendicular * perpendicular
+
+    evidence = evaluate_sphere_depth_shape(
+        depth_image, {'x_min': 5, 'y_min': 5, 'x_max': 35, 'y_max': 35},
+        min_points_per_region=8, min_curvature_m=0.008,
+        min_axis_points=4, min_axis_curvature_ratio=0.35,
+    )
+
+    assert evidence.status == 'anisotropic'
+    assert evidence.diagonal_positive_curvature_m is not None
+    assert evidence.diagonal_positive_curvature_m < 0.008
+    assert evidence.diagonal_negative_curvature_m is not None
+    assert evidence.diagonal_negative_curvature_m > 0.02
+    assert evidence.curvature_isotropy_ratio is not None
+    assert evidence.curvature_isotropy_ratio < 0.35
+
+
+"""验证四方向门控对 0° 到 165° 的圆柱轴方向均保持拒绝。"""
+def test_depth_shape_rejects_cylinder_across_all_sampled_orientations():
+    bbox = {'x_min': 5, 'y_min': 5, 'x_max': 35, 'y_max': 35}
+    for angle_deg in range(0, 180, 15):
+        angle = math.radians(angle_deg)
+        depth_image = [[0.0 for _x in range(41)] for _y in range(41)]
+        for y in range(5, 36):
+            for x in range(5, 36):
+                dx = (x - 20) / 15.5
+                dy = (y - 20) / 15.5
+                if dx * dx + dy * dy <= 0.90 * 0.90:
+                    perpendicular = -math.sin(angle) * dx + math.cos(angle) * dy
+                    depth_image[y][x] = 2.00 + 0.08 * perpendicular * perpendicular
+
+        evidence = evaluate_sphere_depth_shape(
+            depth_image, bbox,
+            min_points_per_region=8, min_curvature_m=0.008,
+            min_axis_points=4, min_axis_curvature_ratio=0.35,
+        )
+
+        assert evidence.status == 'anisotropic', (
+            angle_deg, evidence.curvature_isotropy_ratio,
+        )
+
+
+"""验证轴向深度缺失时保持 unknown，不能用斜向外环样本伪造球面正证据。"""
+def test_depth_shape_with_missing_axis_samples_remains_unknown():
+    depth_image = [[0.0 for _x in range(41)] for _y in range(41)]
+    for y in range(5, 36):
+        for x in range(5, 36):
+            dx = (x - 20) / 15.5
+            dy = (y - 20) / 15.5
+            radial = math.sqrt(dx * dx + dy * dy)
+            if radial <= 0.35:
+                depth_image[y][x] = 2.00
+            elif 0.60 <= radial <= 0.88 and abs(dx) > 0.35 and abs(dy) > 0.35:
+                depth_image[y][x] = 2.08
+
+    evidence = evaluate_sphere_depth_shape(
+        depth_image, {'x_min': 5, 'y_min': 5, 'x_max': 35, 'y_max': 35},
+        min_points_per_region=8, min_curvature_m=0.008,
+        min_axis_points=4, min_axis_curvature_ratio=0.35,
+    )
+
+    assert evidence.status == 'unknown'
+    assert evidence.curvature_m is not None and evidence.curvature_m > 0.02
+    assert evidence.horizontal_points < 4
+    assert evidence.vertical_points < 4
+
+
 """验证 bbox + 固定深度能输出目标坐标系下三维定位。"""
 def test_localize_bbox_with_depth_outputs_transformed_position():
     intrinsics = CameraIntrinsics(fx=200.0, fy=200.0, cx=100.0, cy=80.0)

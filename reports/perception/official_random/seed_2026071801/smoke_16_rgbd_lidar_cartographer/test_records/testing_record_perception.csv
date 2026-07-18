@@ -1,0 +1,2 @@
+scenario,experiment,status,truth_used_at_runtime,depth_scan_rays,map_snapshots,mission_complete,notes
+2026071801,rgbd_lidar_cartographer,sensor_fusion_pass_mapping_quality_partial,False,320,3,False,双扫描均进入Cartographer并生成地图；障碍边界质量仍需优化。

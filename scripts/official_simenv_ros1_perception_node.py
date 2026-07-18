@@ -95,6 +95,12 @@ class OfficialRgbdPerceptionNode(object):
         self.rgb_info_topic = rospy.get_param(
             '~rgb_camera_info_topic', '/real_sense/rgb/camera_info',
         )
+        # CameraInfo/深度反投影天然得到 ROS 光学坐标（X 右、Y 下、Z 前），
+        # 但官方 Gazebo ``real_sense`` TF 使用机体链路坐标（X 前、Y 左、Z 上）。
+        # 正式入口必须显式完成轴转换，否则检测框虽然正确，world 三维坐标会整体错轴。
+        self.camera_axis_convention = str(rospy.get_param(
+            '~camera_axis_convention', 'gazebo_link_x_forward',
+        ))
         # 官方相机流的 RGB/深度时间戳并非逐帧完全相同。0.12 秒在容器繁忙时
         # 会造成同步器长期无回调；0.25 秒仍远小于机器人静止观察周期，且可由
         # 参数收紧，避免把相隔过远的帧错误配对。
@@ -104,6 +110,18 @@ class OfficialRgbdPerceptionNode(object):
         self.strict_max_extent = float(rospy.get_param('~strict_max_extent', 0.82))
         self.strict_min_area_px = int(rospy.get_param('~strict_min_area_px', 200))
         self.strict_min_circularity = float(rospy.get_param('~strict_min_circularity', 0.65))
+        self.min_sphere_depth_curvature_m = float(rospy.get_param(
+            '~min_sphere_depth_curvature_m', 0.008,
+        ))
+        self.min_sphere_depth_shape_points = int(rospy.get_param(
+            '~min_sphere_depth_shape_points', 8,
+        ))
+        self.min_sphere_axis_depth_points = int(rospy.get_param(
+            '~min_sphere_axis_depth_points', 4,
+        ))
+        self.min_sphere_axis_curvature_ratio = float(rospy.get_param(
+            '~min_sphere_axis_curvature_ratio', 0.35,
+        ))
         self.output_path = Path(rospy.get_param(
             '~output_path', 'results/detected_danger.json',
         )).expanduser()
@@ -269,13 +287,15 @@ class OfficialRgbdPerceptionNode(object):
                 depth_image=depth,
                 bbox=bbox,
                 max_depth_m=20.0,
-                min_points_per_region=8,
-                min_curvature_m=0.008,
+                min_points_per_region=self.min_sphere_depth_shape_points,
+                min_curvature_m=self.min_sphere_depth_curvature_m,
+                min_axis_points=self.min_sphere_axis_depth_points,
+                min_axis_curvature_ratio=self.min_sphere_axis_curvature_ratio,
             )
             confirmation_eligible = (
                 camera_stable
                 and not detection.requires_reobservation
-                and depth_shape.status != 'flat'
+                and depth_shape.status not in ('flat', 'anisotropic', 'non_spherical')
                 and detection.aspect_ratio >= 0.88
             )
             # 2D 严格轮廓也可能是圆柱/圆锥端面。对外字段必须显式表达
@@ -303,6 +323,19 @@ class OfficialRgbdPerceptionNode(object):
                 'depth_shape': {
                     'status': depth_shape.status,
                     'curvature_m': depth_shape.curvature_m,
+                    'horizontal_curvature_m': depth_shape.horizontal_curvature_m,
+                    'vertical_curvature_m': depth_shape.vertical_curvature_m,
+                    'diagonal_positive_curvature_m': (
+                        depth_shape.diagonal_positive_curvature_m
+                    ),
+                    'diagonal_negative_curvature_m': (
+                        depth_shape.diagonal_negative_curvature_m
+                    ),
+                    'curvature_isotropy_ratio': depth_shape.curvature_isotropy_ratio,
+                    'horizontal_points': depth_shape.horizontal_points,
+                    'vertical_points': depth_shape.vertical_points,
+                    'diagonal_positive_points': depth_shape.diagonal_positive_points,
+                    'diagonal_negative_points': depth_shape.diagonal_negative_points,
                 },
             }
             if transform is not None:
@@ -314,6 +347,7 @@ class OfficialRgbdPerceptionNode(object):
                     output_frame=self.world_frame,
                     sphere_radius_m=0.15,
                     use_sphere_projection_geometry=True,
+                    camera_axis_convention=self.camera_axis_convention,
                 )
             else:
                 localization = None
@@ -366,7 +400,11 @@ class OfficialRgbdPerceptionNode(object):
             item['localization_provenance'] = self.localization_provenance
             item['source'] = 'official_ros1_rgbd'
             hazards.append(item)
-        self._publish_payload(hazards, payload_detections, camera_stable)
+        self._publish_payload(
+            hazards, payload_detections, camera_stable,
+            _stamp_to_seconds(rgb_message.header.stamp),
+            localization_ready=transform is not None,
+        )
         self._publish_reobservation_request(
             payload_detections, rgb.shape[1], rgb.shape[0], camera_stable,
             _stamp_to_seconds(rgb_message.header.stamp), transform,
@@ -454,11 +492,15 @@ class OfficialRgbdPerceptionNode(object):
             self._stable_view_id = _stable_view_id(transform)
         return stable
 
-    def _publish_payload(self, hazards, detections, camera_stable):
+    def _publish_payload(
+            self, hazards, detections, camera_stable, stamp_sec, localization_ready):
         self.payload_pub.publish(String(data=json.dumps({
             'hazards': hazards,
             'detections_2d': detections,
             'camera_stable': bool(camera_stable),
+            'stamp_sec': round(float(stamp_sec), 6),
+            'localization_ready': bool(localization_ready),
+            'localization_provenance': self.localization_provenance,
             'output_frame': self.world_frame,
         }, ensure_ascii=False)))
 

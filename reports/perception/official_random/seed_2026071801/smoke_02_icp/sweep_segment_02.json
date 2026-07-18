@@ -1,0 +1,18 @@
+{
+  "schema": "hazardwalker_official_perception_sweep_v1",
+  "run_scope": "entry_room_perception_sweep",
+  "scenario_seed": "2026071801",
+  "code_version": "a62fe7e+overlay_9e8743bb28ab",
+  "official_score_eligible": false,
+  "completed_full_building_exploration": false,
+  "truth_or_layout_inputs_used": false,
+  "termination_reason": "timeout",
+  "target_sweep_deg": 65.0,
+  "actual_sweep_deg": 26.81,
+  "elapsed_wall_sec": 55.393,
+  "angular_speed_rad_s": 0.65,
+  "detection_message_count": 232,
+  "candidate_frame_count": 0,
+  "max_candidate_count": 0,
+  "confirmed_track_ids": []
+}
