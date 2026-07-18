@@ -155,6 +155,8 @@ def select_best_frontier(frontiers: List[Frontier], robot_wx: float, robot_wy: f
                          last_target: Optional[Tuple[float, float]] = None,
                          min_frontier_size: int = 10,
                          robot_yaw: Optional[float] = None,
+                         robot_yaw_half_angle_rad: float = math.pi / 2.0,
+                         require_robot_yaw_candidate: bool = False,
                          entry_origin: Optional[Tuple[float, float]] = None,
                          entry_axis: Optional[Tuple[float, float]] = None,
                          entry_backtrack_margin_m: float = 0.5) -> Optional[Frontier]:
@@ -201,10 +203,15 @@ def select_best_frontier(frontiers: List[Frontier], robot_wx: float, robot_wy: f
                     frontier.centroid[1] - robot_wy,
                     frontier.centroid[0] - robot_wx,
                 ) - float(robot_yaw)
-            )) <= math.pi / 2.0
+            )) <= max(
+                0.0,
+                min(math.pi, float(robot_yaw_half_angle_rad)),
+            )
         ]
         if forward:
             valid = forward
+        elif require_robot_yaw_candidate:
+            return None
 
     best = None
     best_score = -float('inf')

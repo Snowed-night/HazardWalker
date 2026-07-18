@@ -61,6 +61,10 @@ class FrontierExplorerNode(Node):
         self.declare_parameter('map_frame', 'map')
         self.declare_parameter('base_frame', 'base')
         self.declare_parameter('min_frontier_size', 10)
+        # 非官方环境默认从第一条合法 TF 推断。官方 profile 会显式传入公开
+        # 起点在 map 帧中的朝向，避免 INIT 建图旋转污染入楼方向。
+        self.declare_parameter('entry_heading_yaw', float('nan'))
+        self.declare_parameter('entry_forward_half_angle_deg', 35.0)
         # 官方场景前沿通常距离较近；过大的容差会把首个目标直接误判为“已到达”。
         self.declare_parameter('goal_tolerance_m', 0.25)
         self.declare_parameter('linear_speed', 0.35)
@@ -565,21 +569,31 @@ class FrontierExplorerNode(Node):
         # 逐个尝试，规划失败的目标本轮不再反复选择。
         candidates = list(new_frontiers)
         while candidates:
+            configured_entry_heading = float(
+                self.get_parameter('entry_heading_yaw').value
+            )
+            if math.isfinite(configured_entry_heading):
+                entry_heading = configured_entry_heading
+            elif self._initial_heading_yaw is not None:
+                entry_heading = self._initial_heading_yaw
+            else:
+                entry_heading = self.robot_yaw
             best = select_best_frontier(
                 candidates, self.robot_x, self.robot_y,
                 last_target=self.last_target_world,
                 min_frontier_size=min_size,
                 # 首次用当前朝向选中入楼前沿；随后用首段路径固定“楼内半平面”，
                 # 允许左右房间参与评分，同时拒绝入口背后的巨大楼外前沿。
-                robot_yaw=(
-                    (
-                        self._initial_heading_yaw
-                        if self._initial_heading_yaw is not None
-                        else self.robot_yaw
-                    )
-                    if self._entry_axis is None
-                    else None
-                ),
+                robot_yaw=entry_heading if self._entry_axis is None else None,
+                robot_yaw_half_angle_rad=math.radians(max(
+                    5.0,
+                    min(
+                        90.0,
+                        float(self.get_parameter(
+                            'entry_forward_half_angle_deg').value),
+                    ),
+                )),
+                require_robot_yaw_candidate=self._entry_axis is None,
                 entry_origin=self._entry_origin,
                 entry_axis=self._entry_axis)
             if best is None:
@@ -592,9 +606,11 @@ class FrontierExplorerNode(Node):
             if path:
                 if self._entry_axis is None:
                     self._entry_origin = (self.start_x, self.start_y)
+                    # 有官方公开朝向时固定使用该轴，而不是首个前沿质心的偏角；
+                    # 这样入口较宽时也不会把侧向大厅误当成整栋楼纵深方向。
                     self._entry_axis = (
-                        best.centroid[0] - self.start_x,
-                        best.centroid[1] - self.start_y,
+                        math.cos(entry_heading),
+                        math.sin(entry_heading),
                     )
                 self.current_target = best
                 self.last_target_world = best.centroid

@@ -4,6 +4,7 @@
 """
 
 from types import SimpleNamespace
+import math
 import sys
 from pathlib import Path
 
@@ -178,6 +179,50 @@ def test_frontier_selection_prefers_current_forward_half_plane():
     assert selected is ahead
 
 
+def test_frontier_selection_requires_narrow_official_entry_cone():
+    diagonal_outside = Frontier(
+        centroid=(3.0, 5.5),
+        size=1000,
+        points=[(0, 0)],
+        info_gain=1000.0,
+    )
+    straight_entry = Frontier(
+        centroid=(5.0, 1.0),
+        size=60,
+        points=[(0, 0)],
+        info_gain=60.0,
+    )
+
+    selected = select_best_frontier(
+        [diagonal_outside, straight_entry],
+        0.0,
+        0.0,
+        robot_yaw=0.0,
+        robot_yaw_half_angle_rad=math.radians(35.0),
+        require_robot_yaw_candidate=True,
+    )
+
+    assert selected is straight_entry
+
+
+def test_required_entry_cone_fails_closed_without_candidate():
+    outside = Frontier(
+        centroid=(0.0, 5.0),
+        size=100,
+        points=[(0, 0)],
+        info_gain=100.0,
+    )
+
+    assert select_best_frontier(
+        [outside],
+        0.0,
+        0.0,
+        robot_yaw=0.0,
+        robot_yaw_half_angle_rad=math.radians(35.0),
+        require_robot_yaw_candidate=True,
+    ) is None
+
+
 def test_frontier_selection_restores_all_directions_after_entry():
     """首次入口保护结束后，近处侧后方房间应重新参与正常评分。"""
 
@@ -283,5 +328,7 @@ def test_frontier_node_fails_closed_without_pose_scan_or_safe_return_path():
     assert 'self._initial_heading_yaw = self.robot_yaw' in source
     assert 'self._initial_heading_yaw' in source
     assert 'if self._entry_axis is None' in source
+    assert "declare_parameter('entry_heading_yaw', float('nan'))" in source
+    assert 'require_robot_yaw_candidate=self._entry_axis is None' in source
     assert 'self._entry_axis = (' in source
     compile(source, 'frontier_explorer_node.py', 'exec')

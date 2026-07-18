@@ -304,6 +304,10 @@ def generate_launch_description():
                 parameters=[{
                     'exploration_timeout_s': exploration_timeout_parameter,
                     'min_frontier_size': 10,
+                    # reference.md 公开起点 yaw=+pi/2(world)，而 world->map
+                    # 公开别名同为 +pi/2，因此起点在 map 帧的入楼朝向为 0 rad。
+                    'entry_heading_yaw': 0.0,
+                    'entry_forward_half_angle_deg': 35.0,
                     # 0.8 m 会让入口附近的前沿在机器人尚未运动时即被判定完成。
                     'goal_tolerance_m': 0.25,
                     'linear_speed': 0.35,
