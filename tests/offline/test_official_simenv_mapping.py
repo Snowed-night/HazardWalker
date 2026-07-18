@@ -213,6 +213,17 @@ def test_official_full_stack_requires_an_exclusive_simenv_session():
     assert 'run_official_simenv_rosbridge_adapter.sh' in legacy_launcher
 
 
+def test_official_navigation_opens_main_entrance_via_public_service_only():
+    source = (
+        REPO_ROOT / 'scripts' / 'run_official_simenv_ros1_ros2_stack.sh'
+    ).read_text(encoding='utf-8')
+
+    assert "'/set_door_state'" in source
+    assert "'main_entrance', True" in source
+    assert 'response.accepted' in source
+    assert 'danger_truth' not in source
+
+
 def test_official_business_launch_never_starts_fake_platform_by_default():
     source = (REPO_ROOT / 'ros2_ws' / 'src' / 'hazardwalker_bringup' / 'launch' /
               'official_simenv_business.launch.py').read_text(encoding='utf-8')

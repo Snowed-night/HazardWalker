@@ -96,6 +96,42 @@ fi
 
 bash "$ROOT/scripts/check_official_simenv_exclusive_session.sh" \
   --container "$CONTAINER" --require-exclusive
+
+# 生成器声明 main_entrance initial_open=true，但当前官方门控进程实测不会在
+# 启动时把该状态同步到 Gazebo 模型：起点深度会在约 2.0 m 处被门板完全挡住。
+# 正式导航只通过赛题公开 /set_door_state 服务幂等开门；不读取 door_config、
+# 场景布局或 Gazebo 状态。服务拒绝或不可用时 fail-closed，避免机器人绕楼外。
+case "${OFFICIAL_SIMENV_OPEN_MAIN_ENTRANCE:-1}" in
+  1|true|True|TRUE|yes|YES|on|ON) OPEN_MAIN_ENTRANCE=1 ;;
+  *) OPEN_MAIN_ENTRANCE=0 ;;
+esac
+if [[ "$NAVIGATION_REQUESTED" == 1 && "$OPEN_MAIN_ENTRANCE" == 1 ]]; then
+  echo '[stack] 通过公开 /set_door_state 请求打开 main_entrance。'
+  if ! docker exec -i "$CONTAINER" bash -lc \
+      'source /opt/ros/noetic/setup.bash; source /home/ros/simenv_ws/devel/setup.bash; python3 -' <<'PY'
+import sys
+
+import rospy
+from building_generator_interfaces.srv import SetDoorState
+
+rospy.init_node('hazardwalker_open_main_entrance', anonymous=True)
+rospy.wait_for_service('/set_door_state', timeout=15.0)
+response = rospy.ServiceProxy('/set_door_state', SetDoorState)(
+    'main_entrance', True,
+)
+print(
+    '[stack] main_entrance accepted=%s state=%s'
+    % (response.accepted, response.state)
+)
+if not response.accepted or str(response.state).lower() != 'open':
+    sys.exit(2)
+PY
+  then
+    echo '[stack] 公开 main_entrance 开门请求失败；拒绝启动导航。' >&2
+    exit 1
+  fi
+fi
+
 if ros2 node list 2>/dev/null | grep -qx '/hazardwalker_official_rosbridge_adapter'; then
   echo '[stack] ROS_DOMAIN_ID 内已存在官方适配器；请由该进程所有者收尾后重试，避免重复 /clock、/scan 或控制转发。' >&2
   exit 1
