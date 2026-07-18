@@ -945,6 +945,13 @@ class FrontierExplorerNode(Node):
                 self.current_path = []
                 self._current_target_selected_ros_sec = None
 
+        # 当前目标或本轮规划失败后，立即从候选池移除整个活动失败盆地。
+        # 否则同一轮仍会再次选择已标记目标，把一次失败错误升级成两次退避。
+        unvisited_frontiers = [
+            frontier for frontier in unvisited_frontiers
+            if not self._frontier_is_unreachable(frontier, now_ros)
+        ]
+
         # 评分最高的前沿不一定能在“只走已知自由区”的安全地图上到达；
         # 逐个尝试，规划失败的目标本轮不再反复选择。
         candidates = list(unvisited_frontiers)
@@ -983,7 +990,10 @@ class FrontierExplorerNode(Node):
                 )
                 return
             self._mark_frontier_unreachable(best)
-            candidates.remove(best)
+            candidates = [
+                candidate for candidate in candidates
+                if not self._frontier_is_unreachable(candidate, now_ros)
+            ]
 
         self.current_target = None
         self.current_path = []

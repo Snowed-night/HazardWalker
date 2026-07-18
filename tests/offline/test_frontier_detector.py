@@ -111,6 +111,14 @@ def test_a_star_inflates_obstacles_by_robot_safety_radius():
     assert all((gx - 3) ** 2 + (gy - 3) ** 2 > 1 for gx, gy in cells)
 
 
+def test_default_a_star_clearance_matches_navigation_safety_gate():
+    source = (
+        NAV_SRC / 'hazardwalker_nav' / 'frontier_detector.py'
+    ).read_text(encoding='utf-8')
+
+    assert 'inflation_radius_m: float = 0.45' in source
+
+
 def test_a_star_expansion_budget_fails_closed_on_large_unreachable_region():
     grid = np.zeros((80, 80), dtype=np.int8)
     grid[:, 40] = 100
