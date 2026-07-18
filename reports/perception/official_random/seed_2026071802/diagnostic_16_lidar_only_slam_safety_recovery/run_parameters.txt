@@ -1,0 +1,8 @@
+seed=2026071802
+code_version=5eefc70ea6512b2dcfa12b96da2705113bc33cda
+container=hazardwalker_perception_codex_v15
+ros_domain_id=59
+rosbridge_url=ws://127.0.0.1:19096
+runtime_truth_access=forbidden
+exploration_timeout_sim_sec=300
+change=lidar_only_cartographer_and_safety_gate_deadlock_recovery

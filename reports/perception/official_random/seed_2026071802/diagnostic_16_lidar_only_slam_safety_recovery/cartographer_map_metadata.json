@@ -1,0 +1,17 @@
+{
+  "frame_id": "map",
+  "stamp_sec": 174.695,
+  "width": 1154,
+  "height": 1213,
+  "resolution_m": 0.05000000074505806,
+  "origin": [
+    -22.93398132324219,
+    -31.18354187011719,
+    0.0
+  ],
+  "free_cells": 129802,
+  "traversable_probability_cells": 410701,
+  "uncertain_cells": 25400,
+  "occupied_cells": 1165,
+  "unknown_cells": 962536
+}
