@@ -270,9 +270,9 @@ def test_official_business_launch_never_starts_fake_platform_by_default():
     assert "package='cartographer_ros'" in source
     assert "executable='cartographer_node'" in source
     assert "executable='cartographer_occupancy_grid_node'" in source
-    assert "executable='depth_to_scan_node'" in source
+    assert "executable='depth_to_scan_node'" not in source
     assert "('scan_1', '/hw/scan')" in source
-    assert "('scan_2', '/hw/depth_scan')" in source
+    assert "('scan_2', '/hw/depth_scan')" not in source
     assert "('odom', '/hazardwalker/slam/odometry')" in source
     assert "'publish_tf': publish_legal_tf_parameter" in source
     assert 'OpaqueFunction(' in source
@@ -291,6 +291,12 @@ def test_official_business_launch_never_starts_fake_platform_by_default():
     assert source.count("'use_sim_time': sim_time_parameter") >= 6
     assert "'use_sim_time': use_sim_time" in source
     assert source.count('condition=IfCondition(start_navigation)') == 2
+
+    cartographer_config = (
+        REPO_ROOT / 'ros2_ws' / 'src' / 'hazardwalker_nav' / 'config'
+        / 'cartographer_official_2d.lua'
+    ).read_text(encoding='utf-8')
+    assert 'num_laser_scans = 1' in cartographer_config
     assert "LaunchConfigurationEquals(\n                    'nav_mode', expected_value='frontier')" in source
     assert "LaunchConfigurationEquals(\n                    'nav_mode', expected_value='waypoint')" in source
     assert 'PythonExpression' in source

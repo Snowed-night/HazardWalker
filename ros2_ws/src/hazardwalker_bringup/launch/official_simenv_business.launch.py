@@ -119,13 +119,6 @@ def _launch_cartographer(context, nav_pkg):
     )
     return [
         Node(
-            package='hazardwalker_perception',
-            executable='depth_to_scan_node',
-            name='hazardwalker_depth_to_scan',
-            output='screen',
-            parameters=[{'use_sim_time': use_sim_time}],
-        ),
-        Node(
             package='cartographer_ros',
             executable='cartographer_node',
             name='hazardwalker_cartographer',
@@ -137,7 +130,6 @@ def _launch_cartographer(context, nav_pkg):
             parameters=[{'use_sim_time': use_sim_time}],
             remappings=[
                 ('scan_1', '/hw/scan'),
-                ('scan_2', '/hw/depth_scan'),
                 ('imu', '/hw/trunk_imu'),
                 ('odom', '/hazardwalker/slam/odometry'),
             ],
@@ -255,7 +247,8 @@ def generate_launch_description():
             kwargs={'slam_config': slam_config},
         ),
 
-        # ---- Cartographer：官方首选 scan + trunk IMU + 合法控制先验融合 ----
+        # ---- Cartographer：360° 水平 scan + trunk IMU + 合法控制先验融合 ----
+        # RGB-D 仍由感知用于目标定位；未经高度过滤的深度竖带不得投成 SLAM 墙体。
         OpaqueFunction(
             function=_launch_cartographer,
             kwargs={'nav_pkg': nav_pkg},

@@ -19,7 +19,10 @@ options = {
   use_odometry = true,
   use_nav_sat = false,
   use_landmarks = false,
-  num_laser_scans = 2,
+  -- 正式地图只融合 360° 水平雷达。旧的 RGB-D 中部竖带投影会把地面、
+  -- 楼梯和天花板压成二维墙体，固定种子实测形成放射状弱占据拖影与伪前沿。
+  -- 深度图继续供红球三维定位使用，但不再伪装成水平 LaserScan 输入 SLAM。
+  num_laser_scans = 1,
   num_multi_echo_laser_scans = 0,
   num_subdivisions_per_laser_scan = 1,
   num_point_clouds = 0,
