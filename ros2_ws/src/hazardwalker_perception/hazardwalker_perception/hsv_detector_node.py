@@ -37,6 +37,7 @@ from hazardwalker_perception.localize_hazard import (
     localize_bbox_from_depth_image,
 )
 from hazardwalker_perception.red_ball_detector import create_detection_backend
+from hazardwalker_perception.rgbd_pairing import DeferredRgbDepthPairer
 from hazardwalker_perception.track_hazards import (
     HazardObservation,
     HazardTracker,
@@ -136,6 +137,9 @@ class HsvDetectorNode(Node):
         self._last_depth_synchronized = False
         self._last_tf_synchronized = False
         self._last_tf_stamp_delta_sec = None
+        self.rgbd_pairer = DeferredRgbDepthPairer(
+            float(self.get_parameter('max_rgb_depth_sync_delta_sec').value),
+        )
         # 官方 RGB-D 对接首帧常暴露 DDS、编码或 TF 时序问题；仅记录前两帧的关键阶段，
         # 既便于集成验收定位，又避免运行期逐帧刷屏。
         self._image_callback_count = 0
@@ -190,8 +194,20 @@ class HsvDetectorNode(Node):
         self.latest_depth_image = depth_image
         self.latest_depth_frame_id = msg.header.frame_id
         self.latest_depth_stamp = msg.header.stamp
+        # RGB 常先于同时间戳深度抵达。深度到达后立即补处理等待帧，避免始终
+        # 使用上一帧 50 ms 的深度；运动错帧仍由严格时间阈值拒绝。
+        for dispatch in self.rgbd_pairer.push_depth(
+                _stamp_to_float(msg.header.stamp)):
+            self._process_image(dispatch.payload)
 
     def on_image(self, msg: Image):
+        # 最多延迟一帧等待对应深度。若深度已先到则立即处理；若一直缺失，
+        # 下一帧 RGB 会先降级处理旧帧，因此导航候选不会被无限阻塞。
+        for dispatch in self.rgbd_pairer.push_rgb(
+                _stamp_to_float(msg.header.stamp), msg):
+            self._process_image(dispatch.payload)
+
+    def _process_image(self, msg: Image):
         # 当前只支持最常见的 rgb8/bgr8。正式版本应通过 cv_bridge 支持更多编码。
         if msg.encoding.lower() not in ('rgb8', 'bgr8'):
             self.get_logger().warn(f'Unsupported image encoding: {msg.encoding}', throttle_duration_sec=5.0)
