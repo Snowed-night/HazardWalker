@@ -212,10 +212,12 @@ cleanup_adapter() {
   fi
   CLEANUP_DONE=1
   # ros2 launch 会派生导航、感知和决策子进程；只杀 launch 父进程会留下多个
-  # /hw/cmd_vel 发布者。setsid 为业务栈创建独立进程组后统一回收。
+  # /hw/cmd_vel 发布者。setsid 为业务栈创建独立进程组后统一回收。正式长
+  # 任务的记录器退出时还要保存大地图、数千帧汇总和测试表；给进程组 15 秒
+  # 优雅收尾，避免 5 秒硬杀恰好截断 CSV/JSON 的最后两步写入。
   if [[ -n "${BUSINESS_PID:-}" ]]; then
     kill -TERM -- "-$BUSINESS_PID" 2>/dev/null || true
-    for _ in {1..50}; do
+    for _ in {1..150}; do
       kill -0 -- "-$BUSINESS_PID" 2>/dev/null || break
       sleep 0.1
     done

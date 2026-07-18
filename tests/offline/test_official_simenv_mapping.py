@@ -396,6 +396,7 @@ def test_stack_keeps_adapter_alive_while_business_launch_runs():
     assert 'ros2 topic echo /hw/mission/state --field data --once' in source
     assert 'RESULT_MTIME >= RUN_START_EPOCH' in source
     assert 'kill -KILL -- "-$BUSINESS_PID"' in source
+    assert 'for _ in {1..150}; do' in source
     assert 'wait "$ADAPTER_PID"' in source
     assert 'ros2 launch hazardwalker_bringup official_simenv_business.launch.py' in source
     assert 'ros2 topic echo /clock --once' in source
