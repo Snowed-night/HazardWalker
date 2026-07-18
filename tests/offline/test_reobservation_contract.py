@@ -9,6 +9,8 @@ sys.path.insert(0, os.path.join(REPO_ROOT, 'ros2_ws', 'src', 'hazardwalker_nav')
 
 from hazardwalker_nav.reobservation_contract import (
     action_has_scan_clearance,
+    bearing_change_deg,
+    find_target_detection,
     parse_reobservation_request,
     reobservation_request_is_eligible,
 )
@@ -111,3 +113,60 @@ def test_turn_checks_side_obstacle_while_forward_uses_front_sector_only():
     assert action_has_scan_clearance(
         'move_forward', ranges, -3.141592653589793, 0.0, 0.6,
     ) is False
+
+
+def test_request_carries_live_target_bearing_for_closed_loop_lateral_motion():
+    payload = {
+        'required_min_view_bearing_span_deg': 25.0,
+        'view_recommendation': {
+            'action': 'move_right',
+            'target_id': 'track-3',
+        },
+        'detections_2d': [{
+            'id': 1,
+            'track_id': 'track-3',
+            'view_bearing_deg': 172.0,
+            'localized_position': [3.0, 4.0, 0.3],
+        }],
+    }
+
+    request = parse_reobservation_request(payload)
+
+    assert request['view_bearing_deg'] == 172.0
+    assert request['required_bearing_change_deg'] == 25.0
+    assert request['target_position'] == [3.0, 4.0, 0.3]
+    assert find_target_detection(payload, 'track-3')['id'] == 1
+
+
+def test_untracked_candidate_matches_the_track_created_during_reobservation():
+    payload = {
+        'detections_2d': [{
+            'id': 1,
+            'track_id': '1',
+            'view_bearing_deg': -170.0,
+        }],
+    }
+
+    assert find_target_detection(payload, 'untracked:1')['track_id'] == '1'
+    assert abs(bearing_change_deg(170.0, -170.0) - 20.0) < 1e-9
+
+
+def test_reobservation_uses_sim_time_and_has_feedback_bounded_lateral_motion():
+    source_path = os.path.join(
+        REPO_ROOT, 'ros2_ws', 'src', 'hazardwalker_nav',
+        'hazardwalker_nav', 'frontier_explorer_node.py',
+    )
+    source = open(source_path, encoding='utf-8').read()
+    trigger = source.split('def _trigger_reobservation', 1)[1].split(
+        'def _update_reobservation_feedback', 1,
+    )[0]
+    handler = source.split('def _handle_reobserving', 1)[1].split(
+        'def _handle_returning', 1,
+    )[0]
+
+    assert "declare_parameter('reobserve_lateral_motion_duration_s', 10.0)" in source
+    assert 'now = self._ros_time_sec()' in trigger
+    assert 'time.monotonic()' not in trigger
+    assert 'now = self._ros_time_sec()' in handler
+    assert 'time.monotonic()' not in handler
+    assert 'Reobservation bearing goal reached' in source

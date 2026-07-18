@@ -21,6 +21,10 @@ from sensor_msgs.msg import CameraInfo, Image
 from std_msgs.msg import String
 from tf2_ros import Buffer, TransformException, TransformListener
 
+from hazardwalker_perception.active_view_geometry import (
+    camera_pose_signature,
+    quantized_camera_view_id,
+)
 from hazardwalker_perception.active_view_policy import (
     annotate_detections_with_tracks,
     choose_active_view_action,
@@ -110,7 +114,9 @@ class HsvDetectorNode(Node):
         self.declare_parameter('min_sphere_axis_curvature_ratio', 0.35)
         # RGB 与独立深度 WebSocket 可能跨帧到达；不同时间的深度不能用于球形判别或定位，
         # 否则会把运动中的红球错误记为平面/错误世界坐标。
-        self.declare_parameter('max_rgb_depth_sync_delta_sec', 0.15)
+        # 官方固定 SEED 实测：时间差为 0 的 67 帧中 63 帧呈球面，而 50--100 ms
+        # 错帧会大量产生 flat/anisotropic 假反证。只接受同一仿真帧附近的深度。
+        self.declare_parameter('max_rgb_depth_sync_delta_sec', 0.02)
         # 默认标准 ROS 光学系；官方 Gazebo ``real_sense`` 链路需设为
         # ``gazebo_link_x_forward``，由官方业务 launch 显式传入。
         self.declare_parameter('camera_axis_convention', 'optical_z_forward')
@@ -235,7 +241,13 @@ class HsvDetectorNode(Node):
         camera_stable = self._update_camera_stability(camera_to_output)
         # 一个停靠周期只允许一个视角标识；即使量化边界附近有毫米级抖动，
         # 也不能在同一次截图中凭空累计多个 distinct view。
-        view_id = self._stable_view_id if camera_stable else _view_id_from_transform(camera_to_output)
+        view_id = (
+            self._stable_view_id
+            if camera_stable else quantized_camera_view_id(
+                camera_to_output,
+                str(self.get_parameter('camera_axis_convention').value),
+            )
+        )
         if not detections_2d:
             active_tracks = (
                 self.tracker.update([], stamp_sec=stamp_sec)
@@ -478,6 +490,9 @@ class HsvDetectorNode(Node):
             'hazards': hazards,
             'detections_2d': detections_2d,
             'view_recommendation': recommendation,
+            'required_min_view_bearing_span_deg': float(
+                self.get_parameter('min_view_bearing_span_deg').value
+            ),
             'image_width': int(image_width),
             'image_height': int(image_height),
             'stamp_sec': float(stamp_sec) if stamp_sec is not None else time.time(),
@@ -496,7 +511,13 @@ class HsvDetectorNode(Node):
     def _update_camera_stability(self, transform):
         """根据精确相机世界位姿判断当前帧是否属于停靠稳定视角。"""
 
-        signature = _camera_pose_signature(transform)
+        axis_convention = str(
+            self.get_parameter('camera_axis_convention').value
+        )
+        try:
+            signature = camera_pose_signature(transform, axis_convention)
+        except ValueError:
+            signature = None
         if signature is None:
             self._last_camera_pose_signature = None
             self._stable_view_frame_count = 0
@@ -520,7 +541,9 @@ class HsvDetectorNode(Node):
                 self._stable_view_id = ''
         stable = self._stable_view_frame_count >= int(self.get_parameter('stable_view_min_frames').value)
         if stable and not self._stable_view_id:
-            self._stable_view_id = _view_id_from_transform(transform)
+            self._stable_view_id = quantized_camera_view_id(
+                transform, axis_convention,
+            )
         return stable
 
     def _lookup_camera_to_output(self, camera_frame, output_frame, stamp):
@@ -667,34 +690,6 @@ def _bbox_touches_image_edge(bbox, image_width, image_height, margin_px=2):
         bbox['x_min'] <= margin_px or bbox['y_min'] <= margin_px
         or bbox['x_max'] >= int(image_width) - 1 - margin_px
         or bbox['y_max'] >= int(image_height) - 1 - margin_px
-    )
-
-
-"""将相机位姿量化为多视角确认使用的稳定标签。"""
-def _view_id_from_transform(transform):
-    if transform is None:
-        return ''
-    forward_x = float(transform.rotation[0][2])
-    forward_y = float(transform.rotation[1][2])
-    yaw_deg = math.degrees(math.atan2(forward_y, forward_x))
-    # 多视角证据只应由横向/前后基线或朝向变化产生。Gazebo 占位底盘在停稳
-    # 时仍可能有轻微上下浮动；把 z 也写入标签会让同一停靠位置被误算成多个
-    # 视角，从而虚高 confirmed。高度变化留给三维定位误差记录，不参与确认计数。
-    return 'xy:{:.1f}:{:.1f}|yaw:{:.0f}'.format(
-        round(float(transform.translation.x) / 0.4) * 0.4,
-        round(float(transform.translation.y) / 0.4) * 0.4,
-        round(yaw_deg / 30.0) * 30.0,
-    )
-
-
-def _camera_pose_signature(transform):
-    if transform is None:
-        return None
-    forward_x = float(transform.rotation[0][2])
-    forward_y = float(transform.rotation[1][2])
-    return (
-        float(transform.translation.x), float(transform.translation.y),
-        float(transform.translation.z), math.atan2(forward_y, forward_x),
     )
 
 

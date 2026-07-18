@@ -38,12 +38,55 @@ def parse_reobservation_request(payload):
         priority = int(recommendation.get('priority', 0))
     except (TypeError, ValueError):
         priority = 0
-    return {
+    request = {
         'action': action,
         'reason': str(recommendation.get('reason', '')).strip(),
         'priority': max(0, min(priority, 100)),
         'target_id': str(recommendation.get('target_id', '')).strip(),
     }
+    try:
+        required_bearing_change_deg = float(
+            payload.get('required_min_view_bearing_span_deg')
+        )
+    except (TypeError, ValueError):
+        required_bearing_change_deg = None
+    if (required_bearing_change_deg is not None
+            and math.isfinite(required_bearing_change_deg)
+            and 0.0 < required_bearing_change_deg < 180.0):
+        request['required_bearing_change_deg'] = required_bearing_change_deg
+
+    target_id = request['target_id']
+    detections = payload.get('detections_2d')
+    if isinstance(detections, list):
+        detection = next(
+            (
+                item for item in detections
+                if isinstance(item, dict)
+                and _same_target_id(
+                    item.get('track_id') or item.get('id'), target_id,
+                )
+            ),
+            None,
+        )
+        if detection is not None:
+            try:
+                bearing_deg = float(detection.get('view_bearing_deg'))
+            except (TypeError, ValueError):
+                bearing_deg = None
+            if bearing_deg is not None and math.isfinite(bearing_deg):
+                request['view_bearing_deg'] = bearing_deg
+            position = detection.get('localized_position')
+            if (isinstance(position, (list, tuple)) and len(position) == 3):
+                try:
+                    normalized_position = [
+                        float(position[0]), float(position[1]), float(position[2]),
+                    ]
+                except (TypeError, ValueError):
+                    normalized_position = None
+                if (normalized_position is not None
+                        and all(math.isfinite(value) for value in normalized_position)):
+                    request['target_position'] = normalized_position
+    return request
 
 
 def reobservation_request_is_eligible(
@@ -57,6 +100,67 @@ def reobservation_request_is_eligible(
         return False
     attempts = int(attempts_by_target.get(target_id, 0))
     return attempts < max(1, int(max_attempts_per_target))
+
+
+def bearing_change_deg(first_bearing_deg, second_bearing_deg):
+    """返回两个世界视线方位的最小夹角，处理 ±180° 环绕。"""
+
+    try:
+        first = float(first_bearing_deg)
+        second = float(second_bearing_deg)
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(first) or not math.isfinite(second):
+        return None
+    delta_rad = math.atan2(
+        math.sin(math.radians(second - first)),
+        math.cos(math.radians(second - first)),
+    )
+    return abs(math.degrees(delta_rad))
+
+
+def find_target_detection(payload, target_id):
+    """从当前感知载荷中找到同一轨迹或未跟踪候选。"""
+
+    if not isinstance(payload, dict):
+        return None
+    detections = payload.get('detections_2d')
+    if not isinstance(detections, list):
+        return None
+    return next(
+        (
+            item for item in detections
+            if isinstance(item, dict)
+            and _same_target_id(
+                item.get('track_id') or item.get('id'), target_id,
+            )
+        ),
+        None,
+    )
+
+
+def find_target_status(payload, target_id):
+    """返回同一目标的 confirmed/rejected 等轨迹状态。"""
+
+    if not isinstance(payload, dict):
+        return ''
+    hazards = payload.get('hazards')
+    if not isinstance(hazards, list):
+        return ''
+    for item in hazards:
+        if isinstance(item, dict) and _same_target_id(item.get('id'), target_id):
+            return str(item.get('status', '')).strip()
+    return ''
+
+
+def _same_target_id(left, right):
+    def canonical(value):
+        text = str(value or '').strip()
+        return text.split(':', 1)[1] if text.startswith('untracked:') else text
+
+    normalized_left = canonical(left)
+    normalized_right = canonical(right)
+    return bool(normalized_left and normalized_left == normalized_right)
 
 
 def action_has_scan_clearance(

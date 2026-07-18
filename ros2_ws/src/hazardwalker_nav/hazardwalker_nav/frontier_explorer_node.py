@@ -43,6 +43,9 @@ from hazardwalker_nav.frontier_detector import (
 )
 from hazardwalker_nav.reobservation_contract import (
     action_has_scan_clearance,
+    bearing_change_deg,
+    find_target_detection,
+    find_target_status,
     parse_reobservation_request,
     reobservation_request_is_eligible,
 )
@@ -77,6 +80,9 @@ class FrontierExplorerNode(Node):
         self.declare_parameter('minimum_turn_speed', 0.45)
         self.declare_parameter('heading_tolerance_rad', 0.25)
         self.declare_parameter('reobserve_motion_duration_s', 2.0)
+        # 横移必须真正形成至少约 25° 视线变化；固定 SEED 中目标约 3 m 远，
+        # 2 秒动作不足以产生有效基线。达到方位目标后会由感知反馈提前停车。
+        self.declare_parameter('reobserve_lateral_motion_duration_s', 10.0)
         self.declare_parameter('reobserve_settle_duration_s', 1.0)
         self.declare_parameter('reobserve_observe_duration_s', 1.5)
         self.declare_parameter('reobserve_lateral_speed', 0.15)
@@ -146,6 +152,11 @@ class FrontierExplorerNode(Node):
         self.reobserve_target_id: str = ''
         self.reobserve_motion_end_time: float = 0.0
         self.reobserve_end_time: float = 0.0
+        self.reobserve_settle_duration_s: float = 0.0
+        self.reobserve_observe_duration_s: float = 0.0
+        self.reobserve_baseline_bearing_deg: Optional[float] = None
+        self.reobserve_required_bearing_change_deg: float = 25.0
+        self._reobserve_bearing_goal_met = False
         self._reobserve_attempts: dict = {}
 
         # ---- 卡死检测 ----
@@ -190,6 +201,9 @@ class FrontierExplorerNode(Node):
             payload = json.loads(msg.data)
         except json.JSONDecodeError:
             return
+        if self.state == 'REOBSERVING':
+            self._update_reobservation_feedback(payload)
+            return
         request = parse_reobservation_request(payload)
         if not reobservation_request_is_eligible(
                 request,
@@ -213,9 +227,15 @@ class FrontierExplorerNode(Node):
     def _trigger_reobservation(self, request: dict):
         """执行感知侧已经判定的明确复查动作。"""
 
-        now = time.monotonic()
+        now = self._ros_time_sec()
+        action = str(request['action'])
+        duration_parameter = (
+            'reobserve_lateral_motion_duration_s'
+            if action in ('move_left', 'move_right')
+            else 'reobserve_motion_duration_s'
+        )
         motion_duration = max(
-            0.0, float(self.get_parameter('reobserve_motion_duration_s').value),
+            0.0, float(self.get_parameter(duration_parameter).value),
         )
         settle_duration = max(
             0.0, float(self.get_parameter('reobserve_settle_duration_s').value),
@@ -223,12 +243,20 @@ class FrontierExplorerNode(Node):
         observe_duration = max(
             0.1, float(self.get_parameter('reobserve_observe_duration_s').value),
         )
-        self.reobserve_action = str(request['action'])
+        self.reobserve_action = action
         self.reobserve_target_id = str(request['target_id'])
         self.reobserve_motion_end_time = now + motion_duration
         self.reobserve_end_time = (
             self.reobserve_motion_end_time + settle_duration + observe_duration
         )
+        self.reobserve_settle_duration_s = settle_duration
+        self.reobserve_observe_duration_s = observe_duration
+        self.reobserve_baseline_bearing_deg = request.get('view_bearing_deg')
+        self.reobserve_required_bearing_change_deg = max(
+            1.0,
+            float(request.get('required_bearing_change_deg', 25.0)),
+        )
+        self._reobserve_bearing_goal_met = False
         self._reobserve_attempts[self.reobserve_target_id] = (
             int(self._reobserve_attempts.get(self.reobserve_target_id, 0)) + 1
         )
@@ -239,6 +267,58 @@ class FrontierExplorerNode(Node):
             f'attempt={self._reobserve_attempts[self.reobserve_target_id]} '
             f'reason={request.get("reason", "")}'
         )
+
+    def _update_reobservation_feedback(self, payload: dict):
+        """用实时感知反馈结束横移并保证停稳观察，而不是盲走固定时长。"""
+
+        status = find_target_status(payload, self.reobserve_target_id)
+        if status in ('confirmed', 'rejected', 'rejected_non_spherical'):
+            now = self._ros_time_sec()
+            self.reobserve_motion_end_time = now
+            self.reobserve_end_time = now
+            self.get_logger().info(
+                f'Reobservation target {self.reobserve_target_id} resolved: {status}.'
+            )
+            return
+        if self.reobserve_action not in ('move_left', 'move_right'):
+            return
+        detection = find_target_detection(payload, self.reobserve_target_id)
+        if detection is None:
+            return
+        try:
+            current_bearing_deg = float(detection.get('view_bearing_deg'))
+        except (TypeError, ValueError):
+            return
+        if not math.isfinite(current_bearing_deg):
+            return
+        if self.reobserve_baseline_bearing_deg is None:
+            self.reobserve_baseline_bearing_deg = current_bearing_deg
+            return
+        achieved = bearing_change_deg(
+            self.reobserve_baseline_bearing_deg, current_bearing_deg,
+        )
+        if (achieved is None
+                or achieved < self.reobserve_required_bearing_change_deg
+                or self._reobserve_bearing_goal_met):
+            return
+        now = self._ros_time_sec()
+        self.reobserve_motion_end_time = now
+        self.reobserve_end_time = (
+            now
+            + self.reobserve_settle_duration_s
+            + self.reobserve_observe_duration_s
+        )
+        self._reobserve_bearing_goal_met = True
+        self.get_logger().info(
+            'Reobservation bearing goal reached: '
+            f'{achieved:.1f}° >= {self.reobserve_required_bearing_change_deg:.1f}°; '
+            'stopping for stable RGB-D evidence.'
+        )
+
+    def _ros_time_sec(self) -> float:
+        """复查动作按仿真时钟计时，避免低实时率时没有足够传感器帧。"""
+
+        return self.get_clock().now().nanoseconds / 1e9
 
     # ---- 控制循环 ----
 
@@ -383,12 +463,14 @@ class FrontierExplorerNode(Node):
     def _handle_reobserving(self) -> Twist:
         """REOBSERVING: 执行感知请求的重观察机动。"""
         cmd = Twist()
-        now = time.monotonic()
+        now = self._ros_time_sec()
 
         if now >= self.reobserve_end_time:
             self.get_logger().info('Reobservation complete, resuming exploration.')
             self.reobserve_action = None
             self.reobserve_target_id = ''
+            self.reobserve_baseline_bearing_deg = None
+            self._reobserve_bearing_goal_met = False
             # 强制重规划
             self.current_target = None
             self.current_path = []

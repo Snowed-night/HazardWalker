@@ -51,6 +51,67 @@ class ReobservationPlan:
         }
 
 
+def camera_forward_yaw_rad(rotation, axis_convention='optical_z_forward'):
+    """返回相机真实前向轴在世界水平面的朝向。
+
+    官方 Gazebo ``real_sense`` 使用 X 前向 link 坐标系；标准 ROS 光学帧使用
+    Z 前向。若始终读取旋转矩阵第三列，官方相机原地转动会被误判为“朝向未变”，
+    从而把运动帧当成稳定多视角证据。
+    """
+
+    convention = str(axis_convention).strip().lower()
+    if convention == 'gazebo_link_x_forward':
+        forward_x = float(rotation[0][0])
+        forward_y = float(rotation[1][0])
+    elif convention == 'optical_z_forward':
+        forward_x = float(rotation[0][2])
+        forward_y = float(rotation[1][2])
+    else:
+        raise ValueError(
+            'axis_convention must be optical_z_forward or gazebo_link_x_forward.'
+        )
+    if math.hypot(forward_x, forward_y) < 1e-9:
+        raise ValueError('Camera forward axis has no horizontal projection.')
+    return math.atan2(forward_y, forward_x)
+
+
+def camera_pose_signature(transform, axis_convention='optical_z_forward'):
+    """生成稳定视角门禁使用的精确平移和真实前向朝向。"""
+
+    if transform is None:
+        return None
+    return (
+        float(transform.translation.x),
+        float(transform.translation.y),
+        float(transform.translation.z),
+        camera_forward_yaw_rad(transform.rotation, axis_convention),
+    )
+
+
+def quantized_camera_view_id(
+        transform,
+        axis_convention='optical_z_forward',
+        position_quantum_m=0.4,
+        yaw_quantum_deg=30.0,
+):
+    """把相机位姿量化成不会由毫米级抖动虚增的独立视角标识。"""
+
+    if transform is None:
+        return ''
+    position_quantum = float(position_quantum_m)
+    yaw_quantum = float(yaw_quantum_deg)
+    if position_quantum <= 0.0 or yaw_quantum <= 0.0:
+        raise ValueError('View quantization steps must be positive.')
+    yaw_deg = math.degrees(
+        camera_forward_yaw_rad(transform.rotation, axis_convention)
+    )
+    return 'xy:{:.1f}:{:.1f}|yaw:{:.0f}'.format(
+        round(float(transform.translation.x) / position_quantum) * position_quantum,
+        round(float(transform.translation.y) / position_quantum) * position_quantum,
+        round(yaw_deg / yaw_quantum) * yaw_quantum,
+    )
+
+
 def plan_lateral_reobservation(
         camera_position: Sequence[float],
         target_position: Sequence[float],
