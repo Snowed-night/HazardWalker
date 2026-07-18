@@ -115,6 +115,9 @@ class FrontierExplorerNode(Node):
         self.declare_parameter('pose_fresh_timeout_s', 1.0)
         self.declare_parameter('scan_fresh_timeout_s', 1.0)
         self.declare_parameter('navigation_min_clearance_m', 0.45)
+        # 安全门禁把期望运动归零时，普通卡死检测看不到“已请求但被拦截”的
+        # 动作。超过该仿真时间后退避当前前沿，避免在门口永久静止。
+        self.declare_parameter('safety_blocked_timeout_s', 8.0)
         self.declare_parameter('reobserve_min_clearance_m', 0.60)
         # 官方 A1 激光存在约 0.34 m 的固定近场机身回波；略低于该值，既保留
         # 原地转向能力，又不放宽前进/横移净空。
@@ -187,6 +190,7 @@ class FrontierExplorerNode(Node):
         # ---- 卡死检测 ----
         self._pose_history: deque = deque(maxlen=30)  # 3秒位置与朝向历史 (10Hz)
         self._stuck_since: Optional[float] = None
+        self._safety_blocked_since_ros: Optional[float] = None
 
         # ---- 返航 ----
         self.start_x = float(self.get_parameter('start_x').value)
@@ -1100,6 +1104,8 @@ class FrontierExplorerNode(Node):
         else:
             cmd.linear.x = 0.0
 
+        requested_linear = cmd.linear.x
+        requested_angular = cmd.angular.z
         navigation_clearance = float(
             self.get_parameter('navigation_min_clearance_m').value)
         if cmd.linear.x > 0.0 and not self._scan_allows_action(
@@ -1112,12 +1118,46 @@ class FrontierExplorerNode(Node):
             if not self._scan_allows_action(turn_action, rotation_clearance):
                 cmd.angular.z = 0.0
 
+        motion_requested = (
+            abs(requested_linear) > 0.02
+            or abs(requested_angular) > 0.05
+        )
+        motion_blocked = (
+            motion_requested
+            and abs(cmd.linear.x) <= 0.02
+            and abs(cmd.angular.z) <= 0.05
+        )
+        if motion_blocked and self.state == 'EXPLORING':
+            now_ros = self._ros_time_sec()
+            if (self._safety_blocked_since_ros is None
+                    or now_ros < self._safety_blocked_since_ros):
+                self._safety_blocked_since_ros = now_ros
+            elif now_ros - self._safety_blocked_since_ros >= max(
+                    0.1,
+                    float(self.get_parameter(
+                        'safety_blocked_timeout_s').value)):
+                self.get_logger().warn(
+                    'Safety gate blocked all requested motion; '
+                    'suppressing the current frontier instead of waiting '
+                    'indefinitely.'
+                )
+                if self.current_target is not None:
+                    self._mark_frontier_unreachable(self.current_target)
+                self.current_target = None
+                self.current_path = []
+                self.path_index = 0
+                self._current_target_selected_ros_sec = None
+                self._safety_blocked_since_ros = None
+        else:
+            self._safety_blocked_since_ros = None
+
         return cmd
 
     def _update_stuck_detection(self, cmd: Twist):
         """卡死检测：记录位姿历史，发现卡死时触发恢复。"""
         if self.state in ('INIT', 'FINISHED', 'REOBSERVING'):
             self._stuck_since = None
+            self._safety_blocked_since_ros = None
             self._pose_history.clear()
             return
 
