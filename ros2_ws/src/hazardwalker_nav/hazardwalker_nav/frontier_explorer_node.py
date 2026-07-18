@@ -33,9 +33,13 @@ from hazardwalker_nav.frontier_detector import (
     Frontier,
     a_star_path,
     cluster_frontiers,
+    compute_frontier_backoff_ttl_s,
+    compute_exploration_time_limit_s,
     find_frontiers,
     grid_to_world,
+    nearest_frontier_basin_key,
     occupancy_grid_to_array,
+    return_pose_has_progress,
     select_best_frontier,
     world_to_grid,
     OCCUPIED,
@@ -90,8 +94,18 @@ class FrontierExplorerNode(Node):
         self.declare_parameter('reobserve_turn_speed', 0.60)
         self.declare_parameter('reobserve_max_attempts_per_target', 4)
         self.declare_parameter('stuck_timeout_s', 15.0)
-        self.declare_parameter('exploration_timeout_s', 540.0)  # 9分钟
+        # 正式任务总预算 600 秒，默认最多探索 480 秒，至少留 120 秒返航。
+        # 实际返航预留还会根据距家距离和保守速度动态增加。
+        self.declare_parameter('exploration_timeout_s', 480.0)
+        self.declare_parameter('mission_time_budget_s', 600.0)
+        self.declare_parameter('minimum_return_reserve_s', 120.0)
+        self.declare_parameter('return_time_safety_factor', 2.0)
+        self.declare_parameter('return_fixed_overhead_s', 30.0)
         self.declare_parameter('replan_interval_s', 3.0)
+        self.declare_parameter('return_progress_timeout_s', 12.0)
+        self.declare_parameter('return_progress_distance_m', 0.10)
+        self.declare_parameter('return_net_progress_timeout_s', 45.0)
+        self.declare_parameter('return_net_progress_distance_m', 0.25)
         self.declare_parameter('pose_fresh_timeout_s', 1.0)
         self.declare_parameter('scan_fresh_timeout_s', 1.0)
         self.declare_parameter('navigation_min_clearance_m', 0.45)
@@ -100,15 +114,18 @@ class FrontierExplorerNode(Node):
         # 原地转向能力，又不放宽前进/横移净空。
         self.declare_parameter('rotation_min_clearance_m', 0.30)
         self.declare_parameter('frontier_recovery_turn_speed', 0.60)
-        self.declare_parameter('unreachable_frontier_ttl_s', 12.0)
-        # 必须长于 unreachable TTL + 一次重规划周期，否则目标刚过期前就会
-        # 误判完成，永远没有机会用新扫描重试。
-        self.declare_parameter('frontier_completion_grace_s', 30.0)
+        self.declare_parameter('unreachable_frontier_ttl_s', 45.0)
+        self.declare_parameter('unreachable_frontier_max_ttl_s', 180.0)
+        self.declare_parameter('unreachable_frontier_radius_m', 0.45)
+        # 必须长于基础 unreachable TTL + 一次重规划周期，否则目标刚过期前
+        # 就会误判完成，永远没有机会用扩展后的地图重试。
+        self.declare_parameter('frontier_completion_grace_s', 60.0)
 
         # ---- 状态机 ----
         self.state = 'INIT'
         self.prev_state = ''
         self.start_time = self.get_clock().now()
+        self._mission_start_ros_sec: Optional[float] = None
         self._state_entry_time = time.monotonic()
 
         # ---- 地图 ----
@@ -139,12 +156,13 @@ class FrontierExplorerNode(Node):
         self.current_path: List[Tuple[float, float]] = []
         self.path_index: int = 0
         self._last_replan_time = 0.0
-        self._last_return_plan_time = 0.0
+        self._last_return_plan_time: Optional[float] = None
         self._visited_frontiers: set = set()  # 真正到达的前沿质心
         self._entry_origin: Optional[Tuple[float, float]] = None
         self._entry_axis: Optional[Tuple[float, float]] = None
-        # 暂时不可达不能永久拉黑：地图继续扩展后路径可能重新出现。
-        self._unreachable_frontiers: dict = {}  # key -> monotonic expiry
+        # 暂时不可达不能永久拉黑：按空间盆地合并相邻质心，使用仿真时间
+        # 指数退避；value=(expiry_ros_sec, failure_count)。
+        self._unreachable_frontiers: dict = {}
         self._no_reachable_frontier_since: Optional[float] = None
 
         # ---- 重观察 ----
@@ -166,6 +184,11 @@ class FrontierExplorerNode(Node):
         # ---- 返航 ----
         self.start_x = float(self.get_parameter('start_x').value)
         self.start_y = float(self.get_parameter('start_y').value)
+        self._return_best_distance_home: Optional[float] = None
+        self._return_last_progress_time: Optional[float] = None
+        self._return_last_progress_pose: Optional[Tuple[float, float]] = None
+        self._return_last_net_progress_time: Optional[float] = None
+        self._return_net_progress_reference_distance: Optional[float] = None
 
         # ---- ROS 接口 ----
         self.map_sub = self.create_subscription(
@@ -320,10 +343,55 @@ class FrontierExplorerNode(Node):
 
         return self.get_clock().now().nanoseconds / 1e9
 
+    def _exploration_time_limit_s(self) -> float:
+        """按 600 秒总预算和当前返航距离计算动态探索截止时间。"""
+
+        linear_speed = abs(float(self.get_parameter('linear_speed').value))
+        minimum_speed = abs(
+            float(self.get_parameter('minimum_linear_speed').value)
+        )
+        positive_speeds = [
+            speed for speed in (linear_speed, minimum_speed) if speed > 0.0
+        ]
+        conservative_speed = (
+            min(positive_speeds) if positive_speeds else 0.05
+        )
+        return compute_exploration_time_limit_s(
+            configured_timeout_s=float(
+                self.get_parameter('exploration_timeout_s').value),
+            mission_budget_s=float(
+                self.get_parameter('mission_time_budget_s').value),
+            distance_home_m=math.hypot(
+                self.robot_x - self.start_x,
+                self.robot_y - self.start_y,
+            ),
+            return_speed_mps=conservative_speed,
+            minimum_return_reserve_s=float(
+                self.get_parameter('minimum_return_reserve_s').value),
+            return_safety_factor=float(
+                self.get_parameter('return_time_safety_factor').value),
+            return_fixed_overhead_s=float(
+                self.get_parameter('return_fixed_overhead_s').value),
+        )
+
+    def _return_deadline_reached(self) -> bool:
+        """探索和复查都不得侵占动态返航预留。"""
+
+        now_ros = self._ros_time_sec()
+        if self._mission_start_ros_sec is None or now_ros <= 0.0:
+            return False
+        mission_elapsed = max(0.0, now_ros - self._mission_start_ros_sec)
+        return mission_elapsed >= self._exploration_time_limit_s()
+
     # ---- 控制循环 ----
 
     def on_timer(self):
         """10Hz 主循环。"""
+        now_ros = self._ros_time_sec()
+        if self._mission_start_ros_sec is None and now_ros > 0.0:
+            # 从官方 /clock 第一条有效消息开始计总预算，INIT 建图/开门耗时也
+            # 必须计入 600 秒，不能到 EXPLORING 才重新起表。
+            self._mission_start_ros_sec = now_ros
         self._update_pose()
 
         # 状态持久化发布
@@ -337,6 +405,14 @@ class FrontierExplorerNode(Node):
             self._update_stuck_detection(cmd)
             self.cmd_pub.publish(cmd)
             return
+
+        if (self.state in ('EXPLORING', 'REOBSERVING')
+                and self._return_deadline_reached()):
+            self.get_logger().warn(
+                'Exploration budget reached with protected return reserve; '
+                'returning home.'
+            )
+            self._transition('RETURNING')
 
         if self.state == 'INIT':
             cmd = self._handle_init()
@@ -386,19 +462,12 @@ class FrontierExplorerNode(Node):
         """EXPLORING: 前沿检测 → 路径规划 → 速度控制。"""
         cmd = Twist()
 
-        # 超时检查
-        mission_elapsed = (self.get_clock().now() - self.start_time).nanoseconds / 1e9
-        timeout = float(self.get_parameter('exploration_timeout_s').value)
-        if mission_elapsed > timeout:
-            self.get_logger().warn('Exploration timeout, returning home.')
-            self._transition('RETURNING')
-            return cmd
-
         if self.grid is None or self.latest_map is None:
             return cmd
 
         # 定期重规划
         now = time.monotonic()
+        now_ros = self._ros_time_sec()
         replan_interval = float(self.get_parameter('replan_interval_s').value)
 
         # 无目标时也遵守重规划间隔；否则 steady-clock 10 Hz 控制会每帧重复
@@ -435,10 +504,13 @@ class FrontierExplorerNode(Node):
                         )
                 return cmd
             if self._no_reachable_frontier_since is None:
-                self._no_reachable_frontier_since = now
+                self._no_reachable_frontier_since = now_ros
+            elif now_ros < self._no_reachable_frontier_since:
+                self._no_reachable_frontier_since = now_ros
             grace = float(
                 self.get_parameter('frontier_completion_grace_s').value)
-            if now - self._no_reachable_frontier_since < max(0.0, grace):
+            if (now_ros - self._no_reachable_frontier_since
+                    < max(0.0, grace)):
                 # 地图刚扩展时前沿与机器人栅格可能短暂不可规划；先原地收集
                 # 更多扫描，不能一次规划失败就把整栋楼误判为探索完成。
                 if self._scan_allows_action(
@@ -514,6 +586,7 @@ class FrontierExplorerNode(Node):
         """RETURNING: A* 返航到起点。"""
         cmd = Twist()
         goal_tol = float(self.get_parameter('goal_tolerance_m').value)
+        now = self._ros_time_sec()
 
         dist_home = math.hypot(self.robot_x - self.start_x,
                                self.robot_y - self.start_y)
@@ -524,29 +597,116 @@ class FrontierExplorerNode(Node):
             self._transition('FINISHED')
             return cmd
 
+        force_replan = self._return_progress_watchdog_expired(
+            now, dist_home,
+        )
         if self.grid is None:
             # 无地图时直线盲返在复杂楼宇中不可接受；等待地图恢复。
             return cmd
 
-        # 规划返航路径
-        if len(self.current_path) == 0:
-            now = time.monotonic()
-            replan_interval = float(self.get_parameter('replan_interval_s').value)
-            if now - self._last_return_plan_time < replan_interval:
-                return cmd
+        # 返航路径按 ROS 仿真时间周期刷新；地图继续变化时旧路径不能永久沿用。
+        replan_interval = max(
+            0.1, float(self.get_parameter('replan_interval_s').value),
+        )
+        should_replan = (
+            force_replan
+            or self._last_return_plan_time is None
+            or now < self._last_return_plan_time
+            or now - self._last_return_plan_time >= replan_interval
+        )
+        if should_replan:
             self._last_return_plan_time = now
             self.current_path = a_star_path(
                 self.grid, self.latest_map,
                 self.robot_x, self.robot_y,
-                self.start_x, self.start_y)
+                self.start_x, self.start_y,
+                start_search_radius_m=0.50,
+                # 返航终点必须是包含真实 home 的原始自由栅格，不能先吸附
+                # 0.25 m 再叠加 0.25 m 路径容差，造成距 home 0.5 m 假完成。
+                goal_search_radius_m=0.0,
+                append_exact_goal=True,
+            )
             self.path_index = 0
             if len(self.current_path) == 0:
                 self.get_logger().warn(
                     'No safe path home found; stopping and waiting for a map update.')
                 return cmd
+        elif len(self.current_path) == 0:
+            return cmd
 
         cmd = self._follow_path()
         return cmd
+
+    def _return_progress_watchdog_expired(
+            self, now_ros: float, dist_home: float) -> bool:
+        """返航无位置进展时清路径；不依赖被 scan 门禁归零后的 cmd_vel。"""
+
+        progress_distance = max(
+            0.01,
+            float(self.get_parameter('return_progress_distance_m').value),
+        )
+        timeout = max(
+            0.1,
+            float(self.get_parameter('return_progress_timeout_s').value),
+        )
+        net_progress_distance = max(
+            progress_distance,
+            float(self.get_parameter(
+                'return_net_progress_distance_m').value),
+        )
+        net_timeout = max(
+            timeout,
+            float(self.get_parameter('return_net_progress_timeout_s').value),
+        )
+        if (self._return_last_progress_time is None
+                or self._return_last_progress_pose is None
+                or self._return_best_distance_home is None
+                or self._return_last_net_progress_time is None
+                or self._return_net_progress_reference_distance is None
+                or now_ros < self._return_last_progress_time):
+            self._return_best_distance_home = dist_home
+            self._return_last_progress_time = now_ros
+            self._return_last_progress_pose = (self.robot_x, self.robot_y)
+            self._return_last_net_progress_time = now_ros
+            self._return_net_progress_reference_distance = dist_home
+            return False
+        self._return_best_distance_home = min(
+            self._return_best_distance_home, dist_home,
+        )
+        if (dist_home <= self._return_net_progress_reference_distance
+                - net_progress_distance):
+            self._return_net_progress_reference_distance = dist_home
+            self._return_last_net_progress_time = now_ros
+        if return_pose_has_progress(
+                self._return_last_progress_pose[0],
+                self._return_last_progress_pose[1],
+                self.robot_x,
+                self.robot_y,
+                progress_distance):
+            self._return_last_progress_time = now_ros
+            self._return_last_progress_pose = (self.robot_x, self.robot_y)
+        stationary_expired = (
+            now_ros - self._return_last_progress_time >= timeout
+        )
+        net_progress_expired = (
+            now_ros - self._return_last_net_progress_time >= net_timeout
+        )
+        if not stationary_expired and not net_progress_expired:
+            return False
+
+        self.get_logger().warn(
+            'Return progress watchdog expired '
+            f'(stationary={stationary_expired}, '
+            f'net_progress={net_progress_expired}); '
+            'clearing stale path and replanning.'
+        )
+        self.current_path = []
+        self.path_index = 0
+        self._return_last_progress_time = now_ros
+        self._return_last_progress_pose = (self.robot_x, self.robot_y)
+        self._return_last_net_progress_time = now_ros
+        self._return_net_progress_reference_distance = dist_home
+        return True
 
     # ---- 辅助方法 ----
 
@@ -621,9 +781,16 @@ class FrontierExplorerNode(Node):
         if self.grid is None:
             return
         now = time.monotonic()
+        now_ros = self._ros_time_sec()
+        stale_horizon = max(
+            0.1,
+            float(self.get_parameter(
+                'unreachable_frontier_max_ttl_s').value),
+        )
         self._unreachable_frontiers = {
-            key: expiry for key, expiry in self._unreachable_frontiers.items()
-            if expiry > now
+            key: record
+            for key, record in self._unreachable_frontiers.items()
+            if record[0] >= now_ros - stale_horizon
         }
 
         if self.current_target is not None:
@@ -655,7 +822,7 @@ class FrontierExplorerNode(Node):
         for f in self.frontiers:
             key = self._frontier_key(f)
             if (key not in self._visited_frontiers
-                    and key not in self._unreachable_frontiers):
+                    and not self._frontier_is_unreachable(f, now_ros)):
                 unvisited_frontiers.append(f)
 
         new_frontiers = [
@@ -747,15 +914,73 @@ class FrontierExplorerNode(Node):
         return (round(frontier.centroid[0], 1), round(frontier.centroid[1], 1))
 
     def _mark_frontier_unreachable(self, frontier: Frontier):
-        """短时抑制失败目标，TTL 后允许在扩展后的地图上重试。"""
+        """按空间盆地抑制失败目标，随连续失败指数退避。"""
 
-        ttl = max(
-            0.1,
+        now_ros = self._ros_time_sec()
+        radius = float(
+            self.get_parameter('unreachable_frontier_radius_m').value,
+        )
+        basin_key = nearest_frontier_basin_key(
+            self._unreachable_frontiers.keys(),
+            frontier.centroid[0],
+            frontier.centroid[1],
+            radius,
+        )
+        if basin_key is None:
+            basin_key = self._frontier_key(frontier)
+            previous_failures = 0
+        else:
+            previous_failures = int(
+                self._unreachable_frontiers[basin_key][1]
+            )
+        failure_count = previous_failures + 1
+        ttl = compute_frontier_backoff_ttl_s(
             float(self.get_parameter('unreachable_frontier_ttl_s').value),
+            float(self.get_parameter(
+                'unreachable_frontier_max_ttl_s').value),
+            failure_count,
         )
-        self._unreachable_frontiers[self._frontier_key(frontier)] = (
-            time.monotonic() + ttl
+        self._unreachable_frontiers[basin_key] = (
+            now_ros + ttl,
+            failure_count,
         )
+        self.get_logger().warn(
+            'Suppressing unreachable frontier basin '
+            f'({basin_key[0]:.2f}, {basin_key[1]:.2f}) '
+            f'within {max(0.0, radius):.2f}m for {ttl:.1f} sim seconds '
+            f'(failure #{failure_count}).'
+        )
+
+    def _frontier_is_unreachable(
+            self, frontier: Frontier, now_ros: Optional[float] = None) -> bool:
+        """判断候选是否落在仍处于退避期的失败空间盆地中。"""
+
+        if now_ros is None:
+            now_ros = self._ros_time_sec()
+        active_keys = [
+            key for key, record in self._unreachable_frontiers.items()
+            if record[0] > now_ros
+        ]
+        return nearest_frontier_basin_key(
+            active_keys,
+            frontier.centroid[0],
+            frontier.centroid[1],
+            float(self.get_parameter(
+                'unreachable_frontier_radius_m').value),
+        ) is not None
+
+    def _clear_unreachable_frontier_basin(self, frontier: Frontier):
+        """真正到达前沿后清除其邻域失败记录。"""
+
+        basin_key = nearest_frontier_basin_key(
+            self._unreachable_frontiers.keys(),
+            frontier.centroid[0],
+            frontier.centroid[1],
+            float(self.get_parameter(
+                'unreachable_frontier_radius_m').value),
+        )
+        if basin_key is not None:
+            self._unreachable_frontiers.pop(basin_key, None)
 
     def _follow_path(self) -> Twist:
         """沿当前路径前进，返回 cmd_vel。"""
@@ -790,7 +1015,9 @@ class FrontierExplorerNode(Node):
             if self.current_target is not None:
                 key = self._frontier_key(self.current_target)
                 self._visited_frontiers.add(key)
-                self._unreachable_frontiers.pop(key, None)
+                self._clear_unreachable_frontier_basin(
+                    self.current_target,
+                )
                 self.get_logger().info(
                     f'Frontier reached and marked visited: {key}'
                 )
@@ -878,7 +1105,9 @@ class FrontierExplorerNode(Node):
             self.get_logger().warn(
                 f'Stuck detected (moved {moved:.3f}m, rotated '
                 f'{rotated:.3f}rad). Recovery: clearing path.')
-            # 清空路径并重规划
+            # 先短时标记失败目标再清理，避免下一帧立即选回同一前沿。
+            if self.current_target is not None:
+                self._mark_frontier_unreachable(self.current_target)
             self.current_path = []
             self.current_target = None
             self._pose_history.clear()
@@ -890,14 +1119,28 @@ class FrontierExplorerNode(Node):
         self.state = new_state
         self._state_entry_time = time.monotonic()
         if new_state == 'EXPLORING' and self.prev_state == 'INIT':
-            # use_sim_time 节点可能在 /clock 首包前构造，正式任务计时必须从
-            # 地图与合法位姿就绪后开始，不能把初始零时间当作任务起点。
+            # 保留探索阶段起点供诊断；正式总预算已从 /clock 首个有效值计时，
+            # 不会在 INIT 完成后重新起表。
             self.start_time = self.get_clock().now()
         if new_state == 'RETURNING':
             self.current_target = None
             self.current_path = []
             self.path_index = 0
-            self._last_return_plan_time = 0.0
+            self._last_return_plan_time = None
+            self._return_best_distance_home = math.hypot(
+                self.robot_x - self.start_x,
+                self.robot_y - self.start_y,
+            )
+            self._return_last_progress_time = self._ros_time_sec()
+            self._return_last_progress_pose = (
+                self.robot_x, self.robot_y,
+            )
+            self._return_last_net_progress_time = (
+                self._return_last_progress_time
+            )
+            self._return_net_progress_reference_distance = (
+                self._return_best_distance_home
+            )
         self.get_logger().info(f'State: {self.prev_state} → {new_state}')
 
 

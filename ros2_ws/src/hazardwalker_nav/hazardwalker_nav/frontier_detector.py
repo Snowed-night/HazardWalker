@@ -15,7 +15,7 @@ import math
 from collections import deque
 from dataclasses import dataclass
 import heapq
-from typing import List, Optional, Tuple
+from typing import Iterable, List, Optional, Tuple
 
 import numpy as np
 
@@ -258,12 +258,22 @@ def a_star_path(grid: np.ndarray, grid_msg,
                 goal_wx: float, goal_wy: float,
                 inflation_radius_m: float = 0.25,
                 endpoint_search_radius_m: float = 0.50,
-                max_expansions: int = 250000) -> List[Tuple[float, float]]:
+                max_expansions: int = 250000,
+                start_search_radius_m: Optional[float] = None,
+                goal_search_radius_m: Optional[float] = None,
+                append_exact_goal: bool = False,
+                ) -> List[Tuple[float, float]]:
     """A* 网格路径规划。
 
     在 OccupancyGrid 上查找从起点到终点的最短路径。
     只允许经过已知自由格；未知格禁止穿越，占用格按机器狗安全半径膨胀，
     对角移动还要防止从两个障碍角之间穿过。
+
+    ``endpoint_search_radius_m`` 保留为兼容旧调用的共同默认值。返航等需要
+    精确到达原始目标的场景应单独传入较小的 ``goal_search_radius_m``，
+    但仍可给受近场回波污染的机器人起点较大的 ``start_search_radius_m``。
+    当目标原始栅格本身可通行时，``append_exact_goal`` 可把真实世界坐标追加
+    到路径末尾，避免栅格中心和路径跟随容差叠加后停在目标容差之外。
 
     Returns:
         世界坐标路径点列表，若不可达返回空列表。
@@ -285,12 +295,22 @@ def a_star_path(grid: np.ndarray, grid_msg,
     )
     # 实测 SLAM 会因机身近场回波或栅格离散把“机器人当前格”标成占用；
     # 在小范围内吸附到最近安全自由格，不能因此把整张可用地图判为不可达。
+    start_radius_m = (
+        endpoint_search_radius_m
+        if start_search_radius_m is None
+        else start_search_radius_m
+    )
+    goal_radius_m = (
+        endpoint_search_radius_m
+        if goal_search_radius_m is None
+        else goal_search_radius_m
+    )
     start_cell = _nearest_traversable_cell(
         traversable, sx, sy,
-        float(grid_msg.info.resolution), endpoint_search_radius_m)
+        float(grid_msg.info.resolution), start_radius_m)
     goal_cell = _nearest_traversable_cell(
         traversable, gx, gy,
-        float(grid_msg.info.resolution), endpoint_search_radius_m)
+        float(grid_msg.info.resolution), goal_radius_m)
     if start_cell is None or goal_cell is None:
         return []
     sx, sy = start_cell
@@ -320,7 +340,18 @@ def a_star_path(grid: np.ndarray, grid_msg,
                 cy, cx = came_from[(cy, cx)]
                 path.append((cx, cy))
             path.reverse()
-            return [grid_to_world(px, py, grid_msg) for px, py in path]
+            world_path = [
+                grid_to_world(px, py, grid_msg) for px, py in path
+            ]
+            if append_exact_goal:
+                exact_goal = (float(goal_wx), float(goal_wy))
+                if (not world_path
+                        or math.hypot(
+                            world_path[-1][0] - exact_goal[0],
+                            world_path[-1][1] - exact_goal[1],
+                        ) > 1e-9):
+                    world_path.append(exact_goal)
+            return world_path
 
         # 八邻域
         for dy, dx in [(-1, 0), (1, 0), (0, -1), (0, 1),
@@ -417,3 +448,86 @@ def _normalized_angle(angle: float) -> float:
     """把角差规范到 [-pi, pi]，供前向前沿门禁使用。"""
 
     return math.atan2(math.sin(float(angle)), math.cos(float(angle)))
+
+
+def compute_exploration_time_limit_s(
+        configured_timeout_s: float,
+        mission_budget_s: float,
+        distance_home_m: float,
+        return_speed_mps: float,
+        minimum_return_reserve_s: float = 120.0,
+        return_safety_factor: float = 2.0,
+        return_fixed_overhead_s: float = 30.0) -> float:
+    """计算当前距离下允许继续探索的仿真时间上限。
+
+    600 秒正式任务至少给返航保留 120 秒；距离增加时，按保守速度、路径绕行
+    倍率和固定重规划开销进一步提前返航。返回值始终不超过调用方配置的探索
+    上限，也不会侵占动态返航预留。
+    """
+
+    budget = max(0.0, float(mission_budget_s))
+    configured = max(0.0, float(configured_timeout_s))
+    minimum_reserve = max(0.0, float(minimum_return_reserve_s))
+    distance = max(0.0, float(distance_home_m))
+    speed = max(0.05, abs(float(return_speed_mps)))
+    safety_factor = max(1.0, float(return_safety_factor))
+    fixed_overhead = max(0.0, float(return_fixed_overhead_s))
+    estimated_return_s = fixed_overhead + distance / speed * safety_factor
+    reserve_s = min(budget, max(minimum_reserve, estimated_return_s))
+    return min(configured, max(0.0, budget - reserve_s))
+
+
+def return_pose_has_progress(
+        previous_x: float,
+        previous_y: float,
+        current_x: float,
+        current_y: float,
+        minimum_distance_m: float) -> bool:
+    """判断返航是否产生真实平移，不要求每一步都朝家的方向移动。
+
+    复杂楼宇的合法返航路径可能先绕开障碍、短时远离起点。看门狗只应在机体
+    没有实际位移时触发，不能用“距家单调减少”作为唯一进展条件。
+    """
+
+    threshold = max(0.0, float(minimum_distance_m))
+    return math.hypot(
+        float(current_x) - float(previous_x),
+        float(current_y) - float(previous_y),
+    ) >= threshold
+
+
+def nearest_frontier_basin_key(
+        keys: Iterable[Tuple[float, float]],
+        point_x: float,
+        point_y: float,
+        radius_m: float) -> Optional[Tuple[float, float]]:
+    """返回抑制半径内最近的失败前沿盆地。
+
+    Cartographer 地图持续更新时，同一墙角前沿的质心会有数厘米抖动，不能
+    只靠四舍五入后的精确键判断。该纯函数让节点按真实空间邻域合并失败记录。
+    """
+
+    radius = max(0.0, float(radius_m))
+    best_key = None
+    best_distance = float('inf')
+    for key in keys:
+        distance = math.hypot(
+            float(key[0]) - float(point_x),
+            float(key[1]) - float(point_y),
+        )
+        if distance <= radius and distance < best_distance:
+            best_key = key
+            best_distance = distance
+    return best_key
+
+
+def compute_frontier_backoff_ttl_s(
+        base_ttl_s: float,
+        maximum_ttl_s: float,
+        failure_count: int) -> float:
+    """按同一空间盆地的连续失败次数计算有上限的指数退避时间。"""
+
+    base = max(0.1, float(base_ttl_s))
+    maximum = max(base, float(maximum_ttl_s))
+    failures = max(1, int(failure_count))
+    return min(maximum, base * (2.0 ** min(failures - 1, 16)))

@@ -216,7 +216,9 @@ def generate_launch_description():
         # 只有调用方确认合法 SLAM 已实际运行后才能声明来源；默认值必须
         # fail-closed，避免把缺失/错误 TF 下的候选导出为 world 危险源。
         DeclareLaunchArgument('localization_provenance', default_value='unverified'),
-        # 正式评分使用 540 秒探索预算；诊断轮可显式缩短，但不得再修改源码。
+        # 保留旧启动接口的 540 秒“请求值”；节点受 600 秒总预算和至少
+        # 120 秒返航预留硬约束，实际探索上限仍不超过 480 秒，并会按距家
+        # 距离和保守速度进一步提前返航。
         DeclareLaunchArgument('exploration_timeout_s', default_value='540.0'),
         DeclareLaunchArgument('evidence_output_dir', default_value=''),
         DeclareLaunchArgument('test_record_dir', default_value=''),
@@ -322,6 +324,8 @@ def generate_launch_description():
                 output='screen',
                 parameters=[{
                     'exploration_timeout_s': exploration_timeout_parameter,
+                    'mission_time_budget_s': 600.0,
+                    'minimum_return_reserve_s': 120.0,
                     'min_frontier_size': 10,
                     # reference.md 公开起点 yaw=+pi/2(world)，而 world->map
                     # 公开别名同为 +pi/2，因此起点在 map 帧的入楼朝向为 0 rad。

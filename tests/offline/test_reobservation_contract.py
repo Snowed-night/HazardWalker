@@ -170,3 +170,53 @@ def test_reobservation_uses_sim_time_and_has_feedback_bounded_lateral_motion():
     assert 'now = self._ros_time_sec()' in handler
     assert 'time.monotonic()' not in handler
     assert 'Reobservation bearing goal reached' in source
+
+
+def test_returning_replans_on_sim_time_and_recovers_without_nonzero_cmd():
+    source_path = os.path.join(
+        REPO_ROOT, 'ros2_ws', 'src', 'hazardwalker_nav',
+        'hazardwalker_nav', 'frontier_explorer_node.py',
+    )
+    source = open(source_path, encoding='utf-8').read()
+    handler = source.split('def _handle_returning', 1)[1].split(
+        'def _return_progress_watchdog_expired', 1,
+    )[0]
+    watchdog = source.split(
+        'def _return_progress_watchdog_expired', 1,
+    )[1].split('def _update_pose', 1)[0]
+
+    assert 'now = self._ros_time_sec()' in handler
+    assert 'time.monotonic()' not in handler
+    assert 'now - self._last_return_plan_time >= replan_interval' in handler
+    assert 'goal_search_radius_m=0.0' in handler
+    assert 'append_exact_goal=True' in handler
+    assert 'start_search_radius_m=0.50' in handler
+    assert 'Return progress watchdog expired' in watchdog
+    assert 'self.current_path = []' in watchdog
+    assert 'return_pose_has_progress(' in watchdog
+    assert 'net_progress_expired' in watchdog
+    assert 'self._return_last_net_progress_time' in watchdog
+    assert 'self._return_net_progress_reference_distance' in watchdog
+    assert (
+        'dist_home <= self._return_best_distance_home - progress_distance'
+        not in watchdog
+    )
+    # 看门狗直接观察实际位移，不能依赖经 scan 安全门禁后的 cmd_vel。
+    assert 'cmd.' not in watchdog
+
+
+def test_exploring_stuck_target_is_suppressed_before_path_is_cleared():
+    source_path = os.path.join(
+        REPO_ROOT, 'ros2_ws', 'src', 'hazardwalker_nav',
+        'hazardwalker_nav', 'frontier_explorer_node.py',
+    )
+    source = open(source_path, encoding='utf-8').read()
+    stuck_handler = source.split('def _update_stuck_detection', 1)[1].split(
+        'def _transition', 1,
+    )[0]
+
+    mark_index = stuck_handler.index(
+        'self._mark_frontier_unreachable(self.current_target)'
+    )
+    clear_index = stuck_handler.index('self.current_target = None')
+    assert mark_index < clear_index

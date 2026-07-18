@@ -19,8 +19,12 @@ if str(NAV_SRC) not in sys.path:
 from hazardwalker_nav.frontier_detector import (  # noqa: E402
     a_star_path,
     cluster_frontiers,
+    compute_frontier_backoff_ttl_s,
+    compute_exploration_time_limit_s,
     find_frontiers,
     Frontier,
+    nearest_frontier_basin_key,
+    return_pose_has_progress,
     select_best_frontier,
     world_to_grid,
 )
@@ -133,6 +137,105 @@ def test_a_star_snaps_a_locally_occupied_robot_cell_to_nearest_safe_cell():
 
     assert path
     assert _path_cells(path, message)[0] != (5, 5)
+
+
+def test_a_star_uses_independent_start_and_goal_snap_radii():
+    grid = np.zeros((11, 11), dtype=np.int8)
+    grid[5, 1] = 100
+    grid[5, 9] = 100
+    message = _grid_message(grid, resolution=0.1)
+
+    # 机器人当前格允许越过 0.1 m 的近场污染，但返航目标不能吸附到
+    # 0.25 m 到家容差之外。
+    strict_goal_path = a_star_path(
+        grid, message, 0.15, 0.55, 0.95, 0.55,
+        inflation_radius_m=0.0,
+        start_search_radius_m=0.2,
+        goal_search_radius_m=0.05,
+    )
+    compatible_common_radius_path = a_star_path(
+        grid, message, 0.15, 0.55, 0.95, 0.55,
+        inflation_radius_m=0.0,
+        endpoint_search_radius_m=0.2,
+    )
+
+    assert strict_goal_path == []
+    assert compatible_common_radius_path
+
+
+def test_return_path_appends_exact_home_without_goal_cell_snapping():
+    grid = np.zeros((11, 11), dtype=np.int8)
+    message = _grid_message(grid, resolution=0.1)
+    exact_home = (0.93, 0.57)
+
+    path = a_star_path(
+        grid, message, 0.15, 0.55, *exact_home,
+        inflation_radius_m=0.0,
+        start_search_radius_m=0.2,
+        goal_search_radius_m=0.0,
+        append_exact_goal=True,
+    )
+
+    assert path
+    assert path[-1] == exact_home
+
+
+def test_unreachable_frontier_basin_merges_centroid_jitter_and_backs_off():
+    basin_keys = [(3.86, -3.42), (8.0, 1.0)]
+
+    assert nearest_frontier_basin_key(
+        basin_keys, 3.88, -3.47, radius_m=0.45,
+    ) == (3.86, -3.42)
+    assert nearest_frontier_basin_key(
+        basin_keys, 4.40, -3.47, radius_m=0.45,
+    ) is None
+    assert compute_frontier_backoff_ttl_s(45.0, 180.0, 1) == 45.0
+    assert compute_frontier_backoff_ttl_s(45.0, 180.0, 2) == 90.0
+    assert compute_frontier_backoff_ttl_s(45.0, 180.0, 4) == 180.0
+
+
+def test_exploration_limit_protects_minimum_and_distance_based_return_time():
+    near_home_limit = compute_exploration_time_limit_s(
+        configured_timeout_s=540.0,
+        mission_budget_s=600.0,
+        distance_home_m=0.0,
+        return_speed_mps=0.30,
+    )
+    far_from_home_limit = compute_exploration_time_limit_s(
+        configured_timeout_s=540.0,
+        mission_budget_s=600.0,
+        distance_home_m=40.0,
+        return_speed_mps=0.25,
+    )
+    diagnostic_limit = compute_exploration_time_limit_s(
+        configured_timeout_s=300.0,
+        mission_budget_s=600.0,
+        distance_home_m=0.0,
+        return_speed_mps=0.30,
+    )
+
+    assert near_home_limit == 480.0
+    assert far_from_home_limit == 250.0
+    assert far_from_home_limit < near_home_limit
+    assert diagnostic_limit == 300.0
+
+
+def test_return_watchdog_counts_real_motion_even_when_it_moves_away_from_home():
+    # 家在 x=0，机器人从 x=1.0 绕障到 x=1.2，虽然距家增大仍是合法进展。
+    assert return_pose_has_progress(
+        previous_x=1.0,
+        previous_y=0.0,
+        current_x=1.2,
+        current_y=0.0,
+        minimum_distance_m=0.10,
+    ) is True
+    assert return_pose_has_progress(
+        previous_x=1.0,
+        previous_y=0.0,
+        current_x=1.04,
+        current_y=0.02,
+        minimum_distance_m=0.10,
+    ) is False
 
 
 def test_concave_frontier_uses_an_actual_free_frontier_cell_as_goal():
@@ -334,7 +437,7 @@ def test_frontier_node_fails_closed_without_pose_scan_or_safe_return_path():
     assert 'No safe path home found' in source
     assert 'attempting blind return' not in source
     assert "declare_parameter('unreachable_frontier_ttl_s'" in source
-    assert "declare_parameter('frontier_completion_grace_s', 30.0)" in source
+    assert "declare_parameter('frontier_completion_grace_s', 60.0)" in source
     assert "declare_parameter('frontier_recovery_turn_speed', 0.60)" in source
     assert "declare_parameter('minimum_linear_speed', 0.30)" in source
     assert "declare_parameter('minimum_turn_speed', 0.45)" in source
@@ -342,6 +445,13 @@ def test_frontier_node_fails_closed_without_pose_scan_or_safe_return_path():
     assert 'except ExternalShutdownException:' in source
     assert 'if rclpy.ok():' in source
     assert "declare_parameter('goal_tolerance_m', 0.25)" in source
+    assert "declare_parameter('exploration_timeout_s', 480.0)" in source
+    assert "declare_parameter('mission_time_budget_s', 600.0)" in source
+    assert "declare_parameter('minimum_return_reserve_s', 120.0)" in source
+    assert "declare_parameter('unreachable_frontier_radius_m', 0.45)" in source
+    assert "declare_parameter('unreachable_frontier_ttl_s', 45.0)" in source
+    assert 'nearest_frontier_basin_key(' in source
+    assert 'compute_exploration_time_limit_s(' in source
     assert "stamp != (0, 0) and stamp != self._last_pose_stamp" in source
     assert "stamp != (0, 0) and stamp != self._last_scan_stamp" in source
     assert "if self._scan_allows_action(" in source
