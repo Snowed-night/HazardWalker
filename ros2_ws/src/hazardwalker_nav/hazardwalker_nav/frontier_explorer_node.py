@@ -561,7 +561,8 @@ class FrontierExplorerNode(Node):
             best = select_best_frontier(
                 candidates, self.robot_x, self.robot_y,
                 last_target=self.last_target_world,
-                min_frontier_size=min_size)
+                min_frontier_size=min_size,
+                robot_yaw=self.robot_yaw)
             if best is None:
                 break
             path = a_star_path(

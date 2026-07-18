@@ -19,6 +19,8 @@ from hazardwalker_nav.frontier_detector import (  # noqa: E402
     a_star_path,
     cluster_frontiers,
     find_frontiers,
+    Frontier,
+    select_best_frontier,
     world_to_grid,
 )
 
@@ -147,6 +149,33 @@ def test_concave_frontier_uses_an_actual_free_frontier_cell_as_goal():
     goal_cell = world_to_grid(*frontiers[0].centroid, message)
     assert goal_cell in frontiers[0].points
     assert grid[goal_cell[1], goal_cell[0]] == 0
+
+
+def test_frontier_selection_prefers_current_forward_half_plane():
+    """入口外不能被身后巨大开放区吸走，应优先进入当前朝向的建筑前沿。"""
+
+    behind = Frontier(
+        centroid=(-8.0, 3.0),
+        size=3000,
+        points=[(0, 0)],
+        info_gain=3000.0,
+    )
+    ahead = Frontier(
+        centroid=(4.0, 0.5),
+        size=80,
+        points=[(0, 0)],
+        info_gain=80.0,
+    )
+
+    selected = select_best_frontier(
+        [behind, ahead],
+        0.0,
+        0.0,
+        min_frontier_size=10,
+        robot_yaw=0.0,
+    )
+
+    assert selected is ahead
 
 
 def test_frontier_node_fails_closed_without_pose_scan_or_safe_return_path():

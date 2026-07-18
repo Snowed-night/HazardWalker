@@ -153,7 +153,8 @@ def cluster_frontiers(frontier_mask: np.ndarray, grid: np.ndarray,
 
 def select_best_frontier(frontiers: List[Frontier], robot_wx: float, robot_wy: float,
                          last_target: Optional[Tuple[float, float]] = None,
-                         min_frontier_size: int = 10) -> Optional[Frontier]:
+                         min_frontier_size: int = 10,
+                         robot_yaw: Optional[float] = None) -> Optional[Frontier]:
     """选择最优前沿：综合距离、信息增益、大小。
 
     策略：优先选择近距离、高信息增益的前沿。
@@ -166,6 +167,21 @@ def select_best_frontier(frontiers: List[Frontier], robot_wx: float, robot_wy: f
     valid = [f for f in frontiers if f.size >= min_frontier_size]
     if not valid:
         valid = frontiers  # 都太小时退回到所有前沿
+    if robot_yaw is not None:
+        # 官方起点位于入口外且朝向建筑内部。若不考虑当前视线，外部无障碍区的
+        # 巨大前沿会压倒入口/走廊前沿，机器人随即绕楼外圈。只要前方半平面有
+        # 候选，就先保持向前覆盖；前方耗尽后仍允许选择身后区域。
+        forward = [
+            frontier for frontier in valid
+            if abs(_normalized_angle(
+                math.atan2(
+                    frontier.centroid[1] - robot_wy,
+                    frontier.centroid[0] - robot_wx,
+                ) - float(robot_yaw)
+            )) <= math.pi / 2.0
+        ]
+        if forward:
+            valid = forward
 
     best = None
     best_score = -float('inf')
@@ -349,3 +365,9 @@ def _heuristic(x1: int, y1: int, x2: int, y2: int) -> float:
     dx = abs(x1 - x2)
     dy = abs(y1 - y2)
     return max(dx, dy) + (1.414 - 1.0) * min(dx, dy)
+
+
+def _normalized_angle(angle: float) -> float:
+    """把角差规范到 [-pi, pi]，供前向前沿门禁使用。"""
+
+    return math.atan2(math.sin(float(angle)), math.cos(float(angle)))
