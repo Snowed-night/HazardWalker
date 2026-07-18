@@ -5,8 +5,9 @@
 - 提供不依赖 ROS 的前沿检测、聚类、评分和 A* 路径规划。
 - 被 frontier_explorer_node.py 调用。
 
-前沿定义：OccupancyGrid 中概率值 0..25（nav2 默认 free_thresh）且四邻域至少
-有一个 UNKNOWN (-1) 的格子。Cartographer 的边缘自由格常不是精确 0。
+前沿定义：OccupancyGrid 中概率值 0..49 且四邻域至少有一个 UNKNOWN (-1)。
+Cartographer 用 50 作为未知自由/占据概率分界，边缘自由格常落在 26..49；
+沿用静态 map_saver 的 25 阈值会把绝大多数实时可通行区误删。
 """
 from __future__ import annotations
 
@@ -20,7 +21,7 @@ import numpy as np
 
 # OccupancyGrid 常量
 FREE = 0
-FREE_MAX = 25
+FREE_MAX = 49
 OCCUPIED = 100
 UNKNOWN = -1
 
@@ -290,7 +291,7 @@ def _build_traversable_mask(grid: np.ndarray, resolution_m: float,
 
     if resolution_m <= 0.0:
         raise ValueError('map resolution must be positive')
-    # OccupancyGrid 是概率栅格；Cartographer 的已知自由区包含 1..25，
+    # OccupancyGrid 是概率栅格；Cartographer 的已知自由区包含 1..49，
     # 只接受精确 0 会让实时地图“没有前沿、没有路径”，而 map_saver 离线图正常。
     traversable = (grid >= FREE) & (grid <= FREE_MAX)
     radius_cells = max(0, int(math.ceil(float(inflation_radius_m) / resolution_m)))

@@ -55,10 +55,10 @@ def test_a_star_never_uses_unknown_cells_as_a_shortcut():
 
 
 def test_cartographer_probabilistic_free_cells_form_frontiers_and_paths():
-    """实时 Cartographer 自由边缘常为 1..25，不能只接受精确 0。"""
+    """实时 Cartographer 自由边缘可到 49，不能沿用静态地图 25 阈值。"""
 
     grid = np.full((7, 7), -1, dtype=np.int8)
-    grid[2:5, 1:6] = 20
+    grid[2:5, 1:6] = 49
     grid[3, 1:5] = 0
     message = _grid_message(grid)
 
@@ -70,7 +70,7 @@ def test_cartographer_probabilistic_free_cells_form_frontiers_and_paths():
 
     assert mask.any()
     assert path
-    assert all(0 <= grid[gy, gx] <= 25
+    assert all(0 <= grid[gy, gx] <= 49
                for gx, gy in _path_cells(path, message))
 
 

@@ -313,18 +313,17 @@ class DynamicDetectionRecorderNode(Node):
         if width <= 0 or height <= 0 or len(values) != width * height:
             return ''
 
-        # OccupancyGrid 原点在左下；PGM 首行在上方，因此按行反转。未知、自由、
-        # 占据采用 nav2/map_server 通用灰度，便于测试组直接查看。
+        # OccupancyGrid 原点在左下；PGM 首行在上方，因此按行反转。已知格保留
+        # 0..100 概率灰度，不能把 26..64 全部涂成纯白后掩盖实时栅格问题。
         pixels = bytearray()
         for row in range(height - 1, -1, -1):
             start = row * width
             for value in values[start:start + width]:
                 if value < 0:
                     pixels.append(205)
-                elif value >= 65:
-                    pixels.append(0)
                 else:
-                    pixels.append(254)
+                    probability = max(0, min(100, int(value)))
+                    pixels.append(int(round(254.0 - probability * 2.54)))
         pgm_path = self.output_dir / 'cartographer_map.pgm'
         pgm_path.write_bytes(
             f'P5\n{width} {height}\n255\n'.encode('ascii') + bytes(pixels)
@@ -335,7 +334,7 @@ class DynamicDetectionRecorderNode(Node):
         yaml_path.write_text(
             '\n'.join([
                 'image: cartographer_map.pgm',
-                'mode: trinary',
+                'mode: scale',
                 f'resolution: {float(info.resolution):.8f}',
                 'origin: [%.8f, %.8f, %.8f]' % (
                     float(origin.position.x),
@@ -361,6 +360,10 @@ class DynamicDetectionRecorderNode(Node):
                 yaw,
             ],
             'free_cells': sum(1 for value in values if value == 0),
+            'traversable_probability_cells': sum(
+                1 for value in values if 0 <= value <= 49
+            ),
+            'uncertain_cells': sum(1 for value in values if 50 <= value < 65),
             'occupied_cells': sum(1 for value in values if value >= 65),
             'unknown_cells': sum(1 for value in values if value < 0),
         })

@@ -39,6 +39,7 @@ from hazardwalker_nav.frontier_detector import (
     select_best_frontier,
     world_to_grid,
     OCCUPIED,
+    FREE_MAX,
 )
 from hazardwalker_nav.reobservation_contract import (
     action_has_scan_clearance,
@@ -270,7 +271,9 @@ class FrontierExplorerNode(Node):
         elapsed = time.monotonic() - self._state_entry_time
         if self.latest_map is not None and self.grid is not None:
             # 检查地图是否已有足够数据
-            free_cells = (self.grid == 0).sum()
+            free_cells = (
+                (self.grid >= 0) & (self.grid <= FREE_MAX)
+            ).sum()
             if free_cells > 100 or elapsed > 10.0:
                 # 记录初始位姿作为家
                 self.start_x = self.robot_x
