@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # ====================================================================
-# SimEnv + HazardWalker 一键启动脚本
+# [已弃用] SimEnv + HazardWalker 旧一键启动脚本
 #
-# 用法: ./scripts/start_simenv.sh         # 启动
-#       ./scripts/start_simenv.sh stop    # 停止
+# 本文件只保留 ``stop`` 用于清理历史运行；禁止再由它启动旧 hw_topic_relay。
+# 正式入口：仓库根目录 scripts/run_official_simenv_ros1_ros2_stack.sh
+# 用法: ./scripts/start_simenv.sh stop
 # ====================================================================
 set -eo pipefail
 
@@ -36,6 +37,14 @@ do_stop() {
 if [ "${1:-}" = "stop" ]; then
     do_stop
 fi
+
+# 旧流程会启动无控制门禁/看门狗的 hw_topic_relay，并与正式 rosbridge 适配器形成
+# 重复发布者。失败优先，避免成员沿用旧手册后污染 /tf、/map 或 /cmd_vel。
+err "此启动入口已弃用，未启动 Docker、旧 hw_topic_relay 或业务节点。"
+err "请在独占会话中从仓库根目录运行："
+err "  bash scripts/run_official_simenv_ros1_ros2_stack.sh"
+err "需要导航时再显式追加 start_navigation:=true，并按正式流程开启控制适配。"
+exit 2
 
 if [ ! -f "$SIMENV_DIR/auto_docker.sh" ]; then
     err "找不到 SimEnv: $SIMENV_DIR"

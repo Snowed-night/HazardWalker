@@ -1,0 +1,2 @@
+scenario,experiment,status,truth_used_at_runtime,effective_truth_displacement_m,effective_estimated_displacement_m,frontier_path_steps,mission_complete,notes
+2026071801,a1_deadzone_legal_odometry_frontier,partial_pass,False,1.006531,1.007834,570,False,控制死区和有效速度段通过；仅证明真实移动与阶段定位，未完成楼宇探索闭环。

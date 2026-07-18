@@ -69,6 +69,15 @@ def test_formal_evidence_contract_requires_fixed_seed_code_version_and_legal_sla
     assert eligible['contract_violations'] == []
     assert eligible['truth_inputs_used'] is False
 
+    multi_floor = build_perception_evidence_contract(
+        run_mode='official_random_scene',
+        scenario_seed='20260715_42',
+        code_version='59817d4',
+        legal_pose_topic='/hazardwalker/slam/odometry',
+        localization_provenance='lidar_imu_slam+public_floor_action',
+    )
+    assert multi_floor['formal_evidence_eligible'] is True
+
     rejected = build_perception_evidence_contract(
         run_mode='internal_regression',
         scenario_seed='',
@@ -98,5 +107,9 @@ def test_dynamic_recorder_module_has_direct_execution_entrypoint():
     assert "declare_parameter('run_mode', 'internal_regression')" in source
     assert "declare_parameter('depth_topic', '/hw/camera/depth_image')" in source
     assert "declare_parameter('detection_topic', '/hw/perception/hazard_detections')" in source
+    assert "declare_parameter('mission_state_topic', '/hw/mission/state')" in source
+    assert "'mission_completion_required': True" in source
+    assert 'self.mission_completed = True' in source
+    assert "'mission_completed': self.mission_completed" in source
     assert "'forbidden_pose_topic' in self.evidence_contract.get('contract_violations', [])" in source
     assert 'trajectory.jsonl' in source

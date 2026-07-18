@@ -14,7 +14,9 @@ services:
     network_mode: host
     working_dir: /home/ros/simenv_ws
     volumes:
-      - ${SIMENV_HOST_PATH:-./}:/home/ros/simenv_ws
+      # Compose 文件位于 docker/；默认必须挂载其父目录（完整 SimEnv 工作区），
+      # 否则容器虽显示 Running，实际入口脚本均不存在。
+      - ${SIMENV_HOST_PATH:-..}:/home/ros/simenv_ws
     environment:
       ROS_DISTRO: noetic
       DOCKER_SIMENV_USER: ${DOCKER_SIMENV_USER:-default}
@@ -37,12 +39,17 @@ services:
       START_VIRTUAL_JOY: ${START_VIRTUAL_JOY:-0}
       CONTROLLER_FOREGROUND: ${CONTROLLER_FOREGROUND:-0}
       UNITREE_CTRL_DT: ${UNITREE_CTRL_DT:-0.004}
+      # ROS1 dynamic_bridge 不是正式 Jazzy rosbridge-websocket 适配链，默认关闭。
+      START_ROS1_DYNAMIC_BRIDGE: ${START_ROS1_DYNAMIC_BRIDGE:-0}
     command: >
       bash -lc "
-        chmod +x /home/ros/simenv_ws/docker/ros1_bridge.sh
-        /home/ros/simenv_ws/docker/ros1_bridge.sh &
-        sleep 5
-        ./auto_noetic_headless.sh
-        tail -f /dev/null
+        test -x ./auto_noetic_headless.sh ||
+          { echo 'ERROR: missing executable ./auto_noetic_headless.sh'; exit 1; }
+        if [ \"$$START_ROS1_DYNAMIC_BRIDGE\" = 1 ]; then
+          test -x ./docker/ros1_bridge.sh ||
+            { echo 'ERROR: missing executable ./docker/ros1_bridge.sh'; exit 1; }
+          ./docker/ros1_bridge.sh &
+        fi
+        exec ./auto_noetic_headless.sh
       "
     restart: unless-stopped

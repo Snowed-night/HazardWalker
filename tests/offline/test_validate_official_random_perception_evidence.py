@@ -26,8 +26,12 @@ def _make_valid_evidence(root):
     _write_json(root / 'run_manifest.json', {
         'schema': 'hazardwalker_perception_official_evidence_v1',
         'evidence_contract': contract,
+        'mission_completion_required': True,
     })
-    _write_json(root / 'summary.json', {'evidence_contract': contract})
+    _write_json(root / 'summary.json', {
+        'evidence_contract': contract,
+        'mission_completed': True,
+    })
     _write_json(root / 'failure_reasons.json', {'observed_failure_reasons': []})
     (root / 'selected_images').mkdir()
     (root / 'selected_depth').mkdir()
@@ -91,3 +95,18 @@ def test_validator_requires_result_copy_inside_evidence_directory():
 
         assert report['structural_evidence_complete'] is False
         assert 'result_not_archived_in_evidence_dir' in report['errors']
+
+
+def test_validator_rejects_candidate_evidence_without_finished_mission():
+    """入口短跑即使有确认目标，也不能冒充完成探索与返航的正式证据。"""
+    with tempfile.TemporaryDirectory() as temporary:
+        root = Path(temporary)
+        result_path = _make_valid_evidence(root)
+        summary = json.loads((root / 'summary.json').read_text(encoding='utf-8'))
+        summary['mission_completed'] = False
+        _write_json(root / 'summary.json', summary)
+
+        report = validate(root, result_path)
+
+        assert report['structural_evidence_complete'] is False
+        assert 'mission_not_completed' in report['errors']

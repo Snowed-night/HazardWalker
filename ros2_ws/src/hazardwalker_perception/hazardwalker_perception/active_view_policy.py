@@ -11,6 +11,7 @@
 """
 
 from dataclasses import dataclass
+import math
 
 
 @dataclass(frozen=True)
@@ -65,10 +66,10 @@ def choose_active_view_action(detections, image_width, image_height, config=None
     if edge_action:
         return edge_action
 
-    if target['depth_shape_status'] == 'flat':
+    if target['depth_shape_status'] in ('flat', 'anisotropic', 'non_spherical'):
         return _lateral_action(
             target, image_width, 94,
-            '深度轮廓近似平面，疑似红色非球体；从侧面复查轮廓变化后再决定是否丢弃。',
+            '深度轮廓为平面或单轴曲面，疑似红色非球体；从侧面复查轮廓变化后再决定是否丢弃。',
         )
 
     if target['normalized_depth_curvature'] is not None and not (
@@ -123,6 +124,44 @@ def bbox_iou(a, b):
     area_a = float((a['x_max'] - a['x_min'] + 1) * (a['y_max'] - a['y_min'] + 1))
     area_b = float((b['x_max'] - b['x_min'] + 1) * (b['y_max'] - b['y_min'] + 1))
     return intersection / max(area_a + area_b - intersection, 1.0)
+
+
+def annotate_detections_with_tracks(detections, tracks, merge_distance_m):
+    """把当前二维候选关联到稳定三维轨迹，供主动复查使用稳定 target_id。
+
+    已拒绝非球体也参与关联，使同一圆柱不会在下一帧重新变成“新候选”。这里
+    只使用感知进程由合法 RGB-D/TF 建立的轨迹，不读取真值。
+    """
+
+    result = []
+    threshold = max(0.0, float(merge_distance_m))
+    for detection in detections:
+        item = dict(detection)
+        position = item.get('localized_position')
+        nearest = None
+        nearest_distance = None
+        if isinstance(position, (list, tuple)) and len(position) == 3:
+            for track in tracks:
+                distance = math.sqrt(sum(
+                    (float(position[index]) - float(track.position[index])) ** 2
+                    for index in range(3)
+                ))
+                if distance > threshold:
+                    continue
+                if nearest_distance is None or distance < nearest_distance:
+                    nearest = track
+                    nearest_distance = distance
+        if nearest is not None:
+            item['track_id'] = str(nearest.track_id)
+            item['track_status'] = str(nearest.status)
+            # 策略的 target_id 必须跨帧稳定，导航才能限制单目标复查预算。
+            item['id'] = str(nearest.track_id)
+        else:
+            item['track_id'] = ''
+            item['track_status'] = 'untracked'
+            item['id'] = 'untracked:%s' % item.get('id', '')
+        result.append(item)
+    return result
 
 
 def _normalize_detection(item, index):

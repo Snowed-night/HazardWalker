@@ -52,6 +52,7 @@ class HazardTrack:
     view_ids: list = field(default_factory=list)
     eligible_observation_count: int = 0
     eligible_view_ids: list = field(default_factory=list)
+    # 历史字段名保持兼容；除 flat 外也记录 anisotropic 等明确非球面视角。
     flat_view_ids: list = field(default_factory=list)
     # 记录有深度正证据的离散视角。仅 RGB 圆形或深度未知不能替代球面几何确认。
     spherical_view_ids: list = field(default_factory=list)
@@ -138,7 +139,12 @@ class HazardTracker:
     def _find_matching_track(self, observation, already_matched):
         best_track = None
         best_distance = None
-        for track in self.active_tracks():
+        # 明确非球体轨迹仍需参与空间关联。否则第二个反证视角刚把圆柱标为
+        # rejected_non_spherical，下一帧同一圆柱就会被创建成“全新候选”，
+        # 导致导航无限复查并可能在噪声下重新确认。普通 lost_track 才不再复用。
+        for track in self.tracks:
+            if track.status == 'rejected':
+                continue
             if track.track_id in already_matched:
                 continue
             distance = distance_m(track.position, observation.position)
@@ -167,7 +173,8 @@ class HazardTracker:
             ),
             flat_view_ids=(
                 [observation.view_id]
-                if observation.depth_shape_status == 'flat' and observation.view_id else []
+                if _is_non_spherical_depth_status(observation.depth_shape_status)
+                and observation.view_id else []
             ),
             spherical_view_ids=(
                 [observation.view_id]
@@ -410,7 +417,8 @@ def _merge_observation_into_track(track, observation):
         track.eligible_observation_count += 1
         if observation.view_id and observation.view_id not in track.eligible_view_ids:
             track.eligible_view_ids.append(observation.view_id)
-    if (observation.depth_shape_status == 'flat' and observation.view_id
+    if (_is_non_spherical_depth_status(observation.depth_shape_status)
+            and observation.view_id
             and observation.view_id not in track.flat_view_ids):
         track.flat_view_ids.append(observation.view_id)
     if (observation.confirmation_eligible
@@ -462,6 +470,12 @@ def _valid_aspect_ratio(value):
 
 def _valid_bearing(value):
     return value is not None and math.isfinite(float(value))
+
+
+def _is_non_spherical_depth_status(status):
+    """统一识别明确的 RGB-D 反证；unknown 仍留给后续主动复查。"""
+
+    return str(status).strip().lower() in ('flat', 'anisotropic', 'non_spherical')
 
 
 def _matches_expected_diameter(measured_m, expected_m, max_relative_error):

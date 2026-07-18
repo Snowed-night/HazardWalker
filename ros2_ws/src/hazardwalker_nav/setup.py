@@ -22,7 +22,7 @@ setup(
         (f'share/{package_name}/launch',
          glob.glob('launch/*.launch.py')),
         (f'share/{package_name}/config',
-         glob.glob('config/*.yaml')),
+         glob.glob('config/*.yaml') + glob.glob('config/*.lua')),
     ],
     install_requires=['setuptools'],
     zip_safe=True,

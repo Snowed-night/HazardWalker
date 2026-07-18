@@ -25,6 +25,7 @@ exec python3 "$REPO_ROOT/scripts/official_simenv_ros1_perception_node.py" \
   _output_path:="$SIMENV_ROOT/results/detected_danger.json" \
   _localization_frame:=start \
   _world_frame:=world \
+  _camera_axis_convention:=gazebo_link_x_forward \
   _public_start_world_x:=0.0 \
   _public_start_world_y:=-2.2 \
   _public_start_world_z:=0.6 \

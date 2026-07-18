@@ -68,6 +68,9 @@ class OfficialRos1EvidenceRecorder(object):
         self.trajectory_sample_count = 0
         self.last_pose_save_sec = float('-inf')
         self.last_image_save_sec = float('-inf')
+        self.context_image_count = 0
+        self.mission_completed = False
+        self.mission_finished_stamp_sec = None
         self.closed = False
 
         # 只订阅调用方明示的合法 SLAM 位姿；禁用真值/桥接里程计时 fail closed。
@@ -81,6 +84,10 @@ class OfficialRos1EvidenceRecorder(object):
         rospy.Subscriber(rospy.get_param('~image_topic'), Image, self._on_image, queue_size=10)
         rospy.Subscriber(rospy.get_param('~depth_topic'), Image, self._on_depth, queue_size=10)
         rospy.Subscriber(rospy.get_param('~detection_topic'), String, self._on_detection, queue_size=20)
+        rospy.Subscriber(
+            rospy.get_param('~mission_state_topic'), String,
+            self._on_mission_state, queue_size=10,
+        )
         rospy.on_shutdown(self.close)
         rospy.loginfo('Official ROS1 evidence recorder writes to %s', self.output_dir)
 
@@ -101,9 +108,15 @@ class OfficialRos1EvidenceRecorder(object):
             '~image_topic': '/real_sense/rgb/image_raw',
             '~depth_topic': '/real_sense/depth/image_raw',
             '~detection_topic': '/hazardwalker/perception/hazard_detections',
+            '~mission_state_topic': '/hazardwalker/mission/state',
             '~save_images': True,
             '~save_depth_evidence': True,
             '~min_image_save_interval_sec': 0.5,
+            # 正式随机楼宇即使暂时无候选，也需低频保留真实环境覆盖帧；
+            # 默认每 10 秒一帧且最多 80 帧，避免 600 秒任务无限占用磁盘。
+            '~save_context_frames': True,
+            '~context_image_save_interval_sec': 10.0,
+            '~max_context_images': 80,
             '~max_rgb_depth_evidence_delta_sec': 0.15,
             '~trajectory_sample_interval_sec': 0.5,
         }
@@ -120,7 +133,9 @@ class OfficialRos1EvidenceRecorder(object):
                 'depth': str(rospy.get_param('~depth_topic')),
                 'detections': str(rospy.get_param('~detection_topic')),
                 'legal_pose': str(rospy.get_param('~legal_pose_topic')),
+                'mission_state': str(rospy.get_param('~mission_state_topic')),
             },
+            'mission_completion_required': True,
             'launch_command': str(rospy.get_param('~launch_command')),
             'started_at_unix_sec': round(time.time(), 3),
         })
@@ -173,7 +188,7 @@ class OfficialRos1EvidenceRecorder(object):
         height = int(self.latest_image.shape[0]) if self.latest_image is not None else 0
         width = int(self.latest_image.shape[1]) if self.latest_image is not None else 0
         recommendation = choose_active_view_action(detections, width, height).to_dict()
-        stamp_sec = _payload_stamp(detections, time.time())
+        stamp_sec = _payload_stamp(payload, detections, time.time())
         image_path, depth_path = self._save_evidence(stamp_sec, detections, hazards, recommendation)
         record = {
             'timestamp_sec': stamp_sec,
@@ -191,16 +206,33 @@ class OfficialRos1EvidenceRecorder(object):
         self.records.append(record)
         _append_json_line(self.output_dir / 'frames.jsonl', record)
 
+    def _on_mission_state(self, message):
+        """只有导航/任务层真实发布 FINISHED 才记录完整场景完成。"""
+        if str(message.data).strip().upper() == 'FINISHED':
+            self.mission_completed = True
+            self.mission_finished_stamp_sec = round(time.time(), 3)
+
     def _save_evidence(self, stamp_sec, detections, hazards, recommendation):
         """保存候选/确认帧，并拒绝未时间配对的深度作为正式证据。"""
         confirmed = any(item.get('status') == 'confirmed' for item in hazards)
-        if not detections and not confirmed:
-            return '', ''
+        event_frame = bool(detections) or confirmed
+        if not event_frame:
+            if not rospy.get_param('~save_context_frames'):
+                return '', ''
+            if self.context_image_count >= int(rospy.get_param('~max_context_images')):
+                return '', ''
         if not rospy.get_param('~save_images') or self.latest_image is None:
             return '', ''
-        if stamp_sec - self.last_image_save_sec < float(rospy.get_param('~min_image_save_interval_sec')):
+        interval_parameter = (
+            '~min_image_save_interval_sec'
+            if event_frame else '~context_image_save_interval_sec'
+        )
+        if stamp_sec - self.last_image_save_sec < float(rospy.get_param(interval_parameter)):
             return '', ''
-        filename = 'frame_%06d_%.3f.png' % (len(self.records) + 1, stamp_sec)
+        prefix = 'event' if event_frame else 'context'
+        filename = '%s_%06d_%.3f.png' % (
+            prefix, len(self.records) + 1, stamp_sec,
+        )
         annotated = self.latest_image.copy()
         for detection in detections:
             bbox = detection.get('bbox', {})
@@ -216,6 +248,11 @@ class OfficialRos1EvidenceRecorder(object):
                         cv2.FONT_HERSHEY_SIMPLEX, 0.45, color, 1)
         cv2.putText(annotated, 'view: ' + str(recommendation.get('action', 'unknown')),
                     (12, 24), cv2.FONT_HERSHEY_SIMPLEX, 0.65, (0, 255, 255), 2)
+        if not event_frame:
+            cv2.putText(
+                annotated, 'official random scene context (no candidate)',
+                (12, 50), cv2.FONT_HERSHEY_SIMPLEX, 0.52, (255, 255, 0), 1,
+            )
         image_path = self.image_dir / filename
         cv2.imwrite(str(image_path), annotated)
         depth_relative = ''
@@ -226,6 +263,8 @@ class OfficialRos1EvidenceRecorder(object):
             np.save(str(depth_path), self.latest_depth)
             depth_relative = str(depth_path.relative_to(self.output_dir).as_posix())
         self.last_image_save_sec = stamp_sec
+        if not event_frame:
+            self.context_image_count += 1
         return str(image_path.relative_to(self.output_dir).as_posix()), depth_relative
 
     def close(self):
@@ -235,7 +274,9 @@ class OfficialRos1EvidenceRecorder(object):
         self.closed = True
         summary = build_dynamic_summary(self.records)
         failure_reasons = _failure_reasons(
-            self.records, self.trajectory_sample_count, self.evidence_contract)
+            self.records, self.trajectory_sample_count, self.evidence_contract,
+            self.mission_completed,
+        )
         result_path = Path(str(rospy.get_param('~result_json_path')).strip()).expanduser()
         if str(result_path) and result_path.is_file():
             shutil.copy2(str(result_path), str(self.output_dir / 'detected_danger.json'))
@@ -254,6 +295,8 @@ class OfficialRos1EvidenceRecorder(object):
             'trajectory_sample_count': self.trajectory_sample_count,
             'run_manifest_file': 'run_manifest.json',
             'failure_reasons_file': 'failure_reasons.json',
+            'mission_completed': self.mission_completed,
+            'mission_finished_stamp_sec': self.mission_finished_stamp_sec,
             'evidence_contract': self.evidence_contract,
         })
         _write_json(self.output_dir / 'summary.json', summary)
@@ -304,7 +347,12 @@ def _stamp_to_sec(stamp):
     return float(stamp.secs) + float(stamp.nsecs) * 1e-9
 
 
-def _payload_stamp(detections, fallback):
+def _payload_stamp(payload, detections, fallback):
+    if isinstance(payload, dict) and 'stamp_sec' in payload:
+        try:
+            return float(payload['stamp_sec'])
+        except (TypeError, ValueError):
+            pass
     if not detections:
         return float(fallback)
     first = detections[0]
@@ -316,7 +364,7 @@ def _payload_stamp(detections, fallback):
     return float(fallback)
 
 
-def _failure_reasons(records, trajectory_count, contract):
+def _failure_reasons(records, trajectory_count, contract, mission_completed):
     reasons = []
     if not records:
         reasons.append('no_detection_messages_recorded')
@@ -324,6 +372,8 @@ def _failure_reasons(records, trajectory_count, contract):
         reasons.append('no_legal_slam_pose_samples_recorded')
     if not contract.get('formal_evidence_eligible', False):
         reasons.extend(contract.get('contract_violations', []))
+    if not mission_completed:
+        reasons.append('mission_not_completed')
     if records and not any(item.get('status') == 'confirmed'
                            for record in records for item in record.get('hazards', [])):
         reasons.append('no_confirmed_red_ball_recorded')

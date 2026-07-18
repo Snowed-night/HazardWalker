@@ -1,0 +1,19 @@
+{
+  "scenario": "2026071801",
+  "experiment": "official_business_launch_cartographer",
+  "status": "pass",
+  "ros_domain_id": 43,
+  "truth_used_at_runtime": false,
+  "required_nodes_present": true,
+  "map_publisher_count": 1,
+  "map_saved": true,
+  "map_width_cells": 611,
+  "map_height_cells": 714,
+  "map_resolution_m": 0.05,
+  "navigation_started": false,
+  "mission_complete": false,
+  "limitations": [
+    "本轮是正式入口与建图链路验收，不是长时自主探索。",
+    "未评估多层回环和整图定位误差。"
+  ]
+}

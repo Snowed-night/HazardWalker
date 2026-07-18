@@ -14,6 +14,7 @@ from collections import Counter
 
 _ALLOWED_LOCALIZATION_PROVENANCE = {
     'lidar_imu_slam',
+    'lidar_imu_slam+public_floor_action',
     'visual_inertial_slam',
 }
 _FORBIDDEN_POSE_TOPIC_PARTS = (

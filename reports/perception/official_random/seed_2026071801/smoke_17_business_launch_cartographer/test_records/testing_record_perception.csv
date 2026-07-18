@@ -1,0 +1,2 @@
+scenario,experiment,status,truth_used_at_runtime,map_publisher_count,map_width_cells,map_height_cells,map_resolution_m,mission_complete,notes
+2026071801,official_business_launch_cartographer,pass,False,1,611,714,0.05,False,正式业务入口建图和地图落盘通过；未启动导航且不宣称任务闭环。

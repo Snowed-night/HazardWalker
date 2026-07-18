@@ -1,0 +1,12 @@
+{
+  "scenario": "2026071801",
+  "experiment": "official_business_launch_cartographer",
+  "status": "pass",
+  "truth_used_at_runtime": false,
+  "map_publisher_count": 1,
+  "map_width_cells": 611,
+  "map_height_cells": 714,
+  "map_resolution_m": 0.05,
+  "mission_complete": false,
+  "notes": "正式业务入口建图和地图落盘通过；未启动导航且不宣称任务闭环。"
+}

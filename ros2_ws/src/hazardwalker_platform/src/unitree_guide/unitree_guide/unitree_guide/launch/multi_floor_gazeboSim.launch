@@ -10,6 +10,9 @@
     <arg name="headless" default="false"/>
     <arg name="debug" default="false"/>
     <arg name="user_debug" default="false"/>
+    <!-- 当前官方 /scan 是 sensor_msgs/LaserScan；旧转换脚本按 PointCloud 订阅
+         同名话题会触发类型冲突并使 Gazebo 退出。仅旧版 PointCloud 环境显式开启。 -->
+    <arg name="enable_legacy_pointcloud2livox" default="false"/>
 
     <arg name="world_file" default="$(optenv BUILDING_WORLD_FILE)"/>
     <arg name="robot_x" default="$(optenv COMPETITION_ROBOT_X 0.0)"/>
@@ -62,7 +65,9 @@
         <arg name="rname" value="$(arg rname)"/>
     </include>
 
-    <node pkg="unitree_guide" type="pointcloud2livox.py" name="pointcloud2livox" output="screen">
+    <node if="$(arg enable_legacy_pointcloud2livox)"
+          pkg="unitree_guide" type="pointcloud2livox.py"
+          name="pointcloud2livox" output="screen">
         <param name="laser_blind" value="0.5" />
         <param name="min_angle" value="-7"/>
         <param name="max_angle" value="55"/>

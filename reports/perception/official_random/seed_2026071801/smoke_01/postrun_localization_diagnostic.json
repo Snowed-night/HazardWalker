@@ -1,0 +1,29 @@
+{
+  "schema": "hazardwalker_postrun_localization_diagnostic_v1",
+  "official_score_eligible": false,
+  "runtime_truth_input_used": false,
+  "truth_read_after_runtime_for_independent_diagnostic": true,
+  "public_start_world_position": [
+    0.0,
+    -2.2,
+    0.6
+  ],
+  "algorithm_relative_position_at_end": [
+    0.35,
+    0.4,
+    0.0
+  ],
+  "postrun_gazebo_world_position_at_end": [
+    -0.058374727431169615,
+    -2.402643699538852,
+    0.3525346506025565
+  ],
+  "postrun_truth_relative_position_at_end": [
+    -0.058374727431169615,
+    -0.2026436995388523,
+    -0.2474653493974435
+  ],
+  "planar_error_m": 0.727976199197719,
+  "three_dimensional_error_m": 0.768887797894306,
+  "interpretation": "这是运行结束后的独立诊断，不是算法输入；烟测未完成楼宇探索，不构成官方成绩。"
+}

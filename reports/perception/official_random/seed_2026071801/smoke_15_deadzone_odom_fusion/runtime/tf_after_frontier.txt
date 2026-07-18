@@ -1,0 +1,52 @@
+[INFO] [1784383944.311853720] [tf2_echo]: Waiting for transform map ->  base: Invalid frame ID "map" passed to canTransform argument target_frame - frame does not exist
+At time 446.162000000
+- Translation: [0.999, 0.090, 0.000]
+- Rotation: in Quaternion (xyzw) [0.000, 0.000, 0.130, 0.992]
+- Rotation: in RPY (radian) [0.000, -0.000, 0.261]
+- Rotation: in RPY (degree) [0.000, -0.000, 14.951]
+- Matrix:
+  0.966 -0.258  0.000  0.999
+  0.258  0.966  0.000  0.090
+  0.000  0.000  1.000  0.000
+  0.000  0.000  0.000  1.000
+At time 446.335000000
+- Translation: [0.999, 0.090, 0.000]
+- Rotation: in Quaternion (xyzw) [0.000, 0.000, 0.130, 0.992]
+- Rotation: in RPY (radian) [0.000, -0.000, 0.261]
+- Rotation: in RPY (degree) [0.000, -0.000, 14.951]
+- Matrix:
+  0.966 -0.258  0.000  0.999
+  0.258  0.966  0.000  0.090
+  0.000  0.000  1.000  0.000
+  0.000  0.000  0.000  1.000
+At time 446.513000000
+- Translation: [0.999, 0.090, 0.000]
+- Rotation: in Quaternion (xyzw) [0.000, 0.000, 0.130, 0.992]
+- Rotation: in RPY (radian) [0.000, -0.000, 0.261]
+- Rotation: in RPY (degree) [0.000, -0.000, 14.950]
+- Matrix:
+  0.966 -0.258  0.000  0.999
+  0.258  0.966  0.000  0.090
+  0.000  0.000  1.000  0.000
+  0.000  0.000  0.000  1.000
+At time 446.695000000
+- Translation: [0.999, 0.090, 0.000]
+- Rotation: in Quaternion (xyzw) [0.000, 0.000, 0.130, 0.991]
+- Rotation: in RPY (radian) [0.000, -0.000, 0.261]
+- Rotation: in RPY (degree) [0.000, -0.000, 14.955]
+- Matrix:
+  0.966 -0.258  0.000  0.999
+  0.258  0.966  0.000  0.090
+  0.000  0.000  1.000  0.000
+  0.000  0.000  0.000  1.000
+At time 446.882000000
+- Translation: [0.999, 0.089, 0.000]
+- Rotation: in Quaternion (xyzw) [0.000, 0.000, 0.130, 0.992]
+- Rotation: in RPY (radian) [0.000, -0.000, 0.261]
+- Rotation: in RPY (degree) [0.000, -0.000, 14.950]
+- Matrix:
+  0.966 -0.258  0.000  0.999
+  0.258  0.966  0.000  0.089
+  0.000  0.000  1.000  0.000
+  0.000  0.000  0.000  1.000
+[INFO] [1784383950.168992969] [rclcpp]: signal_handler(SIGINT/SIGTERM)

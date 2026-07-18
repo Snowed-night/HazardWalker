@@ -1,0 +1,2 @@
+data: '{"adapter": "rosbridge_ros2", "dropped_inconsistent_tf": 0, "dropped_invalid_image_frames": {}, "enable_cmd_vel_relay": true, "e...'
+---

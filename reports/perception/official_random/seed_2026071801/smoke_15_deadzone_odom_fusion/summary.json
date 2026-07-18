@@ -1,0 +1,32 @@
+{
+  "scenario": "2026071801",
+  "experiment": "a1_deadzone_legal_odometry_frontier",
+  "status": "partial_pass",
+  "public_runtime_inputs": [
+    "/hw/scan",
+    "/hw/trunk_imu",
+    "/hw/cmd_vel",
+    "/clock"
+  ],
+  "truth_used_at_runtime": false,
+  "postrun_truth_diagnostics": {
+    "below_deadzone_truth_displacement_m": 0.005765,
+    "below_deadzone_estimated_displacement_m": 0.003162,
+    "effective_truth_displacement_m": 1.006531,
+    "effective_estimated_displacement_m": 1.007834,
+    "effective_truth_yaw_change_deg": 7.265,
+    "effective_estimated_yaw_change_deg": 6.768
+  },
+  "frontier": {
+    "goal_x_m": 2.99,
+    "goal_y_m": 28.74,
+    "path_grid_steps": 570,
+    "real_motion_observed": true,
+    "mission_complete": false
+  },
+  "limitations": [
+    "多轮参数试验没有形成单一连续定位误差基线。",
+    "未完成未知多层楼宇全覆盖。",
+    "外部停止保留了旧版清理异常日志。"
+  ]
+}

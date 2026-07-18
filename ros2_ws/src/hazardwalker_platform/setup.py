@@ -56,8 +56,6 @@ setup(
     entry_points={
         'console_scripts': [
             'fake_platform_node = hazardwalker_platform.fake_platform_node:main',
-            # 官方平台 ROS1 Docker → /hw/* 话题中继
-            'hw_topic_relay_node = hazardwalker_platform.hw_topic_relay_node:main',
         ],
     },
 )

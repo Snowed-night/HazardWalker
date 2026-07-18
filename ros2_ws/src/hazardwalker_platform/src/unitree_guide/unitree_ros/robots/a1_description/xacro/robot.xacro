@@ -24,7 +24,7 @@
             <parent link="world"/>
             <child link="base"/>
         </joint>
-    </xacro:if> 
+    </xacro:if>
 
     <link name="base">
         <visual>
@@ -61,7 +61,7 @@
             <inertia
                 ixx="${trunk_ixx}" ixy="${trunk_ixy}" ixz="${trunk_ixz}"
                 iyy="${trunk_iyy}" iyz="${trunk_iyz}"
-                izz="${trunk_izz}"/>  
+                izz="${trunk_izz}"/>
         </inertial>
     </link>
 
@@ -91,10 +91,10 @@
                 <inertia
                     ixx="${stick_mass / 2.0 * (stick_radius*stick_radius)}" ixy="0.0" ixz="0.0"
                     iyy="${stick_mass / 12.0 * (3*stick_radius*stick_radius + stick_length*stick_length)}" iyz="0.0"
-                    izz="${stick_mass / 12.0 * (3*stick_radius*stick_radius + stick_length*stick_length)}"/>                   
+                    izz="${stick_mass / 12.0 * (3*stick_radius*stick_radius + stick_length*stick_length)}"/>
             </inertial>
         </link>
-    </xacro:if> 
+    </xacro:if>
 
     <joint name="imu_joint" type="fixed">
         <parent link="trunk"/>
@@ -127,7 +127,7 @@
     <!-- 对于本体 -->
     <link name="laser_livox">
             <collision>
-            <origin xyz="0 0 0" rpy="0 0 0"/>  
+            <origin xyz="0 0 0" rpy="0 0 0"/>
             <geometry>
                     <mesh filename="package://a1_description/meshes/livox_mid360.dae"/>
             </geometry>
@@ -145,6 +145,15 @@
         <origin xyz="0.2 0 0.08" rpy="0 0.785 0" />
         <parent link="base" />
         <child link="laser_livox"/>
+    </joint>
+
+    <!-- Gazebo ray 经 -45° 补偿后实际是水平扫描；用独立水平帧表达这一
+         几何关系，避免 LaserScan 数据挂在上仰的 laser_livox 帧上污染 SLAM。 -->
+    <link name="laser_scan"/>
+    <joint name="laser_scan_joint" type="fixed">
+        <origin xyz="0.2 0 0.08" rpy="0 0 0"/>
+        <parent link="base"/>
+        <child link="laser_scan"/>
     </joint>
 
     <!-- livox mid360-imu -->

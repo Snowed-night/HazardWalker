@@ -1,0 +1,11 @@
+{
+  "scenario": "2026071801",
+  "experiment": "a1_deadzone_legal_odometry_frontier",
+  "status": "partial_pass",
+  "truth_used_at_runtime": false,
+  "effective_truth_displacement_m": 1.006531,
+  "effective_estimated_displacement_m": 1.007834,
+  "frontier_path_steps": 570,
+  "mission_complete": false,
+  "notes": "控制死区和有效速度段通过；仅证明真实移动与阶段定位，未完成楼宇探索闭环。"
+}

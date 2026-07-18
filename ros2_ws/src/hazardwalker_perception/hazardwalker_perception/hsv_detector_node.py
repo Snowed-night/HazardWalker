@@ -21,6 +21,10 @@ from sensor_msgs.msg import CameraInfo, Image
 from std_msgs.msg import String
 from tf2_ros import Buffer, TransformException, TransformListener
 
+from hazardwalker_perception.active_view_policy import (
+    annotate_detections_with_tracks,
+    choose_active_view_action,
+)
 from hazardwalker_perception.localize_hazard import (
     Point3D,
     RigidTransform3D,
@@ -57,9 +61,10 @@ class HsvDetectorNode(Node):
         # 官方标准红球为半径 0.15 m；该先验只在严格球形候选的定位阶段使用。
         self.declare_parameter('sphere_radius_m', 0.15)
         self.declare_parameter('use_sphere_projection_geometry', True)
-        # PoseInfo/相机帧来自不同桥接线程时可能只有数毫秒滞后；允许使用最新 TF
-        # 能避免“未来外推”导致整帧定位被丢弃。高速运动平台可显式关闭该兜底。
+        # RGB 与 TF 来自不同桥接线程时可能有数十毫秒到达差。允许最新 TF 兜底，
+        # 但必须限制时间差，不能把任意旧位姿用于运动中的三维定位。
         self.declare_parameter('allow_latest_tf_fallback', True)
+        self.declare_parameter('max_latest_tf_fallback_delta_sec', 0.10)
         # 在官方比赛模式下，绝不能把 Gazebo 的 /Odometry_gazebo 或 ground_truth TF
         # 伪装成世界定位。默认只使用由导航组合法 SLAM 发布的 map；在该 TF 未就绪前
         # 仍发布相机候选和深度距离，但不输出可提交的 world 坐标。
@@ -100,6 +105,9 @@ class HsvDetectorNode(Node):
         # 深度曲率仅否决“明确平面”的候选；缺深度/遮挡一律进入重观察而非直接漏检。
         self.declare_parameter('min_sphere_depth_curvature_m', 0.008)
         self.declare_parameter('min_sphere_depth_shape_points', 8)
+        # 球面横纵两个方向都应有凸曲率；单轴弯曲通常来自圆柱侧面或弧形板。
+        self.declare_parameter('min_sphere_axis_depth_points', 4)
+        self.declare_parameter('min_sphere_axis_curvature_ratio', 0.35)
         # RGB 与独立深度 WebSocket 可能跨帧到达；不同时间的深度不能用于球形判别或定位，
         # 否则会把运动中的红球错误记为平面/错误世界坐标。
         self.declare_parameter('max_rgb_depth_sync_delta_sec', 0.15)
@@ -119,6 +127,9 @@ class HsvDetectorNode(Node):
         self._last_camera_pose_signature = None
         self._stable_view_frame_count = 0
         self._stable_view_id = ''
+        self._last_depth_synchronized = False
+        self._last_tf_synchronized = False
+        self._last_tf_stamp_delta_sec = None
         # 官方 RGB-D 对接首帧常暴露 DDS、编码或 TF 时序问题；仅记录前两帧的关键阶段，
         # 既便于集成验收定位，又避免运行期逐帧刷屏。
         self._image_callback_count = 0
@@ -206,6 +217,16 @@ class HsvDetectorNode(Node):
             partial_min_value=int(self.get_parameter('partial_min_value').value),
         )
         stamp_sec = _stamp_to_float(msg.header.stamp)
+        depth_stamp_delta_sec = _stamp_delta_sec(
+            msg.header.stamp, self.latest_depth_stamp)
+        depth_synchronized = (
+            self.latest_depth_image is not None
+            and depth_stamp_delta_sec is not None
+            and depth_stamp_delta_sec <= float(
+                self.get_parameter('max_rgb_depth_sync_delta_sec').value
+            )
+        )
+        self._last_depth_synchronized = depth_synchronized
         output_frame = str(self.get_parameter('output_frame').value)
         camera_to_output = self._lookup_camera_to_output(msg.header.frame_id, output_frame, msg.header.stamp)
         if self._image_callback_count <= 2:
@@ -224,6 +245,9 @@ class HsvDetectorNode(Node):
                 hazards=self._tracks_to_hazards(active_tracks, output_frame),
                 detections_2d=[],
                 camera_stable=camera_stable,
+                image_width=msg.width,
+                image_height=msg.height,
+                stamp_sec=stamp_sec,
             )
             return
 
@@ -239,14 +263,6 @@ class HsvDetectorNode(Node):
             }
             localization = None
             depth_shape = None
-            depth_stamp_delta_sec = _stamp_delta_sec(msg.header.stamp, self.latest_depth_stamp)
-            depth_synchronized = (
-                self.latest_depth_image is not None
-                and depth_stamp_delta_sec is not None
-                and depth_stamp_delta_sec <= float(
-                    self.get_parameter('max_rgb_depth_sync_delta_sec').value
-                )
-            )
             if depth_synchronized:
                 depth_shape = evaluate_sphere_depth_shape(
                     depth_image=self.latest_depth_image,
@@ -254,13 +270,20 @@ class HsvDetectorNode(Node):
                     max_depth_m=float(self.get_parameter('max_detection_range_m').value),
                     min_points_per_region=int(self.get_parameter('min_sphere_depth_shape_points').value),
                     min_curvature_m=float(self.get_parameter('min_sphere_depth_curvature_m').value),
+                    min_axis_points=int(
+                        self.get_parameter('min_sphere_axis_depth_points').value
+                    ),
+                    min_axis_curvature_ratio=float(
+                        self.get_parameter('min_sphere_axis_curvature_ratio').value
+                    ),
                 )
             depth_shape_status = depth_shape.status if depth_shape else 'unknown'
             # 圆柱端面、立方体/平板等在单帧可能都有近圆形红色投影。只有深度明确
             # 显示平面或轮廓明显非圆时才抑制正证据；unknown 保留给多视角策略。
             # 非圆视角仍进入轨迹用于复查，但不能污染后续完整球视角的尺寸/圆度统计。
             confirmation_eligible = (
-                not detection_2d.requires_reobservation and depth_shape_status != 'flat'
+                not detection_2d.requires_reobservation
+                and depth_shape_status not in ('flat', 'anisotropic', 'non_spherical')
                 and detection_2d.aspect_ratio >= float(
                     self.get_parameter('min_multiview_aspect_ratio').value
                 )
@@ -318,19 +341,53 @@ class HsvDetectorNode(Node):
                     'center_depth_m': depth_shape.center_depth_m if depth_shape else None,
                     'outer_depth_m': depth_shape.outer_depth_m if depth_shape else None,
                     'curvature_m': depth_shape.curvature_m if depth_shape else None,
+                    'horizontal_curvature_m': (
+                        depth_shape.horizontal_curvature_m if depth_shape else None
+                    ),
+                    'vertical_curvature_m': (
+                        depth_shape.vertical_curvature_m if depth_shape else None
+                    ),
+                    'diagonal_positive_curvature_m': (
+                        depth_shape.diagonal_positive_curvature_m if depth_shape else None
+                    ),
+                    'diagonal_negative_curvature_m': (
+                        depth_shape.diagonal_negative_curvature_m if depth_shape else None
+                    ),
+                    'curvature_isotropy_ratio': (
+                        depth_shape.curvature_isotropy_ratio if depth_shape else None
+                    ),
                     'center_points': depth_shape.center_points if depth_shape else 0,
                     'outer_points': depth_shape.outer_points if depth_shape else 0,
+                    'horizontal_points': depth_shape.horizontal_points if depth_shape else 0,
+                    'vertical_points': depth_shape.vertical_points if depth_shape else 0,
+                    'diagonal_positive_points': (
+                        depth_shape.diagonal_positive_points if depth_shape else 0
+                    ),
+                    'diagonal_negative_points': (
+                        depth_shape.diagonal_negative_points if depth_shape else 0
+                    ),
                 },
                 'depth_synchronized': depth_synchronized,
                 'depth_stamp_delta_sec': depth_stamp_delta_sec,
+                'tf_synchronized': self._last_tf_synchronized,
+                'tf_stamp_delta_sec': self._last_tf_stamp_delta_sec,
                 'confirmation_eligible': confirmation_eligible,
                 'apparent_diameter_m': apparent_diameter_m,
                 'view_bearing_deg': (
                     math.degrees(view_bearing_rad) if view_bearing_rad is not None else None
                 ),
                 'localization_status': (
-                    'suppressed_flat_depth_shape' if depth_shape_status == 'flat'
+                    'suppressed_non_spherical_depth_shape'
+                    if depth_shape_status in ('flat', 'anisotropic', 'non_spherical')
                     else 'localized' if localization else 'unlocalized'
+                ),
+                'localized_position': (
+                    [
+                        round(localization.position.x, 4),
+                        round(localization.position.y, 4),
+                        round(localization.position.z, 4),
+                    ]
+                    if localization else None
                 ),
                 'source': 'hsv_minimal',
                 'detector_backend': self.detector_backend.name,
@@ -365,10 +422,18 @@ class HsvDetectorNode(Node):
             self.tracker.update(observations, stamp_sec=stamp_sec)
             if camera_stable else self.tracker.active_tracks()
         )
+        annotated_detections = annotate_detections_with_tracks(
+            detections_2d_payload,
+            self.tracker.tracks,
+            merge_distance_m=float(self.get_parameter('merge_distance_m').value),
+        )
         self._publish_detection_payload(
             hazards=self._tracks_to_hazards(active_tracks, output_frame),
-            detections_2d=detections_2d_payload,
+            detections_2d=annotated_detections,
             camera_stable=camera_stable,
+            image_width=msg.width,
+            image_height=msg.height,
+            stamp_sec=stamp_sec,
         )
 
     def _tracks_to_hazards(self, tracks, output_frame):
@@ -384,12 +449,43 @@ class HsvDetectorNode(Node):
             hazards.append(item)
         return hazards
 
-    def _publish_detection_payload(self, hazards, detections_2d, camera_stable=False):
+    def _publish_detection_payload(
+            self, hazards, detections_2d, camera_stable=False,
+            image_width=0, image_height=0, stamp_sec=None):
+        # 已确认或已由多视角拒绝的轨迹不再请求机动。其余当前帧候选由感知侧
+        # 统一计算明确动作，导航只执行契约，避免两组各自重写一套判据。
+        recommendation_candidates = [
+            item for item in detections_2d
+            if item.get('track_status') not in (
+                'confirmed', 'rejected', 'rejected_non_spherical',
+            )
+        ]
+        recommendation = choose_active_view_action(
+            recommendation_candidates,
+            image_width=int(image_width),
+            image_height=int(image_height),
+        ).to_dict()
+        localization_provenance = str(
+            self.get_parameter('localization_provenance').value).strip()
+        localization_ready = (
+            self.camera_intrinsics is not None
+            and self._last_depth_synchronized
+            and self._last_tf_synchronized
+            and localization_provenance not in ('', 'unverified')
+        )
         out = String()
         out.data = json.dumps({
             'hazards': hazards,
             'detections_2d': detections_2d,
-            'localization_ready': self.camera_intrinsics is not None and self.latest_depth_image is not None,
+            'view_recommendation': recommendation,
+            'image_width': int(image_width),
+            'image_height': int(image_height),
+            'stamp_sec': float(stamp_sec) if stamp_sec is not None else time.time(),
+            'localization_ready': localization_ready,
+            'depth_synchronized': self._last_depth_synchronized,
+            'tf_synchronized': self._last_tf_synchronized,
+            'tf_stamp_delta_sec': self._last_tf_stamp_delta_sec,
+            'localization_provenance': localization_provenance,
             'camera_stable': bool(camera_stable),
             'stable_view_frame_count': self._stable_view_frame_count,
         }, ensure_ascii=False)
@@ -428,9 +524,13 @@ class HsvDetectorNode(Node):
         return stable
 
     def _lookup_camera_to_output(self, camera_frame, output_frame, stamp):
+        self._last_tf_synchronized = False
+        self._last_tf_stamp_delta_sec = None
         if not camera_frame:
             return None
         if camera_frame == output_frame:
+            self._last_tf_synchronized = True
+            self._last_tf_stamp_delta_sec = 0.0
             return RigidTransform3D(
                 translation=Point3D(0.0, 0.0, 0.0),
                 rotation=((1.0, 0.0, 0.0), (0.0, 1.0, 0.0), (0.0, 0.0, 1.0)),
@@ -441,8 +541,25 @@ class HsvDetectorNode(Node):
             if bool(self.get_parameter('allow_latest_tf_fallback').value):
                 try:
                     latest_transform = self.tf_buffer.lookup_transform(output_frame, camera_frame, Time())
+                    delta_sec = _stamp_delta_sec(
+                        stamp, latest_transform.header.stamp)
+                    maximum_delta_sec = float(
+                        self.get_parameter(
+                            'max_latest_tf_fallback_delta_sec').value)
+                    self._last_tf_stamp_delta_sec = delta_sec
+                    if delta_sec is None or delta_sec > maximum_delta_sec:
+                        self.get_logger().warn(
+                            f'Latest TF rejected: delta={delta_sec} sec exceeds '
+                            f'{maximum_delta_sec:.3f} sec from '
+                            f'{camera_frame} to {output_frame}.',
+                            throttle_duration_sec=5.0,
+                        )
+                        return None
+                    self._last_tf_synchronized = True
                     self.get_logger().warn(
-                        f'TF at image stamp unavailable from {camera_frame} to {output_frame}; using latest TF: {exc}',
+                        f'TF at image stamp unavailable from {camera_frame} to '
+                        f'{output_frame}; using bounded latest TF '
+                        f'(delta={delta_sec:.3f}s): {exc}',
                         throttle_duration_sec=5.0,
                     )
                     return _transform_msg_to_rigid(latest_transform.transform)
@@ -453,6 +570,8 @@ class HsvDetectorNode(Node):
                 throttle_duration_sec=5.0,
             )
             return None
+        self._last_tf_synchronized = True
+        self._last_tf_stamp_delta_sec = 0.0
         return _transform_msg_to_rigid(transform.transform)
 
 

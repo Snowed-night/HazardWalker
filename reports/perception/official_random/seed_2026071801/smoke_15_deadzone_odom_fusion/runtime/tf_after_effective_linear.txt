@@ -1,0 +1,52 @@
+[INFO] [1784383669.711139468] [tf2_echo]: Waiting for transform map ->  base: Invalid frame ID "map" passed to canTransform argument target_frame - frame does not exist
+At time 391.52000000
+- Translation: [1.012, 0.041, 0.000]
+- Rotation: in Quaternion (xyzw) [0.000, 0.000, 0.052, 0.999]
+- Rotation: in RPY (radian) [0.000, -0.000, 0.105]
+- Rotation: in RPY (degree) [0.000, -0.000, 6.013]
+- Matrix:
+  0.994 -0.105  0.000  1.012
+  0.105  0.994  0.000  0.041
+  0.000  0.000  1.000  0.000
+  0.000  0.000  0.000  1.000
+At time 391.266000000
+- Translation: [1.011, 0.042, 0.000]
+- Rotation: in Quaternion (xyzw) [0.000, 0.000, 0.055, 0.999]
+- Rotation: in RPY (radian) [0.000, -0.000, 0.109]
+- Rotation: in RPY (degree) [0.000, -0.000, 6.249]
+- Matrix:
+  0.994 -0.109  0.000  1.011
+  0.109  0.994  0.000  0.042
+  0.000  0.000  1.000  0.000
+  0.000  0.000  0.000  1.000
+At time 391.476000000
+- Translation: [1.011, 0.042, 0.000]
+- Rotation: in Quaternion (xyzw) [0.000, 0.000, 0.056, 0.998]
+- Rotation: in RPY (radian) [0.000, -0.000, 0.112]
+- Rotation: in RPY (degree) [0.000, -0.000, 6.396]
+- Matrix:
+  0.994 -0.111  0.000  1.011
+  0.111  0.994  0.000  0.042
+  0.000  0.000  1.000  0.000
+  0.000  0.000  0.000  1.000
+At time 391.664000000
+- Translation: [1.011, 0.042, 0.000]
+- Rotation: in Quaternion (xyzw) [0.000, 0.000, 0.056, 0.998]
+- Rotation: in RPY (radian) [0.000, -0.000, 0.113]
+- Rotation: in RPY (degree) [0.000, -0.000, 6.467]
+- Matrix:
+  0.994 -0.113  0.000  1.011
+  0.113  0.994  0.000  0.042
+  0.000  0.000  1.000  0.000
+  0.000  0.000  0.000  1.000
+At time 391.870000000
+- Translation: [1.011, 0.042, 0.000]
+- Rotation: in Quaternion (xyzw) [0.000, 0.000, 0.057, 0.998]
+- Rotation: in RPY (radian) [0.000, -0.000, 0.113]
+- Rotation: in RPY (degree) [0.000, -0.000, 6.487]
+- Matrix:
+  0.994 -0.113  0.000  1.011
+  0.113  0.994  0.000  0.042
+  0.000  0.000  1.000  0.000
+  0.000  0.000  0.000  1.000
+[INFO] [1784383675.600042606] [rclcpp]: signal_handler(SIGINT/SIGTERM)

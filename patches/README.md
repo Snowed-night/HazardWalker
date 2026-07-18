@@ -23,3 +23,18 @@ ROS1 代码修复。应用后按文档重建 `simenv:run`，再执行 `auto_head
 
 官方 profile 当前使用 ROS1 容器内 `rosbridge_websocket` 与 ROS2 主机适配器；旧版 JSON 管道和
 `ros1_bridge dynamic_bridge` 都不是已验证的官方传输方案。控制验证必须以实际里程计和截图/视频为准。
+
+2026-07-18 新增
+`official_simenv_laserscan_slam_compat_20260718.patch`，处理当前官方源码中两个会直接阻断二维 SLAM
+的问题：旧 `pointcloud2livox.py` 以 `PointCloud` 订阅实际为 `LaserScan` 的同名 `/scan`，以及
+二维 ray 扫描面随 Mid360 可视链路俯仰约 45°。补丁默认关闭旧转换器，并新增与实际水平测量一致的
+`laser_scan` 虚拟帧，避免把水平数据按上仰 TF 投影。
+该补丁已在只读覆盖副本验证能够消除 ROS 类型冲突并生成二维地图，但正式应用前仍须由平台组在
+干净官方副本执行 `git apply --check`、xacro/launch 解析、Gazebo 运行和地图质量验收。
+
+同日新增 `official_simenv_controller_runtime_compat_20260718.patch`：修复 `simenv:run` 镜像使用
+pip 拆分 CUDA 运行库时，`junior_ctrl` 因找不到 `libcublas.so.11`、`libcudart.so.11.0` 或
+`libnvToolsExt.so.1` 在 FSM 初始化前退出的问题。应用后必须在日志中看到 `[HEADLESS_FSM]` 和
+`junior_ctrl FSM is ready`，并以真实控制位移验证，不能只看容器 Running。该补丁同时把
+Gazebo Classic 插件目录加入动态库路径；否则内部深度传感器虽存在，
+`libgazebo_ros_openni_kinect.so` 会因找不到 `libDepthCameraPlugin.so` 而不发布 ROS RGB-D。

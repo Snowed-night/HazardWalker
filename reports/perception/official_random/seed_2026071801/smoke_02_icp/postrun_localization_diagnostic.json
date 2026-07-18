@@ -1,0 +1,55 @@
+{
+  "schema": "hazardwalker_postrun_localization_diagnostic_v1",
+  "official_score_eligible": false,
+  "runtime_truth_input_used": false,
+  "truth_read_only_by_independent_evaluator": true,
+  "public_start_world_position": [
+    0.0,
+    -2.2,
+    0.6
+  ],
+  "samples": [
+    {
+      "stage": "before_sweep",
+      "algorithm_relative_xy": [
+        -0.018340157225465337,
+        -0.060124721993654054
+      ],
+      "evaluator_truth_relative_xy": [
+        -0.013187281172596616,
+        -0.0230501133323703
+      ],
+      "planar_error_m": 0.0374309863482592
+    },
+    {
+      "stage": "after_segment_01_65.045deg",
+      "algorithm_relative_xy": [
+        -0.036723030862347156,
+        -0.1385617756560196
+      ],
+      "evaluator_truth_relative_xy": [
+        -0.08301579477543795,
+        -0.2472392291765793
+      ],
+      "planar_error_m": 0.118126241345548
+    },
+    {
+      "stage": "after_segment_02_total_91.855deg",
+      "algorithm_relative_xy": [
+        -0.03732070476942262,
+        -0.17309591027815194
+      ],
+      "evaluator_truth_relative_xy": [
+        -0.0589399740855823,
+        -0.3063849490804031
+      ],
+      "planar_error_m": 0.135030961896125
+    }
+  ],
+  "baseline_comparison": {
+    "old_smoke_01_planar_error_m": 0.727976199197719,
+    "new_smoke_02_planar_error_m_after_first_comparable_segment": 0.118126241345548,
+    "absolute_error_reduction_m": 0.609849957852171
+  },
+  "interpretation": "ICP 改善得到同种子真实运行支持；本记录不是完整探索成绩，且 z 轴能力仍未验证。"
+}

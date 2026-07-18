@@ -1,0 +1,52 @@
+[INFO] [1784382932.151453560] [tf2_echo]: Waiting for transform map ->  base: Invalid frame ID "map" passed to canTransform argument target_frame - frame does not exist
+At time 242.448000000
+- Translation: [0.069, 0.201, 0.000]
+- Rotation: in Quaternion (xyzw) [0.000, 0.000, 0.697, 0.717]
+- Rotation: in RPY (radian) [0.000, -0.000, 1.544]
+- Rotation: in RPY (degree) [0.000, -0.000, 88.453]
+- Matrix:
+  0.027 -1.000  0.000  0.069
+  1.000  0.027  0.000  0.201
+  0.000  0.000  1.000  0.000
+  0.000  0.000  0.000  1.000
+At time 242.663000000
+- Translation: [0.070, 0.203, 0.000]
+- Rotation: in Quaternion (xyzw) [0.000, 0.000, 0.697, 0.717]
+- Rotation: in RPY (radian) [0.000, -0.000, 1.544]
+- Rotation: in RPY (degree) [0.000, -0.000, 88.448]
+- Matrix:
+  0.027 -1.000  0.000  0.070
+  1.000  0.027  0.000  0.203
+  0.000  0.000  1.000  0.000
+  0.000  0.000  0.000  1.000
+At time 242.881000000
+- Translation: [0.068, 0.202, 0.000]
+- Rotation: in Quaternion (xyzw) [0.000, 0.000, 0.697, 0.717]
+- Rotation: in RPY (radian) [0.000, -0.000, 1.544]
+- Rotation: in RPY (degree) [0.000, -0.000, 88.450]
+- Matrix:
+  0.027 -1.000  0.000  0.068
+  1.000  0.027  0.000  0.202
+  0.000  0.000  1.000  0.000
+  0.000  0.000  0.000  1.000
+At time 243.93000000
+- Translation: [0.065, 0.199, 0.000]
+- Rotation: in Quaternion (xyzw) [0.000, 0.000, 0.698, 0.717]
+- Rotation: in RPY (radian) [0.000, -0.000, 1.544]
+- Rotation: in RPY (degree) [0.000, -0.000, 88.459]
+- Matrix:
+  0.027 -1.000  0.000  0.065
+  1.000  0.027  0.000  0.199
+  0.000  0.000  1.000  0.000
+  0.000  0.000  0.000  1.000
+At time 243.308000000
+- Translation: [0.061, 0.196, 0.000]
+- Rotation: in Quaternion (xyzw) [0.000, 0.000, 0.698, 0.717]
+- Rotation: in RPY (radian) [0.000, -0.000, 1.544]
+- Rotation: in RPY (degree) [0.000, -0.000, 88.458]
+- Matrix:
+  0.027 -1.000  0.000  0.061
+  1.000  0.027  0.000  0.196
+  0.000  0.000  1.000  0.000
+  0.000  0.000  0.000  1.000
+[INFO] [1784382938.052021982] [rclcpp]: signal_handler(SIGINT/SIGTERM)

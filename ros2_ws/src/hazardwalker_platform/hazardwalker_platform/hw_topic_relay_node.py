@@ -1,18 +1,14 @@
 """官方平台 ROS1 Docker → HazardWalker /hw/* 话题中继节点。
 
-数据流:
-  Docker ROS1 → ros1_bridge → ROS2 /Odometry_gazebo → 本节点 → /hw/Odometry_gazebo
+该节点只保留历史传感器诊断，不转发 Gazebo 真值里程计或 ROS1 TF。
 
 命名规则: /hw/<原始ROS1话题名>, 保持透明可追溯。
 """
 from __future__ import annotations
 
 import rclpy
-from geometry_msgs.msg import Twist
-from nav_msgs.msg import Odometry
 from rclpy.node import Node
 from sensor_msgs.msg import Image, Imu, LaserScan, PointCloud2
-from tf2_msgs.msg import TFMessage
 
 
 class HwTopicRelayNode(Node):
@@ -20,10 +16,6 @@ class HwTopicRelayNode(Node):
 
     def __init__(self) -> None:
         super().__init__("hw_topic_relay")
-
-        # ---- 里程计: /Odometry_gazebo → /hw/Odometry_gazebo ----
-        self._pub_odom = self.create_publisher(Odometry, "/hw/Odometry_gazebo", 10)
-        self.create_subscription(Odometry, "/Odometry_gazebo", self._forward_odom, 10)
 
         # ---- Livox 激光雷达 ----
 
@@ -56,21 +48,12 @@ class HwTopicRelayNode(Node):
         self._pub_scan = self.create_publisher(LaserScan, "/hw/scan", 10)
         self.create_subscription(LaserScan, "/scan", self._forward_scan, 10)
 
-        # ---- TF 坐标变换: /tf → /hw/tf ----
-        self._pub_tf = self.create_publisher(TFMessage, "/hw/tf", 10)
-        self.create_subscription(TFMessage, "/tf", self._forward_tf, 10)
-
-        # ---- 控制 (HazardWalker → Docker): /hw/cmd_vel → /cmd_vel ----
-        self._pub_cmd = self.create_publisher(Twist, "/cmd_vel", 10)
-        self.create_subscription(Twist, "/hw/cmd_vel", self._forward_cmd, 10)
-
-        self.get_logger().info("ROS1 Docker → /hw/* topic relay ready")
+        self.get_logger().warning(
+            "历史只读 topic relay 已弃用；正式环境请使用带独占门禁和看门狗的 "
+            "run_official_simenv_rosbridge_adapter.sh"
+        )
 
     # ---- 回调: 直接转发, 不改消息内容 ----
-
-    def _forward_odom(self, msg: Odometry) -> None:
-        self._pub_odom.publish(msg)
-
 
     def _forward_livox_cloud(self, msg: PointCloud2) -> None:
         self._pub_livox_cloud.publish(msg)
@@ -93,13 +76,6 @@ class HwTopicRelayNode(Node):
 
     def _forward_rs_depth_pts(self, msg: PointCloud2) -> None:
         self._pub_rs_depth_pts.publish(msg)
-
-    def _forward_tf(self, msg: TFMessage) -> None:
-        self._pub_tf.publish(msg)
-
-    def _forward_cmd(self, msg: Twist) -> None:
-        self._pub_cmd.publish(msg)
-
 
 def main() -> None:
     rclpy.init()

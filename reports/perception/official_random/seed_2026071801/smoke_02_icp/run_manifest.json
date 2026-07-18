@@ -1,0 +1,21 @@
+{
+  "schema": "hazardwalker_perception_official_evidence_v1",
+  "evidence_contract": {
+    "run_mode": "official_random_scene",
+    "scenario_seed": "2026071801",
+    "code_version": "a62fe7e+overlay_9e8743bb28ab",
+    "legal_pose_topic": "/hazardwalker/slam/odometry",
+    "localization_provenance": "lidar_imu_slam",
+    "formal_evidence_eligible": true,
+    "contract_violations": [],
+    "truth_inputs_used": false
+  },
+  "input_topics": {
+    "image": "/real_sense/rgb/image_raw",
+    "depth": "/real_sense/depth/image_raw",
+    "detections": "/hazardwalker/perception/hazard_detections",
+    "legal_pose": "/hazardwalker/slam/odometry"
+  },
+  "launch_command": "official_auto_headless_seed_2026071801_icp02",
+  "started_at_unix_sec": 1784368338.144
+}

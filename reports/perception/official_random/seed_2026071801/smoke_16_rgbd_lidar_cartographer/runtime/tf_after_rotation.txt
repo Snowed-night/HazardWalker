@@ -1,0 +1,52 @@
+[INFO] [1784385369.718985125] [tf2_echo]: Waiting for transform map ->  base: Invalid frame ID "map" passed to canTransform argument target_frame - frame does not exist
+At time 723.598000000
+- Translation: [-0.052, -0.037, 0.000]
+- Rotation: in Quaternion (xyzw) [0.000, 0.000, -0.480, 0.877]
+- Rotation: in RPY (radian) [0.000, 0.000, -1.002]
+- Rotation: in RPY (degree) [0.000, 0.000, -57.405]
+- Matrix:
+  0.539  0.842  0.000 -0.052
+ -0.842  0.539 -0.000 -0.037
+ -0.000  0.000  1.000  0.000
+  0.000  0.000  0.000  1.000
+At time 723.795000000
+- Translation: [-0.052, -0.037, 0.000]
+- Rotation: in Quaternion (xyzw) [0.000, 0.000, -0.481, 0.877]
+- Rotation: in RPY (radian) [0.000, 0.000, -1.003]
+- Rotation: in RPY (degree) [0.000, 0.000, -57.486]
+- Matrix:
+  0.537  0.843  0.000 -0.052
+ -0.843  0.537 -0.000 -0.037
+ -0.000  0.000  1.000  0.000
+  0.000  0.000  0.000  1.000
+At time 723.994000000
+- Translation: [-0.053, -0.038, 0.000]
+- Rotation: in Quaternion (xyzw) [0.000, 0.000, -0.482, 0.876]
+- Rotation: in RPY (radian) [0.000, 0.000, -1.005]
+- Rotation: in RPY (degree) [0.000, 0.000, -57.594]
+- Matrix:
+  0.536  0.844  0.000 -0.053
+ -0.844  0.536 -0.000 -0.038
+ -0.000  0.000  1.000  0.000
+  0.000  0.000  0.000  1.000
+At time 724.189000000
+- Translation: [-0.054, -0.038, 0.000]
+- Rotation: in Quaternion (xyzw) [0.000, 0.000, -0.482, 0.876]
+- Rotation: in RPY (radian) [0.000, 0.000, -1.006]
+- Rotation: in RPY (degree) [0.000, 0.000, -57.642]
+- Matrix:
+  0.535  0.845  0.000 -0.054
+ -0.845  0.535 -0.000 -0.038
+ -0.000  0.000  1.000  0.000
+  0.000  0.000  0.000  1.000
+At time 724.391000000
+- Translation: [-0.054, -0.038, 0.000]
+- Rotation: in Quaternion (xyzw) [0.000, 0.000, -0.483, 0.876]
+- Rotation: in RPY (radian) [0.000, 0.000, -1.007]
+- Rotation: in RPY (degree) [0.000, 0.000, -57.724]
+- Matrix:
+  0.534  0.845  0.000 -0.054
+ -0.845  0.534 -0.000 -0.038
+ -0.000  0.000  1.000  0.000
+  0.000  0.000  0.000  1.000
+[INFO] [1784385375.596803704] [rclcpp]: signal_handler(SIGINT/SIGTERM)

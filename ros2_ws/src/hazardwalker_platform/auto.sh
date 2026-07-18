@@ -15,9 +15,19 @@ GUI="${GUI:-true}"
 PAUSED="${PAUSED:-true}"
 START_CONTROLLER="${START_CONTROLLER:-1}"
 START_VIRTUAL_JOY="${START_VIRTUAL_JOY:-0}"
+START_ROSBRIDGE="${START_ROSBRIDGE:-1}"
+START_ODOM_RELAY="${START_ODOM_RELAY:-1}"
 CONTROLLER_FOREGROUND="${CONTROLLER_FOREGROUND:-1}"
 START_BUILDING_CONTROL="${START_BUILDING_CONTROL:-1}"
 UNITREE_CTRL_DT="${UNITREE_CTRL_DT:-0.004}"
+AUTO_UNPAUSE_AFTER_CONTROLLER="${AUTO_UNPAUSE_AFTER_CONTROLLER:-1}"
+CONTROLLER_SENSOR_READY_TIMEOUT_SEC="${CONTROLLER_SENSOR_READY_TIMEOUT_SEC:-5}"
+# GUI=false 只禁用 gzclient；相机与激光的 headless 渲染仍由 Xvfb 提供软件 GL。
+GAZEBO_HEADLESS="${GAZEBO_HEADLESS:-false}"
+# 后台控制器必须完成 FSM 初始化后再解除暂停，避免 A1 在接管前跌倒。
+CONTROLLER_READY_TIMEOUT_SEC="${CONTROLLER_READY_TIMEOUT_SEC:-60}"
+# 等仿真时钟稳定后再启动 rosbridge，避免新客户端收到启动期陈旧队列。
+ROSBRIDGE_START_AFTER_SIM_TIME_SEC="${ROSBRIDGE_START_AFTER_SIM_TIME_SEC:-1}"
 ROBOT_X="${ROBOT_X:-0.0}"
 ROBOT_Y="${ROBOT_Y:--2.2}"
 ROBOT_Z="${ROBOT_Z:-0.6}"
@@ -29,15 +39,38 @@ pkill -f "building_generator_classic_control" 2>/dev/null || true
 pkill -f "gzserver|gzclient|gazebo" 2>/dev/null || true
 pkill -f "junior_ctrl" 2>/dev/null || true
 pkill -f "virtual_joy.py" 2>/dev/null || true
+pkill -f "rosbridge_odom_relay.py" 2>/dev/null || true
 
 echo "Sourcing ROS environment..."
+export ROS_MASTER_URI="${ROS_MASTER_URI:-http://127.0.0.1:11311}"
 source /opt/ros/noetic/setup.bash
 source "$WORKSPACE_DIR/devel/setup.bash"
+
+# ROS 的 OpenNI Kinect 包依赖 Gazebo Classic 自带的 DepthCameraPlugin。
+# 该目录默认在 GAZEBO_PLUGIN_PATH，却不一定进入动态链接器搜索路径；缺失时
+# Gazebo 仍会生成内部 image topic，但 ROS 的 RGB/深度/点云话题完全不存在。
+GAZEBO_CLASSIC_PLUGIN_DIR="/usr/lib/x86_64-linux-gnu/gazebo-11/plugins"
+if [ -d "$GAZEBO_CLASSIC_PLUGIN_DIR" ]; then
+  export GAZEBO_PLUGIN_PATH="$WORKSPACE_DIR/devel/lib:/opt/ros/noetic/lib:$GAZEBO_CLASSIC_PLUGIN_DIR:${GAZEBO_PLUGIN_PATH:-}"
+  export LD_LIBRARY_PATH="$GAZEBO_CLASSIC_PLUGIN_DIR:${LD_LIBRARY_PATH:-}"
+fi
+
+# pip/nvidia 拆分安装把 CUDA 运行库放在各自包目录，而不一定在
+# /usr/local/cuda/lib64。junior_ctrl 依赖这些动态库；逐个加入实际存在的目录，
+# 避免控制器在物理解除暂停前因 libcublas/libcudart 缺失退出。
+for CUDA_RUNTIME_DIR in \
+  /usr/local/lib/python3.8/dist-packages/nvidia/cublas/lib \
+  /usr/local/lib/python3.8/dist-packages/nvidia/cuda_runtime/lib \
+  /usr/local/lib/python3.8/dist-packages/nvidia/nvtx/lib; do
+  if [ -d "$CUDA_RUNTIME_DIR" ]; then
+    export LD_LIBRARY_PATH="$CUDA_RUNTIME_DIR:${LD_LIBRARY_PATH:-}"
+  fi
+done
 
 BUILDING_OBSTACLES_DIR="$(rospack find building_obstacles)"
 UNITREE_GAZEBO_MODELS="$(rospack find unitree_gazebo)/models"
 SCENE_OUTPUT_DIR="$WORKSPACE_DIR/generated_building"
-RESULTS_DIR="$WORKSPACE_DIR/results"
+RESULTS_DIR="${RESULTS_DIR:-$WORKSPACE_DIR/results}"
 mkdir -p "$SCENE_OUTPUT_DIR" "$RESULTS_DIR" "$WORKSPACE_DIR/logs"
 
 echo "Generating competition scene..."
@@ -58,8 +91,13 @@ GENERATOR_ARGS=(
 if [ -n "$SEED" ]; then
   GENERATOR_ARGS+=(--seed "$SEED")
 fi
-python3 "$BUILDING_OBSTACLES_DIR/scripts/generate_competition_scene.py" "${GENERATOR_ARGS[@]}" \
-  > "$SCENE_OUTPUT_DIR/scene_manifest.stdout.json"
+if [ "${SIMENV_PRACTICE:-0}" = "1" ]; then
+  "$WORKSPACE_DIR/devel/lib/building_obstacles/generate_competition_scene.py" "${GENERATOR_ARGS[@]}" \
+    > "$SCENE_OUTPUT_DIR/scene_manifest.stdout.json"
+else
+  python3 "$BUILDING_OBSTACLES_DIR/scripts/generate_competition_scene.py" "${GENERATOR_ARGS[@]}" \
+    > "$SCENE_OUTPUT_DIR/scene_manifest.stdout.json"
+fi
 
 export BUILDING_WORLD_FILE="$SCENE_OUTPUT_DIR/competition_scene.world"
 export COMPETITION_ROBOT_X="$ROBOT_X"
@@ -83,9 +121,18 @@ if [ "$START_VIRTUAL_JOY" = "1" ]; then
   echo $! > "$WORKSPACE_DIR/logs/virtual_joy.pid"
 fi
 
+# ---- headless OpenGL：相机/LiDAR 渲染仍需要虚拟显示 ----
+pkill Xvfb 2>/dev/null || true
+Xvfb :99 -screen 0 1280x1024x24 +extension GLX +render &>/dev/null &
+sleep 1
+export DISPLAY=:99
+export LIBGL_ALWAYS_SOFTWARE=1
+echo "Xvfb ready on DISPLAY=$DISPLAY"
+
 echo "Launching Gazebo, Unitree A1 model, sensors, and ROS interfaces..."
 roslaunch unitree_guide multi_floor_gazeboSim.launch \
   gui:="$GUI" \
+  headless:="$GAZEBO_HEADLESS" \
   paused:="$PAUSED" \
   user_debug:=False \
   rname:=a1 \
@@ -96,7 +143,18 @@ roslaunch unitree_guide multi_floor_gazeboSim.launch \
   > "$WORKSPACE_DIR/logs/competition_gazebo.log" 2>&1 &
 LAUNCH_PID=$!
 echo "$LAUNCH_PID" > "$WORKSPACE_DIR/logs/competition_gazebo.pid"
-sleep 6
+
+# 非暂停启动时先取得真实关节状态；暂停 profile 只需让服务完成注册。
+if [ "$START_CONTROLLER" = "1" ] && [ "$PAUSED" != "true" ]; then
+  echo "Waiting for the first A1 joint-state sample before starting controller..."
+  timeout "$CONTROLLER_SENSOR_READY_TIMEOUT_SEC" \
+    rostopic echo -n 1 "/a1_gazebo/FL_hip_controller/state" >/dev/null || {
+      echo "A1 joint state was not ready; refusing uninitialized controller startup." >&2
+      exit 1
+    }
+else
+  sleep 1
+fi
 
 if [ "$START_BUILDING_CONTROL" = "1" ]; then
   echo "Starting building door/elevator control service..."
@@ -119,8 +177,73 @@ if [ "$START_CONTROLLER" = "1" ]; then
     "$WORKSPACE_DIR/devel/lib/unitree_guide/junior_ctrl" \
       > "$WORKSPACE_DIR/logs/junior_ctrl.log" 2>&1 &
     echo $! > "$WORKSPACE_DIR/logs/junior_ctrl.pid"
+
+    controller_deadline=$((SECONDS + CONTROLLER_READY_TIMEOUT_SEC))
+    until grep -q '\[HEADLESS_FSM\]' "$WORKSPACE_DIR/logs/junior_ctrl.log" 2>/dev/null; do
+      if ! kill -0 "$(cat "$WORKSPACE_DIR/logs/junior_ctrl.pid")" 2>/dev/null; then
+        echo "junior_ctrl exited before FSM initialization." >&2
+        exit 1
+      fi
+      if [ "$SECONDS" -ge "$controller_deadline" ]; then
+        echo "Timed out waiting for junior_ctrl FSM initialization." >&2
+        exit 1
+      fi
+      sleep 0.2
+    done
+    echo "junior_ctrl FSM is ready."
   fi
 fi
 
+# 先控制、后解除物理暂停，防止无控制状态下从出生高度跌落。
+if [ "$PAUSED" = "true" ] && [ "$START_CONTROLLER" = "1" ] \
+    && [ "$AUTO_UNPAUSE_AFTER_CONTROLLER" = "1" ]; then
+  echo "Controller launched while physics is paused; unpausing after controller warm-up..."
+  sleep 1
+  rosservice call /gazebo/unpause_physics >/dev/null || {
+    echo "Failed to unpause Gazebo after controller startup." >&2
+    exit 1
+  }
+fi
+
+# 正式 rosbridge 必须在控制器、当前里程计和 /clock 稳定后启动。
+if [ "$START_ROSBRIDGE" = "1" ]; then
+  echo "Waiting for current odometry and stable simulation time before starting rosbridge..."
+  timeout "$CONTROLLER_READY_TIMEOUT_SEC" rostopic echo -n 1 /Odometry_gazebo >/dev/null || {
+    echo "Odometry did not become available; refusing stale rosbridge startup." >&2
+    exit 1
+  }
+  rosbridge_deadline=$((SECONDS + CONTROLLER_READY_TIMEOUT_SEC))
+  while true; do
+    current_sim_sec="$(rostopic echo -n 1 /clock 2>/dev/null | awk '/secs:/{print $2; exit}')"
+    if [ -n "$current_sim_sec" ] \
+        && [ "$current_sim_sec" -ge "$ROSBRIDGE_START_AFTER_SIM_TIME_SEC" ]; then
+      break
+    fi
+    if [ "$SECONDS" -ge "$rosbridge_deadline" ]; then
+      echo "Simulation clock did not become stable; refusing rosbridge startup." >&2
+      exit 1
+    fi
+    sleep 0.5
+  done
+  if [ "$START_ODOM_RELAY" = "1" ]; then
+    python3 "$WORKSPACE_DIR/scripts/rosbridge_odom_relay.py" \
+      --source /Odometry_gazebo --output /hazardwalker/odom --rate-hz 20 \
+      > "$WORKSPACE_DIR/logs/rosbridge_odom_relay.log" 2>&1 &
+    echo $! > "$WORKSPACE_DIR/logs/rosbridge_odom_relay.pid"
+    timeout "$CONTROLLER_READY_TIMEOUT_SEC" \
+      rostopic echo -n 1 /hazardwalker/odom >/dev/null || {
+        echo "Latest-value odometry relay did not become available." >&2
+        exit 1
+      }
+  fi
+  roslaunch rosbridge_server rosbridge_websocket.launch \
+    > "$WORKSPACE_DIR/logs/rosbridge.log" 2>&1 &
+  echo $! > "$WORKSPACE_DIR/logs/rosbridge.pid"
+fi
+
 echo "Simulation startup command completed."
-echo "Controller mode remains governed by unitree_guide keyboard/joy input; publish geometry_msgs/Twist to /cmd_vel after RL mode is enabled."
+if [ "${SIMENV_AUTO_RL:-0}" = "1" ]; then
+  echo "SIMENV_AUTO_RL=1: controller entered RL mode without keyboard interaction."
+else
+  echo "Controller mode remains governed by unitree_guide keyboard/joy input."
+fi
