@@ -509,6 +509,18 @@ def test_frontier_node_fails_closed_without_pose_scan_or_safe_return_path():
     assert "declare_parameter('minimum_return_reserve_s', 120.0)" in source
     assert "declare_parameter('unreachable_frontier_radius_m', 0.45)" in source
     assert "declare_parameter('unreachable_frontier_ttl_s', 45.0)" in source
+    assert (
+        "declare_parameter('max_frontier_plan_failures_per_replan', 4)"
+        in source
+    )
+    assert (
+        'plan_failures_this_cycle < plan_failure_budget'
+        in source
+    )
+    assert (
+        'Frontier planning failure budget exhausted: '
+        in source
+    )
     assert 'nearest_frontier_basin_key(' in source
     assert 'for record in self._unreachable_frontiers.values()' in source
     assert 'record[0] > now_ros' in source

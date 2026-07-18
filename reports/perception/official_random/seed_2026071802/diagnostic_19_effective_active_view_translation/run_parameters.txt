@@ -1,0 +1,8 @@
+seed=2026071802
+code_version=813f0e091bf874b00ffb23e87e516e540d9513a7
+container=hazardwalker_perception_codex_v15
+ros_domain_id=62
+rosbridge_url=ws://127.0.0.1:19096
+runtime_truth_access=forbidden
+exploration_timeout_sim_sec=300
+change=effective_reobserve_translation_and_canonical_target_id

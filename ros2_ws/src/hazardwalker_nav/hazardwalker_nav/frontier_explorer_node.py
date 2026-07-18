@@ -131,6 +131,10 @@ class FrontierExplorerNode(Node):
         self.declare_parameter('unreachable_frontier_ttl_s', 45.0)
         self.declare_parameter('unreachable_frontier_max_ttl_s', 180.0)
         self.declare_parameter('unreachable_frontier_radius_m', 0.45)
+        # A* 的空结果既可能表示单个目标不连通，也可能是当前起点吸附失败、
+        # 地图瞬时断裂或搜索预算耗尽等整轮共享故障。单次重规划最多封禁少量
+        # 盆地，避免一次系统性故障把整层几十个前沿同时判死并阻塞 ROS 回调。
+        self.declare_parameter('max_frontier_plan_failures_per_replan', 4)
         # 必须长于基础 unreachable TTL + 一次重规划周期，否则目标刚过期前
         # 就会误判完成，永远没有机会用扩展后的地图重试。
         self.declare_parameter('frontier_completion_grace_s', 60.0)
@@ -833,6 +837,12 @@ class FrontierExplorerNode(Node):
             return
         now = time.monotonic()
         now_ros = self._ros_time_sec()
+        plan_failure_budget = max(
+            1,
+            int(self.get_parameter(
+                'max_frontier_plan_failures_per_replan').value),
+        )
+        plan_failures_this_cycle = 0
         stale_horizon = max(
             0.1,
             float(self.get_parameter(
@@ -904,6 +914,7 @@ class FrontierExplorerNode(Node):
             )
             if not refreshed_path:
                 self._mark_frontier_unreachable(self.current_target)
+                plan_failures_this_cycle += 1
                 self.current_target = None
                 self.current_path = []
                 self._current_target_selected_ros_sec = None
@@ -956,9 +967,12 @@ class FrontierExplorerNode(Node):
         ]
 
         # 评分最高的前沿不一定能在“只走已知自由区”的安全地图上到达；
-        # 逐个尝试，规划失败的目标本轮不再反复选择。
+        # 逐个尝试，规划失败的目标本轮不再反复选择。失败预算用于区分少量
+        # 真实不可达目标和整张地图共享的瞬时规划故障，剩余目标留给更新后的
+        # 地图再次判断，不能在一个 ROS 回调里全部封禁。
         candidates = list(unvisited_frontiers)
-        while candidates:
+        while (candidates
+               and plan_failures_this_cycle < plan_failure_budget):
             best = select_candidate(candidates)
             if best is None:
                 break
@@ -993,6 +1007,7 @@ class FrontierExplorerNode(Node):
                 )
                 return
             self._mark_frontier_unreachable(best)
+            plan_failures_this_cycle += 1
             candidates = [
                 candidate for candidate in candidates
                 if not self._frontier_is_unreachable(candidate, now_ros)
@@ -1000,6 +1015,14 @@ class FrontierExplorerNode(Node):
 
         self.current_target = None
         self.current_path = []
+        if (candidates
+                and plan_failures_this_cycle >= plan_failure_budget):
+            self.get_logger().warn(
+                'Frontier planning failure budget exhausted: '
+                f'{plan_failures_this_cycle} failures; '
+                f'{len(candidates)} remaining candidates preserved for '
+                'a later map update.'
+            )
         self.get_logger().warn('No safely reachable frontier in the current map.')
 
     def _frontier_net_progress_expired(self, now_ros: float) -> bool:
