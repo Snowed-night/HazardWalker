@@ -11,6 +11,7 @@
 | `diagnostic_14_spatial_frontier_backoff_return_guard` | 空间退避、预算返航、真实 home 门禁 | 复杂楼内覆盖与返航在 416 秒闭环；未进入红球有效视野，仍需房间优先探索 |
 | `diagnostic_15_near_frontier_room_priority` | 近场小前沿优先、远目标切换滞回 | 成功选择侧向 3 栅格小前沿；安全门禁把动作归零后卡死检测失效，主动中止并修复 |
 | `diagnostic_16_lidar_only_slam_safety_recovery` | 单雷达建图、安全门禁恢复 | 第一近侧目标真实到达；30 m 量程仍形成伪端点，第二目标持续转向但无净进展，主动中止 |
+| `diagnostic_17_bounded_lidar_frontier_progress` | 8 m 有界雷达、自回波丢弃、目标净进展 | 30 m 伪圆环消失且近场抢占生效；规划 0.25 m 与执行 0.45 m 净空冲突造成 5 次卡死，主动中止 |
 
 每轮均保留地图、关键 RGB 帧、逐帧结构化记录、合法 SLAM 轨迹、运行参数、代码版本、
 测试表和失败原因。大体积深度数组与运行日志保存在本地及远程原始证据目录，不提交 Git。
