@@ -178,6 +178,33 @@ def test_frontier_selection_prefers_current_forward_half_plane():
     assert selected is ahead
 
 
+def test_frontier_selection_restores_all_directions_after_entry():
+    """首次入口保护结束后，近处侧后方房间应重新参与正常评分。"""
+
+    corridor_ahead = Frontier(
+        centroid=(20.0, 0.0),
+        size=40,
+        points=[(0, 0)],
+        info_gain=40.0,
+    )
+    nearby_room = Frontier(
+        centroid=(-2.0, 1.0),
+        size=200,
+        points=[(0, 0)],
+        info_gain=200.0,
+    )
+
+    selected = select_best_frontier(
+        [corridor_ahead, nearby_room],
+        0.0,
+        0.0,
+        min_frontier_size=10,
+        robot_yaw=None,
+    )
+
+    assert selected is nearby_room
+
+
 def test_frontier_node_fails_closed_without_pose_scan_or_safe_return_path():
     source = (
         NAV_SRC / 'hazardwalker_nav' / 'frontier_explorer_node.py'
@@ -206,4 +233,5 @@ def test_frontier_node_fails_closed_without_pose_scan_or_safe_return_path():
     assert 'if not new_frontiers and unvisited_frontiers:' in source
     assert 'trying %d largest ' in source
     assert 'unvisited fragments safely.' in source
+    assert 'self.robot_yaw if not self._visited_frontiers else None' in source
     compile(source, 'frontier_explorer_node.py', 'exec')

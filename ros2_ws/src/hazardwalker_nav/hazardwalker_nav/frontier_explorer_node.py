@@ -562,7 +562,11 @@ class FrontierExplorerNode(Node):
                 candidates, self.robot_x, self.robot_y,
                 last_target=self.last_target_world,
                 min_frontier_size=min_size,
-                robot_yaw=self.robot_yaw)
+                # 仅首次从官方起点进入建筑时使用朝向门禁。到达首个前沿后恢复
+                # 全方向选择，避免机器人沿长走廊直冲到底而跳过两侧房间。
+                robot_yaw=(
+                    self.robot_yaw if not self._visited_frontiers else None
+                ))
             if best is None:
                 break
             path = a_star_path(
