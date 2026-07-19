@@ -27,7 +27,12 @@ def _read_batch(path: Path) -> tuple[dict, list[dict]]:
     return summary, cases
 
 
-def merge_batches(suite: str, batch_dirs: list[Path], output_dir: Path) -> dict:
+def merge_batches(
+    suite: str,
+    batch_dirs: list[Path],
+    output_dir: Path,
+    test_record_dir: Path | None = None,
+) -> dict:
     """合并去重后的批次，并保留每个批次的原始文件夹以便审计。"""
 
     if not batch_dirs:
@@ -35,11 +40,16 @@ def merge_batches(suite: str, batch_dirs: list[Path], output_dir: Path) -> dict:
     records = []
     seen_ids = set()
     schemas = set()
+    code_versions = set()
+    source_run_ids = []
     for batch_dir in batch_dirs:
         summary, cases = _read_batch(batch_dir)
         if str(summary.get('suite')) != suite:
             raise ValueError(f'批次 suite 不一致：{batch_dir}')
         schemas.add(str(summary.get('schema', '')))
+        if summary.get('code_version'):
+            code_versions.add(str(summary['code_version']))
+        source_run_ids.append(str(summary.get('run_id') or batch_dir.name))
         for case in cases:
             case_id = str(case.get('case_id', ''))
             if not case_id or case_id in seen_ids:
@@ -65,6 +75,10 @@ def merge_batches(suite: str, batch_dirs: list[Path], output_dir: Path) -> dict:
         'pass_count': sum(item.get('result') == 'pass' for item in records),
         'fail_count': sum(item.get('result') != 'pass' for item in records),
         'batch_count': len(batch_dirs),
+        'code_versions': sorted(code_versions),
+        'source_run_ids': source_run_ids,
+        'evidence_level': 'internal_regression',
+        'official_score_eligible': False,
         'truth_usage': '仅在快照保存后离线匹配；运行期检测器、运动策略不读取真值。',
         'note': '分批结果因 Gazebo 清理隔离而合并；每个原始批次完整保留在 batches/。',
     }
@@ -88,6 +102,19 @@ def merge_batches(suite: str, batch_dirs: list[Path], output_dir: Path) -> dict:
         '由于每批均在独立 Gazebo 容器中完成，`batches/` 下保留了原始截图、JSON、日志和汇总。'
         '缺失案例不会被补写为通过。\n', encoding='utf-8',
     )
+    if test_record_dir is not None:
+        if test_record_dir.exists():
+            shutil.rmtree(test_record_dir)
+        test_record_dir.mkdir(parents=True)
+        shutil.copy2(output_dir / 'cases.csv', test_record_dir / 'testing_record_perception.csv')
+        (test_record_dir / 'testing_record_perception.json').write_text(
+            json.dumps(
+                {'summary': summary, 'records': records},
+                ensure_ascii=False,
+                indent=2,
+            ) + '\n',
+            encoding='utf-8',
+        )
     return summary
 
 
@@ -95,9 +122,19 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument('--suite', required=True)
     parser.add_argument('--output-dir', type=Path, required=True)
+    parser.add_argument('--test-record-dir', type=Path)
     parser.add_argument('batch_dirs', nargs='+', type=Path)
     args = parser.parse_args()
-    print(json.dumps(merge_batches(args.suite, args.batch_dirs, args.output_dir), ensure_ascii=False, indent=2))
+    print(json.dumps(
+        merge_batches(
+            args.suite,
+            args.batch_dirs,
+            args.output_dir,
+            test_record_dir=args.test_record_dir,
+        ),
+        ensure_ascii=False,
+        indent=2,
+    ))
     return 0
 
 

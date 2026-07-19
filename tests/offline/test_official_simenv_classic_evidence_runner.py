@@ -125,6 +125,14 @@ def test_case_detector_cleanup_reaps_the_whole_ros2_run_process_group():
     assert 'os.killpg(process.pid, signal.SIGKILL)' in source
 
 
+def test_isolated_container_reset_failure_is_fail_closed():
+    """容器复位脚本失败时不得继续下一例并把残留模型当新场景。"""
+
+    assert runner._reset_isolated_container(
+        'python -c "import sys; sys.exit(7)"', {},
+    ) is False
+
+
 def test_localization_case_reports_error_after_snapshot_not_as_runtime_input():
     case = build_suite('complex_localization', (0.0, 0.0, 0.15))[0]
     truth = case.expected_sphere_positions[0]

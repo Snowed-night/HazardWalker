@@ -340,6 +340,21 @@ def _stop_case_detector(process: Optional[subprocess.Popen]) -> None:
             handle.close()
 
 
+def _reset_isolated_container(command: str, env: dict[str, str]) -> bool:
+    """执行调用方提供的整容器复位，替代已退化的 Gazebo delete_model。"""
+
+    normalized = str(command or '').strip()
+    if not normalized:
+        return False
+    try:
+        result = _run(
+            shlex.split(normalized), env, timeout=180.0, check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+    return result.returncode == 0
+
+
 def _strict_count(snapshot: dict[str, Any]) -> int:
     return sum(not bool(item.get('requires_reobservation')) for item in snapshot.get('detections_2d', []))
 
@@ -505,6 +520,10 @@ def _write_suite_report(suite_dir: Path, suite: str, rows: list[dict[str, Any]],
         'camera_topic': '/hw/camera/image_raw',
         'detection_topic': args.detection_topic,
         'control_enabled': bool(args.allow_control),
+        'cleanup_mode': (
+            'isolated_container_reset'
+            if args.reset_container_between_cases_command else 'gazebo_delete_model'
+        ),
         'fixture_center_world': list(args.resolved_fixture_center),
         'fixture_center_source': args.fixture_center_source,
         'min_background_edge_ratio': args.min_background_edge_ratio,
@@ -610,6 +629,11 @@ def main() -> int:
     parser.add_argument('--detector-command', default='',
                         help='可选：每个案例独立启动的检测节点命令。启用后不能同时保留外部同话题检测器。')
     parser.add_argument('--detector-warmup-sec', type=float, default=2.0)
+    parser.add_argument('--reset-container-between-cases-command', default='', help=(
+        'Gazebo spawn/delete 服务退化时，在每例结束后执行的隔离容器完整复位脚本。'
+        '脚本必须重启同一固定 SEED、恢复 rosbridge/公开门状态并等待真实 RGB-D；'
+        '返回非零即中止套件。仅允许测试隔离容器使用。'
+    ))
     args = parser.parse_args()
     if args.run_id:
         if RUN_ID_PATTERN.fullmatch(args.run_id.strip()) is None:
@@ -709,7 +733,13 @@ def main() -> int:
                 finally:
                     _stop_case_detector(detector_process)
                     if model_name:
-                        cleanup_failed = not _delete_case(args.isolated_container, model_name, env)
+                        cleanup_failed = not (
+                            _reset_isolated_container(
+                                args.reset_container_between_cases_command, env,
+                            )
+                            if args.reset_container_between_cases_command
+                            else _delete_case(args.isolated_container, model_name, env)
+                        )
                         if cleanup_failed:
                             rows[-1]['result'] = 'fail'
                             previous_error = str(rows[-1].get('error', '')).strip()
