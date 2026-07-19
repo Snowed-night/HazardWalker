@@ -116,6 +116,25 @@ def test_official_controller_discovers_split_cuda_runtime_libraries():
     assert 'export LD_LIBRARY_PATH=' in auto_source
 
 
+def test_official_headless_startup_reuses_display_and_cleans_only_stale_lock():
+    """容器 restart 后不能因陈旧 X 锁静默丢失 RGB-D 插件。"""
+
+    for relative_path in (
+        'ros2_ws/src/hazardwalker_platform/auto.sh',
+        'ros2_ws/src/hazardwalker_platform/auto_noetic_headless.sh',
+    ):
+        source = (REPO_ROOT / relative_path).read_text(encoding='utf-8')
+        assert 'SIMENV_HEADLESS_DISPLAY' in source
+        assert 'display_is_ready()' in source
+        assert 'xdpyinfo -display "$DISPLAY_VALUE"' in source
+        assert 'kill -0 "$LOCK_PID"' in source
+        assert 'rm -f "$DISPLAY_LOCK" "$DISPLAY_SOCKET"' in source
+        assert '> "$XVFB_LOG" 2>&1 &' in source
+        assert 'if [ "$DISPLAY_READY" != "1" ]' in source
+        assert 'pkill Xvfb' not in source
+        assert '&>/dev/null' not in source
+
+
 def test_control_and_tf_contract_do_not_hide_platform_difference():
     assert HW_CMD_VEL == '/hw/cmd_vel'
     assert OFFICIAL_CMD_VEL == '/cmd_vel'
@@ -213,6 +232,17 @@ def test_official_full_stack_requires_an_exclusive_simenv_session():
     assert 'run_official_simenv_rosbridge_adapter.sh' in legacy_launcher
 
 
+def test_official_navigation_opens_main_entrance_via_public_service_only():
+    source = (
+        REPO_ROOT / 'scripts' / 'run_official_simenv_ros1_ros2_stack.sh'
+    ).read_text(encoding='utf-8')
+
+    assert "'/set_door_state'" in source
+    assert "'main_entrance', True" in source
+    assert 'response.accepted' in source
+    assert 'danger_truth' not in source
+
+
 def test_official_business_launch_never_starts_fake_platform_by_default():
     source = (REPO_ROOT / 'ros2_ws' / 'src' / 'hazardwalker_bringup' / 'launch' /
               'official_simenv_business.launch.py').read_text(encoding='utf-8')
@@ -220,21 +250,37 @@ def test_official_business_launch_never_starts_fake_platform_by_default():
     assert "DeclareLaunchArgument('start_slam', default_value='false')" in source
     assert "DeclareLaunchArgument('slam_backend', default_value='cartographer')" in source
     assert "DeclareLaunchArgument('start_legal_localization', default_value='true')" in source
+    assert "'mission_time_budget_s': 600.0" in source
+    assert "'minimum_return_reserve_s': 120.0" in source
+    assert "'entry_ingress_depth_m': 6.0" in source
     assert "executable='scan_imu_localizer_node'" in source
     assert "package='hazardwalker_platform'" not in source
     assert "'online_async_launch.py'" in source
     assert "'autostart': 'true'" in source
     assert "executable='async_slam_toolbox_node'" not in source
+    assert 'def _launch_slam_toolbox(context, slam_config):' in source
+    assert "get_package_share_directory('slam_toolbox')" in source
+    assert (
+        "slam_launch = os.path.join(\n"
+        "        get_package_share_directory('slam_toolbox'),"
+    ) not in source
+    assert (
+        "'start_slam=true and slam_backend=slam_toolbox require '"
+        in source
+    )
     assert "package='cartographer_ros'" in source
     assert "executable='cartographer_node'" in source
     assert "executable='cartographer_occupancy_grid_node'" in source
-    assert "executable='depth_to_scan_node'" in source
-    assert "('scan_1', '/hw/scan')" in source
-    assert "('scan_2', '/hw/depth_scan')" in source
+    assert "executable='depth_to_scan_node'" not in source
+    assert "('scan', '/hw/scan')" in source
+    assert "('scan_1', '/hw/scan')" not in source
+    assert "('scan_2', '/hw/depth_scan')" not in source
     assert "('odom', '/hazardwalker/slam/odometry')" in source
     assert "'publish_tf': publish_legal_tf_parameter" in source
     assert 'OpaqueFunction(' in source
     assert "get_package_share_directory('cartographer_ros')" in source
+    assert 'except PackageNotFoundError as exc:' in source
+    assert "'cartographer_ros; configure the official stack Cartographer prefix.'" in source
     assert (
         "builtin_dir = os.path.join(\n"
         "        get_package_share_directory('cartographer'),"
@@ -247,10 +293,24 @@ def test_official_business_launch_never_starts_fake_platform_by_default():
     assert source.count("'use_sim_time': sim_time_parameter") >= 6
     assert "'use_sim_time': use_sim_time" in source
     assert source.count('condition=IfCondition(start_navigation)') == 2
+
+    cartographer_config = (
+        REPO_ROOT / 'ros2_ws' / 'src' / 'hazardwalker_nav' / 'config'
+        / 'cartographer_official_2d.lua'
+    ).read_text(encoding='utf-8')
+    assert 'num_laser_scans = 1' in cartographer_config
+    assert 'TRAJECTORY_BUILDER_2D.max_range = 8.0' in cartographer_config
     assert "LaunchConfigurationEquals(\n                    'nav_mode', expected_value='frontier')" in source
     assert "LaunchConfigurationEquals(\n                    'nav_mode', expected_value='waypoint')" in source
     assert 'PythonExpression' in source
     assert "'goal_tolerance_m': 0.25" in source
+    cartographer_config = (
+        REPO_ROOT / 'ros2_ws' / 'src' / 'hazardwalker_nav' / 'config' /
+        'cartographer_official_2d.lua'
+    ).read_text(encoding='utf-8')
+    assert 'POSE_GRAPH.constraint_builder.max_constraint_distance = 1.5' in cartographer_config
+    assert 'POSE_GRAPH.constraint_builder.min_score = 0.72' in cartographer_config
+    assert 'POSE_GRAPH.constraint_builder.global_localization_min_score = 0.90' in cartographer_config
     compile(source, 'official_simenv_business.launch.py', 'exec')
 
 
@@ -266,6 +326,8 @@ def test_legacy_simenv_demo_is_a_safe_official_business_wrapper():
     assert "'start_navigation': start_navigation" in source
     assert "'start_slam': start_slam" in source
     assert "'slam_backend': slam_backend" in source
+    assert "DeclareLaunchArgument('exploration_timeout_s', default_value='540.0')" in source
+    assert "'exploration_timeout_s': exploration_timeout_s" in source
     assert "start_evidence_recorder': 'false'" in source
     assert "executable='async_slam_toolbox_node'" not in source
     assert "('/tf', '/hw/tf')" not in source
@@ -302,6 +364,11 @@ def test_official_perception_world_export_requires_explicit_legal_slam_contract(
               'official_simenv_business.launch.py').read_text(encoding='utf-8')
     assert "DeclareLaunchArgument('perception_output_frame', default_value='map')" in source
     assert "DeclareLaunchArgument('localization_provenance', default_value='unverified')" in source
+    assert "DeclareLaunchArgument('exploration_timeout_s', default_value='540.0')" in source
+    assert "exploration_timeout_s = LaunchConfiguration('exploration_timeout_s')" in source
+    assert "'exploration_timeout_s': exploration_timeout_parameter" in source
+    assert "ParameterValue(\n        exploration_timeout_s, value_type=float" in source
+    assert "'exploration_timeout_s': 540.0" not in source
     assert "'output_frame': perception_output_frame" in source
     assert "'localization_provenance': localization_provenance" in source
 
@@ -311,6 +378,8 @@ def test_official_minimal_navigation_consumes_stable_hw_odom():
               'waypoint_patrol_node.py').read_text(encoding='utf-8')
     assert "Odometry, '/hw/odom'" in source
     assert "'/hw/Odometry_gazebo'" not in source
+    assert "'/hw/nav/diagnostic_state'" in source
+    assert "'/hw/nav/state'" not in source
 
 
 def test_stack_keeps_adapter_alive_while_business_launch_runs():
@@ -322,8 +391,22 @@ def test_stack_keeps_adapter_alive_while_business_launch_runs():
     # 业务 launch 会派生多个节点；必须拥有独立进程组并在退出时整体回收，
     # 否则下一次联调会残留多个 /hw/cmd_vel 发布者。
     assert 'setsid ros2 launch hazardwalker_bringup official_simenv_business.launch.py' in source
-    assert 'kill -- "-$BUSINESS_PID"' in source
+    assert 'kill -TERM -- "-$BUSINESS_PID"' in source
     assert 'set +u\nsource /opt/ros/jazzy/setup.bash' in source
+    assert 'OFFICIAL_SIMENV_CARTOGRAPHER_PREFIX' in source
+    assert 'OFFICIAL_SIMENV_CARTOGRAPHER_LIBRARY_PATH' in source
+    assert 'ros2 pkg prefix cartographer_ros' in source
+    assert 'share/cartographer_ros' in source
+    assert 'share/cartographer_ros_msgs/local_setup.bash' in source
+    assert 'export HAZARDWALKER_ROOT="$ROOT"' in source
+    assert 'Frontier 导航要求本轮显式 start_slam=true' in source
+    assert 'OFFICIAL_SIMENV_AUTO_STOP_ON_FINISHED' in source
+    assert 'OFFICIAL_SIMENV_STACK_TIMEOUT_SEC' in source
+    assert 'ros2 topic echo /hw/mission/state --field data --once' in source
+    assert 'RESULT_MTIME >= RUN_START_EPOCH' in source
+    assert 'kill -KILL -- "-$BUSINESS_PID"' in source
+    assert 'for _ in {1..150}; do' in source
+    assert 'wait "$ADAPTER_PID"' in source
     assert 'ros2 launch hazardwalker_bringup official_simenv_business.launch.py' in source
     assert 'ros2 topic echo /clock --once' in source
     assert 'CLOCK_NSEC=' in source
@@ -333,6 +416,13 @@ def test_stack_keeps_adapter_alive_while_business_launch_runs():
     assert "grep -qx '/hazardwalker_official_rosbridge_adapter'" in source
     assert 'start_navigation=true 但控制适配未显式开启' in source
     assert '"enable_cmd_vel_relay": true' in source
+    assert 'NAV_MODE=frontier' in source
+    assert 'PERCEPTION_OUTPUT_FRAME=map' in source
+    assert 'LOCALIZATION_PROVENANCE=unverified' in source
+    assert '正式一键任务只允许 nav_mode=frontier' in source
+    assert 'perception_output_frame=world' in source
+    assert '白名单内的合法 SLAM localization_provenance' in source
+    assert '必须开启证据记录并提供 SEED、代码版本和输出目录' in source
 
     adapter_runner = (
         REPO_ROOT / 'scripts' / 'run_official_simenv_rosbridge_adapter.sh'

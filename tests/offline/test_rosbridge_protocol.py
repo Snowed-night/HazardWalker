@@ -93,7 +93,9 @@ def test_scan_self_filter_removes_only_calibrated_body_returns():
         [float('inf'), 0.10, 0.34, 0.40, 0.75, float('nan')],
         0.40,
     )
-    assert filtered[:3] == [float('inf')] * 3
+    assert filtered[0] == float('inf')  # 原始无回波语义保持不变。
+    assert filtered[1] != filtered[1]
+    assert filtered[2] != filtered[2]
     assert filtered[3:5] == [0.40, 0.75]
     assert filtered[5] != filtered[5]  # NaN 仍保持无效，由下游按标准规则忽略。
 

@@ -1,0 +1,2 @@
+scenario,frame_count,truth_count,detected_count,missed_count,false_positive_count,average_confidence,dynamic,frames_with_candidates,total_candidate_count,localized_candidate_count,view_action_counts,notes
+2026071802,2082,,0,,,0.9466,True,634,634,580,"{""continue_exploring"": 1448, ""move_left"": 615, ""move_right"": 15, ""turn_right"": 4}",未提供真值，不计算识别率、漏检率、虚警率和定位误差。

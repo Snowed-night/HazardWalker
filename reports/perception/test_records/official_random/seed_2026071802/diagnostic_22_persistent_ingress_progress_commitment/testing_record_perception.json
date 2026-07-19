@@ -1,0 +1,23 @@
+{
+  "scenario": "2026071802",
+  "frame_count": 5976,
+  "truth_count": "",
+  "detected_count": 0,
+  "missed_count": "",
+  "false_positive_count": "",
+  "average_confidence": 0.8415,
+  "dynamic": true,
+  "frames_with_candidates": 414,
+  "total_candidate_count": 414,
+  "localized_candidate_count": 247,
+  "view_action_counts": {
+    "continue_exploring": 5562,
+    "move_forward": 85,
+    "move_left": 162,
+    "move_right": 52,
+    "turn_left": 105,
+    "turn_right": 10
+  },
+  "mission_completed": false,
+  "notes": "官方随机复杂楼宇失败诊断；未提供逐帧真值，不计算识别率、漏检率、虚警率和定位误差。候选未通过严格多视角球形确认。"
+}

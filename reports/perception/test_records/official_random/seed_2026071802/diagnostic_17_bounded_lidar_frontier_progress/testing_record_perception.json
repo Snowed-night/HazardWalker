@@ -1,0 +1,17 @@
+{
+  "scenario": "2026071802",
+  "frame_count": 1810,
+  "truth_count": "",
+  "detected_count": 0,
+  "missed_count": "",
+  "false_positive_count": "",
+  "average_confidence": 0.0,
+  "dynamic": true,
+  "frames_with_candidates": 0,
+  "total_candidate_count": 0,
+  "localized_candidate_count": 0,
+  "view_action_counts": {
+    "continue_exploring": 1810
+  },
+  "notes": "未提供真值，不计算识别率、漏检率、虚警率和定位误差。"
+}

@@ -1,0 +1,2 @@
+scenario,frame_count,truth_count,detected_count,missed_count,false_positive_count,average_confidence,dynamic,frames_with_candidates,total_candidate_count,localized_candidate_count,mission_completed,view_action_counts,notes
+2026071802,5976,,0,,,0.8415,True,414,414,247,False,"{""continue_exploring"": 5562, ""move_forward"": 85, ""move_left"": 162, ""move_right"": 52, ""turn_left"": 105, ""turn_right"": 10}",官方随机复杂楼宇失败诊断；未提供逐帧真值，不计算识别率、漏检率、虚警率和定位误差。候选未通过严格多视角球形确认。

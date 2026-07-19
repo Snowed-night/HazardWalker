@@ -1,0 +1,41 @@
+{
+  "trajectory_samples": 880,
+  "path_length_m": 78.562,
+  "x_range_m": [
+    0,
+    24.816
+  ],
+  "y_range_m": [
+    -8.169,
+    0.771
+  ],
+  "unique_half_metre_cells": 150,
+  "final_pose": {
+    "x": 19.09578108514233,
+    "y": -1.4194558169290554,
+    "stamp": 476.2
+  },
+  "return_start_stamp": 308.8,
+  "best_return": {
+    "stamp": 383.7,
+    "distance_m": 15.273
+  },
+  "final_home_distance_m": 19.148,
+  "frontier_target_count": 14,
+  "frontier_sweep_count": 4,
+  "unreachable_basin_count": 12,
+  "return_watchdog_count": 4,
+  "reobservation_attempt_count": 2,
+  "frame_count": 5976,
+  "frames_with_candidates": 414,
+  "localized_detection_count": 247,
+  "track_ids": [
+    "1"
+  ],
+  "stable_view_ids": [
+    "xy:0.0:15.2|yaw:-90"
+  ],
+  "spherical_view_ids": [
+    "xy:0.0:15.2|yaw:-90"
+  ]
+}

@@ -5,8 +5,9 @@
 - 提供不依赖 ROS 的前沿检测、聚类、评分和 A* 路径规划。
 - 被 frontier_explorer_node.py 调用。
 
-前沿定义：OccupancyGrid 中概率值 0..25（nav2 默认 free_thresh）且四邻域至少
-有一个 UNKNOWN (-1) 的格子。Cartographer 的边缘自由格常不是精确 0。
+前沿定义：OccupancyGrid 中概率值 0..49 且四邻域至少有一个 UNKNOWN (-1)。
+Cartographer 用 50 作为未知自由/占据概率分界，边缘自由格常落在 26..49；
+沿用静态 map_saver 的 25 阈值会把绝大多数实时可通行区误删。
 """
 from __future__ import annotations
 
@@ -14,13 +15,13 @@ import math
 from collections import deque
 from dataclasses import dataclass
 import heapq
-from typing import List, Optional, Tuple
+from typing import Iterable, List, Optional, Tuple
 
 import numpy as np
 
 # OccupancyGrid 常量
 FREE = 0
-FREE_MAX = 25
+FREE_MAX = 49
 OCCUPIED = 100
 UNKNOWN = -1
 
@@ -152,7 +153,16 @@ def cluster_frontiers(frontier_mask: np.ndarray, grid: np.ndarray,
 
 def select_best_frontier(frontiers: List[Frontier], robot_wx: float, robot_wy: float,
                          last_target: Optional[Tuple[float, float]] = None,
-                         min_frontier_size: int = 10) -> Optional[Frontier]:
+                         min_frontier_size: int = 10,
+                         locality_slack_m: Optional[float] = None,
+                         robot_yaw: Optional[float] = None,
+                         robot_yaw_half_angle_rad: float = math.pi / 2.0,
+                         require_robot_yaw_candidate: bool = False,
+                         entry_origin: Optional[Tuple[float, float]] = None,
+                         entry_axis: Optional[Tuple[float, float]] = None,
+                         entry_backtrack_margin_m: float = 0.5,
+                         entry_lateral_limit_m: Optional[float] = None
+                         ) -> Optional[Frontier]:
     """选择最优前沿：综合距离、信息增益、大小。
 
     策略：优先选择近距离、高信息增益的前沿。
@@ -161,10 +171,91 @@ def select_best_frontier(frontiers: List[Frontier], robot_wx: float, robot_wy: f
     if not frontiers:
         return None
 
-    # 过滤太小前沿
-    valid = [f for f in frontiers if f.size >= min_frontier_size]
+    # 先应用合法空间门禁，再在近场候选带内应用尺寸阈值。若先在整张地图上
+    # 删除小簇，近处门洞会被远处长射线形成的巨大前沿挤掉。
+    valid = list(frontiers)
+    if entry_origin is not None and entry_axis is not None:
+        # 官方起点在楼外，首个安全前沿给出了“进入建筑”的数据驱动方向。
+        # 后续持续排除起点背面的楼外开放区，但不限制入口前方的左右房间。
+        # 该门禁只使用 SLAM 前沿和公开起点，不读取楼宇布局或仿真真值。
+        axis_x = float(entry_axis[0])
+        axis_y = float(entry_axis[1])
+        axis_norm = math.hypot(axis_x, axis_y)
+        if axis_norm > 1e-6:
+            axis_x /= axis_norm
+            axis_y /= axis_norm
+            margin = max(0.0, float(entry_backtrack_margin_m))
+            lateral_limit = (
+                None if entry_lateral_limit_m is None
+                else max(0.0, float(entry_lateral_limit_m))
+            )
+            valid = [
+                frontier for frontier in valid
+                if (
+                    (frontier.centroid[0] - float(entry_origin[0])) * axis_x
+                    + (frontier.centroid[1] - float(entry_origin[1])) * axis_y
+                ) >= -margin
+                and (
+                    lateral_limit is None
+                    or lateral_limit <= 0.0
+                    or abs(
+                        -(frontier.centroid[0] - float(entry_origin[0]))
+                        * axis_y
+                        + (frontier.centroid[1] - float(entry_origin[1]))
+                        * axis_x
+                    ) <= lateral_limit
+                )
+            ]
+            if not valid:
+                return None
+    if robot_yaw is not None:
+        # 官方起点位于入口外且朝向建筑内部。若不考虑当前视线，外部无障碍区的
+        # 巨大前沿会压倒入口/走廊前沿，机器人随即绕楼外圈。只要前方半平面有
+        # 候选，就先保持向前覆盖；前方耗尽后仍允许选择身后区域。
+        forward = [
+            frontier for frontier in valid
+            if abs(_normalized_angle(
+                math.atan2(
+                    frontier.centroid[1] - robot_wy,
+                    frontier.centroid[0] - robot_wx,
+                ) - float(robot_yaw)
+            )) <= max(
+                0.0,
+                min(math.pi, float(robot_yaw_half_angle_rad)),
+            )
+        ]
+        if forward:
+            valid = forward
+        elif require_robot_yaw_candidate:
+            return None
+
+    if locality_slack_m is not None and valid:
+        # 词典序“近场优先”：只让距离最近前沿一定余量内的候选参与信息增益
+        # 竞争。它不读取房间布局或仿真真值，只使用当前合法 SLAM 位姿。
+        slack = max(0.0, float(locality_slack_m))
+        nearest_distance = min(
+            math.hypot(
+                frontier.centroid[0] - robot_wx,
+                frontier.centroid[1] - robot_wy,
+            )
+            for frontier in valid
+        )
+        valid = [
+            frontier for frontier in valid
+            if math.hypot(
+                frontier.centroid[0] - robot_wx,
+                frontier.centroid[1] - robot_wy,
+            ) <= nearest_distance + slack
+        ]
+
+    large_enough = [
+        frontier for frontier in valid
+        if frontier.size >= min_frontier_size
+    ]
+    if large_enough:
+        valid = large_enough
     if not valid:
-        valid = frontiers  # 都太小时退回到所有前沿
+        return None
 
     best = None
     best_score = -float('inf')
@@ -190,17 +281,137 @@ def select_best_frontier(frontiers: List[Frontier], robot_wx: float, robot_wy: f
     return best
 
 
+def entry_axis_progress_m(robot_wx: float, robot_wy: float,
+                          entry_origin: Optional[Tuple[float, float]],
+                          entry_axis: Optional[Tuple[float, float]]
+                          ) -> Optional[float]:
+    """计算机器人沿公开入口轴的有符号纵深，不读取楼宇布局或真值。"""
+
+    if entry_origin is None or entry_axis is None:
+        return None
+    values = (
+        robot_wx, robot_wy,
+        entry_origin[0], entry_origin[1],
+        entry_axis[0], entry_axis[1],
+    )
+    if not all(math.isfinite(float(value)) for value in values):
+        return None
+    axis_x = float(entry_axis[0])
+    axis_y = float(entry_axis[1])
+    axis_norm = math.hypot(axis_x, axis_y)
+    if axis_norm <= 1e-6:
+        return None
+    return (
+        (float(robot_wx) - float(entry_origin[0])) * axis_x
+        + (float(robot_wy) - float(entry_origin[1])) * axis_y
+    ) / axis_norm
+
+
+def entry_ingress_constraint_active(
+        entry_axis: Optional[Tuple[float, float]],
+        entry_progress_m: Optional[float],
+        ingress_depth_m: float) -> bool:
+    """决定是否继续限制入楼方向；进度未知时保守保持约束。"""
+
+    if entry_axis is None:
+        return True
+    depth = max(0.0, float(ingress_depth_m))
+    if depth <= 0.0:
+        return False
+    if entry_progress_m is None or not math.isfinite(entry_progress_m):
+        return True
+    return float(entry_progress_m) < depth
+
+
+def entry_ingress_half_angles_deg(configured_deg: float,
+                                  relaxed_deg: float,
+                                  maximum_deg: float,
+                                  constraint_active: bool
+                                  ) -> Tuple[Optional[float], ...]:
+    """返回确定性的窄到宽入楼锥序列；解除约束后返回全向模式。"""
+
+    if not constraint_active:
+        return (None,)
+    if not all(math.isfinite(float(value)) for value in (
+            configured_deg, relaxed_deg, maximum_deg)):
+        return tuple()
+    configured = max(5.0, min(90.0, float(configured_deg)))
+    relaxed = max(
+        configured,
+        min(90.0, float(relaxed_deg)),
+    )
+    maximum = max(
+        relaxed,
+        min(90.0, float(maximum_deg)),
+    )
+    return tuple(dict.fromkeys((configured, relaxed, maximum)))
+
+
+def should_switch_frontier(current_distance_m: float,
+                           challenger_distance_m: float,
+                           held_duration_s: float,
+                           switch_margin_m: float = 1.0,
+                           minimum_hold_s: float = 8.0,
+                           recent_progress_age_s: Optional[float] = None,
+                           progress_protection_s: float = 0.0,
+                           progress_protection_max_hold_s: float = 0.0) -> bool:
+    """判断是否用新出现的近场前沿替换仍可规划的远目标。
+
+    最短锁定时间和距离滞回共同防止质心抖动；超过锁定期后，只有明显更近的
+    候选才能抢占。当前目标近期仍产生净距离进展时继续保护它，避免地图更新
+    反复产生“更近”候选并让机器人在走廊两端掉头。距离与进展时间均来自同一
+    合法 SLAM/仿真时钟，不使用场景真值。
+    """
+
+    if not all(math.isfinite(value) for value in (
+            current_distance_m, challenger_distance_m, held_duration_s,
+            switch_margin_m, minimum_hold_s, progress_protection_s,
+            progress_protection_max_hold_s)):
+        return False
+    protection = max(0.0, float(progress_protection_s))
+    maximum_protected_hold = max(
+        0.0,
+        float(progress_protection_max_hold_s),
+    )
+    if recent_progress_age_s is not None:
+        if not math.isfinite(recent_progress_age_s):
+            return False
+        protection_hold_active = (
+            maximum_protected_hold <= 0.0
+            or held_duration_s < maximum_protected_hold
+        )
+        if (protection_hold_active
+                and max(0.0, float(recent_progress_age_s)) < protection):
+            return False
+    if held_duration_s < max(0.0, minimum_hold_s):
+        return False
+    return (
+        challenger_distance_m + max(0.0, switch_margin_m)
+        < current_distance_m
+    )
+
+
 def a_star_path(grid: np.ndarray, grid_msg,
                 start_wx: float, start_wy: float,
                 goal_wx: float, goal_wy: float,
-                inflation_radius_m: float = 0.25,
+                inflation_radius_m: float = 0.45,
                 endpoint_search_radius_m: float = 0.50,
-                max_expansions: int = 250000) -> List[Tuple[float, float]]:
+                max_expansions: int = 250000,
+                start_search_radius_m: Optional[float] = None,
+                goal_search_radius_m: Optional[float] = None,
+                append_exact_goal: bool = False,
+                ) -> List[Tuple[float, float]]:
     """A* 网格路径规划。
 
     在 OccupancyGrid 上查找从起点到终点的最短路径。
     只允许经过已知自由格；未知格禁止穿越，占用格按机器狗安全半径膨胀，
     对角移动还要防止从两个障碍角之间穿过。
+
+    ``endpoint_search_radius_m`` 保留为兼容旧调用的共同默认值。返航等需要
+    精确到达原始目标的场景应单独传入较小的 ``goal_search_radius_m``，
+    但仍可给受近场回波污染的机器人起点较大的 ``start_search_radius_m``。
+    当目标原始栅格本身可通行时，``append_exact_goal`` 可把真实世界坐标追加
+    到路径末尾，避免栅格中心和路径跟随容差叠加后停在目标容差之外。
 
     Returns:
         世界坐标路径点列表，若不可达返回空列表。
@@ -208,6 +419,11 @@ def a_star_path(grid: np.ndarray, grid_msg,
     h, w = grid.shape
     sx, sy = world_to_grid(start_wx, start_wy, grid_msg)
     gx, gy = world_to_grid(goal_wx, goal_wy, grid_msg)
+    goal_was_in_bounds = 0 <= gx < w and 0 <= gy < h
+    if append_exact_goal and not goal_was_in_bounds:
+        # 精确返航目标若尚未落入当前地图，不能先把栅格钳到边界，再追加一段
+        # 穿越未知区的直线到原始世界坐标。
+        return []
 
     # 边界钳制
     sx = max(0, min(w - 1, sx))
@@ -222,12 +438,22 @@ def a_star_path(grid: np.ndarray, grid_msg,
     )
     # 实测 SLAM 会因机身近场回波或栅格离散把“机器人当前格”标成占用；
     # 在小范围内吸附到最近安全自由格，不能因此把整张可用地图判为不可达。
+    start_radius_m = (
+        endpoint_search_radius_m
+        if start_search_radius_m is None
+        else start_search_radius_m
+    )
+    goal_radius_m = (
+        endpoint_search_radius_m
+        if goal_search_radius_m is None
+        else goal_search_radius_m
+    )
     start_cell = _nearest_traversable_cell(
         traversable, sx, sy,
-        float(grid_msg.info.resolution), endpoint_search_radius_m)
+        float(grid_msg.info.resolution), start_radius_m)
     goal_cell = _nearest_traversable_cell(
         traversable, gx, gy,
-        float(grid_msg.info.resolution), endpoint_search_radius_m)
+        float(grid_msg.info.resolution), goal_radius_m)
     if start_cell is None or goal_cell is None:
         return []
     sx, sy = start_cell
@@ -257,7 +483,18 @@ def a_star_path(grid: np.ndarray, grid_msg,
                 cy, cx = came_from[(cy, cx)]
                 path.append((cx, cy))
             path.reverse()
-            return [grid_to_world(px, py, grid_msg) for px, py in path]
+            world_path = [
+                grid_to_world(px, py, grid_msg) for px, py in path
+            ]
+            if append_exact_goal:
+                exact_goal = (float(goal_wx), float(goal_wy))
+                if (not world_path
+                        or math.hypot(
+                            world_path[-1][0] - exact_goal[0],
+                            world_path[-1][1] - exact_goal[1],
+                        ) > 1e-9):
+                    world_path.append(exact_goal)
+            return world_path
 
         # 八邻域
         for dy, dx in [(-1, 0), (1, 0), (0, -1), (0, 1),
@@ -290,7 +527,7 @@ def _build_traversable_mask(grid: np.ndarray, resolution_m: float,
 
     if resolution_m <= 0.0:
         raise ValueError('map resolution must be positive')
-    # OccupancyGrid 是概率栅格；Cartographer 的已知自由区包含 1..25，
+    # OccupancyGrid 是概率栅格；Cartographer 的已知自由区包含 1..49，
     # 只接受精确 0 会让实时地图“没有前沿、没有路径”，而 map_saver 离线图正常。
     traversable = (grid >= FREE) & (grid <= FREE_MAX)
     radius_cells = max(0, int(math.ceil(float(inflation_radius_m) / resolution_m)))
@@ -348,3 +585,146 @@ def _heuristic(x1: int, y1: int, x2: int, y2: int) -> float:
     dx = abs(x1 - x2)
     dy = abs(y1 - y2)
     return max(dx, dy) + (1.414 - 1.0) * min(dx, dy)
+
+
+def _normalized_angle(angle: float) -> float:
+    """把角差规范到 [-pi, pi]，供前向前沿门禁使用。"""
+
+    return math.atan2(math.sin(float(angle)), math.cos(float(angle)))
+
+
+def compute_exploration_time_limit_s(
+        configured_timeout_s: float,
+        mission_budget_s: float,
+        distance_home_m: float,
+        return_speed_mps: float,
+        minimum_return_reserve_s: float = 120.0,
+        return_safety_factor: float = 2.0,
+        return_fixed_overhead_s: float = 30.0) -> float:
+    """计算当前距离下允许继续探索的仿真时间上限。
+
+    600 秒正式任务至少给返航保留 120 秒；距离增加时，按保守速度、路径绕行
+    倍率和固定重规划开销进一步提前返航。返回值始终不超过调用方配置的探索
+    上限，也不会侵占动态返航预留。
+    """
+
+    budget = max(0.0, float(mission_budget_s))
+    configured = max(0.0, float(configured_timeout_s))
+    minimum_reserve = max(0.0, float(minimum_return_reserve_s))
+    distance = max(0.0, float(distance_home_m))
+    speed = max(0.05, abs(float(return_speed_mps)))
+    safety_factor = max(1.0, float(return_safety_factor))
+    fixed_overhead = max(0.0, float(return_fixed_overhead_s))
+    estimated_return_s = fixed_overhead + distance / speed * safety_factor
+    reserve_s = min(budget, max(minimum_reserve, estimated_return_s))
+    return min(configured, max(0.0, budget - reserve_s))
+
+
+def return_pose_has_progress(
+        previous_x: float,
+        previous_y: float,
+        current_x: float,
+        current_y: float,
+        minimum_distance_m: float) -> bool:
+    """判断返航是否产生真实平移，不要求每一步都朝家的方向移动。
+
+    复杂楼宇的合法返航路径可能先绕开障碍、短时远离起点。看门狗只应在机体
+    没有实际位移时触发，不能用“距家单调减少”作为唯一进展条件。
+    """
+
+    threshold = max(0.0, float(minimum_distance_m))
+    return math.hypot(
+        float(current_x) - float(previous_x),
+        float(current_y) - float(previous_y),
+    ) >= threshold
+
+
+def frontier_route_is_excessive_detour(
+        path_distance_m: float,
+        straight_distance_m: float,
+        maximum_ratio: float = 2.8,
+        minimum_excess_m: float = 5.0) -> bool:
+    """判断前沿路径是否属于应暂缓的隔墙长绕行。
+
+    该门禁只比较合法 SLAM 地图上的 A* 路径长度与直线距离，不读取房间布局。
+    同时满足“比例过大”和“绝对多走距离过大”才返回真，避免把正常绕门或短距离
+    离散误差错误过滤。输入异常时关闭优化而不是拒绝目标，保持探索完备性。
+    """
+
+    try:
+        path_distance = float(path_distance_m)
+        straight_distance = float(straight_distance_m)
+        ratio_limit = float(maximum_ratio)
+        excess_limit = float(minimum_excess_m)
+    except (TypeError, ValueError):
+        return False
+    if not all(math.isfinite(value) for value in (
+            path_distance,
+            straight_distance,
+            ratio_limit,
+            excess_limit,
+    )):
+        return False
+    if path_distance < 0.0 or straight_distance < 0.0:
+        return False
+    ratio_limit = max(1.0, ratio_limit)
+    excess_limit = max(0.0, excess_limit)
+    effective_straight_distance = max(0.25, straight_distance)
+    return (
+        path_distance > straight_distance + excess_limit
+        and path_distance / effective_straight_distance > ratio_limit
+    )
+
+
+def return_recovery_turn_command(
+        attempt: int,
+        turn_speed_rad_s: float) -> float:
+    """生成左右交替且有界的返航脱困转速。"""
+
+    try:
+        attempt_index = int(attempt)
+        speed = abs(float(turn_speed_rad_s))
+    except (TypeError, ValueError):
+        return 0.0
+    if (attempt_index <= 0
+            or not math.isfinite(speed)
+            or speed <= 0.0):
+        return 0.0
+    return speed if attempt_index % 2 == 1 else -speed
+
+
+def nearest_frontier_basin_key(
+        keys: Iterable[Tuple[float, float]],
+        point_x: float,
+        point_y: float,
+        radius_m: float) -> Optional[Tuple[float, float]]:
+    """返回抑制半径内最近的失败前沿盆地。
+
+    Cartographer 地图持续更新时，同一墙角前沿的质心会有数厘米抖动，不能
+    只靠四舍五入后的精确键判断。该纯函数让节点按真实空间邻域合并失败记录。
+    """
+
+    radius = max(0.0, float(radius_m))
+    best_key = None
+    best_distance = float('inf')
+    for key in keys:
+        distance = math.hypot(
+            float(key[0]) - float(point_x),
+            float(key[1]) - float(point_y),
+        )
+        if distance <= radius and distance < best_distance:
+            best_key = key
+            best_distance = distance
+    return best_key
+
+
+def compute_frontier_backoff_ttl_s(
+        base_ttl_s: float,
+        maximum_ttl_s: float,
+        failure_count: int) -> float:
+    """按同一空间盆地的连续失败次数计算有上限的指数退避时间。"""
+
+    base = max(0.1, float(base_ttl_s))
+    maximum = max(base, float(maximum_ttl_s))
+    failures = max(1, int(failure_count))
+    return min(maximum, base * (2.0 ** min(failures - 1, 16)))

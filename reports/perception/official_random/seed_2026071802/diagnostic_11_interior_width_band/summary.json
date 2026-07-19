@@ -1,0 +1,38 @@
+{
+  "frame_count": 1555,
+  "frames_with_candidates": 151,
+  "total_candidate_count": 151,
+  "localized_candidate_count": 103,
+  "confirmed_hazard_count": 0,
+  "average_confidence": 0.9099,
+  "view_action_counts": {
+    "continue_exploring": 1404,
+    "move_left": 15,
+    "move_right": 85,
+    "turn_right": 51
+  },
+  "ground_truth_available": false,
+  "limitations": [
+    "未提供逐帧真值时，不计算识别率、虚警率、定位误差。",
+    "三维定位结果需在相机内参、对齐深度和 TF 坐标链均可用时再作结论。"
+  ],
+  "scenario": "2026071802",
+  "generated_at_unix_sec": 1784394620.366,
+  "record_file": "frames.jsonl",
+  "trajectory_file": "trajectory.jsonl",
+  "trajectory_sample_count": 243,
+  "run_manifest_file": "run_manifest.json",
+  "failure_reasons_file": "failure_reasons.json",
+  "evidence_contract": {
+    "run_mode": "official_random_scene",
+    "scenario_seed": "2026071802",
+    "code_version": "48a0b4922302d918fa6d2f57174c5e643d3965a4",
+    "legal_pose_topic": "/hazardwalker/slam/odometry",
+    "localization_provenance": "lidar_imu_slam",
+    "formal_evidence_eligible": true,
+    "contract_violations": [],
+    "truth_inputs_used": false
+  },
+  "mission_completed": false,
+  "map_snapshot_file": "cartographer_map.yaml"
+}

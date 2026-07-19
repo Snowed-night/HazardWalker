@@ -1,0 +1,24 @@
+{
+  "schema": "hazardwalker_perception_official_evidence_v1",
+  "evidence_contract": {
+    "run_mode": "official_random_scene",
+    "scenario_seed": "2026071802",
+    "code_version": "9a8c806a566b737ad5f90087383c06c43c5bb425",
+    "legal_pose_topic": "/hazardwalker/slam/odometry",
+    "localization_provenance": "lidar_imu_slam",
+    "formal_evidence_eligible": true,
+    "contract_violations": [],
+    "truth_inputs_used": false
+  },
+  "input_topics": {
+    "image": "/hw/camera/image_raw",
+    "depth": "/hw/camera/depth_image",
+    "detections": "/hw/perception/hazard_detections",
+    "legal_pose": "/hazardwalker/slam/odometry",
+    "mission_state": "/hw/mission/state",
+    "map": "/map"
+  },
+  "mission_completion_required": true,
+  "launch_command": "",
+  "started_at_unix_sec": 1784410549.429
+}

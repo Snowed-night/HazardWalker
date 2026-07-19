@@ -19,7 +19,10 @@ options = {
   use_odometry = true,
   use_nav_sat = false,
   use_landmarks = false,
-  num_laser_scans = 2,
+  -- 正式地图只融合 360° 水平雷达。旧的 RGB-D 中部竖带投影会把地面、
+  -- 楼梯和天花板压成二维墙体，固定种子实测形成放射状弱占据拖影与伪前沿。
+  -- 深度图继续供红球三维定位使用，但不再伪装成水平 LaserScan 输入 SLAM。
+  num_laser_scans = 1,
   num_multi_echo_laser_scans = 0,
   num_subdivisions_per_laser_scan = 1,
   num_point_clouds = 0,
@@ -37,7 +40,10 @@ options = {
 MAP_BUILDER.use_trajectory_builder_2d = true
 TRAJECTORY_BUILDER_2D.use_imu_data = true
 TRAJECTORY_BUILDER_2D.min_range = 0.40
-TRAJECTORY_BUILDER_2D.max_range = 30.0
+-- 官方 /scan 会用接近 30 m 的有限值表示量程上限。若 max_range 同为 30 m，
+-- Cartographer 会把这些“未击中”端点写成整圈弱占据障碍和伪前沿。室内正式
+-- 建图只把 8 m 内回波作为击中，超出部分按下方有限自由射线处理。
+TRAJECTORY_BUILDER_2D.max_range = 8.0
 TRAJECTORY_BUILDER_2D.missing_data_ray_length = 8.0
 TRAJECTORY_BUILDER_2D.num_accumulated_range_data = 1
 TRAJECTORY_BUILDER_2D.submaps.num_range_data = 60
@@ -49,5 +55,12 @@ TRAJECTORY_BUILDER_2D.motion_filter.max_angle_radians = math.rad(0.5)
 TRAJECTORY_BUILDER_2D.ceres_scan_matcher.translation_weight = 100.0
 TRAJECTORY_BUILDER_2D.ceres_scan_matcher.rotation_weight = 100.0
 POSE_GRAPH.optimize_every_n_nodes = 60
+-- 官方随机楼宇包含大量外观几乎相同的长直墙。默认 15 m 搜索半径会把相隔
+-- 3~7 m 的重复走廊误连成闭环，实测导致地图折叠、Frontier 在不足 1 m 处
+-- 提前耗尽。只允许与控制/扫描先验相近的局部闭环，并提高接受分数；真正回到
+-- 同一区域时先验已足够接近，仍可形成约束。
+POSE_GRAPH.constraint_builder.max_constraint_distance = 1.5
+POSE_GRAPH.constraint_builder.min_score = 0.72
+POSE_GRAPH.constraint_builder.global_localization_min_score = 0.90
 
 return options

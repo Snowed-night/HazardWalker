@@ -38,12 +38,57 @@ def parse_reobservation_request(payload):
         priority = int(recommendation.get('priority', 0))
     except (TypeError, ValueError):
         priority = 0
-    return {
+    request = {
         'action': action,
         'reason': str(recommendation.get('reason', '')).strip(),
         'priority': max(0, min(priority, 100)),
-        'target_id': str(recommendation.get('target_id', '')).strip(),
+        # 感知在首帧会使用 ``untracked:<id>``，轨迹建立后改用 ``<id>``。
+        # 两者必须共用一次复查预算，否则同一目标可绕过最大尝试次数。
+        'target_id': _canonical_target_id(recommendation.get('target_id')),
     }
+    raw_target_id = str(recommendation.get('target_id') or '').strip()
+    if raw_target_id.startswith('untracked:'):
+        request['target_was_untracked'] = True
+    try:
+        required_bearing_change_deg = float(
+            payload.get('required_min_view_bearing_span_deg')
+        )
+    except (TypeError, ValueError):
+        required_bearing_change_deg = None
+    if (required_bearing_change_deg is not None
+            and math.isfinite(required_bearing_change_deg)
+            and 0.0 < required_bearing_change_deg < 180.0):
+        request['required_bearing_change_deg'] = required_bearing_change_deg
+
+    target_id = request['target_id']
+    detections = payload.get('detections_2d')
+    if isinstance(detections, list):
+        detection = find_target_detection(
+            payload,
+            target_id,
+            allow_untracked_upgrade=bool(
+                request.get('target_was_untracked', False)
+            ),
+        )
+        if detection is not None:
+            try:
+                bearing_deg = float(detection.get('view_bearing_deg'))
+            except (TypeError, ValueError):
+                bearing_deg = None
+            if bearing_deg is not None and math.isfinite(bearing_deg):
+                request['view_bearing_deg'] = bearing_deg
+            position = detection.get('localized_position')
+            if (isinstance(position, (list, tuple)) and len(position) == 3):
+                try:
+                    normalized_position = [
+                        float(position[0]), float(position[1]), float(position[2]),
+                    ]
+                except (TypeError, ValueError):
+                    normalized_position = None
+                if (normalized_position is not None
+                        and all(math.isfinite(value) for value in normalized_position)):
+                    request['target_position'] = normalized_position
+    return request
 
 
 def reobservation_request_is_eligible(
@@ -52,11 +97,148 @@ def reobservation_request_is_eligible(
 
     if request is None or str(state) != 'EXPLORING':
         return False
-    target_id = str(request.get('target_id', '')).strip()
+    target_id = _canonical_target_id(request.get('target_id'))
     if not target_id:
         return False
-    attempts = int(attempts_by_target.get(target_id, 0))
+    attempts = max(
+        (
+            int(value)
+            for key, value in attempts_by_target.items()
+            if _canonical_target_id(key) == target_id
+        ),
+        default=0,
+    )
     return attempts < max(1, int(max_attempts_per_target))
+
+
+def bearing_change_deg(first_bearing_deg, second_bearing_deg):
+    """返回两个世界视线方位的最小夹角，处理 ±180° 环绕。"""
+
+    try:
+        first = float(first_bearing_deg)
+        second = float(second_bearing_deg)
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(first) or not math.isfinite(second):
+        return None
+    delta_rad = math.atan2(
+        math.sin(math.radians(second - first)),
+        math.cos(math.radians(second - first)),
+    )
+    return abs(math.degrees(delta_rad))
+
+
+def find_target_detection(
+        payload, target_id, allow_untracked_upgrade=False):
+    """从当前感知载荷中找到同一目标的检测框。
+
+    已建立轨迹后默认只接受精确 ``track_id``，不能再把新的
+    ``untracked:<id>`` 仅凭数字后缀当作原目标。只有复查由未跟踪首帧触发时，
+    调用方才可临时允许一次 ``untracked:1 -> 1`` 的轨迹升级。
+    """
+
+    if not isinstance(payload, dict):
+        return None
+    detections = payload.get('detections_2d')
+    if not isinstance(detections, list):
+        return None
+    expected = str(target_id or '').strip()
+    if not expected:
+        return None
+    expected_canonical = _canonical_target_id(expected)
+    return next(
+        (
+            item for item in detections
+            if isinstance(item, dict)
+            and (
+                _detection_identity(item) == expected
+                or (
+                    bool(allow_untracked_upgrade)
+                    and _canonical_target_id(
+                        _detection_identity(item)
+                    ) == expected_canonical
+                )
+            )
+        ),
+        None,
+    )
+
+
+def target_centered_in_image(
+        detection, image_width, center_tolerance_ratio=0.18):
+    """目标框进入图像中央带时返回真，供转向视觉伺服提前停车。"""
+
+    if not isinstance(detection, dict):
+        return False
+    bbox = detection.get('bbox')
+    if not isinstance(bbox, dict):
+        return False
+    try:
+        width = float(image_width)
+        x_min = float(bbox.get('x_min'))
+        x_max = float(bbox.get('x_max'))
+        tolerance = float(center_tolerance_ratio)
+    except (TypeError, ValueError):
+        return False
+    if (not all(math.isfinite(value) for value in (
+            width, x_min, x_max, tolerance))
+            or width <= 0.0 or x_max < x_min):
+        return False
+    center_x = 0.5 * (x_min + x_max)
+    tolerance_px = width * max(0.02, min(0.45, tolerance))
+    return abs(center_x - 0.5 * width) <= tolerance_px
+
+
+def reobservation_actions_conflict(current_action, recommended_action):
+    """实时建议与当前机动方向相反时返回真。"""
+
+    opposites = {
+        'move_left': 'move_right',
+        'move_right': 'move_left',
+        'turn_left': 'turn_right',
+        'turn_right': 'turn_left',
+    }
+    current = str(current_action or '').strip()
+    recommended = str(recommended_action or '').strip()
+    return opposites.get(current) == recommended
+
+
+def find_target_status(payload, target_id):
+    """返回同一目标的 confirmed/rejected 等轨迹状态。"""
+
+    if not isinstance(payload, dict):
+        return ''
+    hazards = payload.get('hazards')
+    if not isinstance(hazards, list):
+        return ''
+    for item in hazards:
+        if isinstance(item, dict) and _same_target_id(item.get('id'), target_id):
+            return str(item.get('status', '')).strip()
+    return ''
+
+
+def _canonical_target_id(value):
+    """统一首帧未跟踪 ID 与后续轨迹 ID。"""
+
+    text = str(value or '').strip()
+    return text.split(':', 1)[1] if text.startswith('untracked:') else text
+
+
+def _same_target_id(left, right):
+    normalized_left = _canonical_target_id(left)
+    normalized_right = _canonical_target_id(right)
+    return bool(normalized_left and normalized_left == normalized_right)
+
+
+def _detection_identity(detection):
+    """优先返回显式轨迹 ID；没有轨迹字段时才退回帧内检测 ID。"""
+
+    if not isinstance(detection, dict):
+        return ''
+    track_id = str(detection.get('track_id') or '').strip()
+    if track_id:
+        return track_id
+    return str(detection.get('id') or '').strip()
 
 
 def action_has_scan_clearance(

@@ -15,7 +15,10 @@ import os
 import shutil
 import tempfile
 
-from ament_index_python.packages import get_package_share_directory
+from ament_index_python.packages import (
+    PackageNotFoundError,
+    get_package_share_directory,
+)
 from launch import LaunchDescription
 from launch.actions import (
     DeclareLaunchArgument,
@@ -36,6 +39,38 @@ def _as_bool(value):
     return str(value).strip().lower() in ('true', '1', 'yes', 'on')
 
 
+def _launch_slam_toolbox(context, slam_config):
+    """仅在显式选择 slam_toolbox 时解析其安装路径并启动生命周期入口。"""
+
+    if not _as_bool(LaunchConfiguration('start_slam').perform(context)):
+        return []
+    if LaunchConfiguration('slam_backend').perform(context) != 'slam_toolbox':
+        return []
+
+    try:
+        slam_toolbox_share = get_package_share_directory('slam_toolbox')
+    except PackageNotFoundError as exc:
+        raise RuntimeError(
+            'start_slam=true and slam_backend=slam_toolbox require '
+            'slam_toolbox; install the ROS package or select cartographer.'
+        ) from exc
+    slam_launch = os.path.join(
+        slam_toolbox_share,
+        'launch',
+        'online_async_launch.py',
+    )
+    return [
+        IncludeLaunchDescription(
+            PythonLaunchDescriptionSource(slam_launch),
+            launch_arguments={
+                'slam_params_file': slam_config,
+                'autostart': 'true',
+                'use_sim_time': LaunchConfiguration('use_sim_time').perform(context),
+            }.items(),
+        ),
+    ]
+
+
 def _launch_cartographer(context, nav_pkg):
     """只在显式选择后准备上游 Lua 目录并返回 Cartographer 节点。
 
@@ -53,7 +88,13 @@ def _launch_cartographer(context, nav_pkg):
     # 配置，却不一定把它注册为可被 ament_index 查询的独立包。因此从已注册的
     # cartographer_ros 共享目录回到同一 share 前缀，避免正式 launch 因
     # get_package_share_directory('cartographer') 直接退出。
-    cartographer_ros_share = get_package_share_directory('cartographer_ros')
+    try:
+        cartographer_ros_share = get_package_share_directory('cartographer_ros')
+    except PackageNotFoundError as exc:
+        raise RuntimeError(
+            'start_slam=true and slam_backend=cartographer require '
+            'cartographer_ros; configure the official stack Cartographer prefix.'
+        ) from exc
     builtin_dir = os.path.join(
         os.path.dirname(cartographer_ros_share),
         'cartographer',
@@ -78,13 +119,6 @@ def _launch_cartographer(context, nav_pkg):
     )
     return [
         Node(
-            package='hazardwalker_perception',
-            executable='depth_to_scan_node',
-            name='hazardwalker_depth_to_scan',
-            output='screen',
-            parameters=[{'use_sim_time': use_sim_time}],
-        ),
-        Node(
             package='cartographer_ros',
             executable='cartographer_node',
             name='hazardwalker_cartographer',
@@ -95,8 +129,9 @@ def _launch_cartographer(context, nav_pkg):
             ],
             parameters=[{'use_sim_time': use_sim_time}],
             remappings=[
-                ('scan_1', '/hw/scan'),
-                ('scan_2', '/hw/depth_scan'),
+                # Cartographer 单雷达模式的标准输入名是 scan；只有配置两个
+                # LaserScan 时才改为 scan_1、scan_2。
+                ('scan', '/hw/scan'),
                 ('imu', '/hw/trunk_imu'),
                 ('odom', '/hazardwalker/slam/odometry'),
             ],
@@ -126,6 +161,7 @@ def generate_launch_description():
     nav_mode = LaunchConfiguration('nav_mode')
     perception_output_frame = LaunchConfiguration('perception_output_frame')
     localization_provenance = LaunchConfiguration('localization_provenance')
+    exploration_timeout_s = LaunchConfiguration('exploration_timeout_s')
     evidence_output_dir = LaunchConfiguration('evidence_output_dir')
     test_record_dir = LaunchConfiguration('test_record_dir')
     scenario_seed = LaunchConfiguration('scenario_seed')
@@ -135,6 +171,9 @@ def generate_launch_description():
     scenario_seed_string = ParameterValue(scenario_seed, value_type=str)
     code_version_string = ParameterValue(code_version, value_type=str)
     sim_time_parameter = ParameterValue(use_sim_time, value_type=bool)
+    exploration_timeout_parameter = ParameterValue(
+        exploration_timeout_s, value_type=float,
+    )
     # Cartographer 融合模式需要合法前端只发布 Odometry；否则由该前端直接拥有
     # odom→base。表达式同时考虑 start_slam=false 的安全默认启动。
     publish_legal_tf_parameter = ParameterValue(
@@ -148,15 +187,6 @@ def generate_launch_description():
 
     nav_pkg = get_package_share_directory('hazardwalker_nav')
     slam_config = os.path.join(nav_pkg, 'config', 'slam_toolbox_online_async.yaml')
-    slam_launch = os.path.join(
-        get_package_share_directory('slam_toolbox'),
-        'launch',
-        'online_async_launch.py',
-    )
-    use_slam_toolbox = IfCondition(PythonExpression([
-        "'", start_slam, "'.lower() in ('true', '1', 'yes') and '",
-        slam_backend, "' == 'slam_toolbox'",
-    ]))
 
     return LaunchDescription([
         DeclareLaunchArgument('start_perception', default_value='true'),
@@ -180,6 +210,10 @@ def generate_launch_description():
         # 只有调用方确认合法 SLAM 已实际运行后才能声明来源；默认值必须
         # fail-closed，避免把缺失/错误 TF 下的候选导出为 world 危险源。
         DeclareLaunchArgument('localization_provenance', default_value='unverified'),
+        # 保留旧启动接口的 540 秒“请求值”；节点受 600 秒总预算和至少
+        # 120 秒返航预留硬约束，实际探索上限仍不超过 480 秒，并会按距家
+        # 距离和保守速度进一步提前返航。
+        DeclareLaunchArgument('exploration_timeout_s', default_value='540.0'),
         DeclareLaunchArgument('evidence_output_dir', default_value=''),
         DeclareLaunchArgument('test_record_dir', default_value=''),
         DeclareLaunchArgument('scenario_seed', default_value=''),
@@ -210,17 +244,13 @@ def generate_launch_description():
         # ---- SLAM Toolbox (在线异步建图) ----
         # slam_toolbox 是 lifecycle 节点。直接用普通 Node 只会停在
         # unconfigured，进程存在但永远没有 /map；必须使用官方 autostart 入口。
-        IncludeLaunchDescription(
-            PythonLaunchDescriptionSource(slam_launch),
-            launch_arguments={
-                'slam_params_file': slam_config,
-                'autostart': 'true',
-                'use_sim_time': use_sim_time,
-            }.items(),
-            condition=use_slam_toolbox,
+        OpaqueFunction(
+            function=_launch_slam_toolbox,
+            kwargs={'slam_config': slam_config},
         ),
 
-        # ---- Cartographer：官方首选 scan + trunk IMU + 合法控制先验融合 ----
+        # ---- Cartographer：360° 水平 scan + trunk IMU + 合法控制先验融合 ----
+        # RGB-D 仍由感知用于目标定位；未经高度过滤的深度竖带不得投成 SLAM 墙体。
         OpaqueFunction(
             function=_launch_cartographer,
             kwargs={'nav_pkg': nav_pkg},
@@ -249,6 +279,7 @@ def generate_launch_description():
             output='screen',
             parameters=[{
                 'official_result_path': official_result_path,
+                'official_require_frontier_sequence': True,
                 'use_sim_time': sim_time_parameter,
             }],
             condition=IfCondition(start_decision),
@@ -287,8 +318,20 @@ def generate_launch_description():
                 name='frontier_explorer_node',
                 output='screen',
                 parameters=[{
-                    'exploration_timeout_s': 540.0,
+                    'exploration_timeout_s': exploration_timeout_parameter,
+                    'mission_time_budget_s': 600.0,
+                    'minimum_return_reserve_s': 120.0,
                     'min_frontier_size': 10,
+                    # reference.md 公开起点 yaw=+pi/2(world)，而 world->map
+                    # 公开别名同为 +pi/2，因此起点在 map 帧的入楼朝向为 0 rad。
+                    'entry_heading_yaw': 0.0,
+                    'entry_forward_half_angle_deg': 35.0,
+                    # 在公开入口轴上至少深入 6 m 后再允许全向前沿竞争，
+                    # 避免刚选中入口就被楼外南北开放边界吸走。
+                    'entry_ingress_depth_m': 6.0,
+                    # 官方生成器公开 footprint width 上限为 20 m；多留 2 m
+                    # SLAM/墙厚裕量，屏蔽横向远处楼外开放区。
+                    'entry_lateral_limit_m': 12.0,
                     # 0.8 m 会让入口附近的前沿在机器人尚未运动时即被判定完成。
                     'goal_tolerance_m': 0.25,
                     'linear_speed': 0.35,
