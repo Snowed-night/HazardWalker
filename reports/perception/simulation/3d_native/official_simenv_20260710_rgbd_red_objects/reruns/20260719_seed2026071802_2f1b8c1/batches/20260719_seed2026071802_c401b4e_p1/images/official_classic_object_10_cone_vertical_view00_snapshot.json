@@ -1,0 +1,18 @@
+{
+  "case_id": "official_classic_object_10_cone_vertical_view00",
+  "image_stamp": {
+    "sec": 46,
+    "nanosec": 225000000
+  },
+  "depth_stamp": {
+    "sec": 46,
+    "nanosec": 225000000
+  },
+  "localization_ready": true,
+  "detections_2d": [],
+  "hazards": [],
+  "raw_image": "official_classic_object_10_cone_vertical_view00_raw.png",
+  "annotated_image": "official_classic_object_10_cone_vertical_view00_annotated.png",
+  "depth_metric_image": "official_classic_object_10_cone_vertical_view00_depth_mm.png",
+  "depth_visual_image": "official_classic_object_10_cone_vertical_view00_depth_visual.png"
+}

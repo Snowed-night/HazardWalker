@@ -1,0 +1,20 @@
+{
+  "schema": "hazardwalker_official_simenv_classic_evidence_v1",
+  "suite": "red_objects",
+  "case_count": 24,
+  "pass_count": 9,
+  "fail_count": 15,
+  "batch_count": 2,
+  "code_versions": [
+    "2f1b8c17a15dc7f3afbcfbc9a2a4f0817b62a92c",
+    "c401b4ef0e5d2e7806eb8947c5b2ec13788f3966"
+  ],
+  "source_run_ids": [
+    "20260719_seed2026071802_c401b4e",
+    "20260719_seed2026071802_2f1b8c1_p2reset"
+  ],
+  "evidence_level": "internal_regression",
+  "official_score_eligible": false,
+  "truth_usage": "仅在快照保存后离线匹配；运行期检测器、运动策略不读取真值。",
+  "note": "分批结果因 Gazebo 清理隔离而合并；每个原始批次完整保留在 batches/。"
+}

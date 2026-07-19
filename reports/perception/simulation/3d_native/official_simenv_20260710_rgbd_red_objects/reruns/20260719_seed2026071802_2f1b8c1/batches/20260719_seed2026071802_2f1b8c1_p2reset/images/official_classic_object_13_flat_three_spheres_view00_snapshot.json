@@ -1,0 +1,133 @@
+{
+  "case_id": "official_classic_object_13_flat_three_spheres_view00",
+  "image_stamp": {
+    "sec": 1,
+    "nanosec": 261000000
+  },
+  "depth_stamp": {
+    "sec": 1,
+    "nanosec": 111000000
+  },
+  "localization_ready": true,
+  "detections_2d": [
+    {
+      "id": "untracked:1",
+      "frame_id": "real_sense",
+      "view_id": "xy:0.0:0.0|yaw:0",
+      "stamp": {
+        "sec": 1,
+        "nanosec": 211000000
+      },
+      "bbox": {
+        "x_min": 235,
+        "y_min": 330,
+        "x_max": 273,
+        "y_max": 368
+      },
+      "confidence": 0.990507889546351,
+      "red_pixel_count": 1119,
+      "is_partial": false,
+      "requires_reobservation": true,
+      "may_be_merged": true,
+      "quality_reason": "split_candidate_requires_independent_view",
+      "shape": {
+        "circularity": 1.0,
+        "aspect_ratio": 1.0,
+        "extent": 0.7456377041064531
+      },
+      "depth_shape": {
+        "status": "spherical",
+        "center_depth_m": 2.846081495285034,
+        "outer_depth_m": 2.8778847455978394,
+        "curvature_m": 0.031803250312805176,
+        "horizontal_curvature_m": 0.031080126762390137,
+        "vertical_curvature_m": 0.030229926109313965,
+        "diagonal_positive_curvature_m": 0.032424330711364746,
+        "diagonal_negative_curvature_m": 0.02761828899383545,
+        "curvature_isotropy_ratio": 0.8517766870714535,
+        "center_points": 145,
+        "outer_points": 504,
+        "horizontal_points": 92,
+        "vertical_points": 92,
+        "diagonal_positive_points": 64,
+        "diagonal_negative_points": 64
+      },
+      "confirmation_eligible": false,
+      "depth_synchronized": true,
+      "depth_stamp_delta_sec": 0.0,
+      "localization_status": "localized",
+      "localized_position": [
+        2.8747,
+        0.3447,
+        -0.5624
+      ],
+      "track_id": "",
+      "track_status": "untracked",
+      "track_association": "none",
+      "source": "hsv_minimal",
+      "detector_backend": "hsv_opencv"
+    },
+    {
+      "id": "untracked:2",
+      "frame_id": "real_sense",
+      "view_id": "xy:0.0:0.0|yaw:0",
+      "stamp": {
+        "sec": 1,
+        "nanosec": 211000000
+      },
+      "bbox": {
+        "x_min": 287,
+        "y_min": 326,
+        "x_max": 324,
+        "y_max": 364
+      },
+      "confidence": 0.989423076923077,
+      "red_pixel_count": 1126,
+      "is_partial": false,
+      "requires_reobservation": true,
+      "may_be_merged": true,
+      "quality_reason": "split_candidate_requires_independent_view",
+      "shape": {
+        "circularity": 1.0,
+        "aspect_ratio": 0.9743589743589743,
+        "extent": 0.7652597489513598
+      },
+      "depth_shape": {
+        "status": "spherical",
+        "center_depth_m": 2.8421205282211304,
+        "outer_depth_m": 2.8723114728927612,
+        "curvature_m": 0.03019094467163086,
+        "horizontal_curvature_m": 0.030309677124023438,
+        "vertical_curvature_m": 0.030268073081970215,
+        "diagonal_positive_curvature_m": 0.030062317848205566,
+        "diagonal_negative_curvature_m": 0.029620647430419922,
+        "curvature_isotropy_ratio": 0.9772670064816563,
+        "center_points": 142,
+        "outer_points": 492,
+        "horizontal_points": 92,
+        "vertical_points": 88,
+        "diagonal_positive_points": 66,
+        "diagonal_negative_points": 66
+      },
+      "confirmation_eligible": false,
+      "depth_synchronized": true,
+      "depth_stamp_delta_sec": 0.0,
+      "localization_status": "localized",
+      "localized_position": [
+        2.8717,
+        0.0777,
+        -0.5411
+      ],
+      "track_id": "",
+      "track_status": "untracked",
+      "track_association": "none",
+      "source": "hsv_minimal",
+      "detector_backend": "hsv_opencv"
+    }
+  ],
+  "hazards": [],
+  "raw_image": "official_classic_object_13_flat_three_spheres_view00_raw.png",
+  "annotated_image": "official_classic_object_13_flat_three_spheres_view00_annotated.png",
+  "depth_metric_image": "official_classic_object_13_flat_three_spheres_view00_depth_mm.png",
+  "depth_visual_image": "official_classic_object_13_flat_three_spheres_view00_depth_visual.png"
+}

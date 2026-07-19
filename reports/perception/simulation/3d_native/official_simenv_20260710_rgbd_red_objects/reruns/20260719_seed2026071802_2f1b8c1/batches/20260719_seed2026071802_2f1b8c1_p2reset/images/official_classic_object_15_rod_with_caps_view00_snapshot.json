@@ -1,0 +1,190 @@
+{
+  "case_id": "official_classic_object_15_rod_with_caps_view00",
+  "image_stamp": {
+    "sec": 1,
+    "nanosec": 465000000
+  },
+  "depth_stamp": {
+    "sec": 1,
+    "nanosec": 465000000
+  },
+  "localization_ready": true,
+  "detections_2d": [
+    {
+      "id": "untracked:1",
+      "frame_id": "real_sense",
+      "view_id": "xy:0.0:0.0|yaw:0",
+      "stamp": {
+        "sec": 1,
+        "nanosec": 415000000
+      },
+      "bbox": {
+        "x_min": 211,
+        "y_min": 340,
+        "x_max": 244,
+        "y_max": 374
+      },
+      "confidence": 0.9882142857142857,
+      "red_pixel_count": 879,
+      "is_partial": false,
+      "requires_reobservation": true,
+      "may_be_merged": true,
+      "quality_reason": "split_candidate_requires_independent_view",
+      "shape": {
+        "circularity": 1.0,
+        "aspect_ratio": 0.9714285714285714,
+        "extent": 0.762958215871807
+      },
+      "depth_shape": {
+        "status": "spherical",
+        "center_depth_m": 2.907511591911316,
+        "outer_depth_m": 2.93058180809021,
+        "curvature_m": 0.023070216178894043,
+        "horizontal_curvature_m": 0.013958930969238281,
+        "vertical_curvature_m": 0.028234362602233887,
+        "diagonal_positive_curvature_m": 0.028094172477722168,
+        "diagonal_negative_curvature_m": 0.022478103637695312,
+        "curvature_isotropy_ratio": 0.49439511583427276,
+        "center_points": 116,
+        "outer_points": 382,
+        "horizontal_points": 74,
+        "vertical_points": 68,
+        "diagonal_positive_points": 46,
+        "diagonal_negative_points": 46
+      },
+      "confirmation_eligible": false,
+      "depth_synchronized": true,
+      "depth_stamp_delta_sec": 0.0,
+      "localization_status": "localized",
+      "localized_position": [
+        2.9268,
+        0.4908,
+        -0.6148
+      ],
+      "track_id": "",
+      "track_status": "untracked",
+      "track_association": "none",
+      "source": "hsv_minimal",
+      "detector_backend": "hsv_opencv"
+    },
+    {
+      "id": "untracked:2",
+      "frame_id": "real_sense",
+      "view_id": "xy:0.0:0.0|yaw:0",
+      "stamp": {
+        "sec": 1,
+        "nanosec": 415000000
+      },
+      "bbox": {
+        "x_min": 239,
+        "y_min": 342,
+        "x_max": 271,
+        "y_max": 374
+      },
+      "confidence": 0.9784960399449036,
+      "red_pixel_count": 767,
+      "is_partial": false,
+      "requires_reobservation": true,
+      "may_be_merged": true,
+      "quality_reason": "split_candidate_requires_independent_view",
+      "shape": {
+        "circularity": 1.0,
+        "aspect_ratio": 1.0,
+        "extent": 0.7385194851414022
+      },
+      "depth_shape": {
+        "status": "flat",
+        "center_depth_m": 2.817011594772339,
+        "outer_depth_m": 2.8173128366470337,
+        "curvature_m": 0.0003012418746948242,
+        "horizontal_curvature_m": null,
+        "vertical_curvature_m": null,
+        "diagonal_positive_curvature_m": null,
+        "diagonal_negative_curvature_m": null,
+        "curvature_isotropy_ratio": null,
+        "center_points": 101,
+        "outer_points": 360,
+        "horizontal_points": 66,
+        "vertical_points": 66,
+        "diagonal_positive_points": 50,
+        "diagonal_negative_points": 50
+      },
+      "confirmation_eligible": false,
+      "depth_synchronized": true,
+      "depth_stamp_delta_sec": 0.0,
+      "localization_status": "suppressed_non_spherical_depth_shape",
+      "localized_position": [
+        2.8199,
+        0.333,
+        -0.5974
+      ],
+      "track_id": "",
+      "track_status": "untracked",
+      "track_association": "none",
+      "source": "hsv_minimal",
+      "detector_backend": "hsv_opencv"
+    },
+    {
+      "id": "untracked:3",
+      "frame_id": "real_sense",
+      "view_id": "xy:0.0:0.0|yaw:0",
+      "stamp": {
+        "sec": 1,
+        "nanosec": 415000000
+      },
+      "bbox": {
+        "x_min": 272,
+        "y_min": 336,
+        "x_max": 302,
+        "y_max": 366
+      },
+      "confidence": 0.9596608350676378,
+      "red_pixel_count": 709,
+      "is_partial": false,
+      "requires_reobservation": true,
+      "may_be_merged": true,
+      "quality_reason": "split_candidate_requires_independent_view",
+      "shape": {
+        "circularity": 1.0,
+        "aspect_ratio": 1.0,
+        "extent": 0.7355445859081201
+      },
+      "depth_shape": {
+        "status": "spherical",
+        "center_depth_m": 2.9145381450653076,
+        "outer_depth_m": 2.9370570182800293,
+        "curvature_m": 0.02251887321472168,
+        "horizontal_curvature_m": 0.02289557456970215,
+        "vertical_curvature_m": 0.02074134349822998,
+        "diagonal_positive_curvature_m": 0.022711634635925293,
+        "diagonal_negative_curvature_m": 0.02142655849456787,
+        "curvature_isotropy_ratio": 0.9059105913715363,
+        "center_points": 97,
+        "outer_points": 316,
+        "horizontal_points": 52,
+        "vertical_points": 52,
+        "diagonal_positive_points": 42,
+        "diagonal_negative_points": 42
+      },
+      "confirmation_eligible": false,
+      "depth_synchronized": true,
+      "depth_stamp_delta_sec": 0.0,
+      "localization_status": "localized",
+      "localized_position": [
+        2.935,
+        0.1773,
+        -0.5848
+      ],
+      "track_id": "",
+      "track_status": "untracked",
+      "track_association": "none",
+      "source": "hsv_minimal",
+      "detector_backend": "hsv_opencv"
+    }
+  ],
+  "hazards": [],
+  "raw_image": "official_classic_object_15_rod_with_caps_view00_raw.png",
+  "annotated_image": "official_classic_object_15_rod_with_caps_view00_annotated.png",
+  "depth_metric_image": "official_classic_object_15_rod_with_caps_view00_depth_mm.png",
+  "depth_visual_image": "official_classic_object_15_rod_with_caps_view00_depth_visual.png"
+}
