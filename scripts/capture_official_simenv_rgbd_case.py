@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """采集官方 SimEnv ROS2 RGB-D 感知测试的单个原生案例。
 
-该工具订阅正在运行的官方平台相机与指定感知输出话题，保存原始 RGB、
-带实际检测框的标注图和精简 JSON 快照。它不读取场景真值；预期标签应由
+该工具订阅正在运行的官方平台 RGB、深度与指定感知输出话题，保存原始 RGB、
+可恢复米制深度、深度可视化、实际检测框标注图和精简 JSON 快照。它不读取场景真值；预期标签应由
 调用方依据临时受控模型配置写入测试记录。
 """
 
@@ -23,13 +23,16 @@ from std_msgs.msg import String
 class CaseCapture(Node):
     """缓存同一测试窗口内最新 RGB 帧及感知 JSON，避免命令行 echo 截断。"""
 
-    def __init__(self, image_topic: str, detection_topic: str):
+    def __init__(self, image_topic: str, depth_topic: str, detection_topic: str):
         super().__init__('official_simenv_rgbd_case_capture')
         self.image = None
         self.image_stamp = None
+        self.depth_m = None
+        self.depth_stamp = None
         self.payload = None
         self.payload_received_at = 0.0
         self.create_subscription(Image, image_topic, self._on_image, qos_profile_sensor_data)
+        self.create_subscription(Image, depth_topic, self._on_depth, qos_profile_sensor_data)
         self.create_subscription(String, detection_topic, self._on_detection, 10)
 
     def _on_image(self, message: Image):
@@ -41,6 +44,23 @@ class CaseCapture(Node):
         image = packed.reshape((message.height, message.width, 3))
         self.image = image[:, :, ::-1].copy() if message.encoding.lower() == 'rgb8' else image.copy()
         self.image_stamp = (message.header.stamp.sec, message.header.stamp.nanosec)
+
+    def _on_depth(self, message: Image):
+        """把 16UC1 毫米或 32FC1 米深度统一为 float32 米。"""
+
+        encoding = message.encoding.upper()
+        dtype = np.uint16 if encoding == '16UC1' else np.float32 if encoding == '32FC1' else None
+        if dtype is None:
+            return
+        item_size = np.dtype(dtype).itemsize
+        raw = np.frombuffer(bytes(message.data), dtype=dtype)
+        row_items = message.step // item_size
+        packed = raw.reshape((message.height, row_items))[:, :message.width]
+        depth = packed.astype(np.float32)
+        if encoding == '16UC1':
+            depth *= 0.001
+        self.depth_m = depth
+        self.depth_stamp = (message.header.stamp.sec, message.header.stamp.nanosec)
 
     def _on_detection(self, message: String):
         """仅接收格式正确的实际节点输出，不对检测结果作人工补写。"""
@@ -59,7 +79,8 @@ def _compact_detection(item: dict) -> dict:
             'id', 'frame_id', 'view_id', 'stamp', 'bbox', 'confidence', 'red_pixel_count',
             'is_partial', 'requires_reobservation', 'may_be_merged',
             'quality_reason', 'shape', 'depth_shape', 'confirmation_eligible',
-            'localization_status', 'source',
+            'depth_synchronized', 'depth_stamp_delta_sec', 'localization_status',
+            'localized_position', 'track_id', 'track_status', 'track_association', 'source',
             'detector_backend',
         )
         if key in item
@@ -100,46 +121,79 @@ def _draw_annotations(image: np.ndarray, detections: list[dict]) -> np.ndarray:
     return annotated
 
 
+def _depth_archives(depth_m: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """生成可恢复米制值的 uint16 毫米图和便于人工检查的伪彩色图。"""
+
+    valid = np.isfinite(depth_m) & (depth_m > 0.0) & (depth_m < 65.535)
+    depth_mm = np.zeros(depth_m.shape, dtype=np.uint16)
+    depth_mm[valid] = np.clip(
+        np.rint(depth_m[valid] * 1000.0), 1, 65535,
+    ).astype(np.uint16)
+    visual = np.zeros(depth_m.shape, dtype=np.uint8)
+    if np.any(valid):
+        low, high = np.percentile(depth_m[valid], (2.0, 98.0))
+        if high <= low:
+            high = low + 0.001
+        normalized = np.clip((depth_m - low) / (high - low), 0.0, 1.0)
+        visual[valid] = np.rint((1.0 - normalized[valid]) * 255.0).astype(np.uint8)
+    colored = cv2.applyColorMap(visual, cv2.COLORMAP_TURBO)
+    colored[~valid] = 0
+    return depth_mm, colored
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--case-id', required=True)
     parser.add_argument('--output-dir', required=True, type=Path)
     parser.add_argument('--image-topic', default='/hw/camera/image_raw')
+    parser.add_argument('--depth-topic', default='/hw/camera/depth_image')
     parser.add_argument('--detection-topic', required=True)
     parser.add_argument('--timeout-sec', type=float, default=15.0)
     args = parser.parse_args()
 
     rclpy.init()
-    node = CaseCapture(args.image_topic, args.detection_topic)
+    node = CaseCapture(args.image_topic, args.depth_topic, args.detection_topic)
     deadline = time.monotonic() + args.timeout_sec
     # 等待图像与感知输出都到达。节点输出每帧更新，保证快照来自当前场景。
     while time.monotonic() < deadline:
         rclpy.spin_once(node, timeout_sec=0.25)
-        if node.image is not None and node.payload is not None:
+        if node.image is not None and node.depth_m is not None and node.payload is not None:
             break
 
-    if node.image is None or node.payload is None:
+    if node.image is None or node.depth_m is None or node.payload is None:
         node.destroy_node()
         rclpy.shutdown()
-        missing = 'image' if node.image is None else 'detection payload'
+        missing = (
+            'RGB image' if node.image is None
+            else 'depth image' if node.depth_m is None
+            else 'detection payload'
+        )
         raise RuntimeError(f'Timed out waiting for {missing}.')
 
     output_dir = args.output_dir
     output_dir.mkdir(parents=True, exist_ok=True)
     raw_path = output_dir / f'{args.case_id}_raw.png'
     annotated_path = output_dir / f'{args.case_id}_annotated.png'
+    depth_metric_path = output_dir / f'{args.case_id}_depth_mm.png'
+    depth_visual_path = output_dir / f'{args.case_id}_depth_visual.png'
     snapshot_path = output_dir / f'{args.case_id}_snapshot.json'
     detections = node.payload.get('detections_2d', [])
     cv2.imwrite(str(raw_path), node.image)
     cv2.imwrite(str(annotated_path), _draw_annotations(node.image, detections))
+    depth_mm, depth_visual = _depth_archives(node.depth_m)
+    cv2.imwrite(str(depth_metric_path), depth_mm)
+    cv2.imwrite(str(depth_visual_path), depth_visual)
     snapshot = {
         'case_id': args.case_id,
         'image_stamp': {'sec': node.image_stamp[0], 'nanosec': node.image_stamp[1]},
+        'depth_stamp': {'sec': node.depth_stamp[0], 'nanosec': node.depth_stamp[1]},
         'localization_ready': bool(node.payload.get('localization_ready')),
         'detections_2d': [_compact_detection(item) for item in detections],
         'hazards': [_compact_hazard(item) for item in node.payload.get('hazards', [])],
         'raw_image': raw_path.name,
         'annotated_image': annotated_path.name,
+        'depth_metric_image': depth_metric_path.name,
+        'depth_visual_image': depth_visual_path.name,
     }
     snapshot_path.write_text(json.dumps(snapshot, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
     print(json.dumps({
@@ -148,6 +202,8 @@ def main():
         'hazard_count': len(snapshot['hazards']),
         'raw_image': str(raw_path),
         'annotated_image': str(annotated_path),
+        'depth_metric_image': str(depth_metric_path),
+        'depth_visual_image': str(depth_visual_path),
         'snapshot': str(snapshot_path),
     }, ensure_ascii=False))
     node.destroy_node()

@@ -220,6 +220,9 @@ def _capture_snapshot(case_id: str, view_index: int, output_dir: Path, detection
         timeout=timeout_sec + 12.0,
     )
     snapshot_path = image_dir / f'{snapshot_id}_snapshot.json'
+    snapshot_dir = output_dir / 'snapshots'
+    snapshot_dir.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(snapshot_path, snapshot_dir / snapshot_path.name)
     return json.loads(snapshot_path.read_text(encoding='utf-8'))
 
 
@@ -480,6 +483,7 @@ def _write_suite_report(suite_dir: Path, suite: str, rows: list[dict[str, Any]],
             writer.writeheader()
             writer.writerows(serialized_rows)
     (suite_dir / 'cases.json').write_text(json.dumps(rows, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
+    collage_path = _write_annotated_collage(suite_dir, suite)
     summary = {
         'schema': 'hazardwalker_official_simenv_classic_evidence_v1',
         'run_id': args.run_id or suite_dir.name,
@@ -499,6 +503,7 @@ def _write_suite_report(suite_dir: Path, suite: str, rows: list[dict[str, Any]],
         'fixture_center_source': args.fixture_center_source,
         'min_background_edge_ratio': args.min_background_edge_ratio,
         'truth_usage': '仅在快照保存后由本脚本匹配；运行期检测器和运动策略不读取真值。',
+        'annotated_collage': collage_path.name if collage_path else '',
     }
     (suite_dir / 'summary.json').write_text(json.dumps(summary, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
     (suite_dir / 'README.md').write_text(
@@ -525,6 +530,35 @@ def _write_suite_report(suite_dir: Path, suite: str, rows: list[dict[str, Any]],
             json.dumps(record_payload, ensure_ascii=False, indent=2) + '\n',
             encoding='utf-8',
         )
+
+
+def _write_annotated_collage(suite_dir: Path, suite: str) -> Optional[Path]:
+    """把本批标注图缩略排版成总览，单图仍保留供逐例审计。"""
+
+    image_paths = sorted((suite_dir / 'images').glob('*_annotated.png'))
+    if not image_paths:
+        return None
+    thumbnails = []
+    tile_width, tile_height = 320, 240
+    for path in image_paths:
+        image = cv2.imread(str(path), cv2.IMREAD_COLOR)
+        if image is None:
+            continue
+        thumbnails.append(cv2.resize(image, (tile_width, tile_height)))
+    if not thumbnails:
+        return None
+    columns = min(5, len(thumbnails))
+    rows = int(math.ceil(len(thumbnails) / float(columns)))
+    canvas = np.zeros((rows * tile_height, columns * tile_width, 3), dtype=np.uint8)
+    for index, image in enumerate(thumbnails):
+        row, column = divmod(index, columns)
+        canvas[
+            row * tile_height:(row + 1) * tile_height,
+            column * tile_width:(column + 1) * tile_width,
+        ] = image
+    path = suite_dir / 'images' / f'{suite}_annotated_collage.png'
+    cv2.imwrite(str(path), canvas)
+    return path
 
 
 def main() -> int:
