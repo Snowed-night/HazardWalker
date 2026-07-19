@@ -39,6 +39,7 @@ from hazardwalker_nav.frontier_detector import (
     entry_ingress_constraint_active,
     entry_ingress_half_angles_deg,
     find_frontiers,
+    frontier_route_is_excessive_detour,
     grid_to_world,
     nearest_frontier_basin_key,
     occupancy_grid_to_array,
@@ -87,6 +88,13 @@ class FrontierExplorerNode(Node):
             'frontier_progress_protection_max_hold_s', 45.0)
         self.declare_parameter('frontier_net_progress_timeout_s', 30.0)
         self.declare_parameter('frontier_net_progress_distance_m', 0.25)
+        # 欧氏距离很近但 A* 必须绕墙十余米的目标会吞掉大量搜索预算。仅当
+        # 路径比例和绝对绕行量同时超限、且仍有其他候选时，才短时延后该盆地。
+        self.declare_parameter('frontier_max_detour_ratio', 2.8)
+        self.declare_parameter('frontier_min_detour_excess_m', 5.0)
+        self.declare_parameter('frontier_detour_defer_ttl_s', 30.0)
+        self.declare_parameter('frontier_detour_defer_radius_m', 0.60)
+        self.declare_parameter('frontier_detour_evaluation_limit', 2)
         # 非官方环境默认从第一条合法 TF 推断。官方 profile 会显式传入公开
         # 起点在 map 帧中的朝向，避免 INIT 建图旋转污染入楼方向。
         self.declare_parameter('entry_heading_yaw', float('nan'))
@@ -213,6 +221,9 @@ class FrontierExplorerNode(Node):
         # 暂时不可达不能永久拉黑：按空间盆地合并相邻质心，使用仿真时间
         # 指数退避；value=(expiry_ros_sec, failure_count)。
         self._unreachable_frontiers: dict = {}
+        # 可达但路径效率很低的前沿不等于“不可达”；单独短时延后，避免污染
+        # 失败次数与指数退避，并在其他候选耗尽后自动恢复探索完备性。
+        self._detour_deferred_frontiers: dict = {}
         self._no_reachable_frontier_since: Optional[float] = None
         self._frontier_observation_remaining_rad: float = 0.0
         self._frontier_observation_last_yaw: Optional[float] = None
@@ -1147,6 +1158,11 @@ class FrontierExplorerNode(Node):
             for key, record in self._unreachable_frontiers.items()
             if record[0] >= now_ros - stale_horizon
         }
+        self._detour_deferred_frontiers = {
+            key: expiry
+            for key, expiry in self._detour_deferred_frontiers.items()
+            if expiry > now_ros
+        }
 
         frontier_mask = find_frontiers(self.grid)
         if frontier_mask.sum() == 0:
@@ -1231,6 +1247,14 @@ class FrontierExplorerNode(Node):
                     return selected
             return None
 
+        preferred_frontiers = [
+            frontier for frontier in unvisited_frontiers
+            if not self._frontier_is_detour_deferred(frontier, now_ros)
+        ]
+        # TTL 只在存在替代目标时降低长绕行盆地的优先级。若所有合法前沿都
+        # 处于延后状态则立即回退，不能为了优化路径而原地等待 30 秒。
+        selection_frontiers = preferred_frontiers or unvisited_frontiers
+
         if self.current_target is not None:
             refreshed_path = a_star_path(
                 self.grid, self.latest_map,
@@ -1246,7 +1270,7 @@ class FrontierExplorerNode(Node):
                 self._current_target_selected_ros_sec = None
                 self._reset_frontier_progress_watchdog()
             else:
-                challenger = select_candidate(unvisited_frontiers)
+                challenger = select_candidate(selection_frontiers)
                 current_distance = math.hypot(
                     self.current_target.centroid[0] - self.robot_x,
                     self.current_target.centroid[1] - self.robot_y,
@@ -1305,15 +1329,34 @@ class FrontierExplorerNode(Node):
             frontier for frontier in unvisited_frontiers
             if not self._frontier_is_unreachable(frontier, now_ros)
         ]
+        preferred_frontiers = [
+            frontier for frontier in unvisited_frontiers
+            if not self._frontier_is_detour_deferred(frontier, now_ros)
+        ]
 
         # 评分最高的前沿不一定能在“只走已知自由区”的安全地图上到达；
         # 逐个尝试，规划失败的目标本轮不再反复选择。失败预算用于区分少量
         # 真实不可达目标和整张地图共享的瞬时规划故障，剩余目标留给更新后的
         # 地图再次判断，不能在一个 ROS 回调里全部封禁。
         candidates = list(unvisited_frontiers)
+        detour_evaluation_limit = max(
+            1,
+            int(self.get_parameter(
+                'frontier_detour_evaluation_limit').value),
+        )
+        detour_evaluations = 0
+        detour_fallback = None
         while (candidates
                and plan_failures_this_cycle < plan_failure_budget):
-            best = select_candidate(candidates)
+            # 先试没有处于路径效率 TTL 的目标；若它们均失败或不存在，则在
+            # 同一规划周期立即回退全部合法候选，绝不原地等待 TTL。
+            preferred_candidates = [
+                candidate for candidate in candidates
+                if not self._frontier_is_detour_deferred(
+                    candidate, now_ros,
+                )
+            ]
+            best = select_candidate(preferred_candidates or candidates)
             if best is None:
                 break
             path = a_star_path(
@@ -1322,36 +1365,57 @@ class FrontierExplorerNode(Node):
                 best.centroid[0], best.centroid[1],
             )
             if path:
-                if self._entry_axis is None:
-                    self._entry_origin = (self.start_x, self.start_y)
-                    # 有官方公开朝向时固定使用该轴，而不是首个前沿质心的偏角；
-                    # 这样入口较宽时也不会把侧向大厅误当成整栋楼纵深方向。
-                    self._entry_axis = (
-                        math.cos(entry_heading),
-                        math.sin(entry_heading),
+                path_distance = sum(
+                    math.hypot(
+                        path[index][0] - path[index - 1][0],
+                        path[index][1] - path[index - 1][1],
                     )
-                self.current_target = best
-                self._current_target_selected_ros_sec = now_ros
-                self._frontier_last_net_progress_ros = now_ros
-                self._frontier_progress_reference_distance = math.hypot(
+                    for index in range(1, len(path))
+                )
+                straight_distance = math.hypot(
                     best.centroid[0] - self.robot_x,
                     best.centroid[1] - self.robot_y,
                 )
-                self.last_target_world = best.centroid
-                self.current_path = path
-                self.path_index = 0
-                selection_mode = (
-                    'all-directions'
-                    if selected_ingress_half_angle is None
-                    else (
-                        'ingress-cone='
-                        f'{selected_ingress_half_angle:.0f}deg'
+                if (
+                    not ingress_constraint_active
+                    and len(candidates) > 1
+                    and detour_evaluations < detour_evaluation_limit
+                    and frontier_route_is_excessive_detour(
+                        path_distance,
+                        straight_distance,
+                        float(self.get_parameter(
+                            'frontier_max_detour_ratio').value),
+                        float(self.get_parameter(
+                            'frontier_min_detour_excess_m').value),
                     )
-                )
-                self.get_logger().info(
-                    f'New frontier: ({best.centroid[0]:.2f}, '
-                    f'{best.centroid[1]:.2f}), size={best.size}, '
-                    f'path={len(path)} steps, mode={selection_mode}'
+                ):
+                    if detour_fallback is None:
+                        detour_fallback = (
+                            best,
+                            path,
+                            selected_ingress_half_angle,
+                            path_distance,
+                            straight_distance,
+                        )
+                    self._defer_frontier_detour(
+                        best,
+                        path_distance,
+                        straight_distance,
+                    )
+                    detour_evaluations += 1
+                    candidates = [
+                        candidate for candidate in candidates
+                        if not self._frontier_is_detour_deferred(
+                            candidate, now_ros,
+                        )
+                    ]
+                    continue
+                self._accept_frontier_plan(
+                    best,
+                    path,
+                    now_ros,
+                    entry_heading,
+                    selected_ingress_half_angle,
                 )
                 return
             self._mark_frontier_unreachable(best)
@@ -1360,6 +1424,26 @@ class FrontierExplorerNode(Node):
                 candidate for candidate in candidates
                 if not self._frontier_is_unreachable(candidate, now_ros)
             ]
+
+        if detour_fallback is not None:
+            best, path, half_angle, path_distance, straight_distance = (
+                detour_fallback
+            )
+            self._clear_detour_deferred_frontier(best)
+            self.get_logger().info(
+                'All sampled frontier alternatives were excessive detours '
+                'or unavailable; accepting the first safe fallback now: '
+                f'path={path_distance:.2f}m, '
+                f'straight={straight_distance:.2f}m.'
+            )
+            self._accept_frontier_plan(
+                best,
+                path,
+                now_ros,
+                entry_heading,
+                half_angle,
+            )
+            return
 
         self.current_target = None
         self.current_path = []
@@ -1372,6 +1456,47 @@ class FrontierExplorerNode(Node):
                 'a later map update.'
             )
         self.get_logger().warn('No safely reachable frontier in the current map.')
+
+    def _accept_frontier_plan(
+            self,
+            frontier: Frontier,
+            path,
+            now_ros: float,
+            entry_heading: float,
+            selected_ingress_half_angle: Optional[float]):
+        """提交已验证安全的前沿路径，并统一初始化进度监视状态。"""
+
+        if self._entry_axis is None:
+            self._entry_origin = (self.start_x, self.start_y)
+            # 有官方公开朝向时固定使用该轴，而不是首个前沿质心的偏角；
+            # 这样入口较宽时也不会把侧向大厅误当成整栋楼纵深方向。
+            self._entry_axis = (
+                math.cos(entry_heading),
+                math.sin(entry_heading),
+            )
+        self.current_target = frontier
+        self._current_target_selected_ros_sec = now_ros
+        self._frontier_last_net_progress_ros = now_ros
+        self._frontier_progress_reference_distance = math.hypot(
+            frontier.centroid[0] - self.robot_x,
+            frontier.centroid[1] - self.robot_y,
+        )
+        self.last_target_world = frontier.centroid
+        self.current_path = path
+        self.path_index = 0
+        selection_mode = (
+            'all-directions'
+            if selected_ingress_half_angle is None
+            else (
+                'ingress-cone='
+                f'{selected_ingress_half_angle:.0f}deg'
+            )
+        )
+        self.get_logger().info(
+            f'New frontier: ({frontier.centroid[0]:.2f}, '
+            f'{frontier.centroid[1]:.2f}), size={frontier.size}, '
+            f'path={len(path)} steps, mode={selection_mode}'
+        )
 
     def _frontier_net_progress_expired(self, now_ros: float) -> bool:
         """目标净距离长期不下降时返回 True，持续原地转向也不能刷新门禁。"""
@@ -1468,6 +1593,72 @@ class FrontierExplorerNode(Node):
             float(self.get_parameter(
                 'unreachable_frontier_radius_m').value),
         ) is not None
+
+    def _defer_frontier_detour(
+            self,
+            frontier: Frontier,
+            path_distance_m: float,
+            straight_distance_m: float):
+        """短时延后隔墙长绕行前沿，不把它伪装成不可达失败。"""
+
+        now_ros = self._ros_time_sec()
+        radius = max(
+            0.0,
+            float(self.get_parameter(
+                'frontier_detour_defer_radius_m').value),
+        )
+        basin_key = nearest_frontier_basin_key(
+            self._detour_deferred_frontiers.keys(),
+            frontier.centroid[0],
+            frontier.centroid[1],
+            radius,
+        )
+        if basin_key is None:
+            basin_key = self._frontier_key(frontier)
+        ttl = max(
+            0.1,
+            float(self.get_parameter(
+                'frontier_detour_defer_ttl_s').value),
+        )
+        self._detour_deferred_frontiers[basin_key] = now_ros + ttl
+        ratio = path_distance_m / max(0.25, straight_distance_m)
+        self.get_logger().info(
+            'Deferring inefficient frontier basin '
+            f'({basin_key[0]:.2f}, {basin_key[1]:.2f}) for {ttl:.1f} '
+            f'sim seconds: path={path_distance_m:.2f}m, '
+            f'straight={straight_distance_m:.2f}m, ratio={ratio:.2f}.'
+        )
+
+    def _frontier_is_detour_deferred(
+            self, frontier: Frontier, now_ros: Optional[float] = None) -> bool:
+        """判断候选是否落在仍处于短时路径效率延后的空间盆地中。"""
+
+        if now_ros is None:
+            now_ros = self._ros_time_sec()
+        active_keys = [
+            key for key, expiry in self._detour_deferred_frontiers.items()
+            if expiry > now_ros
+        ]
+        return nearest_frontier_basin_key(
+            active_keys,
+            frontier.centroid[0],
+            frontier.centroid[1],
+            float(self.get_parameter(
+                'frontier_detour_defer_radius_m').value),
+        ) is not None
+
+    def _clear_detour_deferred_frontier(self, frontier: Frontier):
+        """回退使用唯一安全长绕行路线时，立即清除对应临时延后盆地。"""
+
+        basin_key = nearest_frontier_basin_key(
+            self._detour_deferred_frontiers.keys(),
+            frontier.centroid[0],
+            frontier.centroid[1],
+            float(self.get_parameter(
+                'frontier_detour_defer_radius_m').value),
+        )
+        if basin_key is not None:
+            self._detour_deferred_frontiers.pop(basin_key, None)
 
     def _clear_unreachable_frontier_basin(self, frontier: Frontier):
         """真正到达前沿后清除其邻域失败记录。"""

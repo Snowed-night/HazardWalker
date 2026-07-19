@@ -639,6 +639,43 @@ def return_pose_has_progress(
     ) >= threshold
 
 
+def frontier_route_is_excessive_detour(
+        path_distance_m: float,
+        straight_distance_m: float,
+        maximum_ratio: float = 2.8,
+        minimum_excess_m: float = 5.0) -> bool:
+    """判断前沿路径是否属于应暂缓的隔墙长绕行。
+
+    该门禁只比较合法 SLAM 地图上的 A* 路径长度与直线距离，不读取房间布局。
+    同时满足“比例过大”和“绝对多走距离过大”才返回真，避免把正常绕门或短距离
+    离散误差错误过滤。输入异常时关闭优化而不是拒绝目标，保持探索完备性。
+    """
+
+    try:
+        path_distance = float(path_distance_m)
+        straight_distance = float(straight_distance_m)
+        ratio_limit = float(maximum_ratio)
+        excess_limit = float(minimum_excess_m)
+    except (TypeError, ValueError):
+        return False
+    if not all(math.isfinite(value) for value in (
+            path_distance,
+            straight_distance,
+            ratio_limit,
+            excess_limit,
+    )):
+        return False
+    if path_distance < 0.0 or straight_distance < 0.0:
+        return False
+    ratio_limit = max(1.0, ratio_limit)
+    excess_limit = max(0.0, excess_limit)
+    effective_straight_distance = max(0.25, straight_distance)
+    return (
+        path_distance > straight_distance + excess_limit
+        and path_distance / effective_straight_distance > ratio_limit
+    )
+
+
 def return_recovery_turn_command(
         attempt: int,
         turn_speed_rad_s: float) -> float:

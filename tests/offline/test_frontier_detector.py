@@ -26,6 +26,7 @@ from hazardwalker_nav.frontier_detector import (  # noqa: E402
     entry_ingress_half_angles_deg,
     find_frontiers,
     Frontier,
+    frontier_route_is_excessive_detour,
     nearest_frontier_basin_key,
     return_pose_has_progress,
     return_recovery_turn_command,
@@ -214,6 +215,18 @@ def test_return_recovery_turn_command_alternates_without_changing_normal_turns()
     assert return_recovery_turn_command(3, 0.8) == 0.8
     assert return_recovery_turn_command(0, 0.8) == 0.0
     assert return_recovery_turn_command(1, float('nan')) == 0.0
+
+
+def test_frontier_detour_gate_rejects_only_large_relative_and_absolute_detours():
+    # 第 23 轮典型隔墙前沿：约 2m 直线距离，却要走 12.5m。
+    assert frontier_route_is_excessive_detour(12.5, 2.0, 2.8, 5.0)
+    # 第 23 轮第二个隔墙目标也应被识别为低效路线。
+    assert frontier_route_is_excessive_detour(14.3, 4.74, 2.8, 5.0)
+    # 合法房间绕门：路径虽长，但相对直线距离没有达到 2.8 倍。
+    assert not frontier_route_is_excessive_detour(14.3, 5.9, 2.8, 5.0)
+    # 短距离离散误差不能仅凭比例被过滤。
+    assert not frontier_route_is_excessive_detour(1.2, 0.25, 2.8, 5.0)
+    assert not frontier_route_is_excessive_detour(float('nan'), 2.0)
 
 
 def test_unreachable_frontier_basin_merges_centroid_jitter_and_backs_off():
@@ -611,6 +624,15 @@ def test_frontier_node_fails_closed_without_pose_scan_or_safe_return_path():
         in source
     )
     assert "declare_parameter('frontier_net_progress_timeout_s', 30.0)" in source
+    assert "declare_parameter('frontier_max_detour_ratio', 2.8)" in source
+    assert "declare_parameter('frontier_min_detour_excess_m', 5.0)" in source
+    assert "declare_parameter('frontier_detour_defer_ttl_s', 30.0)" in source
+    assert "declare_parameter('frontier_detour_evaluation_limit', 2)" in source
+    assert 'frontier_route_is_excessive_detour(' in source
+    assert 'Deferring inefficient frontier basin' in source
+    assert 'accepting the first safe fallback now' in source
+    assert '_clear_detour_deferred_frontier(best)' in source
+    assert 'preferred_candidates or candidates' in source
     assert "declare_parameter('safety_blocked_timeout_s', 8.0)" in source
     assert "declare_parameter('frontier_observation_sweep_speed', 0.60)" in source
     assert "declare_parameter('frontier_observation_sweep_timeout_s', 18.0)" in source
