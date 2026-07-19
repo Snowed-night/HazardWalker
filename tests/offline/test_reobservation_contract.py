@@ -12,7 +12,9 @@ from hazardwalker_nav.reobservation_contract import (
     bearing_change_deg,
     find_target_detection,
     parse_reobservation_request,
+    reobservation_actions_conflict,
     reobservation_request_is_eligible,
+    target_centered_in_image,
 )
 
 
@@ -151,7 +153,9 @@ def test_untracked_candidate_matches_the_track_created_during_reobservation():
         }],
     }
 
-    assert find_target_detection(payload, 'untracked:1')['track_id'] == '1'
+    assert find_target_detection(
+        payload, '1', allow_untracked_upgrade=True,
+    )['track_id'] == '1'
     assert abs(bearing_change_deg(170.0, -170.0) - 20.0) < 1e-9
 
     request = parse_reobservation_request({
@@ -161,6 +165,36 @@ def test_untracked_candidate_matches_the_track_created_during_reobservation():
         },
     })
     assert request['target_id'] == '1'
+    assert request['target_was_untracked'] is True
+
+
+def test_established_track_never_consumes_a_new_untracked_alias():
+    payload = {
+        'detections_2d': [{
+            'id': 1,
+            'track_id': 'untracked:1',
+            'view_bearing_deg': -65.0,
+        }],
+    }
+
+    assert find_target_detection(payload, '1') is None
+    assert find_target_detection(
+        payload, '1', allow_untracked_upgrade=True,
+    )['track_id'] == 'untracked:1'
+
+
+def test_turn_feedback_stops_when_target_enters_center_band():
+    centered = {
+        'bbox': {'x_min': 270, 'x_max': 350, 'y_min': 100, 'y_max': 180},
+    }
+    edge = {
+        'bbox': {'x_min': 600, 'x_max': 639, 'y_min': 100, 'y_max': 180},
+    }
+
+    assert target_centered_in_image(centered, 640, 0.18)
+    assert not target_centered_in_image(edge, 640, 0.18)
+    assert reobservation_actions_conflict('move_left', 'move_right')
+    assert not reobservation_actions_conflict('move_left', 'move_forward')
 
 
 def test_reobservation_uses_sim_time_and_has_feedback_bounded_lateral_motion():
@@ -176,7 +210,9 @@ def test_reobservation_uses_sim_time_and_has_feedback_bounded_lateral_motion():
         'def _handle_returning', 1,
     )[0]
 
-    assert "declare_parameter('reobserve_lateral_motion_duration_s', 10.0)" in source
+    assert "declare_parameter('reobserve_lateral_motion_duration_s', 3.0)" in source
+    assert "declare_parameter('reobserve_lateral_max_distance_m', 0.80)" in source
+    assert "declare_parameter('reobserve_target_loss_timeout_s', 0.40)" in source
     assert "declare_parameter('reobserve_lateral_speed', 0.45)" in source
     assert "declare_parameter('reobserve_forward_speed', 0.30)" in source
     assert 'now = self._ros_time_sec()' in trigger
@@ -184,6 +220,10 @@ def test_reobservation_uses_sim_time_and_has_feedback_bounded_lateral_motion():
     assert 'now = self._ros_time_sec()' in handler
     assert 'time.monotonic()' not in handler
     assert 'Reobservation bearing goal reached' in source
+    assert 'target_centered_in_image(' in source
+    assert 'reobservation_actions_conflict(' in source
+    assert 'self._reobserve_allow_untracked_upgrade = False' in source
+    assert 'lateral_distance >= maximum_distance' in handler
 
 
 def test_returning_replans_on_sim_time_and_recovers_without_nonzero_cmd():
@@ -201,7 +241,8 @@ def test_returning_replans_on_sim_time_and_recovers_without_nonzero_cmd():
 
     assert 'now = self._ros_time_sec()' in handler
     assert 'time.monotonic()' not in handler
-    assert 'now - self._last_return_plan_time >= replan_interval' in handler
+    assert 'now - self._last_return_plan_time >= replan_interval' not in handler
+    assert 'or len(self.current_path) == 0' in handler
     assert 'goal_search_radius_m=0.0' in handler
     assert 'append_exact_goal=True' in handler
     assert 'start_search_radius_m=0.50' in handler
@@ -211,6 +252,15 @@ def test_returning_replans_on_sim_time_and_recovers_without_nonzero_cmd():
     assert 'net_progress_expired' in watchdog
     assert 'self._return_last_net_progress_time' in watchdog
     assert 'self._return_net_progress_reference_distance' in watchdog
+    assert 'if stationary_expired:' in watchdog
+    assert 'return_recovery_turn_command(' in watchdog
+    assert "declare_parameter('return_recovery_turn_speed', 0.80)" in source
+    assert (
+        "declare_parameter('return_recovery_turn_duration_s', 2.0)"
+        in source
+    )
+    assert 'def _return_recovery_command_for_now' in source
+    assert 'Return recovery turn blocked by the full-circle' in source
     assert (
         'dist_home <= self._return_best_distance_home - progress_distance'
         not in watchdog

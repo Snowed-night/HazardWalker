@@ -42,6 +42,7 @@ from hazardwalker_nav.frontier_detector import (
     grid_to_world,
     nearest_frontier_basin_key,
     occupancy_grid_to_array,
+    return_recovery_turn_command,
     return_pose_has_progress,
     select_best_frontier,
     should_switch_frontier,
@@ -55,7 +56,9 @@ from hazardwalker_nav.reobservation_contract import (
     find_target_detection,
     find_target_status,
     parse_reobservation_request,
+    reobservation_actions_conflict,
     reobservation_request_is_eligible,
+    target_centered_in_image,
 )
 from hazardwalker_nav.waypoint_controller import normalize_angle
 
@@ -105,9 +108,12 @@ class FrontierExplorerNode(Node):
         self.declare_parameter('minimum_turn_speed', 0.45)
         self.declare_parameter('heading_tolerance_rad', 0.25)
         self.declare_parameter('reobserve_motion_duration_s', 2.0)
-        # 横移必须真正形成至少约 25° 视线变化；固定 SEED 中目标约 3 m 远，
-        # 2 秒动作不足以产生有效基线。达到方位目标后会由感知反馈提前停车。
-        self.declare_parameter('reobserve_lateral_motion_duration_s', 10.0)
+        # 横移采用短分段并由合法 SLAM 实际位移限幅。一次最多约 0.8 m，
+        # 停稳采帧后再决定下一段，避免目标被墙柱遮挡后仍盲走 10 秒。
+        self.declare_parameter('reobserve_lateral_motion_duration_s', 3.0)
+        self.declare_parameter('reobserve_lateral_max_distance_m', 0.80)
+        self.declare_parameter('reobserve_target_loss_timeout_s', 0.40)
+        self.declare_parameter('reobserve_center_tolerance_ratio', 0.18)
         self.declare_parameter('reobserve_settle_duration_s', 1.0)
         self.declare_parameter('reobserve_observe_duration_s', 1.5)
         # 官方 A1 RL 控制器实测会完整接收 0.15 m/s 横移指令却不产生可测位移；
@@ -130,6 +136,10 @@ class FrontierExplorerNode(Node):
         self.declare_parameter('return_progress_distance_m', 0.10)
         self.declare_parameter('return_net_progress_timeout_s', 45.0)
         self.declare_parameter('return_net_progress_distance_m', 0.25)
+        # 正常路径跟随的小角速度不全局抬高；只有返航静止看门狗触发时，
+        # 才发送短时 0.8 rad/s 交替转向脉冲改变物理接触状态。
+        self.declare_parameter('return_recovery_turn_speed', 0.80)
+        self.declare_parameter('return_recovery_turn_duration_s', 2.0)
         self.declare_parameter('pose_fresh_timeout_s', 1.0)
         self.declare_parameter('scan_fresh_timeout_s', 1.0)
         self.declare_parameter('navigation_min_clearance_m', 0.45)
@@ -218,6 +228,10 @@ class FrontierExplorerNode(Node):
         self.reobserve_baseline_bearing_deg: Optional[float] = None
         self.reobserve_required_bearing_change_deg: float = 25.0
         self._reobserve_bearing_goal_met = False
+        self._reobserve_motion_stop_latched = False
+        self._reobserve_start_pose: Optional[Tuple[float, float]] = None
+        self._reobserve_last_target_seen_ros: Optional[float] = None
+        self._reobserve_allow_untracked_upgrade = False
         self._reobserve_attempts: dict = {}
 
         # ---- 卡死检测 ----
@@ -233,6 +247,12 @@ class FrontierExplorerNode(Node):
         self._return_last_progress_pose: Optional[Tuple[float, float]] = None
         self._return_last_net_progress_time: Optional[float] = None
         self._return_net_progress_reference_distance: Optional[float] = None
+        self._return_recovery_attempts = 0
+        self._return_recovery_turn_start_ros: Optional[float] = None
+        self._return_recovery_turn_end_ros: Optional[float] = None
+        self._return_recovery_turn_command = 0.0
+        self._return_recovery_start_yaw: Optional[float] = None
+        self._return_recovery_scan_blocked_logged = False
 
         # ---- ROS 接口 ----
         self.map_sub = self.create_subscription(
@@ -324,6 +344,12 @@ class FrontierExplorerNode(Node):
             float(request.get('required_bearing_change_deg', 25.0)),
         )
         self._reobserve_bearing_goal_met = False
+        self._reobserve_motion_stop_latched = False
+        self._reobserve_start_pose = (self.robot_x, self.robot_y)
+        self._reobserve_last_target_seen_ros = now
+        self._reobserve_allow_untracked_upgrade = bool(
+            request.get('target_was_untracked', False)
+        )
         self._reobserve_attempts[self.reobserve_target_id] = (
             int(self._reobserve_attempts.get(self.reobserve_target_id, 0)) + 1
         )
@@ -338,19 +364,69 @@ class FrontierExplorerNode(Node):
     def _update_reobservation_feedback(self, payload: dict):
         """用实时感知反馈结束横移并保证停稳观察，而不是盲走固定时长。"""
 
+        now = self._ros_time_sec()
         status = find_target_status(payload, self.reobserve_target_id)
         if status in ('confirmed', 'rejected', 'rejected_non_spherical'):
-            now = self._ros_time_sec()
             self.reobserve_motion_end_time = now
             self.reobserve_end_time = now
             self.get_logger().info(
                 f'Reobservation target {self.reobserve_target_id} resolved: {status}.'
             )
             return
-        if self.reobserve_action not in ('move_left', 'move_right'):
+        if self._reobserve_motion_stop_latched:
             return
-        detection = find_target_detection(payload, self.reobserve_target_id)
+        detection = find_target_detection(
+            payload,
+            self.reobserve_target_id,
+            allow_untracked_upgrade=self._reobserve_allow_untracked_upgrade,
+        )
         if detection is None:
+            loss_timeout = max(
+                0.1,
+                float(self.get_parameter(
+                    'reobserve_target_loss_timeout_s').value),
+            )
+            if (self._reobserve_last_target_seen_ros is not None
+                    and now - self._reobserve_last_target_seen_ros
+                    >= loss_timeout):
+                self._stop_reobservation_motion(
+                    now,
+                    f'target lost for {loss_timeout:.2f}s',
+                )
+            return
+        self._reobserve_last_target_seen_ros = now
+        detection_track_id = str(detection.get('track_id') or '').strip()
+        if (detection_track_id
+                and not detection_track_id.startswith('untracked:')):
+            # 首帧未跟踪候选一旦升级为正式轨迹，后续只能消费精确 track_id。
+            self._reobserve_allow_untracked_upgrade = False
+
+        live_request = parse_reobservation_request(payload)
+        if (live_request is not None
+                and str(live_request.get('target_id', ''))
+                == self.reobserve_target_id
+                and reobservation_actions_conflict(
+                    self.reobserve_action,
+                    live_request.get('action'),
+                )):
+            self._stop_reobservation_motion(
+                now,
+                'live perception recommendation reversed direction',
+            )
+            return
+
+        if self.reobserve_action in ('turn_left', 'turn_right'):
+            if target_centered_in_image(
+                    detection,
+                    payload.get('image_width'),
+                    float(self.get_parameter(
+                        'reobserve_center_tolerance_ratio').value)):
+                self._stop_reobservation_motion(
+                    now,
+                    'target entered image center band',
+                )
+            return
+        if self.reobserve_action not in ('move_left', 'move_right'):
             return
         try:
             current_bearing_deg = float(detection.get('view_bearing_deg'))
@@ -368,18 +444,35 @@ class FrontierExplorerNode(Node):
                 or achieved < self.reobserve_required_bearing_change_deg
                 or self._reobserve_bearing_goal_met):
             return
-        now = self._ros_time_sec()
-        self.reobserve_motion_end_time = now
-        self.reobserve_end_time = (
-            now
-            + self.reobserve_settle_duration_s
-            + self.reobserve_observe_duration_s
+        self._stop_reobservation_motion(
+            now,
+            (
+                f'bearing change {achieved:.1f}deg >= '
+                f'{self.reobserve_required_bearing_change_deg:.1f}deg'
+            ),
         )
         self._reobserve_bearing_goal_met = True
         self.get_logger().info(
             'Reobservation bearing goal reached: '
             f'{achieved:.1f}° >= {self.reobserve_required_bearing_change_deg:.1f}°; '
             'stopping for stable RGB-D evidence.'
+        )
+
+    def _stop_reobservation_motion(self, now_ros: float, reason: str):
+        """锁存停车并保留停稳观察窗口，避免后续逐帧反馈重新延长动作。"""
+
+        if self._reobserve_motion_stop_latched:
+            return
+        self.reobserve_motion_end_time = now_ros
+        self.reobserve_end_time = (
+            now_ros
+            + self.reobserve_settle_duration_s
+            + self.reobserve_observe_duration_s
+        )
+        self._reobserve_motion_stop_latched = True
+        self.get_logger().info(
+            f'Reobservation motion stopped: {reason}; '
+            'settling for stable RGB-D evidence.'
         )
 
     def _ros_time_sec(self) -> float:
@@ -669,6 +762,10 @@ class FrontierExplorerNode(Node):
             self.reobserve_target_id = ''
             self.reobserve_baseline_bearing_deg = None
             self._reobserve_bearing_goal_met = False
+            self._reobserve_motion_stop_latched = False
+            self._reobserve_start_pose = None
+            self._reobserve_last_target_seen_ros = None
+            self._reobserve_allow_untracked_upgrade = False
             # 强制重规划
             self.current_target = None
             self.current_path = []
@@ -682,6 +779,26 @@ class FrontierExplorerNode(Node):
 
         # 根据感知建议生成短时机动 cmd_vel。
         action = self.reobserve_action or 'hold_observation'
+        if (action in ('move_left', 'move_right')
+                and self._reobserve_start_pose is not None):
+            lateral_distance = math.hypot(
+                self.robot_x - self._reobserve_start_pose[0],
+                self.robot_y - self._reobserve_start_pose[1],
+            )
+            maximum_distance = max(
+                0.1,
+                float(self.get_parameter(
+                    'reobserve_lateral_max_distance_m').value),
+            )
+            if lateral_distance >= maximum_distance:
+                self._stop_reobservation_motion(
+                    now,
+                    (
+                        f'lateral displacement {lateral_distance:.2f}m '
+                        f'>= {maximum_distance:.2f}m'
+                    ),
+                )
+                return cmd
         clearance_parameter = (
             'rotation_min_clearance_m'
             if action in ('turn_left', 'turn_right')
@@ -723,22 +840,26 @@ class FrontierExplorerNode(Node):
             self._transition('FINISHED')
             return cmd
 
+        recovery_cmd = self._return_recovery_command_for_now(now)
+        if recovery_cmd is not None:
+            return recovery_cmd
+
         force_replan = self._return_progress_watchdog_expired(
             now, dist_home,
         )
+        recovery_cmd = self._return_recovery_command_for_now(now)
+        if recovery_cmd is not None:
+            return recovery_cmd
         if self.grid is None:
             # 无地图时直线盲返在复杂楼宇中不可接受；等待地图恢复。
             return cmd
 
-        # 返航路径按 ROS 仿真时间周期刷新；地图继续变化时旧路径不能永久沿用。
-        replan_interval = max(
-            0.1, float(self.get_parameter('replan_interval_s').value),
-        )
+        # 有效路径存在时保持路线承诺；第 22 轮实测每 3 秒重算会让动态地图
+        # 两条近似等价路线反复翻转。新障碍仍由 scan 门禁停车，再由看门狗重算。
         should_replan = (
             force_replan
             or self._last_return_plan_time is None
-            or now < self._last_return_plan_time
-            or now - self._last_return_plan_time >= replan_interval
+            or len(self.current_path) == 0
         )
         if should_replan:
             self._last_return_plan_time = now
@@ -762,6 +883,71 @@ class FrontierExplorerNode(Node):
 
         cmd = self._follow_path()
         return cmd
+
+    def _return_recovery_command_for_now(
+            self, now_ros: float) -> Optional[Twist]:
+        """返航静止后执行短时、安全门禁下的交替原地转向。"""
+
+        if self._return_recovery_turn_end_ros is None:
+            return None
+        cmd = Twist()
+        if (self._return_recovery_turn_start_ros is not None
+                and now_ros < self._return_recovery_turn_start_ros):
+            self.get_logger().warn(
+                'Simulation clock moved backward during return recovery; '
+                'clearing the recovery window.'
+            )
+            self._return_recovery_turn_start_ros = None
+            self._return_recovery_turn_end_ros = None
+            self._return_recovery_turn_command = 0.0
+            self._return_recovery_start_yaw = None
+            self._return_recovery_scan_blocked_logged = False
+            self.current_path = []
+            self.path_index = 0
+            self._last_return_plan_time = None
+            return cmd
+        if now_ros < self._return_recovery_turn_end_ros:
+            action = (
+                'turn_left'
+                if self._return_recovery_turn_command > 0.0
+                else 'turn_right'
+            )
+            scan_allowed = self._scan_allows_action(
+                action,
+                float(self.get_parameter(
+                    'rotation_min_clearance_m').value),
+            )
+            if scan_allowed:
+                cmd.angular.z = self._return_recovery_turn_command
+            elif not self._return_recovery_scan_blocked_logged:
+                self._return_recovery_scan_blocked_logged = True
+                self.get_logger().warn(
+                    'Return recovery turn blocked by the full-circle '
+                    'scan safety gate; holding zero velocity.'
+                )
+            return cmd
+
+        yaw_delta = (
+            0.0
+            if self._return_recovery_start_yaw is None
+            else abs(normalize_angle(
+                self.robot_yaw - self._return_recovery_start_yaw,
+            ))
+        )
+        self.get_logger().info(
+            'Return recovery turn finished: '
+            f'attempt={self._return_recovery_attempts}, '
+            f'yaw_delta={yaw_delta:.3f}rad; replanning.'
+        )
+        self._return_recovery_turn_start_ros = None
+        self._return_recovery_turn_end_ros = None
+        self._return_recovery_turn_command = 0.0
+        self._return_recovery_start_yaw = None
+        self._return_recovery_scan_blocked_logged = False
+        self.current_path = []
+        self.path_index = 0
+        self._last_return_plan_time = None
+        return None
 
     def _return_progress_watchdog_expired(
             self, now_ros: float, dist_home: float) -> bool:
@@ -828,6 +1014,43 @@ class FrontierExplorerNode(Node):
         )
         self.current_path = []
         self.path_index = 0
+        if stationary_expired:
+            self._return_recovery_attempts += 1
+            maximum_speed = abs(
+                float(self.get_parameter('angular_speed').value),
+            )
+            configured_speed = min(
+                maximum_speed,
+                abs(float(self.get_parameter(
+                    'return_recovery_turn_speed').value)),
+            )
+            self._return_recovery_turn_command = (
+                return_recovery_turn_command(
+                    self._return_recovery_attempts,
+                    configured_speed,
+                )
+            )
+            duration = max(
+                0.1,
+                float(self.get_parameter(
+                    'return_recovery_turn_duration_s').value),
+            )
+            self._return_recovery_turn_start_ros = now_ros
+            self._return_recovery_turn_end_ros = now_ros + duration
+            self._return_recovery_start_yaw = self.robot_yaw
+            self._return_recovery_scan_blocked_logged = False
+            direction = (
+                'left'
+                if self._return_recovery_turn_command > 0.0
+                else 'right'
+            )
+            self.get_logger().warn(
+                'Starting bounded return recovery turn: '
+                f'attempt={self._return_recovery_attempts}, '
+                f'direction={direction}, '
+                f'speed={abs(self._return_recovery_turn_command):.2f}rad/s, '
+                f'duration={duration:.2f}s.'
+            )
         self._return_last_progress_time = now_ros
         self._return_last_progress_pose = (self.robot_x, self.robot_y)
         self._return_last_net_progress_time = now_ros
@@ -1475,6 +1698,18 @@ class FrontierExplorerNode(Node):
             self._return_net_progress_reference_distance = (
                 self._return_best_distance_home
             )
+            self._return_recovery_attempts = 0
+            self._return_recovery_turn_start_ros = None
+            self._return_recovery_turn_end_ros = None
+            self._return_recovery_turn_command = 0.0
+            self._return_recovery_start_yaw = None
+            self._return_recovery_scan_blocked_logged = False
+        elif new_state == 'FINISHED':
+            self._return_recovery_turn_start_ros = None
+            self._return_recovery_turn_end_ros = None
+            self._return_recovery_turn_command = 0.0
+            self._return_recovery_start_yaw = None
+            self._return_recovery_scan_blocked_logged = False
         self.get_logger().info(f'State: {self.prev_state} → {new_state}')
 
 

@@ -28,6 +28,7 @@ from hazardwalker_nav.frontier_detector import (  # noqa: E402
     Frontier,
     nearest_frontier_basin_key,
     return_pose_has_progress,
+    return_recovery_turn_command,
     select_best_frontier,
     should_switch_frontier,
     world_to_grid,
@@ -205,6 +206,14 @@ def test_return_path_rejects_exact_home_outside_current_map():
     )
 
     assert path == []
+
+
+def test_return_recovery_turn_command_alternates_without_changing_normal_turns():
+    assert return_recovery_turn_command(1, 0.8) == 0.8
+    assert return_recovery_turn_command(2, 0.8) == -0.8
+    assert return_recovery_turn_command(3, 0.8) == 0.8
+    assert return_recovery_turn_command(0, 0.8) == 0.0
+    assert return_recovery_turn_command(1, float('nan')) == 0.0
 
 
 def test_unreachable_frontier_basin_merges_centroid_jitter_and_backs_off():

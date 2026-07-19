@@ -639,6 +639,23 @@ def return_pose_has_progress(
     ) >= threshold
 
 
+def return_recovery_turn_command(
+        attempt: int,
+        turn_speed_rad_s: float) -> float:
+    """生成左右交替且有界的返航脱困转速。"""
+
+    try:
+        attempt_index = int(attempt)
+        speed = abs(float(turn_speed_rad_s))
+    except (TypeError, ValueError):
+        return 0.0
+    if (attempt_index <= 0
+            or not math.isfinite(speed)
+            or speed <= 0.0):
+        return 0.0
+    return speed if attempt_index % 2 == 1 else -speed
+
+
 def nearest_frontier_basin_key(
         keys: Iterable[Tuple[float, float]],
         point_x: float,
