@@ -113,6 +113,18 @@ def test_rerun_output_rejects_untraceable_run_id():
         raise AssertionError('untraceable run_id should be rejected')
 
 
+def test_case_detector_cleanup_reaps_the_whole_ros2_run_process_group():
+    """每例必须回收 ros2 CLI 及其节点子进程，防止重复检测器污染后续案例。"""
+
+    source = (SCRIPTS_DIR / 'run_official_simenv_classic_evidence.py').read_text(
+        encoding='utf-8',
+    )
+
+    assert 'start_new_session=True' in source
+    assert 'os.killpg(process.pid, signal.SIGTERM)' in source
+    assert 'os.killpg(process.pid, signal.SIGKILL)' in source
+
+
 def test_localization_case_reports_error_after_snapshot_not_as_runtime_input():
     case = build_suite('complex_localization', (0.0, 0.0, 0.15))[0]
     truth = case.expected_sphere_positions[0]

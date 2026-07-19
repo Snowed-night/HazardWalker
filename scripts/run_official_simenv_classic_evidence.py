@@ -26,6 +26,7 @@ import os
 import re
 import shlex
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
@@ -323,10 +324,15 @@ def _stop_case_detector(process: Optional[subprocess.Popen]) -> None:
     if process is None:
         return
     try:
-        process.terminate()
+        # ``ros2 run`` 会派生真正的 Python 节点；只终止 CLI 父进程会把检测器
+        # 留成孤儿，几十个案例后造成重复发布者和 CPU 饥饿。启动时已经创建
+        # 独立会话，这里必须回收整个进程组。
+        os.killpg(process.pid, signal.SIGTERM)
         process.wait(timeout=8.0)
     except subprocess.TimeoutExpired:
-        process.kill()
+        os.killpg(process.pid, signal.SIGKILL)
+        process.wait(timeout=8.0)
+    except ProcessLookupError:
         process.wait(timeout=8.0)
     finally:
         handle = getattr(process, '_hazardwalker_log_handle', None)
