@@ -252,6 +252,7 @@ def test_official_business_launch_never_starts_fake_platform_by_default():
     assert "DeclareLaunchArgument('start_legal_localization', default_value='true')" in source
     assert "'mission_time_budget_s': 600.0" in source
     assert "'minimum_return_reserve_s': 120.0" in source
+    assert "'entry_ingress_depth_m': 6.0" in source
     assert "executable='scan_imu_localizer_node'" in source
     assert "package='hazardwalker_platform'" not in source
     assert "'online_async_launch.py'" in source

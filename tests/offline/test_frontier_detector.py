@@ -21,6 +21,9 @@ from hazardwalker_nav.frontier_detector import (  # noqa: E402
     cluster_frontiers,
     compute_frontier_backoff_ttl_s,
     compute_exploration_time_limit_s,
+    entry_axis_progress_m,
+    entry_ingress_constraint_active,
+    entry_ingress_half_angles_deg,
     find_frontiers,
     Frontier,
     nearest_frontier_basin_key,
@@ -440,6 +443,64 @@ def test_frontier_switch_uses_hold_time_and_distance_hysteresis():
     )
 
 
+def test_frontier_switch_protects_a_target_with_recent_net_progress():
+    assert not should_switch_frontier(
+        12.0, 3.0, held_duration_s=20.0,
+        switch_margin_m=1.0, minimum_hold_s=8.0,
+        recent_progress_age_s=2.0, progress_protection_s=12.0,
+    )
+    assert should_switch_frontier(
+        12.0, 3.0, held_duration_s=20.0,
+        switch_margin_m=1.0, minimum_hold_s=8.0,
+        recent_progress_age_s=13.0, progress_protection_s=12.0,
+    )
+    assert should_switch_frontier(
+        12.0, 3.0, held_duration_s=50.0,
+        switch_margin_m=1.0, minimum_hold_s=8.0,
+        recent_progress_age_s=2.0, progress_protection_s=12.0,
+        progress_protection_max_hold_s=45.0,
+    )
+
+
+def test_entry_axis_progress_uses_only_public_start_axis_geometry():
+    assert entry_axis_progress_m(
+        6.0, 2.0, entry_origin=(1.0, 2.0), entry_axis=(2.0, 0.0),
+    ) == 5.0
+    assert entry_axis_progress_m(
+        1.0, 2.0, entry_origin=None, entry_axis=(1.0, 0.0),
+    ) is None
+    assert entry_axis_progress_m(
+        1.0, 2.0, entry_origin=(0.0, 0.0), entry_axis=(0.0, 0.0),
+    ) is None
+
+
+def test_entry_ingress_constraint_stays_active_until_required_depth():
+    assert entry_ingress_constraint_active(
+        None, None, ingress_depth_m=6.0,
+    )
+    assert entry_ingress_constraint_active(
+        (1.0, 0.0), 5.99, ingress_depth_m=6.0,
+    )
+    assert not entry_ingress_constraint_active(
+        (1.0, 0.0), 6.0, ingress_depth_m=6.0,
+    )
+    assert not entry_ingress_constraint_active(
+        (1.0, 0.0), None, ingress_depth_m=0.0,
+    )
+
+
+def test_entry_ingress_angles_relax_deterministically_without_duplicates():
+    assert entry_ingress_half_angles_deg(
+        35.0, 55.0, 90.0, constraint_active=True,
+    ) == (35.0, 55.0, 90.0)
+    assert entry_ingress_half_angles_deg(
+        35.0, 35.0, 35.0, constraint_active=True,
+    ) == (35.0,)
+    assert entry_ingress_half_angles_deg(
+        35.0, 55.0, 90.0, constraint_active=False,
+    ) == (None,)
+
+
 def test_public_building_width_band_excludes_far_side_exterior():
     far_side_exterior = Frontier(
         centroid=(2.0, 18.0),
@@ -532,6 +593,14 @@ def test_frontier_node_fails_closed_without_pose_scan_or_safe_return_path():
     assert 'Clock(clock_type=ClockType.STEADY_TIME)' in source
     assert 'clock=self._control_clock' in source
     assert "declare_parameter('frontier_locality_slack_m', 3.0)" in source
+    assert (
+        "declare_parameter('frontier_recent_progress_protection_s', 12.0)"
+        in source
+    )
+    assert (
+        "'frontier_progress_protection_max_hold_s', 45.0"
+        in source
+    )
     assert "declare_parameter('frontier_net_progress_timeout_s', 30.0)" in source
     assert "declare_parameter('safety_blocked_timeout_s', 8.0)" in source
     assert "declare_parameter('frontier_observation_sweep_speed', 0.60)" in source
@@ -547,8 +616,12 @@ def test_frontier_node_fails_closed_without_pose_scan_or_safe_return_path():
     assert 'self._initial_heading_yaw' in source
     assert 'if self._entry_axis is None' in source
     assert "declare_parameter('entry_heading_yaw', float('nan'))" in source
+    assert "declare_parameter('entry_ingress_depth_m', 0.0)" in source
+    assert 'entry_axis_progress_m(' in source
+    assert 'ingress_constraint_active' in source
+    assert "'ingress-cone='" in source
     assert "declare_parameter('entry_lateral_limit_m', 0.0)" in source
-    assert 'require_robot_yaw_candidate=self._entry_axis is None' in source
+    assert 'require_robot_yaw_candidate=half_angle is not None' in source
     assert 'self._entry_heading() - self.robot_yaw' in source
     assert 'if self._entry_axis is None:' in source
     assert 'self._entry_axis = (' in source

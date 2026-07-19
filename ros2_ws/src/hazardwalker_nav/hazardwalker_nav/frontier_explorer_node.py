@@ -35,6 +35,9 @@ from hazardwalker_nav.frontier_detector import (
     cluster_frontiers,
     compute_frontier_backoff_ttl_s,
     compute_exploration_time_limit_s,
+    entry_axis_progress_m,
+    entry_ingress_constraint_active,
+    entry_ingress_half_angles_deg,
     find_frontiers,
     grid_to_world,
     nearest_frontier_basin_key,
@@ -74,12 +77,22 @@ class FrontierExplorerNode(Node):
         self.declare_parameter('frontier_locality_slack_m', 3.0)
         self.declare_parameter('frontier_switch_margin_m', 1.0)
         self.declare_parameter('frontier_minimum_hold_s', 8.0)
+        # 只要当前目标仍持续缩短合法 SLAM 距离，就不被地图刷新产生的近场
+        # 新前沿抢占；否则机器人会在长走廊两端反复掉头，始终到不了房间入口。
+        self.declare_parameter('frontier_recent_progress_protection_s', 12.0)
+        self.declare_parameter(
+            'frontier_progress_protection_max_hold_s', 45.0)
         self.declare_parameter('frontier_net_progress_timeout_s', 30.0)
         self.declare_parameter('frontier_net_progress_distance_m', 0.25)
         # 非官方环境默认从第一条合法 TF 推断。官方 profile 会显式传入公开
         # 起点在 map 帧中的朝向，避免 INIT 建图旋转污染入楼方向。
         self.declare_parameter('entry_heading_yaw', float('nan'))
         self.declare_parameter('entry_forward_half_angle_deg', 35.0)
+        # 第一次选到入口路径后仍保持向楼内推进，不能立刻退化成宽半平面并被
+        # 楼外南北边界吸走。官方 profile 会按公开建筑尺度显式启用。
+        self.declare_parameter('entry_ingress_depth_m', 0.0)
+        self.declare_parameter('entry_ingress_relaxed_half_angle_deg', 55.0)
+        self.declare_parameter('entry_ingress_max_half_angle_deg', 90.0)
         # 0 表示通用环境不限制；官方 profile 按公开 20 m 楼宽上限加安全裕量。
         self.declare_parameter('entry_lateral_limit_m', 0.0)
         # 官方场景前沿通常距离较近；过大的容差会把首个目标直接误判为“已到达”。
@@ -937,31 +950,63 @@ class FrontierExplorerNode(Node):
             return
 
         entry_heading = self._entry_heading()
+        entry_progress = entry_axis_progress_m(
+            self.robot_x,
+            self.robot_y,
+            self._entry_origin,
+            self._entry_axis,
+        )
+        ingress_depth = max(
+            0.0,
+            float(self.get_parameter('entry_ingress_depth_m').value),
+        )
+        ingress_constraint_active = entry_ingress_constraint_active(
+            self._entry_axis,
+            entry_progress,
+            ingress_depth,
+        )
+        selected_ingress_half_angle: Optional[float] = None
 
         def select_candidate(candidate_pool):
-            return select_best_frontier(
-                candidate_pool, self.robot_x, self.robot_y,
-                last_target=self.last_target_world,
-                min_frontier_size=min_size,
-                locality_slack_m=float(
-                    self.get_parameter('frontier_locality_slack_m').value),
-                # 首次用当前朝向选中入楼前沿；随后用首段路径固定“楼内半平面”，
-                # 允许左右房间参与评分，同时拒绝入口背后的巨大楼外前沿。
-                robot_yaw=entry_heading if self._entry_axis is None else None,
-                robot_yaw_half_angle_rad=math.radians(max(
-                    5.0,
-                    min(
-                        90.0,
-                        float(self.get_parameter(
-                            'entry_forward_half_angle_deg').value),
-                    ),
-                )),
-                require_robot_yaw_candidate=self._entry_axis is None,
-                entry_origin=self._entry_origin,
-                entry_axis=self._entry_axis,
-                entry_lateral_limit_m=float(
-                    self.get_parameter('entry_lateral_limit_m').value),
+            nonlocal selected_ingress_half_angle
+            selected_ingress_half_angle = None
+            half_angles = entry_ingress_half_angles_deg(
+                float(self.get_parameter(
+                    'entry_forward_half_angle_deg').value),
+                float(self.get_parameter(
+                    'entry_ingress_relaxed_half_angle_deg').value),
+                float(self.get_parameter(
+                    'entry_ingress_max_half_angle_deg').value),
+                ingress_constraint_active,
             )
+            for half_angle in half_angles:
+                selected = select_best_frontier(
+                    candidate_pool, self.robot_x, self.robot_y,
+                    last_target=self.last_target_world,
+                    min_frontier_size=min_size,
+                    locality_slack_m=float(
+                        self.get_parameter(
+                            'frontier_locality_slack_m').value),
+                    # 在达到最小入楼纵深前持续使用公开起点轴；若当前地图
+                    # 暂无窄锥候选，再分级放宽到 55°/90°，避免死锁。
+                    robot_yaw=(
+                        entry_heading
+                        if half_angle is not None
+                        else None
+                    ),
+                    robot_yaw_half_angle_rad=math.radians(
+                        90.0 if half_angle is None else half_angle,
+                    ),
+                    require_robot_yaw_candidate=half_angle is not None,
+                    entry_origin=self._entry_origin,
+                    entry_axis=self._entry_axis,
+                    entry_lateral_limit_m=float(
+                        self.get_parameter('entry_lateral_limit_m').value),
+                )
+                if selected is not None:
+                    selected_ingress_half_angle = half_angle
+                    return selected
+            return None
 
         if self.current_target is not None:
             refreshed_path = a_star_path(
@@ -997,6 +1042,13 @@ class FrontierExplorerNode(Node):
                         now_ros - self._current_target_selected_ros_sec,
                     )
                 )
+                recent_progress_age = (
+                    None if self._frontier_last_net_progress_ros is None
+                    else max(
+                        0.0,
+                        now_ros - self._frontier_last_net_progress_ros,
+                    )
+                )
                 if not should_switch_frontier(
                         current_distance,
                         challenger_distance,
@@ -1004,7 +1056,14 @@ class FrontierExplorerNode(Node):
                         float(self.get_parameter(
                             'frontier_switch_margin_m').value),
                         float(self.get_parameter(
-                            'frontier_minimum_hold_s').value)):
+                            'frontier_minimum_hold_s').value),
+                        recent_progress_age_s=recent_progress_age,
+                        progress_protection_s=float(self.get_parameter(
+                            'frontier_recent_progress_protection_s').value),
+                        progress_protection_max_hold_s=float(
+                            self.get_parameter(
+                                'frontier_progress_protection_max_hold_s'
+                            ).value)):
                     self.current_path = refreshed_path
                     self.path_index = 0
                     return
@@ -1058,10 +1117,18 @@ class FrontierExplorerNode(Node):
                 self.last_target_world = best.centroid
                 self.current_path = path
                 self.path_index = 0
+                selection_mode = (
+                    'all-directions'
+                    if selected_ingress_half_angle is None
+                    else (
+                        'ingress-cone='
+                        f'{selected_ingress_half_angle:.0f}deg'
+                    )
+                )
                 self.get_logger().info(
                     f'New frontier: ({best.centroid[0]:.2f}, '
                     f'{best.centroid[1]:.2f}), size={best.size}, '
-                    f'path={len(path)} steps'
+                    f'path={len(path)} steps, mode={selection_mode}'
                 )
                 return
             self._mark_frontier_unreachable(best)

@@ -281,21 +281,108 @@ def select_best_frontier(frontiers: List[Frontier], robot_wx: float, robot_wy: f
     return best
 
 
+def entry_axis_progress_m(robot_wx: float, robot_wy: float,
+                          entry_origin: Optional[Tuple[float, float]],
+                          entry_axis: Optional[Tuple[float, float]]
+                          ) -> Optional[float]:
+    """计算机器人沿公开入口轴的有符号纵深，不读取楼宇布局或真值。"""
+
+    if entry_origin is None or entry_axis is None:
+        return None
+    values = (
+        robot_wx, robot_wy,
+        entry_origin[0], entry_origin[1],
+        entry_axis[0], entry_axis[1],
+    )
+    if not all(math.isfinite(float(value)) for value in values):
+        return None
+    axis_x = float(entry_axis[0])
+    axis_y = float(entry_axis[1])
+    axis_norm = math.hypot(axis_x, axis_y)
+    if axis_norm <= 1e-6:
+        return None
+    return (
+        (float(robot_wx) - float(entry_origin[0])) * axis_x
+        + (float(robot_wy) - float(entry_origin[1])) * axis_y
+    ) / axis_norm
+
+
+def entry_ingress_constraint_active(
+        entry_axis: Optional[Tuple[float, float]],
+        entry_progress_m: Optional[float],
+        ingress_depth_m: float) -> bool:
+    """决定是否继续限制入楼方向；进度未知时保守保持约束。"""
+
+    if entry_axis is None:
+        return True
+    depth = max(0.0, float(ingress_depth_m))
+    if depth <= 0.0:
+        return False
+    if entry_progress_m is None or not math.isfinite(entry_progress_m):
+        return True
+    return float(entry_progress_m) < depth
+
+
+def entry_ingress_half_angles_deg(configured_deg: float,
+                                  relaxed_deg: float,
+                                  maximum_deg: float,
+                                  constraint_active: bool
+                                  ) -> Tuple[Optional[float], ...]:
+    """返回确定性的窄到宽入楼锥序列；解除约束后返回全向模式。"""
+
+    if not constraint_active:
+        return (None,)
+    if not all(math.isfinite(float(value)) for value in (
+            configured_deg, relaxed_deg, maximum_deg)):
+        return tuple()
+    configured = max(5.0, min(90.0, float(configured_deg)))
+    relaxed = max(
+        configured,
+        min(90.0, float(relaxed_deg)),
+    )
+    maximum = max(
+        relaxed,
+        min(90.0, float(maximum_deg)),
+    )
+    return tuple(dict.fromkeys((configured, relaxed, maximum)))
+
+
 def should_switch_frontier(current_distance_m: float,
                            challenger_distance_m: float,
                            held_duration_s: float,
                            switch_margin_m: float = 1.0,
-                           minimum_hold_s: float = 8.0) -> bool:
+                           minimum_hold_s: float = 8.0,
+                           recent_progress_age_s: Optional[float] = None,
+                           progress_protection_s: float = 0.0,
+                           progress_protection_max_hold_s: float = 0.0) -> bool:
     """判断是否用新出现的近场前沿替换仍可规划的远目标。
 
     最短锁定时间和距离滞回共同防止质心抖动；超过锁定期后，只有明显更近的
-    候选才能抢占。距离均来自同一合法 SLAM map 帧，不使用场景真值。
+    候选才能抢占。当前目标近期仍产生净距离进展时继续保护它，避免地图更新
+    反复产生“更近”候选并让机器人在走廊两端掉头。距离与进展时间均来自同一
+    合法 SLAM/仿真时钟，不使用场景真值。
     """
 
     if not all(math.isfinite(value) for value in (
             current_distance_m, challenger_distance_m, held_duration_s,
-            switch_margin_m, minimum_hold_s)):
+            switch_margin_m, minimum_hold_s, progress_protection_s,
+            progress_protection_max_hold_s)):
         return False
+    protection = max(0.0, float(progress_protection_s))
+    maximum_protected_hold = max(
+        0.0,
+        float(progress_protection_max_hold_s),
+    )
+    if recent_progress_age_s is not None:
+        if not math.isfinite(recent_progress_age_s):
+            return False
+        protection_hold_active = (
+            maximum_protected_hold <= 0.0
+            or held_duration_s < maximum_protected_hold
+        )
+        if (protection_hold_active
+                and max(0.0, float(recent_progress_age_s)) < protection):
+            return False
     if held_duration_s < max(0.0, minimum_hold_s):
         return False
     return (
