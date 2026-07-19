@@ -1,0 +1,6 @@
+[frontier_explorer_node] State: EXPLORING → RETURNING
+[frontier_explorer_node] Return progress watchdog expired (stationary=True, net_progress=False); clearing stale path and replanning.
+[frontier_explorer_node] Starting bounded return recovery turn: attempt=1, direction=left, speed=0.80rad/s, duration=2.00s.
+[frontier_explorer_node] Return recovery turn finished: attempt=1, yaw_delta=0.810rad; replanning.
+[frontier_explorer_node] Arrived home. Distance=0.24m
+[frontier_explorer_node] State: RETURNING → FINISHED

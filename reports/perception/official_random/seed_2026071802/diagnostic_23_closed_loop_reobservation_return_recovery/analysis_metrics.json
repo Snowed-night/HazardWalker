@@ -1,0 +1,45 @@
+{
+  "trajectory_samples": 741,
+  "path_length_m": 71.383,
+  "x_range_m": [
+    0,
+    23.698
+  ],
+  "y_range_m": [
+    -0.687,
+    4.568
+  ],
+  "unique_half_metre_cells": 138,
+  "final_recorded_pose": {
+    "x": 0.1738623007668004,
+    "y": 0.561171406101426,
+    "stamp": 405.501
+  },
+  "return_start_stamp": 313.2,
+  "return_start_distance_m": 14.746,
+  "maximum_return_distance_m": 17.378,
+  "best_recorded_return": {
+    "stamp": 405.501,
+    "distance_m": 0.587
+  },
+  "arrival_distance_from_navigation_log_m": 0.24,
+  "return_direction_sequence": [
+    "east",
+    "west"
+  ],
+  "return_large_direction_flip_count": 1,
+  "frontier_target_count": 17,
+  "frontier_sweep_started_count": 4,
+  "frontier_sweep_completed_count": 3,
+  "unreachable_basin_count": 17,
+  "return_watchdog_count": 1,
+  "return_recovery_count": 1,
+  "return_recovery_yaw_deltas_rad": [
+    0.81
+  ],
+  "reobservation_attempt_count": 0,
+  "frame_count": 4945,
+  "frames_with_candidates": 0,
+  "mission_completed": true,
+  "confirmed_hazard_count": 0
+}
