@@ -217,6 +217,11 @@ class HazardTracker:
 
     def _refresh_statuses(self):
         for track in self.tracks:
+            if track.status == 'rejected_non_spherical':
+                # 两个独立稳定视角已经给出明确非球面证据后，本轮任务内永久拒绝。
+                # 后续正面圆形投影可能只是同一圆柱/圆锥的端面，绝不能用更多
+                # RGB 圆形帧把已拒绝物体“复活”为 confirmed。
+                continue
             if track.missed_count >= self.config.reject_after_missed_count:
                 if (track.status == 'confirmed'
                         and track.missed_count < self.config.reject_after_missed_count * 10):
@@ -401,10 +406,21 @@ def _normalize_observation(observation, default_stamp_sec):
 def _merge_observation_into_track(track, observation):
     old_count = max(1, int(track.observation_count))
     new_count = old_count + 1
-    track.position = tuple(
-        (float(track.position[index]) * old_count + float(observation.position[index])) / new_count
-        for index in range(3)
-    )
+    # 轨迹坐标只由可确认的完整 RGB-D 观测估计。partial、贴边、粘连框和
+    # 非球面反证只用于复查/拒绝；即使上游误把它们传入，也不能把已确认红球
+    # 的世界坐标逐帧拖向错误位置。
+    if observation.confirmation_eligible:
+        old_eligible_count = max(0, int(track.eligible_observation_count))
+        if old_eligible_count == 0:
+            track.position = tuple(float(value) for value in observation.position)
+        else:
+            track.position = tuple(
+                (
+                    float(track.position[index]) * old_eligible_count
+                    + float(observation.position[index])
+                ) / (old_eligible_count + 1)
+                for index in range(3)
+            )
     track.confidence = max(float(track.confidence), float(observation.confidence))
     track.observation_count = new_count
     track.missed_count = 0

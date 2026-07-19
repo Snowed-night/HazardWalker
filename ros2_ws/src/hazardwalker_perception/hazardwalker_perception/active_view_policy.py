@@ -13,6 +13,8 @@
 from dataclasses import dataclass
 import math
 
+from hazardwalker_perception.localize_hazard import project_output_point_to_image
+
 
 @dataclass(frozen=True)
 class ActiveViewPolicyConfig:
@@ -61,36 +63,26 @@ def choose_active_view_action(detections, image_width, image_height, config=None
     if not normalized:
         return ViewRecommendation('continue_exploring', '当前帧没有红球候选。', 0)
 
-    target = max(normalized, key=lambda item: _target_score(item, policy))
-    edge_action = _edge_action(target, image_width, image_height, policy)
-    if edge_action:
-        return edge_action
-
-    if target['depth_shape_status'] in ('flat', 'anisotropic', 'non_spherical'):
-        return _lateral_action(
-            target, image_width, 94,
-            '深度轮廓为平面或单轴曲面，疑似红色非球体；从侧面复查轮廓变化后再决定是否丢弃。',
+    # 必须逐个检查紧急候选。若先选最高置信度目标，完整大球会长期压住同帧
+    # partial/粘连小球，使后者虽被检出却永远得不到导航侧复查机会。
+    urgent_actions = []
+    for candidate in normalized:
+        action = _urgent_target_action(
+            candidate, image_width, image_height, policy,
         )
-
-    if target['normalized_depth_curvature'] is not None and not (
-        policy.min_normalized_depth_curvature
-        <= target['normalized_depth_curvature']
-        <= policy.max_normalized_depth_curvature
-    ):
-        return _lateral_action(
-            target, image_width, 93,
-            '深度曲率不在球体稳定区间，疑似圆锥端面、扁平物或深度异常；必须侧向复查。',
-        )
-
-    if target['requires_reobservation']:
-        return _lateral_action(
-            target, image_width, 92, '候选局部可见或可能合并，沿目标所在侧横移后复查。',
-        )
+        if action is not None:
+            urgent_actions.append((action, _target_score(candidate, policy)))
+    if urgent_actions:
+        return max(
+            urgent_actions,
+            key=lambda item: (item[0].priority, item[1]),
+        )[0]
 
     dense_action = _dense_target_action(normalized, image_width, policy)
     if dense_action:
         return dense_action
 
+    target = max(normalized, key=lambda item: _target_score(item, policy))
     if target['red_pixel_count'] < policy.min_red_pixel_count or target['bbox_area_px'] < policy.min_bbox_area_px:
         return ViewRecommendation('move_forward', '候选红色面积过小，建议靠近后重新观察。', 80, target['id'])
 
@@ -111,6 +103,33 @@ def choose_active_view_action(detections, image_width, image_height, config=None
     )
 
 
+def _urgent_target_action(target, image_width, image_height, policy):
+    """返回单候选的高优先级复查动作；普通稳定候选返回 ``None``。"""
+
+    edge_action = _edge_action(target, image_width, image_height, policy)
+    if edge_action:
+        return edge_action
+    if target['depth_shape_status'] in ('flat', 'anisotropic', 'non_spherical'):
+        return _lateral_action(
+            target, image_width, 94,
+            '深度轮廓为平面或单轴曲面，疑似红色非球体；从侧面复查轮廓变化后再决定是否丢弃。',
+        )
+    if target['normalized_depth_curvature'] is not None and not (
+        policy.min_normalized_depth_curvature
+        <= target['normalized_depth_curvature']
+        <= policy.max_normalized_depth_curvature
+    ):
+        return _lateral_action(
+            target, image_width, 93,
+            '深度曲率不在球体稳定区间，疑似圆锥端面、扁平物或深度异常；必须侧向复查。',
+        )
+    if target['requires_reobservation']:
+        return _lateral_action(
+            target, image_width, 92, '候选局部可见或可能合并，沿目标所在侧横移后复查。',
+        )
+    return None
+
+
 def bbox_iou(a, b):
     """计算两个 ``x_min/y_min/x_max/y_max`` 检测框的 IoU。"""
 
@@ -126,42 +145,180 @@ def bbox_iou(a, b):
     return intersection / max(area_a + area_b - intersection, 1.0)
 
 
-def annotate_detections_with_tracks(detections, tracks, merge_distance_m):
+def project_tracks_for_image_association(
+        tracks, camera_to_output, intrinsics, current_stamp_sec=0.0,
+        max_track_age_s=2.0, sphere_radius_m=0.15,
+        min_depth_m=0.25, max_depth_m=20.0,
+        camera_axis_convention='optical_z_forward'):
+    """把近期世界轨迹投影成图像门控，供 partial 保持稳定 target_id。"""
+
+    projected = []
+    if camera_to_output is None or intrinsics is None:
+        return projected
+    for track in tracks:
+        age_s = (
+            float(current_stamp_sec) - float(track.last_seen_sec)
+            if current_stamp_sec and track.last_seen_sec else 0.0
+        )
+        if age_s < 0.0 or age_s > max(0.0, float(max_track_age_s)):
+            continue
+        projection = project_output_point_to_image(
+            track.position,
+            camera_to_output,
+            intrinsics,
+            camera_axis_convention=camera_axis_convention,
+        )
+        if projection is None:
+            continue
+        center_u, center_v, depth_m = projection
+        if depth_m < float(min_depth_m) or depth_m > float(max_depth_m):
+            continue
+        radius_px = (
+            (float(intrinsics.fx) + float(intrinsics.fy)) * 0.5
+            * float(sphere_radius_m) / depth_m
+        )
+        if not math.isfinite(radius_px) or radius_px <= 0.0:
+            continue
+        projected.append({
+            'track_id': str(track.track_id),
+            'center_u': float(center_u),
+            'center_v': float(center_v),
+            'radius_px': float(radius_px),
+            'depth_m': float(depth_m),
+        })
+    return projected
+
+
+def annotate_detections_with_tracks(
+        detections, tracks, merge_distance_m, projected_tracks=None):
     """把当前二维候选关联到稳定三维轨迹，供主动复查使用稳定 target_id。
 
     已拒绝非球体也参与关联，使同一圆柱不会在下一帧重新变成“新候选”。这里
     只使用感知进程由合法 RGB-D/TF 建立的轨迹，不读取真值。
     """
 
-    result = []
+    result = [dict(detection) for detection in detections]
     threshold = max(0.0, float(merge_distance_m))
-    for detection in detections:
-        item = dict(detection)
+    track_by_id = {str(track.track_id): track for track in tracks}
+    projection_by_id = {
+        str(item.get('track_id')): item for item in (projected_tracks or [])
+    }
+    candidates_by_detection = {}
+    for detection_index, item in enumerate(result):
         position = item.get('localized_position')
-        nearest = None
-        nearest_distance = None
-        if isinstance(position, (list, tuple)) and len(position) == 3:
-            for track in tracks:
+        if position is None:
+            position = item.get('position')
+        pairs = []
+        for track_id, track in track_by_id.items():
+            best_cost = None
+            association = ''
+            if (
+                threshold > 0.0
+                and isinstance(position, (list, tuple))
+                and len(position) == 3
+            ):
                 distance = math.sqrt(sum(
                     (float(position[index]) - float(track.position[index])) ** 2
                     for index in range(3)
                 ))
-                if distance > threshold:
-                    continue
-                if nearest_distance is None or distance < nearest_distance:
-                    nearest = track
-                    nearest_distance = distance
-        if nearest is not None:
-            item['track_id'] = str(nearest.track_id)
-            item['track_status'] = str(nearest.status)
-            # 策略的 target_id 必须跨帧稳定，导航才能限制单目标复查预算。
-            item['id'] = str(nearest.track_id)
-        else:
+                if distance <= threshold:
+                    best_cost = distance / threshold
+                    association = 'world_distance'
+            projection = projection_by_id.get(track_id)
+            projection_cost = _projected_bbox_association_cost(item, projection)
+            if projection_cost is not None and (
+                best_cost is None or projection_cost < best_cost
+            ):
+                best_cost = projection_cost
+                association = 'image_projection'
+            if best_cost is not None:
+                pairs.append((best_cost, track_id, association))
+        pairs.sort(key=lambda pair: pair[0])
+        # 两条世界轨迹在图像中几乎重合时保持未关联，不能猜错 ID 后让导航
+        # 对另一个球消耗复查预算。
+        if len(pairs) >= 2 and pairs[1][0] - pairs[0][0] < 0.20:
+            pairs = []
+        candidates_by_detection[detection_index] = pairs
+
+    assignments = {}
+    used_track_ids = set()
+    all_pairs = sorted(
+        (
+            (cost, detection_index, track_id, association)
+            for detection_index, pairs in candidates_by_detection.items()
+            for cost, track_id, association in pairs
+        ),
+        key=lambda pair: pair[0],
+    )
+    for _cost, detection_index, track_id, association in all_pairs:
+        if detection_index in assignments or track_id in used_track_ids:
+            continue
+        assignments[detection_index] = (track_id, association)
+        used_track_ids.add(track_id)
+
+    for detection_index, item in enumerate(result):
+        assignment = assignments.get(detection_index)
+        if assignment is None:
             item['track_id'] = ''
             item['track_status'] = 'untracked'
             item['id'] = 'untracked:%s' % item.get('id', '')
-        result.append(item)
+            item['track_association'] = 'none'
+            continue
+        track_id, association = assignment
+        track = track_by_id[track_id]
+        item['track_id'] = track_id
+        item['track_status'] = str(track.status)
+        item['track_association'] = association
+        # 策略的 target_id 必须跨帧稳定，导航才能限制单目标复查预算。
+        item['id'] = track_id
     return result
+
+
+def _projected_bbox_association_cost(detection, projection):
+    """计算 partial bbox 与预测完整球框的归一化代价；不满足门槛返回 None。"""
+
+    if not projection:
+        return None
+    bbox = detection.get('bbox', detection)
+    try:
+        x_min = float(bbox['x_min'])
+        y_min = float(bbox['y_min'])
+        x_max = float(bbox['x_max'])
+        y_max = float(bbox['y_max'])
+        center_u = float(projection['center_u'])
+        center_v = float(projection['center_v'])
+        radius_px = float(projection['radius_px'])
+    except (KeyError, TypeError, ValueError):
+        return None
+    if radius_px <= 0.0 or x_max < x_min or y_max < y_min:
+        return None
+    candidate_center_u = (x_min + x_max) * 0.5
+    candidate_center_v = (y_min + y_max) * 0.5
+    center_distance = math.hypot(
+        candidate_center_u - center_u, candidate_center_v - center_v,
+    )
+    center_gate_px = max(20.0, 1.5 * radius_px)
+    if center_distance > center_gate_px:
+        return None
+
+    half_size = radius_px * 1.25
+    predicted = {
+        'x_min': center_u - half_size,
+        'y_min': center_v - half_size,
+        'x_max': center_u + half_size,
+        'y_max': center_v + half_size,
+    }
+    intersection_width = max(
+        0.0, min(x_max, predicted['x_max']) - max(x_min, predicted['x_min']),
+    )
+    intersection_height = max(
+        0.0, min(y_max, predicted['y_max']) - max(y_min, predicted['y_min']),
+    )
+    candidate_area = max(1.0, (x_max - x_min) * (y_max - y_min))
+    overlap_ratio = intersection_width * intersection_height / candidate_area
+    if overlap_ratio < 0.50:
+        return None
+    return 0.65 * center_distance / center_gate_px + 0.35 * (1.0 - overlap_ratio)
 
 
 def _normalize_detection(item, index):

@@ -17,6 +17,7 @@ from hazardwalker_perception.localize_hazard import (
     Point3D,
     RigidTransform3D,
     camera_intrinsics_from_k,
+    camera_link_point_to_optical,
     estimate_depth_from_bbox,
     estimate_sphere_center_depth_from_bbox,
     evaluate_sphere_depth_shape,
@@ -25,6 +26,7 @@ from hazardwalker_perception.localize_hazard import (
     make_yaw_transform,
     optical_point_to_camera_link,
     pixel_to_camera_point,
+    project_output_point_to_image,
     transform_point,
 )
 from hazardwalker_perception.track_hazards import distance_m
@@ -68,6 +70,49 @@ def test_gazebo_camera_link_axis_convention_converts_optical_point():
     )
 
     assert point == Point3D(x=2.0, y=-0.2, z=0.3)
+
+
+def test_gazebo_camera_link_axis_conversion_round_trips():
+    optical = Point3D(x=0.2, y=-0.3, z=2.0)
+    camera_link = optical_point_to_camera_link(
+        optical, convention='gazebo_link_x_forward',
+    )
+
+    assert camera_link_point_to_optical(
+        camera_link, convention='gazebo_link_x_forward',
+    ) == optical
+
+
+def test_world_track_projects_back_to_current_image():
+    intrinsics = CameraIntrinsics(fx=200.0, fy=200.0, cx=100.0, cy=80.0)
+    camera_to_world = RigidTransform3D(
+        translation=Point3D(1.0, 2.0, 0.5),
+        rotation=((0.0, -1.0, 0.0), (1.0, 0.0, 0.0), (0.0, 0.0, 1.0)),
+    )
+    camera_point = Point3D(0.2, -0.1, 2.0)
+    world_point = transform_point(camera_point, camera_to_world)
+
+    projection = project_output_point_to_image(
+        world_point, camera_to_world, intrinsics,
+    )
+
+    assert projection is not None
+    assert math.isclose(projection[0], 120.0, abs_tol=1e-9)
+    assert math.isclose(projection[1], 70.0, abs_tol=1e-9)
+    assert math.isclose(projection[2], 2.0, abs_tol=1e-9)
+
+
+def test_world_track_behind_camera_is_not_projected():
+    projection = project_output_point_to_image(
+        Point3D(0.0, 0.0, -1.0),
+        RigidTransform3D(
+            translation=Point3D(0.0, 0.0, 0.0),
+            rotation=((1.0, 0.0, 0.0), (0.0, 1.0, 0.0), (0.0, 0.0, 1.0)),
+        ),
+        CameraIntrinsics(200.0, 200.0, 100.0, 80.0),
+    )
+
+    assert projection is None
 
 
 """验证刚体变换能把相机坐标点转换到目标坐标系。"""

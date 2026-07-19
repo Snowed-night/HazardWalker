@@ -1,0 +1,25 @@
+{
+  "schema": "hazardwalker_official_simenv_classic_evidence_v1",
+  "run_id": "20260719_seed2026071802_c401b4e",
+  "code_version": "c401b4ef0e5d2e7806eb8947c5b2ec13788f3966",
+  "evidence_class": "internal_regression",
+  "official_score_eligible": false,
+  "suite": "red_objects",
+  "case_count": 10,
+  "pass_count": 4,
+  "fail_count": 6,
+  "container": "hazardwalker_perception_isolated_v16",
+  "ros_domain_id": "77",
+  "camera_topic": "/hw/camera/image_raw",
+  "detection_topic": "/hw/perception/hazard_detections",
+  "control_enabled": false,
+  "fixture_center_world": [
+    0.26540697490408305,
+    1.0789842858189567,
+    0.15
+  ],
+  "fixture_center_source": "map->real_sense camera_forward 3.000m (test fixture only)",
+  "min_background_edge_ratio": 0.006,
+  "truth_usage": "仅在快照保存后由本脚本匹配；运行期检测器和运动策略不读取真值。",
+  "annotated_collage": "red_objects_annotated_collage.png"
+}

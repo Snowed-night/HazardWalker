@@ -26,6 +26,7 @@ import os
 import re
 import shlex
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
@@ -220,6 +221,9 @@ def _capture_snapshot(case_id: str, view_index: int, output_dir: Path, detection
         timeout=timeout_sec + 12.0,
     )
     snapshot_path = image_dir / f'{snapshot_id}_snapshot.json'
+    snapshot_dir = output_dir / 'snapshots'
+    snapshot_dir.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(snapshot_path, snapshot_dir / snapshot_path.name)
     return json.loads(snapshot_path.read_text(encoding='utf-8'))
 
 
@@ -320,15 +324,35 @@ def _stop_case_detector(process: Optional[subprocess.Popen]) -> None:
     if process is None:
         return
     try:
-        process.terminate()
+        # ``ros2 run`` 会派生真正的 Python 节点；只终止 CLI 父进程会把检测器
+        # 留成孤儿，几十个案例后造成重复发布者和 CPU 饥饿。启动时已经创建
+        # 独立会话，这里必须回收整个进程组。
+        os.killpg(process.pid, signal.SIGTERM)
         process.wait(timeout=8.0)
     except subprocess.TimeoutExpired:
-        process.kill()
+        os.killpg(process.pid, signal.SIGKILL)
+        process.wait(timeout=8.0)
+    except ProcessLookupError:
         process.wait(timeout=8.0)
     finally:
         handle = getattr(process, '_hazardwalker_log_handle', None)
         if handle is not None:
             handle.close()
+
+
+def _reset_isolated_container(command: str, env: dict[str, str]) -> bool:
+    """执行调用方提供的整容器复位，替代已退化的 Gazebo delete_model。"""
+
+    normalized = str(command or '').strip()
+    if not normalized:
+        return False
+    try:
+        result = _run(
+            shlex.split(normalized), env, timeout=180.0, check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+    return result.returncode == 0
 
 
 def _strict_count(snapshot: dict[str, Any]) -> int:
@@ -480,6 +504,7 @@ def _write_suite_report(suite_dir: Path, suite: str, rows: list[dict[str, Any]],
             writer.writeheader()
             writer.writerows(serialized_rows)
     (suite_dir / 'cases.json').write_text(json.dumps(rows, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
+    collage_path = _write_annotated_collage(suite_dir, suite)
     summary = {
         'schema': 'hazardwalker_official_simenv_classic_evidence_v1',
         'run_id': args.run_id or suite_dir.name,
@@ -495,10 +520,15 @@ def _write_suite_report(suite_dir: Path, suite: str, rows: list[dict[str, Any]],
         'camera_topic': '/hw/camera/image_raw',
         'detection_topic': args.detection_topic,
         'control_enabled': bool(args.allow_control),
+        'cleanup_mode': (
+            'isolated_container_reset'
+            if args.reset_container_between_cases_command else 'gazebo_delete_model'
+        ),
         'fixture_center_world': list(args.resolved_fixture_center),
         'fixture_center_source': args.fixture_center_source,
         'min_background_edge_ratio': args.min_background_edge_ratio,
         'truth_usage': '仅在快照保存后由本脚本匹配；运行期检测器和运动策略不读取真值。',
+        'annotated_collage': collage_path.name if collage_path else '',
     }
     (suite_dir / 'summary.json').write_text(json.dumps(summary, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
     (suite_dir / 'README.md').write_text(
@@ -525,6 +555,35 @@ def _write_suite_report(suite_dir: Path, suite: str, rows: list[dict[str, Any]],
             json.dumps(record_payload, ensure_ascii=False, indent=2) + '\n',
             encoding='utf-8',
         )
+
+
+def _write_annotated_collage(suite_dir: Path, suite: str) -> Optional[Path]:
+    """把本批标注图缩略排版成总览，单图仍保留供逐例审计。"""
+
+    image_paths = sorted((suite_dir / 'images').glob('*_annotated.png'))
+    if not image_paths:
+        return None
+    thumbnails = []
+    tile_width, tile_height = 320, 240
+    for path in image_paths:
+        image = cv2.imread(str(path), cv2.IMREAD_COLOR)
+        if image is None:
+            continue
+        thumbnails.append(cv2.resize(image, (tile_width, tile_height)))
+    if not thumbnails:
+        return None
+    columns = min(5, len(thumbnails))
+    rows = int(math.ceil(len(thumbnails) / float(columns)))
+    canvas = np.zeros((rows * tile_height, columns * tile_width, 3), dtype=np.uint8)
+    for index, image in enumerate(thumbnails):
+        row, column = divmod(index, columns)
+        canvas[
+            row * tile_height:(row + 1) * tile_height,
+            column * tile_width:(column + 1) * tile_width,
+        ] = image
+    path = suite_dir / 'images' / f'{suite}_annotated_collage.png'
+    cv2.imwrite(str(path), canvas)
+    return path
 
 
 def main() -> int:
@@ -570,6 +629,11 @@ def main() -> int:
     parser.add_argument('--detector-command', default='',
                         help='可选：每个案例独立启动的检测节点命令。启用后不能同时保留外部同话题检测器。')
     parser.add_argument('--detector-warmup-sec', type=float, default=2.0)
+    parser.add_argument('--reset-container-between-cases-command', default='', help=(
+        'Gazebo spawn/delete 服务退化时，在每例结束后执行的隔离容器完整复位脚本。'
+        '脚本必须重启同一固定 SEED、恢复 rosbridge/公开门状态并等待真实 RGB-D；'
+        '返回非零即中止套件。仅允许测试隔离容器使用。'
+    ))
     args = parser.parse_args()
     if args.run_id:
         if RUN_ID_PATTERN.fullmatch(args.run_id.strip()) is None:
@@ -669,7 +733,13 @@ def main() -> int:
                 finally:
                     _stop_case_detector(detector_process)
                     if model_name:
-                        cleanup_failed = not _delete_case(args.isolated_container, model_name, env)
+                        cleanup_failed = not (
+                            _reset_isolated_container(
+                                args.reset_container_between_cases_command, env,
+                            )
+                            if args.reset_container_between_cases_command
+                            else _delete_case(args.isolated_container, model_name, env)
+                        )
                         if cleanup_failed:
                             rows[-1]['result'] = 'fail'
                             previous_error = str(rows[-1].get('error', '')).strip()

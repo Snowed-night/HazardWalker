@@ -167,6 +167,28 @@ def test_partial_or_unstable_spherical_observations_do_not_supply_confirmation_e
     assert tracks[0].evidence_status == 'insufficient_multiview_spherical_depth'
 
 
+def test_ineligible_partial_observations_cannot_drift_a_confirmed_world_position():
+    """纵使上游误传 partial 的表面点，跟踪器也必须保持完整观测的世界中心。"""
+
+    tracker = HazardTracker(HazardTrackerConfig(
+        confirm_observation_count=1,
+        merge_distance_m=0.5,
+    ))
+    tracker.update([HazardObservation(
+        position=(1.0, 2.0, 0.3), confidence=0.95,
+        view_id='complete', confirmation_eligible=True,
+    )])
+    for index in range(30):
+        tracker.update([HazardObservation(
+            position=(1.45, 2.0, 0.3), confidence=0.4,
+            view_id='partial_%d' % index, confirmation_eligible=False,
+        )])
+
+    assert tracker.tracks[0].position == (1.0, 2.0, 0.3)
+    assert tracker.tracks[0].eligible_observation_count == 1
+    assert tracker.tracks[0].status == 'confirmed'
+
+
 def test_official_size_prior_rechecks_a_spherical_but_wrong_sized_red_object():
     """题目目标尺寸固定为直径 0.30 m，不能把明显更大的红球/圆物直接提交。"""
     tracker = HazardTracker(HazardTrackerConfig(
@@ -247,6 +269,37 @@ def test_anisotropic_depth_evidence_rejects_cylindrical_track():
     )])
 
     assert tracker.active_tracks() == []
+    assert tracker.tracks[0].status == 'rejected_non_spherical'
+    assert tracker.tracks[0].evidence_status == 'multi_view_flat_or_non_spherical'
+
+
+def test_rejected_non_spherical_track_cannot_be_revived_by_round_frontal_views():
+    """两个独立非球面视角是任务内终局反证，圆柱端面不能靠后续圆形帧复活。"""
+
+    tracker = HazardTracker(HazardTrackerConfig(
+        confirm_observation_count=3,
+        min_distinct_views=3,
+        min_non_spherical_views_to_reject=2,
+        min_spherical_views_for_confirm=2,
+        merge_distance_m=0.5,
+    ))
+    for view_id in ('non_sphere_left', 'non_sphere_right'):
+        tracker.update([HazardObservation(
+            position=(1.0, 0.0, 0.3), confidence=0.9,
+            view_id=view_id, confirmation_eligible=False,
+            depth_shape_status='anisotropic',
+        )])
+
+    for index in range(4):
+        tracker.update([HazardObservation(
+            position=(1.0, 0.0, 0.3), confidence=0.99,
+            view_id='round_front_%d' % index, confirmation_eligible=True,
+            depth_shape_status='spherical', apparent_diameter_m=0.30,
+            aspect_ratio=0.99, depth_curvature_m=0.06,
+        )])
+
+    assert tracker.active_tracks() == []
+    assert tracker.confirmed_tracks() == []
     assert tracker.tracks[0].status == 'rejected_non_spherical'
     assert tracker.tracks[0].evidence_status == 'multi_view_flat_or_non_spherical'
 

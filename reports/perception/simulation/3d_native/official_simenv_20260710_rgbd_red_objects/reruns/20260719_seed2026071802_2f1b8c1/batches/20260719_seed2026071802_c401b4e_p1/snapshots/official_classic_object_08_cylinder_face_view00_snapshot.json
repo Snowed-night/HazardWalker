@@ -1,0 +1,90 @@
+{
+  "case_id": "official_classic_object_08_cylinder_face_view00",
+  "image_stamp": {
+    "sec": 44,
+    "nanosec": 275000000
+  },
+  "depth_stamp": {
+    "sec": 44,
+    "nanosec": 25000000
+  },
+  "localization_ready": true,
+  "detections_2d": [
+    {
+      "id": "1",
+      "frame_id": "real_sense",
+      "view_id": "xy:0.0:0.0|yaw:0",
+      "stamp": {
+        "sec": 44,
+        "nanosec": 226000000
+      },
+      "bbox": {
+        "x_min": 288,
+        "y_min": 271,
+        "x_max": 347,
+        "y_max": 332
+      },
+      "confidence": 0.946671374772801,
+      "red_pixel_count": 2893,
+      "is_partial": false,
+      "requires_reobservation": false,
+      "may_be_merged": false,
+      "quality_reason": "stable_shape",
+      "shape": {
+        "circularity": 0.8853962504768723,
+        "aspect_ratio": 0.967741935483871,
+        "extent": 0.7544354838709677
+      },
+      "depth_shape": {
+        "status": "flat",
+        "center_depth_m": 2.8351688385009766,
+        "outer_depth_m": 2.835182785987854,
+        "curvature_m": 1.3947486877441406e-05,
+        "horizontal_curvature_m": null,
+        "vertical_curvature_m": null,
+        "diagonal_positive_curvature_m": null,
+        "diagonal_negative_curvature_m": null,
+        "curvature_isotropy_ratio": null,
+        "center_points": 360,
+        "outer_points": 1200,
+        "horizontal_points": 212,
+        "vertical_points": 216,
+        "diagonal_positive_points": 152,
+        "diagonal_negative_points": 152
+      },
+      "confirmation_eligible": false,
+      "depth_synchronized": true,
+      "depth_stamp_delta_sec": 0.0,
+      "localization_status": "suppressed_non_spherical_depth_shape",
+      "localized_position": [
+        2.7778,
+        0.015,
+        -0.3055
+      ],
+      "track_id": "1",
+      "track_status": "needs_reobservation",
+      "track_association": "world_distance",
+      "source": "hsv_minimal",
+      "detector_backend": "hsv_opencv"
+    }
+  ],
+  "hazards": [
+    {
+      "status": "needs_reobservation",
+      "position": [
+        2.7778,
+        0.01,
+        -0.3055
+      ],
+      "position_frame_id": "real_sense",
+      "confidence": 0.9479,
+      "observation_count": 20,
+      "distinct_view_count": 0,
+      "source": "hsv_depth_tf"
+    }
+  ],
+  "raw_image": "official_classic_object_08_cylinder_face_view00_raw.png",
+  "annotated_image": "official_classic_object_08_cylinder_face_view00_annotated.png",
+  "depth_metric_image": "official_classic_object_08_cylinder_face_view00_depth_mm.png",
+  "depth_visual_image": "official_classic_object_08_cylinder_face_view00_depth_visual.png"
+}

@@ -1,0 +1,90 @@
+{
+  "case_id": "official_classic_partial_00_baseline_view00",
+  "image_stamp": {
+    "sec": 13,
+    "nanosec": 823000000
+  },
+  "depth_stamp": {
+    "sec": 13,
+    "nanosec": 823000000
+  },
+  "localization_ready": true,
+  "detections_2d": [
+    {
+      "id": "1",
+      "frame_id": "real_sense",
+      "view_id": "xy:0.0:0.0|yaw:0",
+      "stamp": {
+        "sec": 13,
+        "nanosec": 773000000
+      },
+      "bbox": {
+        "x_min": 290,
+        "y_min": 273,
+        "x_max": 345,
+        "y_max": 329
+      },
+      "confidence": 0.9455532701986851,
+      "red_pixel_count": 2460,
+      "is_partial": false,
+      "requires_reobservation": false,
+      "may_be_merged": false,
+      "quality_reason": "stable_shape",
+      "shape": {
+        "circularity": 0.8785137766974253,
+        "aspect_ratio": 0.9824561403508771,
+        "extent": 0.7456140350877193
+      },
+      "depth_shape": {
+        "status": "spherical",
+        "center_depth_m": 2.8498480319976807,
+        "outer_depth_m": 2.8952001333236694,
+        "curvature_m": 0.04535210132598877,
+        "horizontal_curvature_m": 0.045447587966918945,
+        "vertical_curvature_m": 0.04591572284698486,
+        "diagonal_positive_curvature_m": 0.045401573181152344,
+        "diagonal_negative_curvature_m": 0.0452345609664917,
+        "curvature_isotropy_ratio": 0.9851649535658373,
+        "center_points": 304,
+        "outer_points": 1032,
+        "horizontal_points": 184,
+        "vertical_points": 188,
+        "diagonal_positive_points": 130,
+        "diagonal_negative_points": 130
+      },
+      "confirmation_eligible": true,
+      "depth_synchronized": true,
+      "depth_stamp_delta_sec": 0.0,
+      "localization_status": "localized",
+      "localized_position": [
+        3.0018,
+        0.0162,
+        -0.3275
+      ],
+      "track_id": "1",
+      "track_status": "tentative",
+      "track_association": "image_projection",
+      "source": "hsv_minimal",
+      "detector_backend": "hsv_opencv"
+    }
+  ],
+  "hazards": [
+    {
+      "status": "tentative",
+      "position": [
+        3.0018,
+        0.0162,
+        -0.3275
+      ],
+      "position_frame_id": "real_sense",
+      "confidence": 0.9467,
+      "observation_count": 8,
+      "distinct_view_count": 1,
+      "source": "hsv_depth_tf"
+    }
+  ],
+  "raw_image": "official_classic_partial_00_baseline_view00_raw.png",
+  "annotated_image": "official_classic_partial_00_baseline_view00_annotated.png",
+  "depth_metric_image": "official_classic_partial_00_baseline_view00_depth_mm.png",
+  "depth_visual_image": "official_classic_partial_00_baseline_view00_depth_visual.png"
+}
