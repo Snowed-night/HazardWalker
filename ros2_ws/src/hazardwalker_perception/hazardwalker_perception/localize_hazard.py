@@ -127,6 +127,17 @@ def optical_point_to_camera_link(point, convention='optical_z_forward'):
     raise ValueError('Unsupported camera axis convention: %s' % convention)
 
 
+def camera_link_point_to_optical(point, convention='optical_z_forward'):
+    """把相机链路坐标还原到针孔投影使用的光学坐标。"""
+
+    normalized = str(convention or 'optical_z_forward').strip().lower()
+    if normalized == 'optical_z_forward':
+        return point
+    if normalized == 'gazebo_link_x_forward':
+        return Point3D(x=-point.y, y=-point.z, z=point.x)
+    raise ValueError('Unsupported camera axis convention: %s' % convention)
+
+
 """对三维点应用刚体变换。"""
 def transform_point(point, transform):
     rotation = transform.rotation
@@ -152,6 +163,62 @@ def transform_point(point, transform):
         transform.translation.z
     )
     return Point3D(x=x, y=y, z=z)
+
+
+def invert_rigid_transform(transform):
+    """求刚体变换的逆，用于把稳定世界轨迹投影回当前相机。"""
+
+    rotation = transform.rotation
+    if len(rotation) != 3 or any(len(row) != 3 for row in rotation):
+        raise ValueError('Rotation must be a 3x3 matrix.')
+    inverse_rotation = tuple(
+        tuple(float(rotation[column][row]) for column in range(3))
+        for row in range(3)
+    )
+    translation = transform.translation
+    inverse_translation = Point3D(
+        x=-sum(inverse_rotation[0][index] * value for index, value in enumerate(
+            (translation.x, translation.y, translation.z)
+        )),
+        y=-sum(inverse_rotation[1][index] * value for index, value in enumerate(
+            (translation.x, translation.y, translation.z)
+        )),
+        z=-sum(inverse_rotation[2][index] * value for index, value in enumerate(
+            (translation.x, translation.y, translation.z)
+        )),
+    )
+    return RigidTransform3D(
+        translation=inverse_translation,
+        rotation=inverse_rotation,
+    )
+
+
+def project_output_point_to_image(point, camera_to_output, intrinsics,
+                                  camera_axis_convention='optical_z_forward'):
+    """把输出坐标系中的三维点投影到当前图像，返回 ``(u, v, depth)``。
+
+    点位于相机后方或内参无效时返回 ``None``，调用方必须保持未关联而不是猜测。
+    """
+
+    output_point = point if isinstance(point, Point3D) else Point3D(*point)
+    camera_link_point = transform_point(
+        output_point, invert_rigid_transform(camera_to_output),
+    )
+    optical_point = camera_link_point_to_optical(
+        camera_link_point, convention=camera_axis_convention,
+    )
+    if (
+        not math.isfinite(optical_point.z)
+        or optical_point.z <= 0.0
+        or intrinsics.fx <= 0.0
+        or intrinsics.fy <= 0.0
+    ):
+        return None
+    pixel_u = intrinsics.fx * optical_point.x / optical_point.z + intrinsics.cx
+    pixel_v = intrinsics.fy * optical_point.y / optical_point.z + intrinsics.cy
+    if not math.isfinite(pixel_u) or not math.isfinite(pixel_v):
+        return None
+    return pixel_u, pixel_v, optical_point.z
 
 
 """构造仅绕 z 轴旋转的平面位姿变换，方便离线测试 odom/base_link 场景。"""

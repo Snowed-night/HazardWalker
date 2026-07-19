@@ -39,6 +39,32 @@ class RedBallDetection2D:
     from_merged_split: bool = False
     quality_reason: str = 'stable_shape'
 
+
+def is_complete_candidate_for_3d_tracking(detection, image_width, image_height,
+                                          edge_margin_px=2):
+    """判断二维框是否完整到足以参与球心反推和三维轨迹更新。
+
+    partial、粘连拆分和贴边框的 bbox 都不是完整球直径。它们可以保留为
+    主动复查候选，但禁止套用 0.15 m 半径先验，也禁止用错误坐标污染轨迹。
+    """
+
+    if (
+        bool(getattr(detection, 'requires_reobservation', False))
+        or bool(getattr(detection, 'is_partial', False))
+        or bool(getattr(detection, 'may_be_merged', False))
+        or bool(getattr(detection, 'from_merged_split', False))
+    ):
+        return False
+    margin = max(0, int(edge_margin_px))
+    width = max(0, int(image_width))
+    height = max(0, int(image_height))
+    return not (
+        int(detection.x_min) <= margin
+        or int(detection.y_min) <= margin
+        or int(detection.x_max) >= width - 1 - margin
+        or int(detection.y_max) >= height - 1 - margin
+    )
+
 """二维检测后端接口，后续 YOLO/分割模型只要实现 detect 即可接入 ROS 节点。"""
 class DetectionBackend:
     name = 'base'
@@ -541,9 +567,10 @@ def _split_touching_contour_by_hough(roi, offset_x, offset_y, min_area_px, min_c
 
     detections = []
     covered_red = np.zeros_like(roi)
-    # 三球三角团中单球半径约为连通域短边的 25%--35%；凸缺陷门已经
-    # 排除了椭球/圆锥，因此这里无需继续使用会漏掉三球团的 40% 过严门槛。
-    minimum_supported_radius = max(5.0, min(roi.shape[0], roi.shape[1]) * 0.25)
+    # 大小球粘连时，小球半径可能只有连通域短边的 10%--20%。凸缺陷、
+    # 圆内红色填充率和总覆盖率已经共同抑制椭球/圆锥，因此不能再用 25%
+    # 的全局短边门槛系统性删除小球。所有拆分结果仍只作为待复查候选。
+    minimum_supported_radius = max(float(min_radius), min(roi.shape[0], roi.shape[1]) * 0.10)
     for cx, cy, radius in np.round(circles[0]).astype(int):
         if cx < 0 or cy < 0 or cx >= roi.shape[1] or cy >= roi.shape[0] or radius <= 0:
             continue

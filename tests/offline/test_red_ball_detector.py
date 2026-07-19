@@ -13,8 +13,10 @@ REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
 sys.path.insert(0, os.path.join(REPO_ROOT, 'ros2_ws', 'src', 'hazardwalker_perception'))
 
 from hazardwalker_perception.red_ball_detector import (
+    RedBallDetection2D,
     detect_red_ball_rgb_bytes,
     detect_red_balls_rgb_bytes,
+    is_complete_candidate_for_3d_tracking,
     rgb_to_hsv_pixel,
 )
 
@@ -341,6 +343,65 @@ def test_touching_red_balls_can_be_split_into_multiple_candidates():
     assert centers[1] - centers[0] > 15.0
     assert all(item.from_merged_split for item in detections[:2])
     assert all(item.requires_reobservation for item in detections[:2])
+
+
+def test_touching_unequal_red_balls_keep_the_small_ball_as_reobservation_candidate():
+    """大小球粘连时不得用连通域短边比例把真实小球过滤掉。"""
+
+    if not require_opencv():
+        return
+    image = np.full((180, 240, 3), BACKGROUND, dtype=np.uint8)
+    cv2.circle(image, (105, 90), 36, RED, thickness=-1)
+    cv2.circle(image, (149, 90), 14, RED, thickness=-1)
+
+    detections = detect_red_balls_rgb_bytes(
+        bytearray(image.tobytes()), 240, 180, min_area_px=200,
+    )
+
+    assert len(detections) >= 2
+    centers = sorted((item.x_min + item.x_max) / 2.0 for item in detections)
+    assert centers[-1] - centers[0] >= 30.0
+    assert all(item.from_merged_split for item in detections)
+    assert all(item.requires_reobservation for item in detections)
+
+
+def test_touching_very_unequal_red_balls_are_never_directly_confirmed():
+    """极端大小差只要求保留候选；若拆分成功也必须等待独立视角确认。"""
+
+    if not require_opencv():
+        return
+    image = np.full((190, 260, 3), BACKGROUND, dtype=np.uint8)
+    cv2.circle(image, (110, 95), 40, RED, thickness=-1)
+    cv2.circle(image, (157, 95), 10, RED, thickness=-1)
+
+    detections = detect_red_balls_rgb_bytes(
+        bytearray(image.tobytes()), 260, 190, min_area_px=200,
+    )
+
+    assert detections
+    if len(detections) >= 2:
+        assert all(item.from_merged_split for item in detections)
+    assert all(item.requires_reobservation for item in detections)
+
+
+def test_partial_merged_and_edge_candidates_cannot_update_3d_tracks():
+    """不完整 bbox 只能触发复查，不能套完整球半径先验污染世界轨迹。"""
+
+    stable = RedBallDetection2D(20, 20, 60, 60, 0.9, 1200)
+    partial = RedBallDetection2D(
+        20, 20, 30, 60, 0.4, 100,
+        is_partial=True, requires_reobservation=True,
+    )
+    split = RedBallDetection2D(
+        20, 20, 60, 60, 0.7, 800,
+        may_be_merged=True, from_merged_split=True, requires_reobservation=True,
+    )
+    edge = RedBallDetection2D(0, 20, 40, 60, 0.9, 1000)
+
+    assert is_complete_candidate_for_3d_tracking(stable, 100, 100)
+    assert not is_complete_candidate_for_3d_tracking(partial, 100, 100)
+    assert not is_complete_candidate_for_3d_tracking(split, 100, 100)
+    assert not is_complete_candidate_for_3d_tracking(edge, 100, 100)
 
 
 def test_three_ball_triangle_blob_can_be_split_despite_near_square_bbox():

@@ -48,7 +48,11 @@ for package_root in (
 from hazardwalker_decision.official_simenv_contract import activation_command
 from hazardwalker_decision.result_builder import build_official_detected_danger_result
 from hazardwalker_perception.active_view_geometry import plan_lateral_reobservation
-from hazardwalker_perception.active_view_policy import choose_active_view_action
+from hazardwalker_perception.active_view_policy import (
+    annotate_detections_with_tracks,
+    choose_active_view_action,
+    project_tracks_for_image_association,
+)
 from hazardwalker_perception.localize_hazard import (
     CameraIntrinsics,
     Point3D,
@@ -57,7 +61,10 @@ from hazardwalker_perception.localize_hazard import (
     evaluate_sphere_depth_shape,
     localize_bbox_from_depth_image,
 )
-from hazardwalker_perception.red_ball_detector import detect_red_balls_rgb_bytes
+from hazardwalker_perception.red_ball_detector import (
+    detect_red_balls_rgb_bytes,
+    is_complete_candidate_for_3d_tracking,
+)
 from hazardwalker_perception.track_hazards import (
     HazardObservation,
     HazardTracker,
@@ -105,6 +112,11 @@ class OfficialRgbdPerceptionNode(object):
         # 会造成同步器长期无回调；0.25 秒仍远小于机器人静止观察周期，且可由
         # 参数收紧，避免把相隔过远的帧错误配对。
         self.rgbd_sync_slop_s = float(rospy.get_param('~rgbd_sync_slop_s', 0.25))
+        # 宽同步窗只用于保证 RGB 候选回调不中断；只有 20 ms 内的同帧深度
+        # 才能形成形状、定位和轨迹证据，防止运动中的错帧制造假球面/假平面。
+        self.max_rgb_depth_sync_delta_s = float(rospy.get_param(
+            '~max_rgb_depth_sync_delta_s', 0.02,
+        ))
         # 运行节点采用比离线兼容函数更严格的轮廓填充阈值；接近实心矩形的
         # 红色物体只能走 reobserve 分支，避免把其当作普通球形正证据。
         self.strict_max_extent = float(rospy.get_param('~strict_max_extent', 0.82))
@@ -265,6 +277,11 @@ class OfficialRgbdPerceptionNode(object):
             return
         transform = self._world_from_camera(rgb_message.header.frame_id, rgb_message.header.stamp)
         camera_stable = self._update_stability(transform)
+        rgb_depth_stamp_delta_s = abs(
+            _stamp_to_seconds(rgb_message.header.stamp)
+            - _stamp_to_seconds(depth_message.header.stamp)
+        )
+        depth_synchronized = rgb_depth_stamp_delta_s <= self.max_rgb_depth_sync_delta_s
         detections = detect_red_balls_rgb_bytes(
             rgb.tobytes(), rgb.shape[1], rgb.shape[0], encoding='rgb8',
             min_area_px=self.strict_min_area_px,
@@ -283,19 +300,27 @@ class OfficialRgbdPerceptionNode(object):
                 'x_min': detection.x_min, 'y_min': detection.y_min,
                 'x_max': detection.x_max, 'y_max': detection.y_max,
             }
-            depth_shape = evaluate_sphere_depth_shape(
-                depth_image=depth,
-                bbox=bbox,
-                max_depth_m=20.0,
-                min_points_per_region=self.min_sphere_depth_shape_points,
-                min_curvature_m=self.min_sphere_depth_curvature_m,
-                min_axis_points=self.min_sphere_axis_depth_points,
-                min_axis_curvature_ratio=self.min_sphere_axis_curvature_ratio,
+            complete_for_3d_tracking = is_complete_candidate_for_3d_tracking(
+                detection, rgb.shape[1], rgb.shape[0],
             )
+            depth_shape = (
+                evaluate_sphere_depth_shape(
+                    depth_image=depth,
+                    bbox=bbox,
+                    max_depth_m=20.0,
+                    min_points_per_region=self.min_sphere_depth_shape_points,
+                    min_curvature_m=self.min_sphere_depth_curvature_m,
+                    min_axis_points=self.min_sphere_axis_depth_points,
+                    min_axis_curvature_ratio=self.min_sphere_axis_curvature_ratio,
+                )
+                if depth_synchronized else None
+            )
+            depth_shape_status = depth_shape.status if depth_shape is not None else 'unknown'
             confirmation_eligible = (
                 camera_stable
-                and not detection.requires_reobservation
-                and depth_shape.status not in ('flat', 'anisotropic', 'non_spherical')
+                and complete_for_3d_tracking
+                and depth_synchronized
+                and depth_shape_status not in ('flat', 'anisotropic', 'non_spherical')
                 and detection.aspect_ratio >= 0.88
             )
             # 2D 严格轮廓也可能是圆柱/圆锥端面。对外字段必须显式表达
@@ -321,61 +346,80 @@ class OfficialRgbdPerceptionNode(object):
                     'extent': round(float(detection.extent), 4),
                 },
                 'depth_shape': {
-                    'status': depth_shape.status,
-                    'curvature_m': depth_shape.curvature_m,
-                    'horizontal_curvature_m': depth_shape.horizontal_curvature_m,
-                    'vertical_curvature_m': depth_shape.vertical_curvature_m,
+                    'status': depth_shape_status,
+                    'curvature_m': depth_shape.curvature_m if depth_shape else None,
+                    'horizontal_curvature_m': (
+                        depth_shape.horizontal_curvature_m if depth_shape else None
+                    ),
+                    'vertical_curvature_m': (
+                        depth_shape.vertical_curvature_m if depth_shape else None
+                    ),
                     'diagonal_positive_curvature_m': (
-                        depth_shape.diagonal_positive_curvature_m
+                        depth_shape.diagonal_positive_curvature_m if depth_shape else None
                     ),
                     'diagonal_negative_curvature_m': (
-                        depth_shape.diagonal_negative_curvature_m
+                        depth_shape.diagonal_negative_curvature_m if depth_shape else None
                     ),
-                    'curvature_isotropy_ratio': depth_shape.curvature_isotropy_ratio,
-                    'horizontal_points': depth_shape.horizontal_points,
-                    'vertical_points': depth_shape.vertical_points,
-                    'diagonal_positive_points': depth_shape.diagonal_positive_points,
-                    'diagonal_negative_points': depth_shape.diagonal_negative_points,
+                    'curvature_isotropy_ratio': (
+                        depth_shape.curvature_isotropy_ratio if depth_shape else None
+                    ),
+                    'horizontal_points': depth_shape.horizontal_points if depth_shape else 0,
+                    'vertical_points': depth_shape.vertical_points if depth_shape else 0,
+                    'diagonal_positive_points': (
+                        depth_shape.diagonal_positive_points if depth_shape else 0
+                    ),
+                    'diagonal_negative_points': (
+                        depth_shape.diagonal_negative_points if depth_shape else 0
+                    ),
                 },
+                'depth_synchronized': bool(depth_synchronized),
+                'rgb_depth_stamp_delta_s': round(float(rgb_depth_stamp_delta_s), 6),
             }
-            if transform is not None:
+            if transform is not None and depth_synchronized:
                 localization = localize_bbox_from_depth_image(
                     bbox=bbox,
                     intrinsics=self.camera_intrinsics,
                     depth_image=depth,
                     camera_to_output=transform,
                     output_frame=self.world_frame,
-                    sphere_radius_m=0.15,
-                    use_sphere_projection_geometry=True,
+                    roi_padding_px=0 if not complete_for_3d_tracking else 8,
+                    sphere_radius_m=0.15 if complete_for_3d_tracking else 0.0,
+                    use_sphere_projection_geometry=complete_for_3d_tracking,
                     camera_axis_convention=self.camera_axis_convention,
                 )
             else:
                 localization = None
             if localization is not None:
-                apparent_diameter_m = _apparent_diameter_m(
-                    bbox, localization.depth_m, self.camera_intrinsics,
+                apparent_diameter_m = (
+                    _apparent_diameter_m(
+                        bbox, localization.depth_m, self.camera_intrinsics,
+                    )
+                    if complete_for_3d_tracking else None
                 )
                 view_bearing_rad = _view_bearing_from_camera(transform, localization.position)
-                observations.append(HazardObservation(
-                    position=(
-                        localization.position.x, localization.position.y,
-                        localization.position.z,
-                    ),
-                    confidence=detection.confidence,
-                    stamp_sec=_stamp_to_seconds(rgb_message.header.stamp),
-                    source_id='%s.%s:%d' % (
-                        rgb_message.header.stamp.secs,
-                        rgb_message.header.stamp.nsecs,
-                        index,
-                    ),
-                    view_id=self._stable_view_id if camera_stable else '',
-                    confirmation_eligible=confirmation_eligible,
-                    depth_shape_status=depth_shape.status,
-                    apparent_diameter_m=apparent_diameter_m,
-                    aspect_ratio=detection.aspect_ratio,
-                    depth_curvature_m=depth_shape.curvature_m,
-                    view_bearing_rad=view_bearing_rad,
-                ))
+                if complete_for_3d_tracking:
+                    observations.append(HazardObservation(
+                        position=(
+                            localization.position.x, localization.position.y,
+                            localization.position.z,
+                        ),
+                        confidence=detection.confidence,
+                        stamp_sec=_stamp_to_seconds(rgb_message.header.stamp),
+                        source_id='%s.%s:%d' % (
+                            rgb_message.header.stamp.secs,
+                            rgb_message.header.stamp.nsecs,
+                            index,
+                        ),
+                        view_id=self._stable_view_id if camera_stable else '',
+                        confirmation_eligible=confirmation_eligible,
+                        depth_shape_status=depth_shape_status,
+                        apparent_diameter_m=apparent_diameter_m,
+                        aspect_ratio=detection.aspect_ratio,
+                        depth_curvature_m=(
+                            depth_shape.curvature_m if depth_shape else None
+                        ),
+                        view_bearing_rad=view_bearing_rad,
+                    ))
                 item['position'] = [
                     round(localization.position.x, 4), round(localization.position.y, 4),
                     round(localization.position.z, 4),
@@ -393,6 +437,22 @@ class OfficialRgbdPerceptionNode(object):
         else:
             # 运动帧可用于导航选视角，但绝不可累计成独立确认视角。
             active_tracks = self.tracker.active_tracks()
+        projected_tracks = project_tracks_for_image_association(
+            self.tracker.tracks,
+            transform,
+            self.camera_intrinsics,
+            current_stamp_sec=_stamp_to_seconds(rgb_message.header.stamp),
+            max_track_age_s=2.0,
+            sphere_radius_m=0.15,
+            max_depth_m=20.0,
+            camera_axis_convention=self.camera_axis_convention,
+        )
+        payload_detections = annotate_detections_with_tracks(
+            payload_detections,
+            self.tracker.tracks,
+            merge_distance_m=0.50,
+            projected_tracks=projected_tracks,
+        )
         hazards = []
         for track in active_tracks:
             item = track_to_hazard_dict(track)
