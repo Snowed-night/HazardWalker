@@ -1,0 +1,10 @@
+{
+  "delivery_stage": "20260710",
+  "canonical_experiment_category": "red_ball_3d_localization",
+  "original_directory": "official_simenv_20260710_rgbd_complex_localization",
+  "classification_status": "verified",
+  "classification_basis": ["summary.run_date", "README", "evidence_matrix"],
+  "actual_run_time": "provenance_uncertain",
+  "official_score_eligible": false,
+  "note": "历史误差未证明合法SLAM/world链，仅为内部生成场景回归。"
+}

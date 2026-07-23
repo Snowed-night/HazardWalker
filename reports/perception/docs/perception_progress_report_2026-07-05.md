@@ -4,12 +4,12 @@
 
 ## 本次完成
 
-- 将官方 SimEnv 红球检测结果统一归档到 `reports/perception/simulation/3d_native/official_simenv_20260705_multi_red/`。
+- 将官方 SimEnv 红球检测结果统一归档到 `reports/perception/simulation/3d_native/official_simenv_20260705_multi_ball_clutter/`（原目录名为 `official_simenv_20260705_multi_red`）。
 - 在官方生成世界中确认 4 个官方红球模型：`danger_red_sphere_00` 至 `danger_red_sphere_03`。
 - 对每个官方红球测试南、北、西、东、中距五类候选视角，共 20 个候选条件。
 - 每个红球自动选择最佳可见视角生成展示图，并串联成 8 秒 MP4 视频。
 - 补充 20 张候选视角标注图：16 张检出图和 4 张遮挡或未检出图，用于解释 `16/20` 候选视角结果。
-- 按测试组字段生成 `reports/perception/test_records/20260705_official_simenv_multi_red/`。
+- 按测试组字段生成 `reports/perception/test_records/official_simenv_20260705_multi_ball_clutter/`。
 
 ## 结果
 
@@ -23,7 +23,7 @@
 ## 与既有结果合并分析
 
 - `synthetic_20260620_230333`：覆盖多红球、遮挡、暗光、低饱和、红色干扰物，离线记录为 100.0% 准确率、0.0% 虚警率。
-- `official_simenv_20260705_multi_red`：覆盖官方生成房间、墙体遮挡、不同相机方向和中近距离视角，最佳可见视角 4/4 检出。
+- `official_simenv_20260705_multi_ball_clutter`：覆盖官方生成房间、墙体遮挡、不同相机方向和中近距离视角，最佳可见视角 4/4 检出。
 - 官方 SimEnv 的关键风险不是颜色阈值本身，而是红球被墙体/家具/视角挡住时固定相机无法看到目标。因此后续接入平台组环境时，应优先保证相机位姿、巡检路径、深度/TF 和多帧确认链路。
 
 ## 后续建议
@@ -55,7 +55,7 @@
 
 ## 补充：原生 3D Gazebo 验证
 
-- 新增 `reports/perception/simulation/3d_native/official_simenv_20260705_native_3d_validation/`。
+- 新增 `reports/perception/simulation/3d_native/official_simenv_20260705_red_ball_detection/`（原目录名为 `official_simenv_20260705_native_3d_validation`）。
 - 图像直接来自官方 SimEnv Gazebo 相机 topic，不是二维合成。
 - 覆盖官方生成红球完整可见、FOV 边缘部分可见、官方红色方块干扰，以及官方 world 内原生 spawn 的 10 红球+干扰物场景。
 - 该目录用于证明检测器在真实 Gazebo 3D 渲染链路下也能输出检测框；二维压力测试仍用于快速覆盖更多比例、干扰和组合边界。

@@ -37,16 +37,16 @@ from hazardwalker_perception.red_ball_detector import detect_red_balls_rgb_bytes
 
 REFERENCE_SUITES = {
     'occlusion': {
-        'source_dir': 'official_simenv_20260705_3d_red_ball_occlusion',
-        'target_dir': 'official_simenv_20260710_rgbd_partial_visibility',
+        'source_dir': 'official_simenv_20260705_partial_visibility',
+        'target_dir': 'official_simenv_20260710_partial_visibility',
     },
     'shapes': {
-        'source_dir': 'official_simenv_20260705_3d_red_shape_distractors',
-        'target_dir': 'official_simenv_20260710_rgbd_red_objects',
+        'source_dir': 'official_simenv_20260705_extended_red_object_stress',
+        'target_dir': 'official_simenv_20260710_extended_red_object_stress',
     },
     'multi_ball': {
-        'source_dir': 'official_simenv_20260705_native_3d_validation',
-        'target_dir': 'official_simenv_20260710_rgbd_multi_ball_clutter',
+        'source_dir': 'official_simenv_20260705_red_ball_detection',
+        'target_dir': 'official_simenv_20260710_multi_ball_clutter',
     },
 }
 

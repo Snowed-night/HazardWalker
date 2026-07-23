@@ -51,8 +51,13 @@ def _link(name: str, pose: Point3, geometry: str, *, rpy=(0.0, 0.0, 0.0), materi
     )
 
 
-def _sphere(name: str, point: Point3, radius: float) -> str:
-    return _link(name, point, f'<sphere><radius>{radius:.4f}</radius></sphere>')
+def _sphere(name: str, point: Point3, radius: float, *, material=None) -> str:
+    return _link(
+        name,
+        point,
+        f'<sphere><radius>{radius:.4f}</radius></sphere>',
+        material=material,
+    )
 
 
 def _box(name: str, point: Point3, size: Sequence[float], *, rpy=(0.0, 0.0, 0.0), material=None) -> str:
@@ -353,12 +358,124 @@ def build_complex_localization(center: Point3) -> Tuple[ClassicCase, ...]:
     return tuple(cases)
 
 
+def build_red_ball_3d_localization(center: Point3) -> Tuple[ClassicCase, ...]:
+    """构造 A 阶段五个官方规格红球局部三维定位案例。
+
+    每个正例严格使用半径 0.15 m 的红球；真值只在截图完成后转换到检测输出
+    坐标系并计算误差，不得进入检测节点。
+    """
+
+    offsets = (
+        (0.00, 0.00, 0.00),
+        (-0.12, 0.00, 0.00),
+        (0.12, 0.00, 0.00),
+        (0.00, -0.20, 0.00),
+        (0.00, 0.20, 0.00),
+    )
+    cases = []
+    for index, offset in enumerate(offsets, start=1):
+        position = _at(center, *offset)
+        case_id = f'official_a_localization_{index:02d}'
+        cases.append(ClassicCase(
+            case_id,
+            'red_ball_3d_localization',
+            f'A阶段官方0.15 m红球局部三维定位 {index:02d}',
+            (position,),
+            _sdf(case_id, [_sphere('official_red_ball', position, 0.15)]),
+            {
+                'target_type': 'red_sphere',
+                'target_radius_m': 0.15,
+                'official_target_spec': True,
+                'truth_usage': 'post_capture_evaluation_only',
+            },
+        ))
+    return tuple(cases)
+
+
+def build_official_distractor_rejection(center: Point3) -> Tuple[ClassicCase, ...]:
+    """构造 A 阶段五个官方干扰源组合，目标仍仅为0.15 m红球。"""
+
+    red_ball = _at(center, dx=-0.32)
+    red_cube = _at(center, dx=0.32)
+    green_ball = center
+    green_material = _material(0.0, 0.85, 0.05)
+    definitions = (
+        (
+            'red_cube_only',
+            (),
+            (_box('official_red_cube', center, (0.30, 0.30, 0.30)),),
+        ),
+        (
+            'green_sphere_only',
+            (),
+            (_sphere('official_green_sphere', center, 0.15, material=green_material),),
+        ),
+        (
+            'red_ball_with_red_cube',
+            (red_ball,),
+            (
+                _sphere('official_red_ball', red_ball, 0.15),
+                _box('official_red_cube', red_cube, (0.30, 0.30, 0.30)),
+            ),
+        ),
+        (
+            'red_ball_with_green_sphere',
+            (red_ball,),
+            (
+                _sphere('official_red_ball', red_ball, 0.15),
+                _sphere(
+                    'official_green_sphere',
+                    green_ball,
+                    0.15,
+                    material=green_material,
+                ),
+            ),
+        ),
+        (
+            'red_ball_with_both_distractors',
+            (red_ball,),
+            (
+                _sphere('official_red_ball', red_ball, 0.15),
+                _box('official_red_cube', red_cube, (0.30, 0.30, 0.30)),
+                _sphere(
+                    'official_green_sphere',
+                    green_ball,
+                    0.15,
+                    material=green_material,
+                ),
+            ),
+        ),
+    )
+    cases = []
+    for index, (scene, targets, links) in enumerate(definitions, start=1):
+        case_id = f'official_a_distractor_{index:02d}_{scene}'
+        cases.append(ClassicCase(
+            case_id,
+            'official_distractor_rejection',
+            f'A阶段官方干扰源：{scene}',
+            tuple(targets),
+            _sdf(case_id, links),
+            {
+                'scene': scene,
+                'official_target_count': len(targets),
+                'target_radius_m': 0.15,
+                'official_distractors': [
+                    item for item in ('red_cube', 'green_sphere')
+                    if item in scene or scene == 'red_ball_with_both_distractors'
+                ],
+            },
+        ))
+    return tuple(cases)
+
+
 BUILDERS = {
     'multi_ball_clutter': build_multi_ball,
     'partial_visibility': build_partial_visibility,
     'red_objects': build_red_objects,
     'active_multiview': build_active_multiview,
     'complex_localization': build_complex_localization,
+    'red_ball_3d_localization': build_red_ball_3d_localization,
+    'official_distractor_rejection': build_official_distractor_rejection,
 }
 
 

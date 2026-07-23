@@ -34,6 +34,7 @@ from hazardwalker_perception.localize_hazard import (
     Point3D,
     RigidTransform3D,
     camera_intrinsics_from_k,
+    estimate_depth_from_bbox,
     evaluate_sphere_depth_shape,
     localize_bbox_from_depth_image,
 )
@@ -120,9 +121,10 @@ class HsvDetectorNode(Node):
         self.declare_parameter('min_sphere_axis_curvature_ratio', 0.35)
         # RGB 与独立深度 WebSocket 可能跨帧到达；不同时间的深度不能用于球形判别或定位，
         # 否则会把运动中的红球错误记为平面/错误世界坐标。
-        # 官方固定 SEED 实测：时间差为 0 的 67 帧中 63 帧呈球面，而 50--100 ms
-        # 错帧会大量产生 flat/anisotropic 假反证。只接受同一仿真帧附近的深度。
-        self.declare_parameter('max_rgb_depth_sync_delta_sec', 0.02)
+        # 当前官方 ROS1↔ROS2 适配实测 RGB/深度固定相差约 50 ms，帧周期约
+        # 500 ms；0.06 s 可接纳同一对帧而不会误配到相邻帧。运动时仍由相机
+        # 稳定门禁止累计确认/反证，现场帧率变化后应重新实测并记录该参数。
+        self.declare_parameter('max_rgb_depth_sync_delta_sec', 0.06)
         # 默认标准 ROS 光学系；官方 Gazebo ``real_sense`` 链路需设为
         # ``gazebo_link_x_forward``，由官方业务 launch 显式传入。
         self.declare_parameter('camera_axis_convention', 'optical_z_forward')
@@ -270,12 +272,14 @@ class HsvDetectorNode(Node):
             )
         )
         if not detections_2d:
-            active_tracks = (
+            if camera_stable:
                 self.tracker.update([], stamp_sec=stamp_sec)
+            tracks_to_publish = (
+                self.tracker.published_tracks()
                 if camera_stable else self.tracker.active_tracks()
             )
             self._publish_detection_payload(
-                hazards=self._tracks_to_hazards(active_tracks, output_frame),
+                hazards=self._tracks_to_hazards(tracks_to_publish, output_frame),
                 detections_2d=[],
                 camera_stable=camera_stable,
                 image_width=msg.width,
@@ -299,6 +303,7 @@ class HsvDetectorNode(Node):
             )
             localization = None
             depth_shape = None
+            raw_surface_depth_m = None
             if depth_synchronized:
                 depth_shape = evaluate_sphere_depth_shape(
                     depth_image=self.latest_depth_image,
@@ -312,6 +317,16 @@ class HsvDetectorNode(Node):
                     min_axis_curvature_ratio=float(
                         self.get_parameter('min_sphere_axis_curvature_ratio').value
                     ),
+                )
+                raw_surface_depth_m, _ = estimate_depth_from_bbox(
+                    depth_image=self.latest_depth_image,
+                    bbox=bbox,
+                    padding_px=(
+                        int(self.get_parameter('roi_padding_px').value)
+                        if complete_for_3d_tracking else 0
+                    ),
+                    max_depth_m=float(self.get_parameter('max_detection_range_m').value),
+                    min_points=int(self.get_parameter('min_depth_points_in_roi').value),
                 )
             depth_shape_status = depth_shape.status if depth_shape else 'unknown'
             # 圆柱端面、立方体/平板等在单帧可能都有近圆形红色投影。只有深度明确
@@ -353,10 +368,11 @@ class HsvDetectorNode(Node):
                 )
             apparent_diameter_m = (
                 _apparent_diameter_m(
-                    bbox, localization.depth_m if localization else None,
+                    bbox, raw_surface_depth_m,
                     self.camera_intrinsics,
                 )
-                if complete_for_3d_tracking else None
+                if complete_for_3d_tracking and raw_surface_depth_m is not None
+                else None
             )
             view_bearing_rad = _view_bearing_from_camera(
                 camera_to_output, localization.position if localization else None,
@@ -420,6 +436,9 @@ class HsvDetectorNode(Node):
                 },
                 'depth_synchronized': depth_synchronized,
                 'depth_stamp_delta_sec': depth_stamp_delta_sec,
+                # 尺寸门使用深度图直接量得的可见表面深度，避免用已知球半径
+                # 反推的球心深度再次验证直径，形成循环证据。
+                'raw_surface_depth_m': raw_surface_depth_m,
                 'tf_synchronized': self._last_tf_synchronized,
                 'tf_stamp_delta_sec': self._last_tf_stamp_delta_sec,
                 'confirmation_eligible': confirmation_eligible,
@@ -470,8 +489,10 @@ class HsvDetectorNode(Node):
                     view_bearing_rad=view_bearing_rad,
                 ))
 
-        active_tracks = (
+        if camera_stable:
             self.tracker.update(observations, stamp_sec=stamp_sec)
+        tracks_to_publish = (
+            self.tracker.published_tracks()
             if camera_stable else self.tracker.active_tracks()
         )
         projected_tracks = project_tracks_for_image_association(
@@ -495,7 +516,7 @@ class HsvDetectorNode(Node):
             projected_tracks=projected_tracks,
         )
         self._publish_detection_payload(
-            hazards=self._tracks_to_hazards(active_tracks, output_frame),
+            hazards=self._tracks_to_hazards(tracks_to_publish, output_frame),
             detections_2d=annotated_detections,
             camera_stable=camera_stable,
             image_width=msg.width,

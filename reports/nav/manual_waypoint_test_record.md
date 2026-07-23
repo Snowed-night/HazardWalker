@@ -1,4 +1,6 @@
-# compute_waypoint_command 手工运行记录
+# compute_waypoint_command 手工运行记录（历史）
+
+> **历史单元/手工验证，非自主探索或官方平台导航证据。** 固定航点控制只保留用于回归；不得据此宣称 SLAM、Frontier、Nav2、返航或复杂楼宇覆盖完成。
 
 > 生成时间：2026-07-04 | 参数：linear_speed=0.35, angular_speed=0.8, goal_tolerance_m=0.5, heading_tolerance_rad=0.25
 

@@ -1,0 +1,7 @@
+﻿case_id,shape,expected_red_ball_count,detection_count,false_positive_count,false_negative_count,result,max_confidence,annotated_image,raw_image,note
+native3d_shape_01_red_sphere_control,red_sphere_control,1,1,0,0,pass,0.9585,images/native3d_shape_01_red_sphere_control_detected.png,raw_frames/native3d_shape_01_red_sphere_control.ppm,红色球体正例
+native3d_shape_02_red_cube,red_cube,0,0,0,0,pass,0.0,images/native3d_shape_02_red_cube_detected.png,raw_frames/native3d_shape_02_red_cube.ppm,红色立方体负例
+native3d_shape_03_red_cuboid_wide,red_cuboid_wide,0,0,0,0,pass,0.0,images/native3d_shape_03_red_cuboid_wide_detected.png,raw_frames/native3d_shape_03_red_cuboid_wide.ppm,红色长方体负例
+native3d_shape_04_red_cylinder,red_cylinder,0,1,1,0,review,0.8732,images/native3d_shape_04_red_cylinder_detected.png,raw_frames/native3d_shape_04_red_cylinder.ppm,红色圆柱体负例
+native3d_shape_05_red_flat_panel,red_flat_panel,0,0,0,0,pass,0.0,images/native3d_shape_05_red_flat_panel_detected.png,raw_frames/native3d_shape_05_red_flat_panel.ppm,红色薄板负例
+native3d_shape_06_mixed_red_shapes,mixed_red_shapes,1,2,1,0,review,0.9554,images/native3d_shape_06_mixed_red_shapes_detected.png,raw_frames/native3d_shape_06_mixed_red_shapes.ppm,红球与红色非球体混合场景

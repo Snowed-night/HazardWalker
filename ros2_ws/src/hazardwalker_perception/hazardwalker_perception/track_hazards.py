@@ -127,6 +127,15 @@ class HazardTracker:
             if not track.status.startswith('rejected')
         ]
 
+    def published_tracks(self):
+        """返回完整状态快照，包含用于撤销旧确认结果的 rejected 轨迹。
+
+        `active_tracks()` 仍供复查策略和最终结果筛选使用；对外状态话题必须发布
+        已拒绝轨迹，否则下游按 ID 聚合时会永久保留该轨迹较早的 confirmed 状态。
+        """
+
+        return list(self.tracks)
+
     def confirmed_tracks(self):
         return [
             track for track in self.active_tracks()

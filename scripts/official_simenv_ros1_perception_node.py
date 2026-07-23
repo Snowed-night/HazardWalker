@@ -47,7 +47,11 @@ for package_root in (
 
 from hazardwalker_decision.official_simenv_contract import activation_command
 from hazardwalker_decision.result_builder import build_official_detected_danger_result
-from hazardwalker_perception.active_view_geometry import plan_lateral_reobservation
+from hazardwalker_perception.active_view_geometry import (
+    camera_pose_signature,
+    plan_lateral_reobservation,
+    quantized_camera_view_id,
+)
 from hazardwalker_perception.active_view_policy import (
     annotate_detections_with_tracks,
     choose_active_view_action,
@@ -58,6 +62,7 @@ from hazardwalker_perception.localize_hazard import (
     Point3D,
     RigidTransform3D,
     camera_intrinsics_from_k,
+    estimate_depth_from_bbox,
     evaluate_sphere_depth_shape,
     localize_bbox_from_depth_image,
 )
@@ -112,10 +117,10 @@ class OfficialRgbdPerceptionNode(object):
         # 会造成同步器长期无回调；0.25 秒仍远小于机器人静止观察周期，且可由
         # 参数收紧，避免把相隔过远的帧错误配对。
         self.rgbd_sync_slop_s = float(rospy.get_param('~rgbd_sync_slop_s', 0.25))
-        # 宽同步窗只用于保证 RGB 候选回调不中断；只有 20 ms 内的同帧深度
-        # 才能形成形状、定位和轨迹证据，防止运动中的错帧制造假球面/假平面。
+        # 当前官方桥接实测 RGB/深度固定相差约 50 ms、帧周期约 500 ms；
+        # 60 ms 可接纳同一帧对而不会碰到相邻帧。运动帧仍由稳定门禁止累计证据。
         self.max_rgb_depth_sync_delta_s = float(rospy.get_param(
-            '~max_rgb_depth_sync_delta_s', 0.02,
+            '~max_rgb_depth_sync_delta_s', 0.06,
         ))
         # 运行节点采用比离线兼容函数更严格的轮廓填充阈值；接近实心矩形的
         # 红色物体只能走 reobserve 分支，避免把其当作普通球形正证据。
@@ -137,6 +142,9 @@ class OfficialRgbdPerceptionNode(object):
         self.output_path = Path(rospy.get_param(
             '~output_path', 'results/detected_danger.json',
         )).expanduser()
+        # 官方评测文件固定要求 world 坐标。诊断时即使把 world_frame 设为
+        # camera/base，也只能发布局部定位，不能把局部坐标写入官方 JSON。
+        self.official_result_frame = 'world'
         # 仅前后靠近目标并不会显露圆柱端面和球体的轮廓差异；该角度由真实
         # world <- camera TF 和三维候选位置计算，不能由 view_id 字符串伪造。
         self.min_view_bearing_span_deg = float(rospy.get_param(
@@ -315,6 +323,15 @@ class OfficialRgbdPerceptionNode(object):
                 )
                 if depth_synchronized else None
             )
+            raw_surface_depth_m = None
+            if depth_synchronized:
+                raw_surface_depth_m, _ = estimate_depth_from_bbox(
+                    depth_image=depth,
+                    bbox=bbox,
+                    padding_px=0 if not complete_for_3d_tracking else 8,
+                    max_depth_m=20.0,
+                    min_points=5,
+                )
             depth_shape_status = depth_shape.status if depth_shape is not None else 'unknown'
             confirmation_eligible = (
                 camera_stable
@@ -392,9 +409,10 @@ class OfficialRgbdPerceptionNode(object):
             if localization is not None:
                 apparent_diameter_m = (
                     _apparent_diameter_m(
-                        bbox, localization.depth_m, self.camera_intrinsics,
+                        bbox, raw_surface_depth_m, self.camera_intrinsics,
                     )
-                    if complete_for_3d_tracking else None
+                    if complete_for_3d_tracking and raw_surface_depth_m is not None
+                    else None
                 )
                 view_bearing_rad = _view_bearing_from_camera(transform, localization.position)
                 if complete_for_3d_tracking:
@@ -426,17 +444,22 @@ class OfficialRgbdPerceptionNode(object):
                 ]
                 item['position_frame_id'] = self.world_frame
                 item['depth_m'] = round(float(localization.depth_m), 4)
+                item['raw_surface_depth_m'] = (
+                    round(float(raw_surface_depth_m), 4)
+                    if raw_surface_depth_m is not None else None
+                )
                 if view_bearing_rad is not None:
                     item['view_bearing_rad'] = round(float(view_bearing_rad), 6)
             payload_detections.append(item)
 
         if camera_stable and transform is not None:
-            active_tracks = self.tracker.update(
+            self.tracker.update(
                 observations, stamp_sec=_stamp_to_seconds(rgb_message.header.stamp),
             )
+            tracks_to_publish = self.tracker.published_tracks()
         else:
             # 运动帧可用于导航选视角，但绝不可累计成独立确认视角。
-            active_tracks = self.tracker.active_tracks()
+            tracks_to_publish = self.tracker.active_tracks()
         projected_tracks = project_tracks_for_image_association(
             self.tracker.tracks,
             transform,
@@ -454,7 +477,7 @@ class OfficialRgbdPerceptionNode(object):
             projected_tracks=projected_tracks,
         )
         hazards = []
-        for track in active_tracks:
+        for track in tracks_to_publish:
             item = track_to_hazard_dict(track)
             item['position_frame_id'] = self.world_frame
             item['localization_provenance'] = self.localization_provenance
@@ -540,7 +563,7 @@ class OfficialRgbdPerceptionNode(object):
             self._stable_frames = 0
             self._stable_view_id = ''
             return False
-        pose = _pose_signature(transform)
+        pose = camera_pose_signature(transform, self.camera_axis_convention)
         if self._last_pose is None:
             self._stable_frames = 1
             self._stable_view_id = ''
@@ -555,7 +578,9 @@ class OfficialRgbdPerceptionNode(object):
         self._last_pose = pose
         stable = self._stable_frames >= 3
         if stable and not self._stable_view_id:
-            self._stable_view_id = _stable_view_id(transform)
+            self._stable_view_id = quantized_camera_view_id(
+                transform, self.camera_axis_convention,
+            )
         return stable
 
     def _publish_payload(
@@ -621,7 +646,7 @@ class OfficialRgbdPerceptionNode(object):
             hazards.append(item)
         result = build_official_detected_danger_result(
             hazards, time.monotonic() - self.started_monotonic,
-            expected_frame=self.world_frame, dedup_distance_m=0.30,
+            expected_frame=self.official_result_frame, dedup_distance_m=0.30,
             require_legal_localization=True,
             require_multiview_sphere_evidence=True,
         )
@@ -666,25 +691,6 @@ def _compose_transforms(first, second):
         first.rotation[2][0] * second.translation.x + first.rotation[2][1] * second.translation.y + first.rotation[2][2] * second.translation.z + first.translation.z,
     )
     return RigidTransform3D(translation=translated, rotation=rotation)
-
-
-def _pose_signature(transform):
-    forward_x = transform.rotation[0][2]
-    forward_y = transform.rotation[1][2]
-    return (
-        transform.translation.x, transform.translation.y, transform.translation.z,
-        math.atan2(forward_y, forward_x),
-    )
-
-
-def _stable_view_id(transform):
-    """只使用水平基线与朝向，竖直抖动不能伪造独立观察视角。"""
-    yaw = math.degrees(math.atan2(transform.rotation[1][2], transform.rotation[0][2]))
-    return 'xy:{:.1f}:{:.1f}|yaw:{:.0f}'.format(
-        round(transform.translation.x / 0.4) * 0.4,
-        round(transform.translation.y / 0.4) * 0.4,
-        round(yaw / 30.0) * 30.0,
-    )
 
 
 def _normalize_angle(value):

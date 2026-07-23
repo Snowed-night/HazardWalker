@@ -1,6 +1,10 @@
 # HazardWalker 仿真平台 — 接口测试报告
 
 > 日期：2026-07-08 | Docker：`simenv_ros1:noetic-focal` | Gazebo 11
+>
+> **历史接口排查记录，不是当前验收报告或启动说明。** 文中出现的 `docker_pipe`、
+> `ros1_bridge.sh`、`hw_topic_relay_node.py` 等旧适配器已删除；当前唯一兼容入口见
+> `scripts/run_official_simenv_rosbridge_adapter.sh` 与 `docs/guidebook/官方SimEnv平台环境使用手册.md`。
 
 ---
 

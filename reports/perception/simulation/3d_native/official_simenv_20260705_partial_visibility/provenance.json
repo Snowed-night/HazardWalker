@@ -1,0 +1,11 @@
+{
+  "delivery_stage": "20260705",
+  "canonical_experiment_category": "partial_visibility",
+  "original_directory": "official_simenv_20260705_3d_red_ball_occlusion",
+  "source_commit": "437d8c6",
+  "restored_from_commit": "fd1fd21",
+  "classification_status": "verified",
+  "classification_basis": ["git_commit", "README", "summary.json", "testing_record"],
+  "raw_source_status": "raw_source_missing",
+  "note": "历史 README 引用的 raw_frames.zip 未进入 Git；不得伪造补齐。"
+}

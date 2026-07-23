@@ -7,10 +7,10 @@
 ## HazardWalker 官方适配覆盖层
 
 本目录还包含 `hazardwalker_platform/official_simenv_mapping.py`，用于约束 HazardWalker 对官方 ROS1
-Noetic + Gazebo Classic 环境的稳定 `/hw/*` 接口。官方场景不复用本地 `ros_gz_bridge.yaml`：应启动容器内
-ROS1 中继和 `ros1_bridge dynamic_bridge`，并按
-`docs/environment/官方SimEnv_ROS1_ROS2双向适配整改_20260714.md` 完成 ROS1 直连控制、传感器和跨栈控制
-的逐段验收后，才运行业务闭环。
+Noetic + Gazebo Classic 环境的稳定 `/hw/*` 接口。官方场景不复用本地 `ros_gz_bridge.yaml`：当前接入通过容器
+`rosbridge_websocket` 与 ROS2 适配器完成，不能假设容器内存在 `ros1_bridge dynamic_bridge`。启动、传感器与控制
+验收应按 [`docs/guidebook/官方SimEnv平台环境使用手册.md`](../../../docs/guidebook/官方SimEnv平台环境使用手册.md)
+逐段完成后，才运行业务闭环。
 
 ## 选手快速入口
 

@@ -17,6 +17,6 @@
 
 ## 后续扩展
 
-- 官方场景先执行 `scripts/run_official_simenv_ros1_adapter.sh` 和逐段验收，再运行
+- 官方场景先执行 `scripts/run_official_simenv_rosbridge_adapter.sh` 和逐段验收，再运行
   `ros2 launch hazardwalker_bringup official_simenv_business.launch.py`；详见
-  `docs/environment/官方SimEnv_ROS1_ROS2双向适配整改_20260714.md`。
+  `docs/guidebook/官方SimEnv平台环境使用手册.md`。

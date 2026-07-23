@@ -61,7 +61,7 @@
 
 原始 RGB、标注图、单帧 JSON、`cases.csv/json` 与 `summary.json` 已保留在本地工作区
 等待与其余四类实测一起按最终五目录规范归档；未将旧的简化 7 月 10 日结果混入该统计。
-本次恢复到 Git 的 `official_simenv_20260710_rgbd_*` 目录仍是旧历史基线，不是本节所述
+本次恢复到 Git、后按统一类别重命名的 `official_simenv_20260710_*` 目录仍是旧历史基线，不是本节所述
 ROS1/Gazebo Classic 新一轮统计；两者不得合并计算通过率。
 
 ## 尚未完成与当前阻塞
@@ -129,7 +129,7 @@ TF 后，才可按本文档的正式证据契约启动无人工干预的感知�
 
 ### 旧五类素材保留与重跑约定
 
-对旧 `official_simenv_20260710_rgbd_*` 五目录运行原有归档校验器时，`active_multiview` 因
+对旧 `official_simenv_20260710_*` 五目录运行原有归档校验器时，`active_multiview` 因
 `strict_view_semantics_audited != true` 失败：未证明水平基线/朝向造成的真实多视角，也未达到
 25° 侧向视差要求。为保留算法优化路径，这五套旧素材和对应测试表恢复到 `reports/perception/`，
 但统一标记为 `historical_internal_regression`、`official_score_eligible=false`，不得作为内部回归
