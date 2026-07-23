@@ -1,0 +1,33 @@
+{
+  "date": "2026-07-23",
+  "scope": "official_simenv_docker_ros1_ros2_platform_acceptance",
+  "image": {
+    "tag": "simenv_ros1:noetic-focal",
+    "id": "61b42683046b",
+    "build": "no-cache"
+  },
+  "container": "simenv_ros1_hazard_platform",
+  "ros1": {
+    "nodes": ["unitree_gazebo_servo", "hazardwalker_odom_relay", "rosbridge_websocket", "rosapi"],
+    "rgb_hz_approx": 20.0,
+    "odom_relay_hz": 20.0,
+    "rosbridge_started": true
+  },
+  "ros2": {
+    "adapter_node": "hazardwalker_official_rosbridge_adapter",
+    "hw_odom_received": true,
+    "rgbd_and_camera_info_received": true,
+    "scan_imu_tf_available": true,
+    "zero_cmd_vel_forwarded": true
+  },
+  "motion": {
+    "forward_displacement_m": 1.3557,
+    "turn_yaw_change_rad": 0.2341,
+    "stop_command_published": true,
+    "forward_at_least_1m": true,
+    "turn_at_least_0_2rad": true,
+    "video_recorded": false
+  },
+  "result": "platform_chain_pass_media_pending",
+  "constraints": ["/hw/odom is diagnostic only and is not legal SLAM or competition localization"]
+}

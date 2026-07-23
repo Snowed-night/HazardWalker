@@ -24,7 +24,8 @@ services:
       LD_LIBRARY_PATH: /home/ros/Guoyulun/Download/libtorch/lib
       LIBGL_ALWAYS_SOFTWARE: ${LIBGL_ALWAYS_SOFTWARE:-1}
       GUI: ${GUI:-false}
-      PAUSED: ${PAUSED:-false}
+      # 正式链路由 auto.sh 统一启动：先拉起控制器并确认 RL，再解除物理暂停。
+      PAUSED: ${PAUSED:-true}
       SEED: ${SEED:-}
       FLOOR_COUNT: ${FLOOR_COUNT:-3}
       ROOMS_PER_FLOOR: ${ROOMS_PER_FLOOR:-4}
@@ -34,15 +35,19 @@ services:
       ROBOT_Y: ${ROBOT_Y:--2.2}
       ROBOT_Z: ${ROBOT_Z:-0.6}
       ROBOT_YAW: ${ROBOT_YAW:-1.5708}
-      START_CONTROLLER: ${START_CONTROLLER:-0}
+      START_CONTROLLER: ${START_CONTROLLER:-1}
+      SIMENV_AUTO_RL: ${SIMENV_AUTO_RL:-1}
+      SIMENV_HEADLESS_MODE: ${SIMENV_HEADLESS_MODE:-move_base}
+      START_ROSBRIDGE: ${START_ROSBRIDGE:-1}
+      START_ODOM_RELAY: ${START_ODOM_RELAY:-1}
       START_BUILDING_CONTROL: ${START_BUILDING_CONTROL:-1}
       START_VIRTUAL_JOY: ${START_VIRTUAL_JOY:-0}
       CONTROLLER_FOREGROUND: ${CONTROLLER_FOREGROUND:-0}
       UNITREE_CTRL_DT: ${UNITREE_CTRL_DT:-0.004}
     command: >
       bash -lc "
-        test -x ./auto_noetic_headless.sh ||
-          { echo 'ERROR: missing executable ./auto_noetic_headless.sh'; exit 1; }
-        exec ./auto_noetic_headless.sh
+        test -x ./auto.sh ||
+          { echo 'ERROR: missing executable ./auto.sh'; exit 1; }
+        exec ./auto.sh
       "
     restart: unless-stopped

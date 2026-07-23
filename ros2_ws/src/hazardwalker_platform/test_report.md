@@ -90,7 +90,7 @@ ros2 topic list | grep /hw/
 
 | 文件 | 改动 |
 |------|------|
-| `auto_noetic_headless.sh` | 添加 Xvfb 启动、移除 Docker 内 `/hw/` relay |
+| `auto.sh` | 当前正式入口：统一 Xvfb、控制器 RL 切换、里程计中继与 rosbridge；Docker 不再调用旧 headless 入口 |
 | `docker/ros1_bridge.sh` | 改用直接二进制路径 |
 | `docker/Dockerfile` | 添加 xvfb 包 |
 | `docker/docker-compose.yml` | 镜像切回 `noetic-focal` |

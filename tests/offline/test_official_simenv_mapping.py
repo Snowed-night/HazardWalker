@@ -119,10 +119,7 @@ def test_official_controller_discovers_split_cuda_runtime_libraries():
 def test_official_headless_startup_reuses_display_and_cleans_only_stale_lock():
     """容器 restart 后不能因陈旧 X 锁静默丢失 RGB-D 插件。"""
 
-    for relative_path in (
-        'ros2_ws/src/hazardwalker_platform/auto.sh',
-        'ros2_ws/src/hazardwalker_platform/auto_noetic_headless.sh',
-    ):
+    for relative_path in ('ros2_ws/src/hazardwalker_platform/auto.sh',):
         source = (REPO_ROOT / relative_path).read_text(encoding='utf-8')
         assert 'SIMENV_HEADLESS_DISPLAY' in source
         assert 'display_is_ready()' in source
@@ -442,16 +439,52 @@ def test_stack_keeps_adapter_alive_while_business_launch_runs():
     assert 'min_laser_range: 0.40' in slam_config
 
 
-def test_compose_starts_only_the_official_noetic_headless_entry():
-    """当前容器入口不得再带旧 dynamic_bridge 或 JSON 中继。"""
+def test_compose_starts_the_complete_official_ros1_entry():
+    """Docker 必须调用含中继/rosbridge/控制门禁的唯一正式入口。"""
 
     source = (
         REPO_ROOT / 'ros2_ws' / 'src' / 'hazardwalker_platform' / 'docker' /
         'docker-compose.yml'
     ).read_text(encoding='utf-8')
     assert '${SIMENV_HOST_PATH:-..}:/home/ros/simenv_ws' in source
-    assert 'test -x ./auto_noetic_headless.sh' in source
-    assert 'exec ./auto_noetic_headless.sh' in source
+    assert 'test -x ./auto.sh' in source
+    assert 'exec ./auto.sh' in source
+    assert 'START_CONTROLLER: ${START_CONTROLLER:-1}' in source
+    assert 'SIMENV_AUTO_RL: ${SIMENV_AUTO_RL:-1}' in source
+    assert 'SIMENV_HEADLESS_MODE: ${SIMENV_HEADLESS_MODE:-move_base}' in source
+    assert 'START_ROSBRIDGE: ${START_ROSBRIDGE:-1}' in source
+    assert 'START_ODOM_RELAY: ${START_ODOM_RELAY:-1}' in source
     assert 'tail -f /dev/null' not in source
     assert 'START_ROS1_DYNAMIC_BRIDGE' not in source
     assert 'ros1_bridge.sh' not in source
+
+    dockerfile = (
+        REPO_ROOT / 'ros2_ws' / 'src' / 'hazardwalker_platform' / 'docker' /
+        'Dockerfile'
+    ).read_text(encoding='utf-8')
+    assert 'ros-noetic-rosbridge-server' in dockerfile
+    assert 'expect' in dockerfile
+    assert 'ros-foxy-ros1-bridge' not in dockerfile
+
+    entry = (
+        REPO_ROOT / 'ros2_ws' / 'src' / 'hazardwalker_platform' / 'auto.sh'
+    ).read_text(encoding='utf-8')
+    assert 'scripts/rosbridge_odom_relay.py' in entry
+    assert 'rosbridge_websocket.launch' in entry
+    assert r'\[HEADLESS_FSM\].*auto_rl=1' in entry
+    assert 'SIMENV_HEADLESS_MODE="${SIMENV_HEADLESS_MODE:-move_base}"' in entry
+    assert 'wait "$LAUNCH_PID"' in entry
+
+    docker_wrapper = (
+        REPO_ROOT / 'ros2_ws' / 'src' / 'hazardwalker_platform' /
+        'auto_docker.sh'
+    ).read_text(encoding='utf-8')
+    assert 'image)' in docker_wrapper
+    assert 'auto_noetic.sh" image' in docker_wrapper
+
+    relay = (
+        REPO_ROOT / 'ros2_ws' / 'src' / 'hazardwalker_platform' / 'scripts' /
+        'rosbridge_odom_relay.py'
+    ).read_text(encoding='utf-8')
+    assert "default='/Odometry_gazebo'" in relay
+    assert "default='/hazardwalker/odom'" in relay

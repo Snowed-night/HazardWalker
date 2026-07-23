@@ -22,6 +22,7 @@ RUN apt-get update -qq \
       ros-noetic-robot-state-publisher \
       ros-noetic-xacro \
       ros-noetic-move-base-msgs xvfb \
+      ros-noetic-rosbridge-server \
       liblcm-dev \
       libeigen3-dev \
       libyaml-cpp-dev \
@@ -31,6 +32,7 @@ RUN apt-get update -qq \
       ca-certificates \
       curl \
       unzip \
+      expect \
     && rm -rf /var/lib/apt/lists/*
 
 # unitree_guide/junior_ctrl expects this exact prefix (see CMakeLists.txt in SimEnv src).
@@ -47,17 +49,5 @@ RUN chmod +x /tmp/install_cuda_toolkit.sh && /tmp/install_cuda_toolkit.sh && rm 
 
 COPY install_libtorch.sh /tmp/install_libtorch.sh
 RUN chmod +x /tmp/install_libtorch.sh && /tmp/install_libtorch.sh && rm -f /tmp/install_libtorch.sh
-
-# ---- ROS2 Foxy + ros1_bridge (ROS1 ↔ ROS2 桥接) ----
-RUN apt-get update -qq \
-    && apt-get install -y -qq --no-install-recommends curl gnupg2 \
-    && curl -sSL https://raw.githubusercontent.com/ros/rosdistro/master/ros.key \
-       -o /usr/share/keyrings/ros-archive-keyring.gpg \
-    && echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/ros-archive-keyring.gpg] \
-       http://packages.ros.org/ros2/ubuntu $(lsb_release -cs) main" \
-       > /etc/apt/sources.list.d/ros2.list \
-    && apt-get update -qq \
-    && apt-get install -y -qq --no-install-recommends ros-foxy-ros1-bridge \
-    && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /home/ros/simenv_ws

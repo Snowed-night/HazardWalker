@@ -85,22 +85,42 @@ bash scripts/check_official_simenv_exclusive_session.sh \
 
 检查脚本只读，不会停止或删除容器。失败时由容器所有者清理残留实例；普通成员不要自行重置共享环境。
 
-### 3.3 平台管理员启动容器
+### 3.3 平台管理员重建并启动正式容器
 
-确认无人实验后：
+确认独占且无人实验后，首次使用或修改镜像依赖时执行一次干净重建：
 
 ```bash
 cd ros2_ws/src/hazardwalker_platform
 ./auto_docker.sh status
+./auto_docker.sh down
+./auto_docker.sh image --no-cache
 ./auto_docker.sh up
 ./auto_docker.sh logs
 cd ../../..
 ```
 
-正式部署必须由该入口调用 `auto.sh` 的启动顺序。不要使用已弃用的
+`auto_docker.sh up` 现在唯一调用容器内的 `auto.sh`：它启动 Gazebo、`junior_ctrl`、
+`/Odometry_gazebo -> /hazardwalker/odom` 最新值中继和 `rosbridge_websocket`。镜像已固定包含
+`ros-noetic-rosbridge-server` 与 `expect`；不得再进入容器手工安装软件包、手工启动 rosbridge 或手工拉起控制器。
+默认 `START_CONTROLLER=1`、`SIMENV_AUTO_RL=1`、`SIMENV_HEADLESS_MODE=move_base`、`START_ROSBRIDGE=1`、`START_ODOM_RELAY=1`，并在控制器日志确认
+`[HEADLESS_FSM] mode= auto_rl=1` 后解除物理暂停。不要使用已弃用的
 `ros2_ws/src/hazardwalker_platform/scripts/start_simenv.sh`，也不要在同一容器中重复运行启动脚本。
 
 ## 4. 三种接入方式
+
+### 4.0 每台 ROS2 主机的一次性依赖
+
+适配器运行在 ROS2 主机，不运行在官方 ROS1 Docker。除 ROS2 Jazzy 外，还需要 Python 的
+`websocket-client`。Ubuntu 24.04 受 PEP 668 保护时，不要全局执行 `pip install`；使用独立环境：
+
+```bash
+python3 -m venv --system-site-packages "$HOME/.local/share/hazardwalker-ros2-venv"
+"$HOME/.local/share/hazardwalker-ros2-venv/bin/pip" install websocket-client
+export OFFICIAL_SIMENV_PYTHON_BIN="$HOME/.local/share/hazardwalker-ros2-venv/bin/python"
+```
+
+每次启动适配器前保留最后一行环境变量。启动脚本会主动清理失效的 ROS2 工作区前缀，再加载
+`/opt/ros/jazzy` 与当前仓库 `ros2_ws/install`；不要混用已删除工作区的 `setup.bash`。
 
 ### 4.1 只读验证 `/hw/*`
 
@@ -120,7 +140,8 @@ export ROS_DOMAIN_ID=42
 bash scripts/verify_official_simenv_ros1_adapter.sh
 ```
 
-不带 `--control` 时不会发送速度命令。至少应收到：
+不带 `--control` 时不会发送速度命令。适配器默认转发 `/hazardwalker/odom` 到诊断 `/hw/odom`；这与是否转发
+`/hw/cmd_vel`、是否转发点云完全独立，且 `/hw/odom` 不能作为正式 SLAM 位姿或比赛结果定位来源。至少应收到：
 
 | ROS2 接口 | 内容 |
 |---|---|
@@ -208,7 +229,7 @@ bash scripts/run_official_simenv_ros1_ros2_stack.sh \
 平台管理员按以下顺序验收，任一项失败都应停止向业务组交付：
 
 1. 容器唯一且运行稳定。
-2. `junior_ctrl` 存活，已进入 RL 状态，日志无模型加载失败和关节力矩 NaN。
+2. `junior_ctrl` 存活，日志确认 `HEADLESS_FSM.*auto_rl=1`，且无模型加载失败和关节力矩 NaN。
 3. `/clock` 连续递增；RGB-D、内参、激光、IMU 和里程计均有新消息。
 4. `/cmd_vel` 有真实 A1 控制链订阅者，rosbridge 正常。
 5. 在独占、安全条件下完成真实直行、转向和停止验收。
@@ -218,7 +239,7 @@ bash scripts/run_official_simenv_ros1_ros2_stack.sh \
 ```bash
 docker exec "$SIMENV_CONTAINER" pgrep -a -x junior_ctrl
 docker exec "$SIMENV_CONTAINER" bash -lc '
-  grep -E "load model|HEADLESS_FSM|setTau function meets Nan|Traceback" \
+  grep -E "HEADLESS_FSM.*auto_rl=1|load model|setTau function meets Nan|Traceback" \
     logs/junior_ctrl.log | tail -30
 '
 bash scripts/verify_official_simenv_ros1_adapter.sh
@@ -270,7 +291,8 @@ bash scripts/verify_official_simenv_ros1_direct_control.sh --run
 
 | 现象 | 依次检查 |
 |---|---|
-| 模型存在但机器人不动 | `junior_ctrl` → RL 状态 → Gazebo 未暂停 → `/cmd_vel` 订阅者 → 重复发布者 → NaN 日志 |
+| 模型存在但机器人不动 | `junior_ctrl` 日志必须有 `HEADLESS_FSM.*auto_rl=1` → Gazebo 未暂停 → `/cmd_vel` 订阅者 → 重复发布者 → NaN 日志 |
+| `/hazardwalker/odom` 或 `/hw/odom` 缺失 | `auto_docker.sh image --no-cache` → `auto_docker.sh up` → 容器内 `rosnode list` 的 `hazardwalker_odom_relay` → 再启动唯一 ROS2 适配器；不要用点云或控制开关替代中继 |
 | 没有 `/hw/*` | 容器名 → rosbridge → ROS1 原话题 → 唯一适配器 → 相同 `ROS_DOMAIN_ID` → 最新工作空间 |
 | 有 `/clock` 但业务不运行 | 连续采样两帧确认时间递增；单帧旧消息无效 |
 | `setTau ... Nan` | 立即停止控制，由平台管理员独占重启并检查关节状态 |
@@ -305,7 +327,7 @@ reports/platform/official_simenv_ros1_ros2/<运行编号>/
 - [ ] 已获得独占时段，容器名和 `ROS_DOMAIN_ID` 正确。
 - [ ] 只有一个目标 SimEnv 和一个 ROS2 适配器。
 - [ ] `/clock` 递增，RGB-D、内参、激光和 IMU 有新消息。
-- [ ] 控制任务中 `junior_ctrl` 已进入 RL，日志无 NaN。
+- [ ] 控制任务中 `junior_ctrl` 日志有 `HEADLESS_FSM.*auto_rl=1`，且无 NaN。
 - [ ] 正式任务已填写 SEED、代码版本、合法定位来源和证据目录。
 
 结束后：

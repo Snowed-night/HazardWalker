@@ -21,7 +21,13 @@ elif [[ "${USE_GPU:-1}" != "0" ]]; then
 fi
 
 compose() {
-  docker compose "${COMPOSE_FILES[@]}" "$@"
+  # 共享服务器的 Docker 缺少 buildx 时，BuildKit 会让 `compose build` 在启动前失败。
+  # 回退到 Docker 原生构建器不改变镜像内容，只保证手册中的无缓存重建命令可执行。
+  if docker buildx version >/dev/null 2>&1; then
+    docker compose "${COMPOSE_FILES[@]}" "$@"
+  else
+    DOCKER_BUILDKIT=0 docker compose "${COMPOSE_FILES[@]}" "$@"
+  fi
 }
 
 usage() {
@@ -37,7 +43,8 @@ Usage: $0 {build|up|down|logs|shell|status|image}
   image   Build Docker image only (no catkin)
 
 Environment (passed into container):
-  GUI=false  PAUSED=false  START_CONTROLLER=0|1  SEED=...
+  GUI=false  PAUSED=true  START_CONTROLLER=0|1  SIMENV_AUTO_RL=0|1
+  START_ROSBRIDGE=0|1  START_ODOM_RELAY=0|1  SEED=...
   Container name: ${CONTAINER_NAME}
 
 Note: Docker image includes LibTorch CUDA (cu118) + CUDA 11.8 toolkit (for cmake compile).
@@ -71,7 +78,8 @@ case "$cmd" in
       simenv_noetic bash -lc "${clean}chmod +x docker/build_catkin.sh && ./docker/build_catkin.sh"
     ;;
   up)
-    chmod +x "$SIMENV_ROOT/auto_noetic_headless.sh" 2>/dev/null || true
+    chmod +x "$SIMENV_ROOT/auto.sh" \
+      "$SIMENV_ROOT/scripts/rosbridge_odom_relay.py" 2>/dev/null || true
     compose up -d "$@"
     echo "Container ${CONTAINER_NAME} started. Logs: $0 logs"
     ;;

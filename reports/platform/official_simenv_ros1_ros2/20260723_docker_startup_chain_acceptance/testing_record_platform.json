@@ -1,0 +1,10 @@
+{
+  "records": [
+    {"record_id": "PLATFORM-20260723-01", "result": "pass"},
+    {"record_id": "PLATFORM-20260723-02", "result": "pass"},
+    {"record_id": "PLATFORM-20260723-03", "result": "pass"},
+    {"record_id": "PLATFORM-20260723-04", "result": "pass"},
+    {"record_id": "PLATFORM-20260723-05", "result": "pass"},
+    {"record_id": "PLATFORM-20260723-06", "result": "pass", "video_recorded": false}
+  ]
+}
