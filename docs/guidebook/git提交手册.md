@@ -7,17 +7,12 @@
 ```text
 main                         稳定版本，只放可演示、可提交版本
 dev                          日常集成版本，各功能分支最终先合并到这里
-feature/offline-algorithm-tests 当前最小 demo 和离线算法测试分支
-feature/platform             平台与仿真开发
-feature/nav                  导航探索开发
-feature/perception           感知定位开发
-feature/decision             决策状态机开发
-feature/test                 测试脚本和指标统计开发
-docs/report                  文档、报告、答辩材料开发
+feature/<group>-<topic>      平台、导航、感知、决策、测试等功能开发
+docs/<topic>                 文档、报告、答辩材料开发
 fix/xxx                      Bug 修复
 ```
 
-当前最小 demo 相关修改先提交到 `feature/offline-algorithm-tests`，后续通过 PR 合并到 `dev`。当 `dev` 上形成稳定可演示版本后，再由负责人合并到 `main`。
+不要把某个历史功能分支当作长期固定分支。功能分支通过 PR 合并到 `dev`；当 `dev` 形成稳定可演示版本后，再由负责人合并到 `main`。
 
 ## 2. 每天开始前先同步
 
@@ -36,14 +31,6 @@ git switch 你的分支名
 git merge dev
 ```
 
-如果你做的是当前最小 demo：
-
-```powershell
-git switch feature/offline-algorithm-tests
-git pull origin feature/offline-algorithm-tests
-git merge dev
-```
-
 ## 3. 开始一个新任务
 
 从 `dev` 创建自己的分支：
@@ -57,9 +44,9 @@ git switch -c feature/你的任务名
 分支名建议：
 
 ```text
-feature/platform-gazebo-adapter
-feature/nav-frontier
-feature/perception-localize-hazard
+feature/platform-adapter
+feature/nav-exploration
+feature/perception-localization
 feature/decision-state-machine
 feature/test-metrics
 docs/update-team-plan
@@ -141,7 +128,6 @@ update
 常规合并方向：
 
 ```text
-feature/offline-algorithm-tests -> dev
 feature/* -> dev
 docs/* -> dev
 fix/* -> dev

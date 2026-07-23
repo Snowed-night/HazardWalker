@@ -1,0 +1,10 @@
+{
+  "delivery_stage": "20260710",
+  "canonical_experiment_category": "extended_red_object_stress",
+  "original_directory": "official_simenv_20260710_rgbd_red_objects",
+  "classification_status": "verified",
+  "classification_basis": ["summary.run_date", "README", "evidence_matrix"],
+  "actual_run_time": "provenance_uncertain",
+  "official_score_eligible": false,
+  "note": "该目录含超出官方红方块/绿球范围的内部压力物品。"
+}

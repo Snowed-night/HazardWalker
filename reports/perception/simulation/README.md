@@ -12,11 +12,8 @@ simulation/
 
 ## 3D Native
 
-- `3d_native/official_simenv_20260703_basic/`: 官方环境基础取帧链路检查。
-- `3d_native/official_simenv_20260705_multi_red/`: 官方红球完整可见视角和候选视角检测。
-- `3d_native/official_simenv_20260705_native_3d_validation/`: 原生 3D 完整红球、FOV 边缘红球和多红球验证。
-- `3d_native/official_simenv_20260705_3d_red_shape_distractors/`: 红色立方体、长方体、圆柱、薄板等非球体干扰验证。
-- `3d_native/official_simenv_20260705_3d_red_ball_occlusion/`: 原生 3D 红球遮挡比例极限测试。
+阶段和类别索引见 `3d_native/README.md`。20260705、20260710、20260715 分目录保存；
+来源不完整的再处理结果标记为 `provenance_uncertain`，不得冒充某次真实运行。
 
 ## 2D Derived
 

@@ -1,0 +1,14 @@
+{
+  "delivery_stage": "20260715",
+  "canonical_experiment_category": "extended_red_object_stress",
+  "original_directory": "official_simenv_20260710_rgbd_red_objects/reruns/20260719_seed2026071802_2f1b8c1",
+  "actual_run_date": "2026-07-19",
+  "run_id": "20260719_seed2026071802_2f1b8c1",
+  "seed": "2026071802",
+  "code_versions": ["c401b4ef0e5d2e7806eb8947c5b2ec13788f3966", "2f1b8c17a15dc7f3afbcfbc9a2a4f0817b62a92c"],
+  "archive_commit": "b69613e",
+  "classification_status": "verified",
+  "official_score_eligible": false,
+  "result": {"pass": 9, "fail": 15},
+  "note": "20260715是用户指定的阶段标签；两批原始结果和真实2026-07-19运行日期均保留。"
+}

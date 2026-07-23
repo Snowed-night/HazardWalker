@@ -1,4 +1,4 @@
-"""官方 Gazebo Classic 五类感知证据案例的离线校验。"""
+"""官方 Gazebo Classic 历史与 A 阶段感知案例的离线校验。"""
 
 import importlib.util
 import sys
@@ -15,7 +15,7 @@ sys.modules[SPEC.name] = CASES
 SPEC.loader.exec_module(CASES)
 
 
-def test_five_suites_have_required_case_counts_and_only_spheres_are_targets():
+def test_historical_suites_keep_required_case_counts():
     center = (1.0, 2.0, 0.15)
     expected_counts = {
         'multi_ball_clutter': 10,
@@ -23,6 +23,8 @@ def test_five_suites_have_required_case_counts_and_only_spheres_are_targets():
         'red_objects': 24,
         'active_multiview': 20,
         'complex_localization': 8,
+        'red_ball_3d_localization': 5,
+        'official_distractor_rejection': 5,
     }
     for suite, expected_count in expected_counts.items():
         cases = CASES.build_suite(suite, center)
@@ -34,6 +36,33 @@ def test_five_suites_have_required_case_counts_and_only_spheres_are_targets():
         is_sphere = item.metadata['shape_name'].startswith('sphere_')
         assert bool(item.expected_sphere_positions) is is_sphere
         assert item.metadata['is_red_sphere_target'] is is_sphere
+
+
+def test_stage_a_targets_are_only_official_radius_red_spheres():
+    """A阶段不能再把0.10/0.12/0.22 m红球当作官方正例。"""
+
+    center = (1.0, 2.0, 0.15)
+    localization = CASES.build_suite('red_ball_3d_localization', center)
+    distractors = CASES.build_suite('official_distractor_rejection', center)
+
+    assert len(localization) == 5
+    assert all(item.metadata['target_radius_m'] == 0.15 for item in localization)
+    assert all('<radius>0.1500</radius>' in item.sdf for item in localization)
+    assert all(
+        position[2] >= 0.15
+        for item in localization
+        for position in item.expected_sphere_positions
+    )
+    assert sum(len(item.expected_sphere_positions) for item in distractors) == 3
+    assert all(item.metadata['target_radius_m'] == 0.15 for item in distractors)
+    assert '0.1500' in distractors[1].sdf
+    assert any('official_red_cube' in item.sdf for item in distractors)
+    assert any('official_green_sphere' in item.sdf for item in distractors)
+    assert all(
+        '<ambient>0.000 0.850 0.050 1</ambient>' in item.sdf
+        for item in distractors
+        if 'official_green_sphere' in item.sdf
+    )
 
 
 def test_multiview_manifest_requires_real_views_for_every_shape_case():

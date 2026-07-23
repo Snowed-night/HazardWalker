@@ -1,44 +1,16 @@
-# 平台组文档
+# 平台与仿真组文档
 
-负责范围：
+平台组负责官方 SimEnv 接入、ROS1↔ROS2 适配、`/hw/*` 公共接口、传感器可用性与运行稳定性。
 
-- `fake_platform_node` 的话题、TF 和传感器接口说明。
-- Gazebo Harmonic 最小场景、机器人模型和红球模型。
-- Gazebo / 官方平台到 `/hw/*` 内部接口的 adapter。
-- 楼栋场景最小需求清单。
+## 文档边界
 
-近期重点：
+- 全员日常启动、接入和安全边界以 [官方 SimEnv 平台环境使用手册](../../guidebook/官方SimEnv平台环境使用手册.md) 为准。
+- 官方原始传感器、评测和接口资料保留在 [`ros2_ws/src/hazardwalker_platform/docs/`](../../../ros2_ws/src/hazardwalker_platform/docs/)，不得改写为团队真值或私有接口。
+- 本目录仅保存平台组提交的设计、验收和整改证据；不重复维护一份“平台使用手册”。
 
-1. 在主力机验证 `gazebo_minimal.launch.py`。
-2. 梳理 `ros_gz_bridge.yaml` 中 Gazebo 话题与 `/hw/*` 的映射。
-3. 补齐 `CameraInfo` 来源。
-4. 列出从单房间扩展到楼栋场景所需的模型、传感器和 TF 要求。
+## 历史记录
 
----
+- [2026-07-14 官方 SimEnv ROS1↔ROS2 双向适配整改](history/官方SimEnv_ROS1_ROS2双向适配整改_20260714.md)：历史整改与验收记录，不代表当前共享环境已自动上线。
+- [2026-07-10 ROS2 RGB-D 与 world 对齐修复](history/simenv_ros2_rgbd_world_alignment_fix_20260710.md)：Harmonic 临时部署记录，不适用于当前官方平台。
 
-## `/hw/*` 话题接口表
-
-### 当前 fake_platform_node 已发布的话题
-
-| 话题 | 消息类型 | 谁发布 | 谁订阅 | 作用 |
-|---|---|---|---|---|
-| `/hw/camera/image_raw` | `sensor_msgs/Image` | 平台组 | 感知组 | 相机原始图像，供感知组检测红色球体 |
-| `/hw/camera/camera_info` | `sensor_msgs/CameraInfo` | 平台组 | 感知组 | 相机内参，供三维定位使用 |
-| `/hw/lidar/points` | `sensor_msgs/PointCloud2` | 平台组 | 感知组/导航组 | 激光雷达点云 |
-| `/hw/odom` | `nav_msgs/Odometry` | 平台组 | 导航组/决策组 | 机器人实时位姿 |
-| `/hw/cmd_vel` | `geometry_msgs/Twist` | 导航组 | 平台组 | 速度控制指令 |
-
----
-
-## TF 坐标变换链
-
-### 当前 fake_platform_node 发布的 TF
-
-```
-odom ──→ base_link ──→ camera_link  
-                   ──→ lidar_link   
-```
-
-
-
-
+新增记录须说明 Git 版本、运行环境、输入输出话题、验证命令、通过范围和未解决风险。

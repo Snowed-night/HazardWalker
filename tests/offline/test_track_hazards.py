@@ -273,6 +273,34 @@ def test_anisotropic_depth_evidence_rejects_cylindrical_track():
     assert tracker.tracks[0].evidence_status == 'multi_view_flat_or_non_spherical'
 
 
+def test_published_tracks_keeps_rejection_tombstone_for_downstream_revocation():
+    """已确认后被多视角否决的 ID 必须继续发布 rejected 状态以撤销旧结果。"""
+
+    tracker = HazardTracker(HazardTrackerConfig(
+        confirm_observation_count=1,
+        min_distinct_views=1,
+        min_non_spherical_views_to_reject=2,
+    ))
+    tracker.update([HazardObservation(
+        position=(1.0, 0.0, 0.2), confidence=0.95,
+        view_id='front', confirmation_eligible=True,
+        depth_shape_status='spherical',
+    )])
+    track_id = tracker.tracks[0].track_id
+    for view_id in ('left', 'right'):
+        tracker.update([HazardObservation(
+            position=(1.0, 0.0, 0.2), confidence=0.9,
+            view_id=view_id, confirmation_eligible=False,
+            depth_shape_status='anisotropic',
+        )])
+
+    assert tracker.active_tracks() == []
+    tombstones = tracker.published_tracks()
+    assert len(tombstones) == 1
+    assert tombstones[0].track_id == track_id
+    assert tombstones[0].status == 'rejected_non_spherical'
+
+
 def test_rejected_non_spherical_track_cannot_be_revived_by_round_frontal_views():
     """两个独立非球面视角是任务内终局反证，圆柱端面不能靠后续圆形帧复活。"""
 

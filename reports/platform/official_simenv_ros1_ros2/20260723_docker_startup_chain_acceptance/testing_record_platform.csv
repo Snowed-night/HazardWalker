@@ -1,0 +1,7 @@
+record_id,test_item,expected_evidence,result,owner,notes
+PLATFORM-20260723-01,正式Docker入口,auto_docker调用auto.sh且容器零重启,pass,平台组,旧headless入口已删除
+PLATFORM-20260723-02,ROS1中继与rosbridge,hazardwalker_odom_relay和rosbridge_websocket存在,pass,平台组,里程计固定20Hz
+PLATFORM-20260723-03,RGB-D与内参,ROS1和ROS2均收到真实消息,pass,平台组,原生RGB约20Hz
+PLATFORM-20260723-04,ROS2适配器,/hw/odom和RGB-D内参可见,pass,平台组,使用唯一适配器
+PLATFORM-20260723-05,控制接口,ROS2零速度穿透到ROS1/cmd_vel,pass,平台组,未产生位移
+PLATFORM-20260723-06,直行转向停止,位移>=1m且转角>=0.2rad并发送零速度,pass,平台组,1.3557m和0.2341rad；视频待补

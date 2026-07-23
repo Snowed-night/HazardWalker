@@ -157,6 +157,19 @@ def test_official_ros1_node_converts_optical_depth_axis_to_gazebo_camera_link():
         assert '_camera_axis_convention:=gazebo_link_x_forward' in launcher_source
 
 
+def test_official_ros1_stability_reuses_axis_aware_view_geometry():
+    """RealSense 是 X 前向，ROS1 稳定门不得再硬编码旋转矩阵第三列。"""
+
+    path = os.path.join(REPO_ROOT, 'scripts', 'official_simenv_ros1_perception_node.py')
+    with open(path, encoding='utf-8') as handle:
+        source = handle.read()
+
+    assert 'camera_pose_signature(transform, self.camera_axis_convention)' in source
+    assert 'quantized_camera_view_id(' in source
+    assert 'transform.rotation[0][2]' not in source
+    assert 'transform.rotation[1][2]' not in source
+
+
 def test_official_ros1_node_emits_navigation_owned_reobservation_requests():
     """感知节点只发布侧向复查建议，不可直接把候选变成 /cmd_vel 控制。"""
     path = os.path.join(REPO_ROOT, 'scripts', 'official_simenv_ros1_perception_node.py')
@@ -181,10 +194,25 @@ def test_official_ros1_result_export_requires_legal_slam_and_multiview_sphere_ev
     assert 'min_spherical_views_for_confirm=2' in source
     assert 'require_legal_localization=True' in source
     assert 'require_multiview_sphere_evidence=True' in source
+    assert "self.official_result_frame = 'world'" in source
+    assert 'expected_frame=self.official_result_frame' in source
     assert "item['localization_provenance'] = self.localization_provenance" in source
+    assert 'self.tracker.published_tracks()' in source
     assert "'localization_ready': bool(localization_ready)" in source
     assert "'localization_provenance': self.localization_provenance" in source
     assert "'stamp_sec': round(float(stamp_sec), 6)" in source
+
+
+def test_official_ros1_uses_raw_depth_for_independent_diameter_evidence():
+    """尺寸证据不能复用由已知球半径反推的球心深度。"""
+
+    path = os.path.join(REPO_ROOT, 'scripts', 'official_simenv_ros1_perception_node.py')
+    with open(path, encoding='utf-8') as handle:
+        source = handle.read()
+
+    assert 'estimate_depth_from_bbox(' in source
+    assert 'bbox, raw_surface_depth_m, self.camera_intrinsics' in source
+    assert "item['raw_surface_depth_m']" in source
 
 
 def test_official_joy_activation_sequence_requires_stand_settle_then_cmd_vel():

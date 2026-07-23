@@ -4,13 +4,15 @@
 
 ## 控制器状态切换
 
-`auto.sh` 默认以前台方式启动 `junior_ctrl`。该控制器仍遵循 Unitree 原有交互流程：
+正式 `auto_docker.sh up` 通过 `auto.sh` 在后台启动 `junior_ctrl`，由镜像内的 `expect` 发送 Unitree 原有
+交互序列并检查日志：
 
-- 键盘输入 `2`：站立。
-- 键盘输入 `6`：切换到 RL 模式。
-- RL 模式下订阅 `/cmd_vel`。
+- `2`：站立。
+- `6`：切换到 RL 模式。
+- 正式模式先确认日志出现 `[HEADLESS_FSM] mode= auto_rl=1`，再解除物理暂停；随后以 `/cmd_vel` 的唯一 `unitree_gazebo_servo` 订阅者作为控制链路证据。不能在暂停状态下等待状态机步进日志。
 
-如果 `CONTROLLER_FOREGROUND=0`，`junior_ctrl` 会在后台运行，键盘状态切换通常不可用，日志写入 `logs/junior_ctrl.log`。
+需要人工排障时可显式设置 `CONTROLLER_FOREGROUND=1 SIMENV_AUTO_RL=0`，再直接执行 `./auto.sh`。该模式不属于
+Docker 正式流程，也不能替代 RL 就绪验收。
 
 ## 最小控制接口
 

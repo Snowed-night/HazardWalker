@@ -1,0 +1,7 @@
+[INFO] [1784520750.511858171] [hsv_detector_node]: HSV detector subscribed to camera image, camera info and depth image.
+[INFO] [1784520750.722568433] [hsv_detector_node]: Received RGB frame 1: 640x480 rgb8.
+[INFO] [1784520750.727000625] [hsv_detector_node]: RGB frame 1 processed: detections=2 tf=True.
+[INFO] [1784520750.731437101] [hsv_detector_node]: Published perception payload for RGB frame 1.
+[INFO] [1784520751.146154790] [hsv_detector_node]: Received RGB frame 2: 640x480 rgb8.
+[INFO] [1784520751.148488258] [hsv_detector_node]: RGB frame 2 processed: detections=2 tf=True.
+[INFO] [1784520751.152185305] [hsv_detector_node]: Published perception payload for RGB frame 2.

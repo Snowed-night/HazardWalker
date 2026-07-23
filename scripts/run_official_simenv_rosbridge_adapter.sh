@@ -25,7 +25,8 @@ ENABLE_POINTCLOUD_RELAY="${OFFICIAL_SIMENV_ENABLE_POINTCLOUD_RELAY:-0}"
 ENABLE_LIVOX_IMU_RELAY="${OFFICIAL_SIMENV_ENABLE_LIVOX_IMU_RELAY:-0}"
 ENABLE_TRUNK_IMU_RELAY="${OFFICIAL_SIMENV_ENABLE_TRUNK_IMU_RELAY:-1}"
 ODOM_TOPIC="${OFFICIAL_SIMENV_ODOM_TOPIC:-/hazardwalker/odom}"
-ENABLE_ODOM_RELAY="${OFFICIAL_SIMENV_ENABLE_ODOM_RELAY:-0}"
+# 平台诊断默认转发容器内最新值中继；它与控制、点云互相独立，且不构成合法 SLAM 位姿。
+ENABLE_ODOM_RELAY="${OFFICIAL_SIMENV_ENABLE_ODOM_RELAY:-1}"
 PUBLIC_START_X="${OFFICIAL_PUBLIC_START_X:-0.0}"
 PUBLIC_START_Y="${OFFICIAL_PUBLIC_START_Y:--2.2}"
 PUBLIC_START_Z="${OFFICIAL_PUBLIC_START_Z:-0.6}"
@@ -49,6 +50,12 @@ ENABLE_TRUNK_IMU_RELAY="$(as_ros_bool "$ENABLE_TRUNK_IMU_RELAY")"
 if [[ ! -f "$ROS2_SETUP" ]]; then
   echo "[rosbridge-adapter] 找不到 ROS2 环境：$ROS2_SETUP；请设置 OFFICIAL_SIMENV_ROS2_SETUP。" >&2; exit 1
 fi
+# 共享主机常遗留已删除工作区的 AMENT/COLCON 前缀；Jazzy 会沿这些前缀继续 source
+# setup.bash，进而把一次性启动误报成“缺少 rclpy”。正式适配器从干净 ROS2 基础环境
+# 加载，再只叠加当前仓库 install，避免把其他成员的终端状态带入平台链路。
+unset AMENT_PREFIX_PATH COLCON_PREFIX_PATH COLCON_CURRENT_PREFIX AMENT_CURRENT_PREFIX \
+  CMAKE_PREFIX_PATH PYTHONPATH \
+  ROS_DISTRO ROS_VERSION ROS_PYTHON_VERSION ROS_PACKAGE_PATH
 # ROS 2 Jazzy 的 setup.bash 在未定义 AMENT_TRACE_SETUP_FILES 时会被本脚本的
 # set -u 中断；加载环境期间暂时关闭 nounset，随后立即恢复严格模式。
 set +u
@@ -57,7 +64,7 @@ source "$ROOT/ros2_ws/install/setup.bash"
 set -u
 if ! command -v ros2 >/dev/null || ! "$PYTHON_BIN" -c 'import rclpy, websocket' 2>/dev/null; then
   echo '[rosbridge-adapter] ROS2 主机缺少 ros2/rclpy 或 websocket-client；未启动适配器。' >&2
-  echo '请安装完整 ROS2 运行时和 websocket-client 后重试，不能在仅 ROS1 的官方容器内运行。' >&2
+  echo '请安装完整 ROS2 运行时和 websocket-client 后重试；Ubuntu 受 PEP 668 保护时请按手册使用独立 venv，不能在仅 ROS1 的官方容器内运行。' >&2
   exit 1
 fi
 if ! docker inspect -f '{{.State.Running}}' "$CONTAINER" 2>/dev/null | grep -qx true; then
@@ -67,7 +74,7 @@ if ! docker exec "$CONTAINER" bash -lc 'source /opt/ros/noetic/setup.bash; rosno
   echo '[rosbridge-adapter] 容器内没有 /rosbridge_websocket；请先由官方 auto.sh 启动 ROS1 rosbridge。' >&2; exit 1
 fi
 if [[ "$ENABLE_ODOM_RELAY" == "true" ]] && ! docker exec "$CONTAINER" bash -lc "source /opt/ros/noetic/setup.bash; timeout 5 rostopic echo -n 1 '$ODOM_TOPIC' >/dev/null"; then
-  echo "[rosbridge-adapter] 官方最新值里程计未就绪：$ODOM_TOPIC；请应用官方 headless 补丁，或显式设置 OFFICIAL_SIMENV_ODOM_TOPIC=/Odometry_gazebo（旧环境回退）。" >&2
+  echo "[rosbridge-adapter] 官方最新值里程计未就绪：$ODOM_TOPIC；请用修复后的 auto_docker.sh 重建并启动容器。" >&2
   exit 1
 fi
 ARGS=(--ros-args -p rosbridge_url:="$ROSBRIDGE_URL")

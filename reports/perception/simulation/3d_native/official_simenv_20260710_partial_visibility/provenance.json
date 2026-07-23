@@ -1,0 +1,9 @@
+{
+  "delivery_stage": "20260710",
+  "canonical_experiment_category": "partial_visibility",
+  "original_directory": "official_simenv_20260710_rgbd_partial_visibility",
+  "classification_status": "verified",
+  "classification_basis": ["summary.run_date", "README", "evidence_matrix"],
+  "actual_run_time": "provenance_uncertain",
+  "official_score_eligible": false
+}

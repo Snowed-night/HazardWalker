@@ -22,7 +22,8 @@ if [[ ! -d "$ROOT/src" ]]; then
   exit 1
 fi
 
-chmod +x "$ROOT/docker/auto_noetic.sh" "$ROOT/docker/build_catkin.sh" 2>/dev/null || true
+chmod +x "$ROOT/auto.sh" "$ROOT/scripts/rosbridge_odom_relay.py" \
+  "$ROOT/docker/auto_noetic.sh" "$ROOT/docker/build_catkin.sh" 2>/dev/null || true
 
 case "${1:-up}" in
   build)
@@ -56,8 +57,12 @@ case "${1:-up}" in
   status)
     exec "$ROOT/docker/auto_noetic.sh" status
     ;;
+  image)
+    # 仅重建镜像；`--no-cache` 等参数原样转交，供平台管理员执行干净验收。
+    exec "$ROOT/docker/auto_noetic.sh" image "${@:2}"
+    ;;
   *)
-    echo "Usage: $0 {build|up|down|logs|shell|status}" >&2
+    echo "Usage: $0 {build|image|up|down|logs|shell|status}" >&2
     exit 1
     ;;
 esac

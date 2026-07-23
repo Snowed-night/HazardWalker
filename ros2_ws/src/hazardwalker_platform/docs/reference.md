@@ -95,7 +95,11 @@ SEED=77 FLOOR_COUNT=3 ROOMS_PER_FLOOR=4 ./auto.sh
 | `GUI` | `true` | 是否启动 Gazebo GUI |
 | `PAUSED` | `true` | Gazebo 启动后是否暂停 |
 | `START_CONTROLLER` | `1` | 是否启动 `junior_ctrl` |
-| `CONTROLLER_FOREGROUND` | `1` | 是否在前台运行控制器。前台运行时可以在当前终端输入 `2`、`6` 切换状态 |
+| `CONTROLLER_FOREGROUND` | `0` | 正式 Docker 流程在后台运行控制器；需要人工排障时才设为 `1` |
+| `SIMENV_AUTO_RL` | `1` | 启用官方已编译控制器的 headless-RL 模式；若设为 `0`，正式后台启动会明确失败，避免伪造控制就绪 |
+| `SIMENV_HEADLESS_MODE` | `move_base` | 使官方已编译 RL 控制器消费 `/cmd_vel`；仅有控制器进程不足以证明该模式已启用 |
+| `START_ROSBRIDGE` | `1` | 启动镜像内固化的 `rosbridge_websocket`，供 ROS2 适配器连接 |
+| `START_ODOM_RELAY` | `1` | 将 `/Odometry_gazebo` 限频中继为 `/hazardwalker/odom`；仅供平台诊断适配，不能作为 SLAM 真值 |
 | `START_BUILDING_CONTROL` | `1` | 是否启动楼栋门/电梯控制服务 |
 | `UNITREE_CTRL_DT` | `0.004` | `junior_ctrl` 控制周期，单位 s。默认 250 Hz，降低 Gazebo 大场景下控制循环超时 warning |
 | `START_VIRTUAL_JOY` | `0` | 是否启动虚拟手柄。该功能通常需要 `uinput` 权限 |
