@@ -2,6 +2,8 @@
  Copyright (c) 2020-2023, Unitree Robotics.Co.Ltd. All rights reserved.
 ***********************************************************************/
 #include <iostream>
+#include <chrono>
+#include <limits>
 #include "FSM/State_RL_test.h"
 
 State_RL::State_RL(CtrlComponents *ctrlComp)
@@ -12,12 +14,24 @@ State_RL::State_RL(CtrlComponents *ctrlComp)
     gravity(1,0) = 0.0;
     gravity(2,0) = -0.98;
     //在构造函数中初始化，订阅
-    this->Sub_=nh.subscribe<geometry_msgs::Twist>("/cmd_vel",1000,boost::bind(&FSMState::cmdVelCallback,this,_1));
+    // 控制只需要最新速度；队列积压会在恢复后执行过期动作。
+    this->Sub_=nh.subscribe<geometry_msgs::Twist>("/cmd_vel",1,boost::bind(&FSMState::cmdVelCallback,this,_1));
 
 }
 
+State_RL::~State_RL(){
+    stopWorkerThreads();
+}
 
 void State_RL::enter(){
+    stopWorkerThreads();
+    {
+        std::lock_guard<std::mutex> lock(this->cmd_vel_mutex_);
+        this->current_cmd_vel_.linear_x = 0.0;
+        this->current_cmd_vel_.linear_y = 0.0;
+        this->current_cmd_vel_.angular_z = 0.0;
+        this->current_cmd_vel_.valid = false;
+    }
      // if (real == false){
         for(int i=0; i<12; i++){
             _lowCmd->motorCmd[i].q = _lowState->motorState[i].q;
@@ -51,28 +65,46 @@ void State_RL::enter(){
     {
         refresh_rl_obs();
     }
-    infer_thread = new std::thread(&State_RL::infer_thread_callback,this);
-    infer_thread_runnning = State_RL::RUNNING;
+    // 先发布运行状态再创建线程，避免子线程先启动并读取到 STOP 后立即退出。
+    infer_thread_running.store(State_RL::RUNNING);
+    infer_thread.reset(new std::thread(&State_RL::infer_thread_callback,this));
     if (debug == true){
-        amp_obs_thread = new std::thread(&State_RL::save_amp_obs_thread,this);
-        ampthreadRunning = State_RL::RUNNING;
+        amp_thread_running.store(State_RL::RUNNING);
+        amp_obs_thread.reset(new std::thread(&State_RL::save_amp_obs_thread,this));
     }
 }
 
 void State_RL::run(){
+    // ROS 回调由 IOROS 主循环处理；RL 推理线程只读取互斥保护后的最新命令。
 }
 
 void State_RL::exit(){
     _percent = 0;
-    ampthreadRunning = State_RL::STOP;
-    amp_obs_thread->join();
-    infer_thread_runnning = State_RL::STOP;
-    infer_thread->join();
-    std::cout << "amp_obs_thread退出!" << std::endl;
+    stopWorkerThreads();
+    {
+        std::lock_guard<std::mutex> lock(this->cmd_vel_mutex_);
+        this->current_cmd_vel_.linear_x = 0.0;
+        this->current_cmd_vel_.linear_y = 0.0;
+        this->current_cmd_vel_.angular_z = 0.0;
+        this->current_cmd_vel_.valid = false;
+    }
     if (outfile.is_open()) {
         outfile.close();
         std::cout << "文件关闭成功!" << std::endl;
     }
+}
+
+void State_RL::stopWorkerThreads(){
+    amp_thread_running.store(State_RL::STOP);
+    infer_thread_running.store(State_RL::STOP);
+    if (amp_obs_thread && amp_obs_thread->joinable()) {
+        amp_obs_thread->join();
+    }
+    amp_obs_thread.reset();
+    if (infer_thread && infer_thread->joinable()) {
+        infer_thread->join();
+    }
+    infer_thread.reset();
 }
 
 FSMStateName State_RL::checkChange(){
@@ -113,7 +145,7 @@ FSMStateName State_RL::checkChange(){
 
 void State_RL::infer_thread_callback()
 {
-    while(infer_thread_runnning == State_RL::RUNNING)
+    while(infer_thread_running.load() == State_RL::RUNNING)
     {
         long long _start_time = getTime();
         // std::cout << "_start_time" << _start_time << std::endl;
@@ -161,12 +193,12 @@ void State_RL::infer_thread_callback()
         // std::cout << "actions_tensor: " << actions_tensor << std::endl;
         wait(_start_time, (long long)(infer_duration * 1000000));
     }
-    infer_thread_runnning = State_RL::OVER;
+    infer_thread_running.store(State_RL::OVER);
 }
 
 void State_RL::save_amp_obs_thread()
 {
-    while(ampthreadRunning == State_RL::RUNNING)
+    while(amp_thread_running.load() == State_RL::RUNNING)
     {
         long long _start_time = getTime();
         if ((getTime() - dofPosSwitBeginTime)<_duration) {
@@ -202,7 +234,7 @@ void State_RL::save_amp_obs_thread()
         }
         wait(_start_time, (long long)(infer_duration * 1000000));
     }
-    ampthreadRunning = State_RL::OVER;
+    amp_thread_running.store(State_RL::OVER);
 }
 
 
@@ -230,9 +262,33 @@ void State_RL::refresh_rl_obs(){
         // commands_tensor[1] = _ctrlComp->ioInter->axes[0];
         // commands_tensor[2] = _ctrlComp->ioInter->axes[3]*3.14;
 
-        commands_tensor[0] = this->current_cmd_vel_.linear_x;
-        commands_tensor[1] = this->current_cmd_vel_.linear_y;
-        commands_tensor[2] = this->current_cmd_vel_.angular_z;
+        double command_linear_x = 0.0;
+        double command_linear_y = 0.0;
+        double command_angular_z = 0.0;
+        {
+            std::lock_guard<std::mutex> lock(this->cmd_vel_mutex_);
+            const double command_age_sec = this->current_cmd_vel_.valid
+                ? std::chrono::duration<double>(
+                    std::chrono::steady_clock::now() -
+                    this->current_cmd_vel_.received_at
+                ).count()
+                : std::numeric_limits<double>::infinity();
+            // 上游中断或桥接退出时必须自动停车，禁止永久保持最后一条非零速度。
+            if (command_age_sec >= 0.0 && command_age_sec <= 0.5) {
+                command_linear_x = this->current_cmd_vel_.linear_x;
+                command_linear_y = this->current_cmd_vel_.linear_y;
+                command_angular_z = this->current_cmd_vel_.angular_z;
+            }
+        }
+        commands_tensor[0] = command_linear_x;
+        commands_tensor[1] = command_linear_y;
+        commands_tensor[2] = command_angular_z;
+        ROS_INFO_STREAM_THROTTLE(
+            1.0,
+            "[RL_CMD_APPLIED] x=" << command_linear_x
+            << " y=" << command_linear_y
+            << " yaw=" << command_angular_z
+        );
 
 
         // std::cout << _ctrlComp->ioInter->axes << std::endl;

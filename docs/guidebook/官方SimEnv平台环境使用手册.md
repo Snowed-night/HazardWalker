@@ -1,6 +1,7 @@
 # 官方 SimEnv 平台环境使用手册
 
 - 维护：项目负责人、平台与仿真组
+- 本轮控制链路与键盘规范修改人：负责人（姜晨）
 - 适用：平台、导航、感知、决策与集成测试成员
 - 环境：官方 ROS1 Noetic + Gazebo Classic + Unitree A1，HazardWalker ROS2 Jazzy 业务层
 
@@ -94,6 +95,7 @@ cd ros2_ws/src/hazardwalker_platform
 ./auto_docker.sh status
 ./auto_docker.sh down
 ./auto_docker.sh image --no-cache
+./auto_docker.sh build force
 ./auto_docker.sh up
 ./auto_docker.sh logs
 cd ../../..
@@ -103,7 +105,14 @@ cd ../../..
 `/Odometry_gazebo -> /hazardwalker/odom` 最新值中继和 `rosbridge_websocket`。镜像已固定包含
 `ros-noetic-rosbridge-server` 与 `expect`；不得再进入容器手工安装软件包、手工启动 rosbridge 或手工拉起控制器。
 默认 `START_CONTROLLER=1`、`SIMENV_AUTO_RL=1`、`SIMENV_HEADLESS_MODE=move_base`、`START_ROSBRIDGE=1`、`START_ODOM_RELAY=1`，并在控制器日志确认
-`[HEADLESS_FSM] mode= auto_rl=1` 后解除物理暂停。不要使用已弃用的
+`[HEADLESS_FSM] mode=move_base auto_rl=1`、ROS 图确认
+`/unitree_gazebo_servo` 已订阅 `/cmd_vel` 后解除物理暂停。随后必须等到
+`Switched from fixed stand to RL`，并自动发送一段低速命令验证真实位移和机身高度；
+只有日志出现 `Controller physical /cmd_vel probe passed` 才会宣布启动完成。默认控制周期为
+`UNITREE_CTRL_DT=0.002`（500 Hz），不得仅为消除超时 warning 擅自放宽到 `0.004`。
+只要修改或同步过 `src/unitree_guide/`，就必须先执行 `build force`；`up` 会拒绝复用时间戳早于控制源码的
+`junior_ctrl`。ROS 图中的控制节点名是 `/unitree_gazebo_servo`，不能以未出现 `/junior_ctrl` 节点名判断订阅失败。
+不要使用已弃用的
 `ros2_ws/src/hazardwalker_platform/scripts/start_simenv.sh`，也不要在同一容器中重复运行启动脚本。
 
 ## 4. 三种接入方式
@@ -229,21 +238,34 @@ bash scripts/run_official_simenv_ros1_ros2_stack.sh \
 平台管理员按以下顺序验收，任一项失败都应停止向业务组交付：
 
 1. 容器唯一且运行稳定。
-2. `junior_ctrl` 存活，日志确认 `HEADLESS_FSM.*auto_rl=1`，且无模型加载失败和关节力矩 NaN。
+2. `junior_ctrl` 存活，日志先确认 `HEADLESS_FSM.*mode=move_base.*auto_rl=1`，再确认
+   `Switched from fixed stand to RL`，且无模型加载失败和关节力矩 NaN。
 3. `/clock` 连续递增；RGB-D、内参、激光、IMU 和里程计均有新消息。
-4. `/cmd_vel` 有真实 A1 控制链订阅者，rosbridge 正常。
+4. `/cmd_vel` 有真实 A1 控制链订阅者，且本轮启动日志存在
+   `Controller physical /cmd_vel probe passed`；只有订阅者不能证明回调和 RL 动作实际生效。
 5. 在独占、安全条件下完成真实直行、转向和停止验收。
 
-只读检查可使用：
+启动脚本会在第 4 项未满足时拒绝宣布就绪；启动探针只验证最小物理响应，不能替代第 5 项
+完整控制验收。Docker 健康检查会继续监测控制器、订阅者和
+rosbridge，但只标记 `unhealthy`，不会代替平台管理员重启进程。只读检查可使用：
 
 ```bash
+docker inspect --format '{{.State.Status}} / {{if .State.Health}}{{.State.Health.Status}}{{else}}no-healthcheck{{end}}' \
+  "$SIMENV_CONTAINER"
 docker exec "$SIMENV_CONTAINER" pgrep -a -x junior_ctrl
 docker exec "$SIMENV_CONTAINER" bash -lc '
-  grep -E "HEADLESS_FSM.*auto_rl=1|load model|setTau function meets Nan|Traceback" \
+  grep -E "HEADLESS_FSM.*auto_rl=1|Switched from fixed stand to RL|CMD_VEL_RX|RL_CMD_APPLIED|load model|setTau function meets Nan|Traceback" \
     logs/junior_ctrl.log | tail -30
+  source /opt/ros/noetic/setup.bash
+  rostopic info /cmd_vel
 '
 bash scripts/verify_official_simenv_ros1_adapter.sh
 ```
+
+导航组执行直行、转向和停止测试时统一使用项目内
+[官方 SimEnv 控制链路与键盘测试](../groups/nav/官方SimEnv控制链路与键盘测试.md)：
+键盘节点只发布 `/hw/cmd_vel`，按键为 `w` 前进、`s` 后退、`a` 左转、`d` 右转、`k`
+立即停止。不得同时运行键盘节点和 Nav2 速度发布者。
 
 真实运动验收会控制机器人，只能由平台管理员执行：
 
@@ -291,7 +313,7 @@ bash scripts/verify_official_simenv_ros1_direct_control.sh --run
 
 | 现象 | 依次检查 |
 |---|---|
-| 模型存在但机器人不动 | `junior_ctrl` 日志必须有 `HEADLESS_FSM.*auto_rl=1` → Gazebo 未暂停 → `/cmd_vel` 订阅者 → 重复发布者 → NaN 日志 |
+| 模型存在但机器人不动 | Docker 启动日志必须有物理探针通过 → `junior_ctrl` 已进入 `Switched from fixed stand to RL` → `CMD_VEL_RX` 与 `RL_CMD_APPLIED` 同时出现 → Gazebo 未暂停 → `/cmd_vel` 唯一订阅/发布链 → NaN 日志；仅有订阅者不算通过，共享容器只报告平台管理员 |
 | `/hazardwalker/odom` 或 `/hw/odom` 缺失 | `auto_docker.sh image --no-cache` → `auto_docker.sh up` → 容器内 `rosnode list` 的 `hazardwalker_odom_relay` → 再启动唯一 ROS2 适配器；不要用点云或控制开关替代中继 |
 | 没有 `/hw/*` | 容器名 → rosbridge → ROS1 原话题 → 唯一适配器 → 相同 `ROS_DOMAIN_ID` → 最新工作空间 |
 | 有 `/clock` 但业务不运行 | 连续采样两帧确认时间递增；单帧旧消息无效 |
@@ -327,7 +349,7 @@ reports/platform/official_simenv_ros1_ros2/<运行编号>/
 - [ ] 已获得独占时段，容器名和 `ROS_DOMAIN_ID` 正确。
 - [ ] 只有一个目标 SimEnv 和一个 ROS2 适配器。
 - [ ] `/clock` 递增，RGB-D、内参、激光和 IMU 有新消息。
-- [ ] 控制任务中 `junior_ctrl` 日志有 `HEADLESS_FSM.*auto_rl=1`，且无 NaN。
+- [ ] 控制任务中 `junior_ctrl` 已实际进入 RL，启动物理探针通过，且无 NaN。
 - [ ] 正式任务已填写 SEED、代码版本、合法定位来源和证据目录。
 
 结束后：
@@ -339,6 +361,6 @@ reports/platform/official_simenv_ros1_ros2/<运行编号>/
 
 ## 10. 本手册的验证范围
 
-截至 2026-07-19，本文引用的仓库路径均存在；启动脚本中的关键参数、独占门禁、控制门禁、递增时钟
-检查、证据字段和退出清理流程已与当前代码核对。手册没有宣称当前任意容器自动可用，每轮仍须执行
-本轮验收。
+截至 2026-07-23，本文引用的仓库路径均存在；启动脚本中的关键参数、独占门禁、控制器 RL 状态、
+真实运动探针、递增时钟、证据字段和退出清理流程已与当前代码核对，并在独立容器冷启动复验。
+手册没有宣称任意历史容器自动可用，每轮仍须执行本轮验收。

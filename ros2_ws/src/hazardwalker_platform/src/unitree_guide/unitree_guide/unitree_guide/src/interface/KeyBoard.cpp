@@ -1,6 +1,7 @@
 /**********************************************************************
  Copyright (c) 2020-2023, Unitree Robotics.Co.Ltd. All rights reserved.
 ***********************************************************************/
+// 负责人修改：统一比赛键盘语义为 W/S 前后、A/D 左右转、K 立即停止。
 #include "interface/KeyBoard.h"
 #include <iostream>
 
@@ -44,7 +45,9 @@ UserCommand KeyBoard::checkCmd(){
         return UserCommand::L1_A;
     case '8':
         return UserCommand::L1_Y;
+    case 'k':case 'K':
     case ' ':
+        // K 是正式急停键；保留空格作为旧版兼容急停。
         userValue.setZero();
         return UserCommand::NONE;
     default:
@@ -60,18 +63,16 @@ void KeyBoard::changeValue(){
     case 's':case 'S':
         userValue.ly = max<float>(userValue.ly-sensitivityLeft, -1.0);
         break;
-    case 'd':case 'D':
-        userValue.lx = min<float>(userValue.lx+sensitivityLeft, 1.0);
-        break;
     case 'a':case 'A':
-        userValue.lx = max<float>(userValue.lx-sensitivityLeft, -1.0);
+        // State_Trotting 对 rx 取反，负值对应正角速度（左转）。
+        userValue.rx = max<float>(userValue.rx-sensitivityRight, -1.0);
+        break;
+    case 'd':case 'D':
+        userValue.rx = min<float>(userValue.rx+sensitivityRight, 1.0);
         break;
 
     case 'i':case 'I':
         userValue.ry = min<float>(userValue.ry+sensitivityRight, 1.0);
-        break;
-    case 'k':case 'K':
-        userValue.ry = max<float>(userValue.ry-sensitivityRight, -1.0);
         break;
     case 'l':case 'L':
         userValue.rx = min<float>(userValue.rx+sensitivityRight, 1.0);
