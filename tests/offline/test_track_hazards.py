@@ -607,3 +607,180 @@ def test_rejected_non_sphere_is_not_recreated_as_new_candidate_next_frame():
     assert active == []
     assert len(tracker.tracks) == 1
     assert tracker.tracks[0].track_id == 1
+
+
+def test_position_fusion_weights_distinct_views_not_frame_dwell_time():
+    """同一视角停留很多帧不能压倒另外两个合法侧视的定位证据。"""
+
+    tracker = HazardTracker(HazardTrackerConfig(
+        confirm_observation_count=3,
+        min_distinct_views=3,
+        merge_distance_m=2.0,
+    ))
+    for _ in range(20):
+        tracker.update([HazardObservation(
+            position=(0.0, 1.0, 0.3), confidence=0.9, view_id='front',
+        )])
+    tracker.update([HazardObservation(
+        position=(0.4, 1.0, 0.3), confidence=0.9, view_id='middle',
+    )])
+    tracks = tracker.update([HazardObservation(
+        position=(0.8, 1.0, 0.3), confidence=0.9, view_id='side',
+    )])
+
+    assert tracks[0].position == (0.4, 1.0, 0.3)
+    assert tracks[0].status == 'confirmed'
+
+
+def test_earliest_view_anchor_resists_later_slam_drift_without_truth():
+    """首个完整视角作为静态目标锚点，后续漂移视角只用于确认。"""
+
+    tracker = HazardTracker(HazardTrackerConfig(
+        confirm_observation_count=3,
+        min_distinct_views=3,
+        merge_distance_m=2.0,
+        position_fusion_mode='earliest_view_anchor',
+    ))
+    tracker.update([HazardObservation(
+        position=(0.20, 1.0, 0.3), confidence=0.9, view_id='first',
+    )])
+    tracker.update([HazardObservation(
+        position=(0.60, 1.0, 0.3), confidence=0.9, view_id='second',
+    )])
+    tracks = tracker.update([HazardObservation(
+        position=(1.00, 1.0, 0.3), confidence=0.9, view_id='third',
+    )])
+
+    assert tracks[0].position == (0.20, 1.0, 0.3)
+    assert tracks[0].status == 'confirmed'
+
+
+def test_projected_track_hint_reacquires_same_target_across_slam_drift():
+    """唯一图像投影提示可跨越距离门恢复旧轨迹，但仍保持同一 track ID。"""
+
+    tracker = HazardTracker(HazardTrackerConfig(
+        merge_distance_m=0.5,
+        min_distinct_views=2,
+        confirm_observation_count=2,
+    ))
+    tracker.update([HazardObservation(
+        position=(0.0, 0.0, 0.3), confidence=0.9, view_id='first',
+    )])
+    tracks = tracker.update([HazardObservation(
+        position=(0.7, 0.0, 0.3),
+        confidence=0.9,
+        view_id='second',
+        track_id_hint=1,
+    )])
+
+    assert len(tracker.tracks) == 1
+    assert tracks[0].track_id == 1
+    assert tracks[0].status == 'confirmed'
+
+
+def test_single_compatible_spherical_track_can_reacquire_across_slam_drift():
+    tracker = HazardTracker(HazardTrackerConfig(
+        merge_distance_m=0.5,
+        single_track_reacquire_distance_m=1.0,
+        single_track_reacquire_diameter_relative_error=0.25,
+    ))
+    tracker.update([HazardObservation(
+        position=(0.0, 0.0, 0.3),
+        confidence=0.9,
+        view_id='first',
+        depth_shape_status='spherical',
+        apparent_diameter_m=0.30,
+    )])
+    tracker.update([])
+    tracker.update([HazardObservation(
+        position=(0.7, 0.0, 0.3),
+        confidence=0.9,
+        view_id='second',
+        depth_shape_status='spherical',
+        apparent_diameter_m=0.31,
+    )])
+
+    assert len(tracker.tracks) == 1
+    assert tracker.tracks[0].track_id == 1
+
+
+def test_single_track_reacquire_refuses_ambiguous_two_track_scene():
+    tracker = HazardTracker(HazardTrackerConfig(
+        merge_distance_m=0.5,
+        single_track_reacquire_distance_m=1.0,
+        single_track_reacquire_diameter_relative_error=0.25,
+    ))
+    tracker.update([
+        HazardObservation(
+            position=(0.0, 0.0, 0.3), confidence=0.9, view_id='left',
+            depth_shape_status='spherical', apparent_diameter_m=0.30,
+        ),
+        HazardObservation(
+            position=(2.0, 0.0, 0.3), confidence=0.9, view_id='right',
+            depth_shape_status='spherical', apparent_diameter_m=0.30,
+        ),
+    ])
+    tracker.update([])
+    tracker.update([HazardObservation(
+        position=(1.0, 0.0, 0.3), confidence=0.9, view_id='middle',
+        depth_shape_status='spherical', apparent_diameter_m=0.30,
+    )])
+
+    assert len(tracker.tracks) == 3
+
+
+def test_same_frame_duplicate_spherical_observations_create_one_track():
+    """同一球的瞬时双轮廓不能绕过一帧一轨约束生成重复危险源。"""
+
+    tracker = HazardTracker(HazardTrackerConfig(
+        same_frame_duplicate_distance_m=0.12,
+        same_frame_duplicate_diameter_relative_error=0.25,
+    ))
+    tracks = tracker.update([
+        HazardObservation(
+            position=(1.0, 2.0, 0.3),
+            confidence=0.82,
+            view_id='view-00',
+            depth_shape_status='spherical',
+            apparent_diameter_m=0.30,
+        ),
+        HazardObservation(
+            position=(1.05, 2.0, 0.3),
+            confidence=0.91,
+            view_id='view-00',
+            depth_shape_status='spherical',
+            apparent_diameter_m=0.31,
+        ),
+    ], stamp_sec=1.0)
+
+    assert len(tracks) == 1
+    assert tracks[0].observation_count == 1
+    assert tracks[0].confidence == 0.91
+    assert tracks[0].position == (1.05, 2.0, 0.3)
+
+
+def test_same_frame_separated_spherical_observations_remain_two_tracks():
+    """相距 0.30 m 的两个真实球必须保留为两个目标。"""
+
+    tracker = HazardTracker(HazardTrackerConfig(
+        same_frame_duplicate_distance_m=0.12,
+        same_frame_duplicate_diameter_relative_error=0.25,
+    ))
+    tracks = tracker.update([
+        HazardObservation(
+            position=(1.0, 2.0, 0.3),
+            confidence=0.90,
+            view_id='view-00',
+            depth_shape_status='spherical',
+            apparent_diameter_m=0.30,
+        ),
+        HazardObservation(
+            position=(1.30, 2.0, 0.3),
+            confidence=0.88,
+            view_id='view-00',
+            depth_shape_status='spherical',
+            apparent_diameter_m=0.30,
+        ),
+    ], stamp_sec=1.0)
+
+    assert len(tracks) == 2

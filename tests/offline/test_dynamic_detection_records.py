@@ -13,6 +13,7 @@ sys.path.insert(0, os.path.join(REPO_ROOT, 'ros2_ws', 'src', 'hazardwalker_perce
 
 from hazardwalker_perception.dynamic_detection_records import (
     build_perception_evidence_contract,
+    build_reobservation_episode_metrics,
     build_dynamic_summary,
     build_dynamic_testing_record,
 )
@@ -55,6 +56,99 @@ def test_testing_record_leaves_truth_dependent_metrics_empty():
     assert row['truth_count'] == ''
     assert row['missed_count'] == ''
     assert row['false_positive_count'] == ''
+
+
+def test_reobservation_episode_records_partial_approach_lateral_and_confirmation():
+    records = [
+        {
+            'timestamp_sec': 10.0,
+            'detections_2d': [{
+                'id': 'untracked:candidate-1',
+                'candidate_id': 'candidate-1',
+                'is_partial': True,
+                'requires_reobservation': True,
+            }],
+            'hazards': [],
+            'view_recommendation': {
+                'action': 'move_forward',
+                'target_id': 'untracked:candidate-1',
+            },
+        },
+        {
+            'timestamp_sec': 12.0,
+            'detections_2d': [{
+                'id': '7',
+                'track_id': '7',
+                'candidate_id': 'candidate-1',
+                'requires_reobservation': True,
+            }],
+            'hazards': [{
+                'id': '7',
+                'status': 'tentative',
+                'candidate_ids': ['candidate-1'],
+            }],
+            'view_recommendation': {
+                'action': 'move_left',
+                'target_id': 'candidate-1',
+            },
+        },
+        {
+            'timestamp_sec': 14.5,
+            'detections_2d': [{
+                'id': '7',
+                'track_id': '7',
+                'candidate_id': 'candidate-1',
+            }],
+            'hazards': [{
+                'id': '7',
+                'status': 'confirmed',
+                'candidate_ids': ['candidate-1'],
+            }],
+            'view_recommendation': {
+                'action': 'hold_observation',
+                'target_id': 'candidate-1',
+            },
+        },
+    ]
+
+    metrics = build_reobservation_episode_metrics(records)
+
+    assert metrics['episode_count'] == 1
+    assert metrics['partial_start_count'] == 1
+    assert metrics['resolved_confirmed_count'] == 1
+    assert metrics['incomplete_count'] == 0
+    assert metrics['episodes'][0]['actions'] == [
+        'move_forward', 'move_left', 'hold_observation',
+    ]
+    assert metrics['episodes'][0]['candidate_to_resolution_latency_sec'] == 4.5
+    assert metrics['candidate_to_confirmation_latency_sec'] == {
+        'count': 1,
+        'mean': 4.5,
+        'max': 4.5,
+    }
+
+
+def test_reobservation_episode_stays_incomplete_without_track_resolution():
+    records = [{
+        'timestamp_sec': 3.0,
+        'detections_2d': [{
+            'id': 'untracked:1',
+            'requires_reobservation': True,
+        }],
+        'hazards': [],
+        'view_recommendation': {
+            'action': 'turn_right',
+            'target_id': 'untracked:1',
+        },
+    }]
+
+    summary = build_dynamic_summary(records)
+    row = build_dynamic_testing_record(summary, scenario='partial_unresolved')
+
+    assert summary['reobservation_episode_count'] == 1
+    assert summary['resolved_confirmed_episode_count'] == 0
+    assert summary['incomplete_reobservation_episode_count'] == 1
+    assert row['incomplete_reobservation_episode_count'] == 1
 
 
 def test_formal_evidence_contract_requires_fixed_seed_code_version_and_legal_slam_pose():
@@ -108,6 +202,10 @@ def test_dynamic_recorder_module_has_direct_execution_entrypoint():
     assert "self.declare_parameter('map_topic', '/map')" in source
     assert "self.output_dir / 'cartographer_map.pgm'" in source
     assert "'map_snapshot_file': self._save_map_snapshot()" in source
+    assert "'schema': 'hazardwalker_perception_official_evidence_v2'" in source
+    assert "'evidence_raw_image': raw_image_path" in source
+    assert "self.raw_image_dir" in source
+    assert "self.annotated_image_dir" in source
     assert "declare_parameter('run_mode', 'internal_regression')" in source
     assert "declare_parameter('depth_topic', '/hw/camera/depth_image')" in source
     assert "declare_parameter('detection_topic', '/hw/perception/hazard_detections')" in source

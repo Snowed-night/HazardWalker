@@ -16,6 +16,8 @@
 | `diagnostic_19_effective_active_view_translation` | 有效复查速度复测、覆盖与返航规划失败 | 真实移动约 44.98 m、到达 5 个前沿但未见红色候选；地图局部断连触发 186 次批量退避，返航连续无路径后按失败停止 |
 | `diagnostic_20_bounded_frontier_plan_failures` | 单轮最多 4 个前沿规划失败、自动返航 | 批量封禁后保留 90 个候选并立即恢复路径；约 52.51 m 轨迹、338.5 秒自动返航完成，但未见红色候选 |
 | `diagnostic_21_frontier_rgbd_sweep` | 到达前沿后 360° RGB-D 主动环视、自动返航 | 在 3 个前沿连续完成整圈环视，约 52.47 m 轨迹、322.5 秒自动返航完成；路线未进入红球视野，正式结果为空 |
+| `diagnostic_22_persistent_ingress_progress_commitment` | 入楼纵深、候选三维定位、真实主动复查 | 414 个候选帧、247 个定位候选并执行 2 次复查；视角证据不足且返航失败，0 个严格确认 |
+| `diagnostic_23_closed_loop_reobservation_return_recovery` | 复查约束后的探索返航脱困 | 约 71.38 m 轨迹并返航至起点 0.24 m；本轮 0 候选，不能证明感知识别成功 |
 
 每轮均保留地图、关键 RGB 帧、逐帧结构化记录、合法 SLAM 轨迹、运行参数、代码版本、
 测试表和失败原因。大体积深度数组与运行日志保存在本地及远程原始证据目录，不提交 Git。

@@ -78,7 +78,8 @@
 - 左右各 5%、10%、15%、25%、35% 共 10 帧：全部输出黄色 `reobserve`，不进入 confirmed；
 - 左右各 45%–85% 共 10 帧及无遮挡基准：全部输出严格二维候选；
 - 该逐帧产物、标注图、CSV/JSON 位于
-  `official_simenv_20260710_partial_visibility/reference_20260705_regression/`。
+  `provenance_uncertain/reference_20260705_partial_visibility_regression/`。由于再处理时间、
+  运行提交和启动命令缺失，该结果不归入 7 月 5 日或 7 月 10 日阶段。
 
 这证明“小部分球体”已能触发实际换视角流程，但不等价于单帧确认，也不替代稳定平台上的
 RGB-D 三视角确认。
@@ -88,7 +89,7 @@ RGB-D 三视角确认。
 严格候选阈值消融后（面积 `>=200 px`、圆度 `>=0.65`），两框均不再作为严格正证据，当前输出
 为 **strict=0、reobserve=10**，而 21 个递进遮挡用例仍全部通过。这避免将红色方块/小杂物误
 写成“多出的红球”，也不会把 10 个候选包装为已确认球。详情见
-`official_simenv_20260710_multi_ball_clutter/reference_20260705_regression/cases.csv`。
+`provenance_uncertain/reference_20260705_multi_ball_clutter_regression/cases.csv`。
 
 ### 3.3 24 种红色干扰物压力集（非比赛目标）
 
@@ -142,7 +143,7 @@ RGB-D 三视角确认。
 2. official_simenv_20260710_partial_visibility
 3. official_simenv_20260710_extended_red_object_stress
 4. official_simenv_20260710_active_multiview_reobservation
-5. official_simenv_20260710_rgbd_localization
+5. official_simenv_20260710_red_ball_3d_localization
 
 每个目录均包含 README.md、cases.csv、cases.json、summary.json、原始图、标注图、总拼图和节点快照；对应测试组 CSV/JSON 位于 reports/perception/test_records 下的同名目录。
 

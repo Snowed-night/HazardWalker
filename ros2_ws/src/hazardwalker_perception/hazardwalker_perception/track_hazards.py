@@ -34,6 +34,10 @@ class HazardObservation:
     # 相机到候选三维中心的水平视线方位。它让确认器能区分“向前靠近”与
     # “真正绕到侧面复查”；未提供时保持兼容旧的纯 2D/离线链路。
     view_bearing_rad: Optional[float] = None
+    # 由上一时刻轨迹投影与当前二维框的唯一匹配产生；不是目标真值。
+    # 有提示时可跨越 SLAM 世界坐标漂移恢复同一轨迹，同时仍由一帧一轨约束
+    # 防止两个同时可见红球合并。
+    track_id_hint: Optional[int] = None
 
 
 @dataclass
@@ -64,6 +68,10 @@ class HazardTrack:
     curvatures_by_view: dict = field(default_factory=dict)
     curvature_ratios_by_view: dict = field(default_factory=dict)
     bearings_by_view: dict = field(default_factory=dict)
+    # 每个离散视角分别累计三维位置，再对各视角均值取坐标中位数。这样相机在
+    # 某一视角停留较久时不会凭帧数压倒其他视角，也能抑制长距离复查中的
+    # SLAM 单向漂移；运行期只使用公开 TF/深度观测，不读取测试真值。
+    positions_by_view: dict = field(default_factory=dict)
     evidence_status: str = 'collecting_views'
 
 
@@ -93,6 +101,19 @@ class HazardTrackerConfig:
     max_median_normalized_depth_curvature: float = 0.30
     # 为零表示兼容旧链路，不强制方位视差；正式 RGB-D 运行应设置约 20--30 度。
     min_view_bearing_span_deg: float = 0.0
+    # ``view_median`` 适合低漂移定位；``earliest_view_anchor`` 适合官方当前
+    # scan-matching 位姿在长距离侧移中单向漂移的情况。后者仅锚定首个完整、
+    # 可确认 RGB-D 视角，不会使用测试真值。
+    position_fusion_mode: str = 'view_median'
+    # 常规合并门仍保持 0.5 m。只有场内恰好一个兼容球面轨迹时，才允许在
+    # SLAM 漂移下用更宽距离恢复；多个候选轨迹时一律不猜。
+    single_track_reacquire_distance_m: float = 0.0
+    single_track_reacquire_diameter_relative_error: float = 0.25
+    # 同一 RGB-D 帧偶尔会为一个球产生两个几乎重合的球面轮廓。若直接按
+    # “一帧一轨”处理，第二个轮廓会被误建为新轨迹。该门限只在同一次
+    # update 内、两者均有球面深度正证据且直径一致时生效；零表示关闭。
+    same_frame_duplicate_distance_m: float = 0.0
+    same_frame_duplicate_diameter_relative_error: float = 0.25
 
 
 class HazardTracker:
@@ -104,14 +125,30 @@ class HazardTracker:
         self._next_track_id = 1
 
     def update(self, observations, stamp_sec=0.0):
-        matched_track_ids = set()
+        normalized_observations = []
         for observation in observations:
             normalized = _normalize_observation(observation, stamp_sec)
+            duplicate_index = _same_frame_duplicate_index(
+                normalized_observations, normalized, self.config,
+            )
+            if duplicate_index is None:
+                normalized_observations.append(normalized)
+            elif (
+                float(normalized.confidence)
+                > float(normalized_observations[duplicate_index].confidence)
+            ):
+                # 保留同帧重复轮廓中置信度更高的一条，不增加观测数或轨迹数。
+                normalized_observations[duplicate_index] = normalized
+
+        matched_track_ids = set()
+        for normalized in normalized_observations:
             track = self._find_matching_track(normalized, matched_track_ids)
             if track is None:
                 track = self._create_track(normalized)
             else:
-                _merge_observation_into_track(track, normalized)
+                _merge_observation_into_track(
+                    track, normalized, self.config.position_fusion_mode,
+                )
             matched_track_ids.add(track.track_id)
 
         for track in self.tracks:
@@ -146,6 +183,15 @@ class HazardTracker:
         return [track_to_hazard_dict(track) for track in self.active_tracks()]
 
     def _find_matching_track(self, observation, already_matched):
+        hinted_track_id = observation.track_id_hint
+        if hinted_track_id is not None:
+            for track in self.tracks:
+                if (
+                    track.track_id == int(hinted_track_id)
+                    and track.track_id not in already_matched
+                    and track.status != 'rejected'
+                ):
+                    return track
         best_track = None
         best_distance = None
         # 明确非球体轨迹仍需参与空间关联。否则第二个反证视角刚把圆柱标为
@@ -162,7 +208,37 @@ class HazardTracker:
             if best_distance is None or distance < best_distance:
                 best_track = track
                 best_distance = distance
-        return best_track
+        if best_track is not None:
+            return best_track
+
+        reacquire_distance = max(
+            0.0, float(self.config.single_track_reacquire_distance_m),
+        )
+        if (
+            reacquire_distance <= self.config.merge_distance_m
+            or observation.depth_shape_status != 'spherical'
+            or not _valid_diameter(observation.apparent_diameter_m)
+        ):
+            return None
+        compatible = []
+        for track in self.tracks:
+            if (
+                track.status in ('rejected', 'rejected_non_spherical')
+                or track.track_id in already_matched
+                or track.missed_count <= 0
+                or not track.spherical_view_ids
+            ):
+                continue
+            if distance_m(track.position, observation.position) > reacquire_distance:
+                continue
+            if not _reacquire_diameter_compatible(
+                track,
+                observation.apparent_diameter_m,
+                self.config.single_track_reacquire_diameter_relative_error,
+            ):
+                continue
+            compatible.append(track)
+        return compatible[0] if len(compatible) == 1 else None
 
     def _create_track(self, observation):
         track = HazardTrack(
@@ -219,6 +295,10 @@ class HazardTracker:
             bearings_by_view=_initial_view_evidence(
                 observation.view_id, observation.view_bearing_rad, _valid_bearing,
             ) if observation.confirmation_eligible else {},
+            positions_by_view=(
+                _initial_position_evidence(observation)
+                if observation.confirmation_eligible else {}
+            ),
         )
         self._next_track_id += 1
         self.tracks.append(track)
@@ -390,6 +470,7 @@ def _normalize_observation(observation, default_stamp_sec):
             aspect_ratio=observation.aspect_ratio,
             depth_curvature_m=observation.depth_curvature_m,
             view_bearing_rad=observation.view_bearing_rad,
+            track_id_hint=observation.track_id_hint,
         )
 
     position = observation.get('position')
@@ -408,11 +489,14 @@ def _normalize_observation(observation, default_stamp_sec):
         aspect_ratio=observation.get('aspect_ratio'),
         depth_curvature_m=observation.get('depth_curvature_m'),
         view_bearing_rad=observation.get('view_bearing_rad'),
+        track_id_hint=observation.get('track_id_hint'),
     )
 
 
-"""用加权平均更新轨迹位置和置信度。"""
-def _merge_observation_into_track(track, observation):
+"""按视角等权的稳健位置融合更新轨迹和置信度。"""
+def _merge_observation_into_track(
+        track, observation, position_fusion_mode='view_median',
+):
     old_count = max(1, int(track.observation_count))
     new_count = old_count + 1
     # 轨迹坐标只由可确认的完整 RGB-D 观测估计。partial、贴边、粘连框和
@@ -422,13 +506,13 @@ def _merge_observation_into_track(track, observation):
         old_eligible_count = max(0, int(track.eligible_observation_count))
         if old_eligible_count == 0:
             track.position = tuple(float(value) for value in observation.position)
+            track.positions_by_view = _initial_position_evidence(observation)
         else:
-            track.position = tuple(
-                (
-                    float(track.position[index]) * old_eligible_count
-                    + float(observation.position[index])
-                ) / (old_eligible_count + 1)
-                for index in range(3)
+            _append_position_evidence(
+                track.positions_by_view, observation.view_id, observation.position,
+            )
+            track.position = _position_from_views(
+                track.positions_by_view, position_fusion_mode,
             )
     track.confidence = max(float(track.confidence), float(observation.confidence))
     track.observation_count = new_count
@@ -491,6 +575,107 @@ def _valid_positive(value):
 
 def _valid_aspect_ratio(value):
     return value is not None and math.isfinite(float(value)) and 0.0 < float(value) <= 1.0
+
+
+def _same_frame_duplicate_index(existing, candidate, config):
+    """返回同帧重复球面观测索引；真实分离目标仍保留为独立轨迹。"""
+
+    distance_limit = max(
+        0.0, float(config.same_frame_duplicate_distance_m),
+    )
+    if (
+        distance_limit <= 0.0
+        or not candidate.confirmation_eligible
+        or candidate.depth_shape_status != 'spherical'
+        or not _valid_diameter(candidate.apparent_diameter_m)
+    ):
+        return None
+    max_relative_error = max(
+        0.0, float(config.same_frame_duplicate_diameter_relative_error),
+    )
+    for index, current in enumerate(existing):
+        if (
+            not current.confirmation_eligible
+            or current.depth_shape_status != 'spherical'
+            or not _valid_diameter(current.apparent_diameter_m)
+        ):
+            continue
+        if distance_m(current.position, candidate.position) > distance_limit:
+            continue
+        reference = max(float(current.apparent_diameter_m), 1e-6)
+        relative_error = (
+            abs(float(candidate.apparent_diameter_m) - reference) / reference
+        )
+        if relative_error <= max_relative_error:
+            return index
+    return None
+
+
+def _reacquire_diameter_compatible(track, diameter_m, max_relative_error):
+    values = [
+        float(value) for value in track.apparent_diameters_m
+        if _valid_diameter(value)
+    ]
+    if not values:
+        return False
+    ordered = sorted(values)
+    middle = len(ordered) // 2
+    reference = (
+        ordered[middle]
+        if len(ordered) % 2
+        else (ordered[middle - 1] + ordered[middle]) / 2.0
+    )
+    return (
+        abs(float(diameter_m) - reference) / max(reference, 1e-6)
+        <= max(0.0, float(max_relative_error))
+    )
+
+
+def _position_view_key(view_id):
+    """旧链路没有 view_id 时归入一个兼容桶，仍退化为普通逐帧均值。"""
+
+    normalized = str(view_id or '').strip()
+    return normalized if normalized else '__legacy_single_view__'
+
+
+def _initial_position_evidence(observation):
+    point = tuple(float(value) for value in observation.position)
+    return {_position_view_key(observation.view_id): [point[0], point[1], point[2], 1]}
+
+
+def _append_position_evidence(store, view_id, position):
+    key = _position_view_key(view_id)
+    point = tuple(float(value) for value in position)
+    bucket = store.setdefault(key, [0.0, 0.0, 0.0, 0])
+    for index in range(3):
+        bucket[index] += point[index]
+    bucket[3] += 1
+
+
+def _position_from_views(store, mode='view_median'):
+    """先求每个离散视角均值，再对视角均值逐坐标取中位数。"""
+
+    per_view = [
+        tuple(float(bucket[index]) / max(1, int(bucket[3])) for index in range(3))
+        for bucket in store.values()
+        if len(bucket) == 4 and int(bucket[3]) > 0
+    ]
+    if not per_view:
+        raise ValueError('没有可用于定位融合的视角位置证据。')
+    normalized_mode = str(mode or '').strip()
+    if normalized_mode == 'earliest_view_anchor':
+        return per_view[0]
+    if normalized_mode != 'view_median':
+        raise ValueError(f'不支持的轨迹位置融合模式：{mode}')
+
+    def median(values):
+        ordered = sorted(float(value) for value in values)
+        middle = len(ordered) // 2
+        if len(ordered) % 2:
+            return ordered[middle]
+        return (ordered[middle - 1] + ordered[middle]) / 2.0
+
+    return tuple(median(point[index] for point in per_view) for index in range(3))
 
 
 def _valid_bearing(value):

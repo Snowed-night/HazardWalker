@@ -231,6 +231,9 @@ def test_heavily_occluded_red_ball_emits_reobservation_candidate():
     assert detections[0].is_partial is True
     assert detections[0].requires_reobservation is True
     assert detections[0].confidence < 0.5
+    # 测试图从右侧遮挡，只留下左侧红色弧段；其 bbox 内质心应偏右，
+    # 供主动视角策略选择向左绕过遮挡边缘。
+    assert detections[0].visible_centroid_x_ratio > 0.53
 
 
 def test_complete_ball_does_not_suppress_another_partial_ball_candidate():

@@ -38,6 +38,9 @@ class RedBallDetection2D:
     may_be_merged: bool = False
     from_merged_split: bool = False
     quality_reason: str = 'stable_shape'
+    # 可见红色轮廓在自身 bbox 内的水平质心；0.5 为对称，供主动复查判断
+    # 被遮挡边缘位于哪一侧，不参与危险源确认或定位。
+    visible_centroid_x_ratio: float = 0.5
 
 
 def is_complete_candidate_for_3d_tracking(detection, image_width, image_height,
@@ -399,6 +402,9 @@ def _contour_to_detections(contour, mask, min_area_px, min_confidence,
     shape_score = _score_shape(circularity, aspect_ratio, extent)
     area_score = min(1.0, red_pixel_count / float(max(min_area_px, 1) * 4))
     confidence = min(1.0, max(float(min_confidence), 0.75 * shape_score + 0.25 * area_score))
+    visible_centroid_x_ratio = _contour_centroid_x_ratio(
+        contour, x, box_width,
+    )
 
     return [RedBallDetection2D(
         x_min=int(x),
@@ -410,6 +416,7 @@ def _contour_to_detections(contour, mask, min_area_px, min_confidence,
         circularity=circularity,
         aspect_ratio=aspect_ratio,
         extent=extent,
+        visible_centroid_x_ratio=visible_centroid_x_ratio,
     )]
 
 
@@ -438,12 +445,29 @@ def _contour_to_partial_candidate(contour, mask, min_area_px, min_circularity,
     confidence = min(0.49, max(0.10, 0.45 * _score_shape(
         circularity, aspect_ratio, min(extent, math.pi / 4.0),
     )))
+    visible_centroid_x_ratio = _contour_centroid_x_ratio(
+        contour, x, box_width,
+    )
     return RedBallDetection2D(
         x_min=int(x), y_min=int(y), x_max=int(x + box_width - 1),
         y_max=int(y + box_height - 1), confidence=confidence,
         red_pixel_count=red_pixel_count, circularity=circularity,
         aspect_ratio=aspect_ratio, extent=extent, is_partial=True,
         requires_reobservation=True, quality_reason='partial_or_low_light',
+        visible_centroid_x_ratio=visible_centroid_x_ratio,
+    )
+
+
+def _contour_centroid_x_ratio(contour, bbox_x, bbox_width):
+    """返回轮廓质心在自身外接框内的水平比例，异常时保守返回 0.5。"""
+
+    moments = cv2.moments(contour)
+    if moments.get('m00', 0.0) <= 0.0 or int(bbox_width) <= 1:
+        return 0.5
+    centroid_x = float(moments['m10']) / float(moments['m00'])
+    return max(
+        0.0,
+        min(1.0, (centroid_x - float(bbox_x)) / float(int(bbox_width) - 1)),
     )
 
 

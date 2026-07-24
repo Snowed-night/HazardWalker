@@ -1,0 +1,85 @@
+{
+  "case_id": "official_b_reobserve_left_15pct_view02",
+  "image_stamp": {
+    "sec": 29,
+    "nanosec": 239000000
+  },
+  "depth_stamp": {
+    "sec": 29,
+    "nanosec": 140000000
+  },
+  "localization_ready": true,
+  "detections_2d": [
+    {
+      "id": "untracked:1",
+      "frame_id": "real_sense",
+      "view_id": "xy:0.4:-2.0|yaw:90",
+      "stamp": {
+        "sec": 29,
+        "nanosec": 140000000
+      },
+      "bbox": {
+        "x_min": 229,
+        "y_min": 308,
+        "x_max": 329,
+        "y_max": 431
+      },
+      "confidence": 0.38836494227938057,
+      "red_pixel_count": 10726,
+      "is_partial": true,
+      "requires_reobservation": true,
+      "may_be_merged": false,
+      "quality_reason": "partial_or_low_light",
+      "shape": {
+        "circularity": 0.8192852585680283,
+        "aspect_ratio": 0.8145161290322581,
+        "extent": 0.8415442350686682,
+        "visible_centroid_x_ratio": 0.46050872116008007
+      },
+      "depth_shape": {
+        "status": "spherical",
+        "center_depth_m": 1.0626609325408936,
+        "outer_depth_m": 1.086000144481659,
+        "curvature_m": 0.02333921194076538,
+        "horizontal_curvature_m": 0.016589820384979248,
+        "vertical_curvature_m": 0.0244290828704834,
+        "diagonal_positive_curvature_m": 0.024219393730163574,
+        "diagonal_negative_curvature_m": 0.01692277193069458,
+        "curvature_isotropy_ratio": 0.6791012365439232,
+        "center_points": 1204,
+        "outer_points": 4068,
+        "horizontal_points": 740,
+        "vertical_points": 740,
+        "diagonal_positive_points": 512,
+        "diagonal_negative_points": 512
+      },
+      "confirmation_eligible": false,
+      "depth_synchronized": true,
+      "depth_stamp_delta_sec": 0.0,
+      "localization_status": "localized",
+      "localized_position": [
+        0.2758,
+        -0.8522,
+        0.3915
+      ],
+      "raw_surface_depth_m": 1.0813319683074951,
+      "candidate_id": "candidate-1",
+      "track_id": "",
+      "track_status": "untracked",
+      "track_association": "none",
+      "source": "hsv_minimal",
+      "detector_backend": "hsv_opencv"
+    }
+  ],
+  "hazards": [],
+  "view_recommendation": {
+    "action": "move_right",
+    "reason": "候选局部可见或可能合并，沿目标所在侧横移后复查。 可见红色轮廓质心偏左，推断右侧绕障更快。 当前选择向右横移。",
+    "priority": 92,
+    "target_id": "candidate-1"
+  },
+  "raw_image": "official_b_reobserve_left_15pct_view02_raw.png",
+  "annotated_image": "official_b_reobserve_left_15pct_view02_annotated.png",
+  "depth_metric_image": "official_b_reobserve_left_15pct_view02_depth_mm.png",
+  "depth_visual_image": "official_b_reobserve_left_15pct_view02_depth_visual.png"
+}

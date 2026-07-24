@@ -1,0 +1,121 @@
+{
+  "case_id": "official_b_reobserve_left_15pct_view04",
+  "image_stamp": {
+    "sec": 37,
+    "nanosec": 139000000
+  },
+  "depth_stamp": {
+    "sec": 37,
+    "nanosec": 139000000
+  },
+  "localization_ready": true,
+  "detections_2d": [
+    {
+      "id": "1",
+      "frame_id": "real_sense",
+      "view_id": "xy:1.2:-2.0|yaw:120",
+      "stamp": {
+        "sec": 37,
+        "nanosec": 39000000
+      },
+      "bbox": {
+        "x_min": 149,
+        "y_min": 315,
+        "x_max": 285,
+        "y_max": 438
+      },
+      "confidence": 0.4117906682404904,
+      "red_pixel_count": 14224,
+      "is_partial": true,
+      "requires_reobservation": true,
+      "may_be_merged": false,
+      "quality_reason": "partial_or_low_light",
+      "shape": {
+        "circularity": 0.8745722825609509,
+        "aspect_ratio": 0.9051094890510949,
+        "extent": 0.8254650341417471,
+        "visible_centroid_x_ratio": 0.4884752535400525
+      },
+      "depth_shape": {
+        "status": "spherical",
+        "center_depth_m": 1.0572701692581177,
+        "outer_depth_m": 1.0901617407798767,
+        "curvature_m": 0.03289157152175903,
+        "horizontal_curvature_m": 0.03409910202026367,
+        "vertical_curvature_m": 0.02288210391998291,
+        "diagonal_positive_curvature_m": 0.0312080979347229,
+        "diagonal_negative_curvature_m": 0.023768186569213867,
+        "curvature_isotropy_ratio": 0.6710471116331753,
+        "center_points": 1628,
+        "outer_points": 5524,
+        "horizontal_points": 1000,
+        "vertical_points": 1000,
+        "diagonal_positive_points": 702,
+        "diagonal_negative_points": 702
+      },
+      "confirmation_eligible": false,
+      "depth_synchronized": true,
+      "depth_stamp_delta_sec": 0.0,
+      "localization_status": "localized",
+      "localized_position": [
+        0.554,
+        -0.8544,
+        0.3772
+      ],
+      "raw_surface_depth_m": 1.083776831626892,
+      "candidate_id": "candidate-1",
+      "track_id": "1",
+      "track_status": "tentative",
+      "track_association": "image_projection",
+      "source": "hsv_minimal",
+      "detector_backend": "hsv_opencv"
+    }
+  ],
+  "hazards": [
+    {
+      "id": 1,
+      "status": "tentative",
+      "position": [
+        0.451,
+        -0.6734,
+        0.3273
+      ],
+      "position_frame_id": "world",
+      "confidence": 0.925,
+      "observation_count": 1,
+      "missed_count": 10,
+      "distinct_view_count": 1,
+      "eligible_observation_count": 1,
+      "eligible_view_ids": [
+        "xy:1.2:-2.0|yaw:120"
+      ],
+      "flat_view_ids": [],
+      "spherical_view_ids": [
+        "xy:1.2:-2.0|yaw:120"
+      ],
+      "apparent_diameter_cv": 0.0,
+      "median_apparent_diameter_m": 0.27,
+      "min_multiview_aspect_ratio": 0.8993,
+      "depth_curvature_cv": 0.0,
+      "median_normalized_depth_curvature": 0.1235,
+      "view_bearing_span_deg": 0.0,
+      "evidence_status": "collecting_views",
+      "required_min_eligible_observations": 3,
+      "required_min_distinct_views": 3,
+      "required_min_spherical_views": 2,
+      "required_min_view_bearing_span_deg": 25.0,
+      "localization_provenance": "slam_toolbox_scan_matching+public_floor_action",
+      "source": "hsv_depth_tf"
+    }
+  ],
+  "view_recommendation": {
+    "action": "move_right",
+    "reason": "候选局部可见或可能合并，沿目标所在侧横移后复查。 当前选择向左横移。 为保持视差方向并避免中心线附近左右振荡，本轮沿用上一侧移方向。",
+    "priority": 92,
+    "target_id": "candidate-1"
+  },
+  "raw_image": "official_b_reobserve_left_15pct_view04_raw.png",
+  "annotated_image": "official_b_reobserve_left_15pct_view04_annotated.png",
+  "depth_metric_image": "official_b_reobserve_left_15pct_view04_depth_mm.png",
+  "depth_visual_image": "official_b_reobserve_left_15pct_view04_depth_visual.png"
+}

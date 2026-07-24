@@ -28,6 +28,15 @@
   `legal_pose_topic=/hazardwalker/slam/odometry` 和
   `localization_provenance=lidar_imu_slam+public_floor_action`；
   `/Odometry_gazebo`、`/ground_truth/*`、`/hw/odom` 会被拒绝。
+- `validate_official_random_perception_evidence.py`：运行结束后的独立结构校验器。默认检查正式
+  证据合同、原始/标注 RGB-D、合法 SLAM 轨迹、多视角球面证据、world 坐标结果与去重；B 阶段
+  加 `--require-active-reobservation` 后，还要求同一局部候选经过可测位姿变化、完整观测和确认，
+  防止把“仅发布动作建议”误记为主动复查成功。
+- `summarize_official_random_perception_campaign.py`：B5 多随机场景活动门禁。运行前必须在
+  `campaign_manifest.json` 中预注册至少 3 个 SEED、同一干净 Git 提交和参数快照 SHA-256；
+  运行后使用当前独立校验器重新检查主动复查证据，再检查非空正式结果、测试表和赛后
+  `evaluation_result.json`，再输出活动 JSON/CSV 及召回率、虚警率、耗时的最差值。漏跑 SEED、
+  使用未提交代码、参数快照变化、过期校验报告或只挑成功结果都会使活动失败。
 - `run_official_simenv_perception_evidence.sh`：感知侧正式随机场景编排器。要求显式独占标志、
   固定 SEED、代码版本、证据目录和测试表目录；启动自建激光—IMU定位、RGB-D感知及 ROS1
   记录器，默认**不**切换控制器或发布 `/cmd_vel`。它只等待导航在任务状态话题发布 `FINISHED`，

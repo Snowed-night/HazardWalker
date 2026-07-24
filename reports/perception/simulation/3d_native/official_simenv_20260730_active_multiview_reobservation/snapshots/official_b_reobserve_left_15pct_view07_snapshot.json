@@ -1,0 +1,127 @@
+{
+  "case_id": "official_b_reobserve_left_15pct_view07",
+  "image_stamp": {
+    "sec": 49,
+    "nanosec": 239000000
+  },
+  "depth_stamp": {
+    "sec": 49,
+    "nanosec": 339000000
+  },
+  "localization_ready": true,
+  "detections_2d": [
+    {
+      "id": "1",
+      "frame_id": "real_sense",
+      "view_id": "xy:2.0:-1.6|yaw:120",
+      "stamp": {
+        "sec": 49,
+        "nanosec": 239000000
+      },
+      "bbox": {
+        "x_min": 92,
+        "y_min": 300,
+        "x_max": 227,
+        "y_max": 412
+      },
+      "confidence": 0.9114726912060692,
+      "red_pixel_count": 12591,
+      "is_partial": false,
+      "requires_reobservation": false,
+      "may_be_merged": false,
+      "quality_reason": "stable_shape",
+      "shape": {
+        "circularity": 0.8657462531090516,
+        "aspect_ratio": 0.8308823529411765,
+        "extent": 0.8070340968245705,
+        "visible_centroid_x_ratio": 0.4995959098250302
+      },
+      "depth_shape": {
+        "status": "spherical",
+        "center_depth_m": 1.147581696510315,
+        "outer_depth_m": 1.1838626861572266,
+        "curvature_m": 0.03628098964691162,
+        "horizontal_curvature_m": 0.04025685787200928,
+        "vertical_curvature_m": 0.022547900676727295,
+        "diagonal_positive_curvature_m": 0.034143686294555664,
+        "diagonal_negative_curvature_m": 0.0243377685546875,
+        "curvature_isotropy_ratio": 0.5601008590490348,
+        "center_points": 1488,
+        "outer_points": 5010,
+        "horizontal_points": 902,
+        "vertical_points": 908,
+        "diagonal_positive_points": 636,
+        "diagonal_negative_points": 636
+      },
+      "confirmation_eligible": true,
+      "depth_synchronized": true,
+      "depth_stamp_delta_sec": 0.0,
+      "localization_status": "localized",
+      "localized_position": [
+        0.7353,
+        -0.7563,
+        0.3582
+      ],
+      "raw_surface_depth_m": 1.1870263814926147,
+      "candidate_id": "candidate-1",
+      "track_id": "1",
+      "track_status": "needs_reobservation",
+      "track_association": "image_projection",
+      "source": "hsv_minimal",
+      "detector_backend": "hsv_opencv"
+    }
+  ],
+  "hazards": [
+    {
+      "id": 1,
+      "status": "needs_reobservation",
+      "position": [
+        0.4511,
+        -0.6694,
+        0.3269
+      ],
+      "position_frame_id": "world",
+      "confidence": 0.9291,
+      "observation_count": 67,
+      "missed_count": 0,
+      "distinct_view_count": 4,
+      "eligible_observation_count": 67,
+      "eligible_view_ids": [
+        "xy:1.2:-2.0|yaw:120",
+        "xy:1.2:-1.6|yaw:120",
+        "xy:1.6:-1.6|yaw:120",
+        "xy:2.0:-1.6|yaw:120"
+      ],
+      "flat_view_ids": [],
+      "spherical_view_ids": [
+        "xy:1.2:-2.0|yaw:120",
+        "xy:1.2:-1.6|yaw:120",
+        "xy:1.6:-1.6|yaw:120",
+        "xy:2.0:-1.6|yaw:120"
+      ],
+      "apparent_diameter_cv": 0.0334,
+      "median_apparent_diameter_m": 0.2885,
+      "min_multiview_aspect_ratio": 0.8309,
+      "depth_curvature_cv": 0.0411,
+      "median_normalized_depth_curvature": 0.1257,
+      "view_bearing_span_deg": 23.094,
+      "evidence_status": "insufficient_lateral_parallax",
+      "required_min_eligible_observations": 3,
+      "required_min_distinct_views": 3,
+      "required_min_spherical_views": 2,
+      "required_min_view_bearing_span_deg": 25.0,
+      "localization_provenance": "slam_toolbox_scan_matching+public_floor_action",
+      "source": "hsv_depth_tf"
+    }
+  ],
+  "view_recommendation": {
+    "action": "move_right",
+    "reason": "单视角圆形仍可能是圆柱或圆锥端面；完成当前稳定帧后获取独立侧视再确认。 当前选择向左横移。 为保持视差方向并避免中心线附近左右振荡，本轮沿用上一侧移方向。",
+    "priority": 55,
+    "target_id": "candidate-1"
+  },
+  "raw_image": "official_b_reobserve_left_15pct_view07_raw.png",
+  "annotated_image": "official_b_reobserve_left_15pct_view07_annotated.png",
+  "depth_metric_image": "official_b_reobserve_left_15pct_view07_depth_mm.png",
+  "depth_visual_image": "official_b_reobserve_left_15pct_view07_depth_visual.png"
+}

@@ -12,7 +12,11 @@ REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
 sys.path.insert(0, os.path.join(REPO_ROOT, 'ros2_ws', 'src', 'hazardwalker_perception'))
 
 from hazardwalker_perception.active_view_policy import (
+    ActiveViewDirectionMemory,
+    TransientCandidateMemory,
+    ViewRecommendation,
     annotate_detections_with_tracks,
+    attach_candidate_aliases_to_hazards,
     bbox_iou,
     choose_active_view_action,
 )
@@ -35,6 +39,149 @@ def _detection(identifier='one', x_min=100, y_min=100, x_max=150, y_max=150,
 def test_empty_frame_keeps_exploring():
     action = choose_active_view_action([], 640, 480)
     assert action.action == 'continue_exploring'
+
+
+def test_active_view_direction_memory_prevents_center_line_oscillation():
+    memory = ActiveViewDirectionMemory(ttl_s=12.0)
+    right = _detection(
+        identifier='candidate-1', x_min=390, x_max=450,
+    )
+    first = choose_active_view_action([right], 640, 480)
+    assert first.action == 'move_right'
+    memory.stabilize(first, [right], 640, stamp_sec=1.0)
+
+    crossed_center = _detection(
+        identifier='candidate-1', x_min=270, x_max=310,
+    )
+    proposed = choose_active_view_action([crossed_center], 640, 480)
+    assert proposed.action == 'move_left'
+    stabilized = memory.stabilize(
+        proposed, [crossed_center], 640, stamp_sec=2.0,
+    )
+
+    assert stabilized.action == 'move_right'
+    assert '避免中心线附近左右振荡' in stabilized.reason
+
+
+def test_active_view_direction_memory_allows_reversal_near_opposite_edge():
+    memory = ActiveViewDirectionMemory(ttl_s=12.0)
+    right = _detection(
+        identifier='candidate-1', x_min=390, x_max=450,
+    )
+    memory.stabilize(
+        ViewRecommendation('move_right', 'initial', 92, 'candidate-1'),
+        [right], 640, stamp_sec=1.0,
+    )
+    far_left = _detection(
+        identifier='candidate-1', x_min=5, x_max=45,
+    )
+
+    stabilized = memory.stabilize(
+        ViewRecommendation('move_left', 'reverse', 92, 'candidate-1'),
+        [far_left], 640, stamp_sec=2.0,
+    )
+
+    assert stabilized.action == 'move_left'
+
+
+def test_occlusion_centroid_direction_overrides_stale_lateral_memory():
+    """遮挡质心已明确反向时不能继续用旧方向把目标推离视野。"""
+
+    memory = ActiveViewDirectionMemory(ttl_s=12.0)
+    centered = _detection(
+        identifier='candidate-1', x_min=275, x_max=365,
+    )
+    memory.stabilize(
+        ViewRecommendation('move_left', 'initial', 92, 'candidate-1'),
+        [centered], 640, stamp_sec=1.0,
+    )
+
+    reversed_by_shape = memory.stabilize(
+        ViewRecommendation(
+            'move_right',
+            '可见红色轮廓质心偏左，推断右侧绕障更快。',
+            94,
+            'candidate-1',
+        ),
+        [centered],
+        640,
+        stamp_sec=2.0,
+    )
+
+    assert reversed_by_shape.action == 'move_right'
+    assert '沿用上一侧移方向' not in reversed_by_shape.reason
+
+
+def test_pure_partial_candidates_keep_stable_ids_when_order_changes():
+    memory = TransientCandidateMemory(ttl_s=8.0)
+    left = _detection(identifier=1, x_min=80, x_max=120)
+    right = _detection(identifier=2, x_min=420, x_max=460)
+    for item in (left, right):
+        item['track_status'] = 'untracked'
+        item['requires_reobservation'] = True
+
+    first = memory.annotate([left, right], stamp_sec=1.0)
+    second = memory.annotate([
+        dict(right, bbox={'x_min': 415, 'y_min': 100, 'x_max': 455, 'y_max': 150}),
+        dict(left, bbox={'x_min': 85, 'y_min': 100, 'x_max': 125, 'y_max': 150}),
+    ], stamp_sec=1.1)
+
+    assert [item['candidate_id'] for item in first] == [
+        'candidate-1', 'candidate-2',
+    ]
+    assert [item['candidate_id'] for item in second] == [
+        'candidate-2', 'candidate-1',
+    ]
+    assert second[0]['id'] == 'untracked:candidate-2'
+    assert second[1]['id'] == 'untracked:candidate-1'
+
+
+def test_candidate_alias_survives_upgrade_to_3d_track_and_drives_policy():
+    memory = TransientCandidateMemory(ttl_s=8.0)
+    partial = _detection(identifier=1, x_min=200, x_max=240)
+    partial.update({
+        'track_status': 'untracked',
+        'requires_reobservation': True,
+    })
+    initial = memory.annotate([partial], stamp_sec=2.0)[0]
+
+    tracked = _detection(identifier=7, x_min=202, x_max=244)
+    tracked.update({
+        'track_id': '7',
+        'track_status': 'needs_reobservation',
+        'requires_reobservation': True,
+    })
+    upgraded = memory.annotate([tracked], stamp_sec=2.1)[0]
+    hazards = attach_candidate_aliases_to_hazards(
+        [{'id': 7, 'track_id': 7, 'status': 'needs_reobservation'}],
+        [upgraded],
+    )
+    action = choose_active_view_action([upgraded], 640, 480)
+
+    assert initial['candidate_id'] == upgraded['candidate_id']
+    assert upgraded['track_id'] == '7'
+    assert upgraded['id'] == 7
+    assert hazards[0]['candidate_ids'] == ['candidate-1']
+    assert action.target_id == 'candidate-1'
+
+
+def test_candidate_memory_recovers_previous_track_hint_across_world_drift():
+    """图像候选连续时应提示原轨迹，但不得提前把候选改写成已跟踪目标。"""
+
+    memory = TransientCandidateMemory(ttl_s=8.0)
+    tracked = _detection(identifier=1, x_min=200, x_max=250)
+    tracked.update({'track_id': '4', 'track_status': 'tentative'})
+    first = memory.annotate([tracked], stamp_sec=1.0)
+    memory.remember_track_ids(first)
+
+    shifted = _detection(identifier=2, x_min=205, x_max=255)
+    shifted.update({'track_status': 'untracked'})
+    recovered = memory.annotate([shifted], stamp_sec=1.1)[0]
+
+    assert recovered['candidate_id'] == 'candidate-1'
+    assert recovered['_candidate_track_id_hint'] == '4'
+    assert 'track_id' not in recovered
+    assert recovered['id'] == 'untracked:candidate-1'
 
 
 def test_edge_candidate_turns_toward_candidate():
@@ -77,6 +224,84 @@ def test_explicit_merged_candidate_requests_lateral_reobservation():
     assert action.priority == 92
 
 
+def test_centered_partial_candidate_uses_visible_contour_skew_to_choose_right():
+    """仅看框中心会走反；右侧可见弧段的质心偏左，应向右绕障。"""
+
+    candidate = _detection(
+        identifier='partial-skew-right',
+        x_min=275,
+        x_max=365,
+        red_pixel_count=5000,
+    )
+    candidate['requires_reobservation'] = True
+    candidate['shape']['visible_centroid_x_ratio'] = 0.44
+
+    action = choose_active_view_action([candidate], 640, 480)
+
+    assert action.action == 'move_right'
+    assert '质心偏左' in action.reason
+
+
+def test_centered_partial_candidate_uses_visible_contour_skew_to_choose_left():
+    candidate = _detection(
+        identifier='partial-skew-left',
+        x_min=275,
+        x_max=365,
+        red_pixel_count=5000,
+    )
+    candidate['requires_reobservation'] = True
+    candidate['shape']['visible_centroid_x_ratio'] = 0.56
+
+    action = choose_active_view_action([candidate], 640, 480)
+
+    assert action.action == 'move_left'
+    assert '质心偏右' in action.reason
+
+
+def test_tiny_centered_partial_candidate_approaches_before_lateral_motion():
+    """极小局部弧段先靠近，避免首次横移就把线索移出视场。"""
+
+    candidate = _detection(
+        identifier='tiny-partial',
+        x_min=300,
+        y_min=210,
+        x_max=318,
+        y_max=230,
+        confidence=0.35,
+        red_pixel_count=70,
+        circularity=0.25,
+    )
+    candidate['requires_reobservation'] = True
+
+    action = choose_active_view_action([candidate], 640, 480)
+
+    assert action.action == 'move_forward'
+    assert action.priority == 96
+    assert action.target_id == 'tiny-partial'
+    assert '再横移' in action.reason
+
+
+def test_partial_candidate_uses_runtime_raw_surface_depth_key():
+    """正式 ROS2 载荷的深度字段必须能触发远距离靠近策略。"""
+
+    candidate = _detection(
+        identifier='far-partial',
+        x_min=260,
+        y_min=180,
+        x_max=340,
+        y_max=260,
+        red_pixel_count=1200,
+    )
+    candidate['requires_reobservation'] = True
+    candidate['raw_surface_depth_m'] = 6.5
+
+    action = choose_active_view_action([candidate], 640, 480)
+
+    assert action.action == 'move_forward'
+    assert action.priority == 96
+    assert '距离较远' in action.reason
+
+
 def test_partial_candidate_is_not_starved_by_higher_confidence_complete_ball():
     """同帧完整球不能凭高置信度阻塞局部球的主动复查。"""
 
@@ -93,8 +318,8 @@ def test_partial_candidate_is_not_starved_by_higher_confidence_complete_ball():
     action = choose_active_view_action([stable, partial], 640, 480)
 
     assert action.target_id == 'partial'
-    assert action.priority == 92
-    assert action.action == 'move_left'
+    assert action.priority == 96
+    assert action.action == 'move_forward'
 
 
 def test_stable_candidate_requests_independent_side_view_before_confirmation():
