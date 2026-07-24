@@ -40,7 +40,17 @@ source ./devel/setup.bash
 3. 写入 `generated_building/competition_scene.world`。
 4. 启动 Gazebo、Unitree A1 模型、传感器、状态话题和控制器接口。
 5. 启动 `building_generator_classic` 门/电梯控制服务。
-6. 启动 `devel/lib/unitree_guide/junior_ctrl`。
+6. 启动 `devel/lib/unitree_guide/junior_ctrl`，等待实际进入 RL。
+7. 自动发送低速短命令，验证 `/cmd_vel` 引起有限真实位移且机身未倒地；失败则终止启动。
+
+修改 `src/unitree_guide/` 控制源码后先强制重编：
+
+```bash
+./auto_docker.sh build force
+./auto_docker.sh up
+```
+
+`up` 会检查控制源码与 `junior_ctrl` 的时间戳，拒绝启动明显过期的编译产物。
 
 ## 常用启动方式
 
@@ -88,7 +98,8 @@ START_CONTROLLER=0 ./auto.sh
 | `START_ROSBRIDGE` | `1` | 是否启动镜像内固化的 `rosbridge_websocket` |
 | `START_ODOM_RELAY` | `1` | 是否生成 `/Odometry_gazebo -> /hazardwalker/odom` 诊断中继 |
 | `START_BUILDING_CONTROL` | `1` | 是否启动楼栋门/电梯控制服务 |
-| `UNITREE_CTRL_DT` | `0.004` | `junior_ctrl` 控制周期，单位 s。默认 250 Hz |
+| `UNITREE_CTRL_DT` | `0.002` | `junior_ctrl` 控制周期，单位 s。默认 500 Hz；当前 RL 冷启动验收基线 |
+| `VERIFY_CONTROLLER_MOTION` | `1` | 正式启动时执行真实运动探针；仅无控制诊断可关闭 |
 | `START_VIRTUAL_JOY` | `0` | 是否启动虚拟手柄，通常需要 `uinput` 权限 |
 | `ROBOT_X` | `0.0` | 机器人出生点 x |
 | `ROBOT_Y` | `-2.2` | 机器人出生点 y |

@@ -43,6 +43,16 @@ case "${1:-up}" in
     if [[ ! -f "$ROOT/devel/setup.bash" ]]; then
       echo "WARN: devel/setup.bash not found — run './auto_docker.sh build' first (or rsync devel/ from platform)."
     fi
+    controller_binary="$ROOT/devel/lib/unitree_guide/junior_ctrl"
+    controller_source_root="$ROOT/src/unitree_guide"
+    if [[ -x "$controller_binary" && -d "$controller_source_root" ]] &&
+       find "$controller_source_root" -type f \
+         \( -name '*.cpp' -o -name '*.h' -o -name 'CMakeLists.txt' -o -name 'package.xml' \) \
+         -newer "$controller_binary" -print -quit | grep -q .; then
+      echo "ERROR: unitree_guide source is newer than devel/lib/unitree_guide/junior_ctrl." >&2
+      echo "Run './auto_docker.sh build force' before './auto_docker.sh up'." >&2
+      exit 1
+    fi
     exec "$ROOT/docker/auto_noetic.sh" up
     ;;
   down|stop)

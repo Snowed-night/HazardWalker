@@ -58,11 +58,28 @@ void FSMState::rosAbsoluteWait(long long startTime, long long waitTime){
 //设置cmd_vel的回调函数，将move_base转化为
 void FSMState::cmdVelCallback(const geometry_msgs::Twist::ConstPtr& msg){
    if (msg) {
+        std::lock_guard<std::mutex> lock(cmd_vel_mutex_);
+        if (!std::isfinite(msg->linear.x) ||
+            !std::isfinite(msg->linear.y) ||
+            !std::isfinite(msg->angular.z)) {
+            current_cmd_vel_.linear_x = 0.0;
+            current_cmd_vel_.linear_y = 0.0;
+            current_cmd_vel_.angular_z = 0.0;
+            current_cmd_vel_.valid = false;
+            ROS_WARN_THROTTLE(1.0, "[CMD_VEL_REJECTED] non-finite command");
+            return;
+        }
         current_cmd_vel_.linear_x = msg->linear.x;
         current_cmd_vel_.linear_y = msg->linear.y;
         current_cmd_vel_.angular_z = msg->angular.z;
         current_cmd_vel_.valid = true;
-        current_cmd_vel_.stamp = ros::Time::now();
+        current_cmd_vel_.received_at = std::chrono::steady_clock::now();
+        ROS_INFO_STREAM_THROTTLE(
+            1.0,
+            "[CMD_VEL_RX] x=" << current_cmd_vel_.linear_x
+            << " y=" << current_cmd_vel_.linear_y
+            << " yaw=" << current_cmd_vel_.angular_z
+        );
     }
     // std::cout << "cmd_vel_linear_x"<< this->current_cmd_vel_.linear_x<< std::endl;
     // std::cout << "cmd_vel_linear_y"<< this->current_cmd_vel_.linear_y<< std::endl;

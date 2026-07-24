@@ -12,6 +12,9 @@ Noetic + Gazebo Classic 环境的稳定 `/hw/*` 接口。官方场景不复用�
 验收应按 [`docs/guidebook/官方SimEnv平台环境使用手册.md`](../../../docs/guidebook/官方SimEnv平台环境使用手册.md)
 逐段完成后，才运行业务闭环。
 
+负责人统一的导航控制、W/S/A/D/K 键盘与安全停止流程见
+[`docs/groups/nav/官方SimEnv控制链路与键盘测试.md`](../../../docs/groups/nav/官方SimEnv控制链路与键盘测试.md)。
+
 ## 选手快速入口
 
 | 你要做什么 | 推荐阅读 |
@@ -59,9 +62,12 @@ source ./devel/setup.bash
 | `/real_sense/depth/points` | `sensor_msgs/PointCloud2` | 深度相机点云 |
 
 正式 Docker 链路由 `auto_docker.sh up` 调用 `auto.sh`：它固定启动 `junior_ctrl`、确认官方已编译控制器的
-headless-RL 配置后解除物理暂停，再启动
+headless-RL 配置后解除物理暂停，等待状态机实际进入 RL，并以低速 `/cmd_vel` 探针验证 A1
+产生有限真实位移且没有倒地，再启动
 `/hazardwalker/odom` 中继和 rosbridge。手工启动 `junior_ctrl` 只允许诊断，不能作为控制就绪证据。每轮控制
 验收必须独占 ROS master，避免遗留 `/cmd_vel` 发布者污染结果。
+修改 `src/unitree_guide/` 后必须先执行 `./auto_docker.sh build force`；若源码比
+`devel/lib/unitree_guide/junior_ctrl` 新，`auto_docker.sh up` 会拒绝复用旧二进制并给出重编提示。
 完整接口见 [算法接入接口](docs/algorithm-interfaces.md)。
 
 ## 结果文件

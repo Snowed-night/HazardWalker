@@ -6,7 +6,7 @@
 #include "FSM/State_move_base.h"
 
 State_move_base::State_move_base(CtrlComponents *ctrlComp)
-    :State_Trotting(ctrlComp){
+    :State_Trotting(ctrlComp), _vx(0.0), _vy(0.0), _wz(0.0){
     _stateName = FSMStateName::MOVE_BASE;
     _stateNameString = "move_base";
     initRecv();

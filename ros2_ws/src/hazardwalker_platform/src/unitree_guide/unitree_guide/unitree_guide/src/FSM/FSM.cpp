@@ -2,10 +2,17 @@
  Copyright (c) 2020-2023, Unitree Robotics.Co.Ltd. All rights reserved.
 ***********************************************************************/
 #include "FSM/FSM.h"
+#include <algorithm>
+#include <cstdlib>
 #include <iostream>
 
 FSM::FSM(CtrlComponents *ctrlComp)
-    :_ctrlComp(ctrlComp){
+    :_ctrlComp(ctrlComp),
+     _stateEnteredTime(0),
+     _headlessEnabled(false),
+     _headlessAutoRl(false),
+     _headlessStandDelaySec(5.0),
+     _headlessRlDelaySec(2.0){
 
     _stateList.invalid = nullptr;
     _stateList.passive = new State_Passive(_ctrlComp);
@@ -31,6 +38,25 @@ void FSM::initialize(){
     _currentState -> enter();
     _nextState = _currentState;
     _mode = FSMMode::NORMAL;
+    _stateEnteredTime = getSystemTime();
+
+    const char *headlessMode = std::getenv("SIMENV_HEADLESS_MODE");
+    _headlessMode = headlessMode == nullptr ? "" : headlessMode;
+    _headlessEnabled = (_headlessMode == "move_base");
+    const char *autoRl = std::getenv("SIMENV_AUTO_RL");
+    _headlessAutoRl = autoRl != nullptr && std::string(autoRl) == "1";
+    const char *standDelay = std::getenv("CONTROLLER_AUTO_STAND_DELAY_SEC");
+    const char *rlDelay = std::getenv("CONTROLLER_AUTO_RL_DELAY_SEC");
+    if (standDelay != nullptr) {
+        _headlessStandDelaySec = std::max(0.0, std::atof(standDelay));
+    }
+    if (rlDelay != nullptr) {
+        _headlessRlDelaySec = std::max(0.0, std::atof(rlDelay));
+    }
+    if (_headlessEnabled) {
+        std::cout << "[HEADLESS_FSM] mode=" << _headlessMode
+                  << " auto_rl=" << (_headlessAutoRl ? 1 : 0) << std::endl;
+    }
 }
 
 void FSM::run(){
@@ -45,7 +71,9 @@ void FSM::run(){
 
     if(_mode == FSMMode::NORMAL){
         _currentState->run();
-        _nextStateName = _currentState->checkChange();
+        _nextStateName = _headlessEnabled
+            ? getHeadlessNextState()
+            : _currentState->checkChange();
         if(_nextStateName != _currentState->_stateName){
             _mode = FSMMode::CHANGE;
             _nextState = getNextState(_nextStateName);
@@ -57,6 +85,7 @@ void FSM::run(){
         _currentState->exit();
         _currentState = _nextState;
         _currentState->enter();
+        _stateEnteredTime = getSystemTime();
         _mode = FSMMode::NORMAL;
         _currentState->run();
     }
@@ -112,4 +141,29 @@ bool FSM::checkSafty(){
     }else{
         return true;
     }
+}
+
+FSMStateName FSM::getHeadlessNextState(){
+    const double stateAgeSec =
+        static_cast<double>(getSystemTime() - _stateEnteredTime) / 1000000.0;
+    if (_currentState->_stateName == FSMStateName::PASSIVE) {
+        // 物理解除暂停后的首个周期立即接管为站立，避免在无力矩状态等待时跌倒。
+        return FSMStateName::FIXEDSTAND;
+    }
+    if (_currentState->_stateName == FSMStateName::FIXEDSTAND) {
+        // 保留原启动流程的“站立稳定 + 切入 RL”总等待时间。
+        if (stateAgeSec < _headlessStandDelaySec + _headlessRlDelaySec) {
+            return FSMStateName::FIXEDSTAND;
+        }
+        if (_headlessAutoRl) {
+            return FSMStateName::RL;
+        }
+#ifdef COMPILE_WITH_MOVE_BASE
+        return FSMStateName::MOVE_BASE;
+#else
+        return FSMStateName::FIXEDSTAND;
+#endif
+    }
+    // 进入目标行走状态后保持该状态；速度失联由 RL 命令看门狗负责停车。
+    return _currentState->_stateName;
 }

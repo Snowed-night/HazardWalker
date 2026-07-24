@@ -43,11 +43,29 @@ services:
       START_BUILDING_CONTROL: ${START_BUILDING_CONTROL:-1}
       START_VIRTUAL_JOY: ${START_VIRTUAL_JOY:-0}
       CONTROLLER_FOREGROUND: ${CONTROLLER_FOREGROUND:-0}
-      UNITREE_CTRL_DT: ${UNITREE_CTRL_DT:-0.004}
+      UNITREE_CTRL_DT: ${UNITREE_CTRL_DT:-0.002}
     command: >
       bash -lc "
         test -x ./auto.sh ||
           { echo 'ERROR: missing executable ./auto.sh'; exit 1; }
         exec ./auto.sh
       "
+    # 健康检查只报告状态，不重启或切换控制器。它能识别 junior_ctrl 进程仍在但
+    # /cmd_vel 订阅丢失的退化状态，平台组据此在独占时段处理，其他组不得自行重启。
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          bash -lc 'source /opt/ros/noetic/setup.bash &&
+          { [ "$${START_CONTROLLER:-1}" != "1" ] ||
+          { pgrep -x junior_ctrl >/dev/null &&
+          rosnode ping -c 1 /unitree_gazebo_servo >/dev/null 2>&1 &&
+          rostopic info /cmd_vel 2>/dev/null |
+          grep -Eq "^[[:space:]]*\*[[:space:]]+/unitree_gazebo_servo[[:space:]]"; }; } &&
+          { [ "$${START_ROSBRIDGE:-1}" != "1" ] ||
+          rosnode ping -c 1 /rosbridge_websocket >/dev/null 2>&1; }'
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 90s
     restart: unless-stopped

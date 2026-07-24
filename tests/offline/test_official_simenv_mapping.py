@@ -212,8 +212,6 @@ def test_rosbridge_fragment_contract_is_bounded_and_adapter_keeps_image_bytes():
     assert 'self.tracker.published_tracks()' in detector
     assert "'raw_surface_depth_m': raw_surface_depth_m" in detector
     assert "declare_parameter('max_rgb_depth_sync_delta_sec', 0.06)" in detector
-
-
 def test_official_full_stack_requires_an_exclusive_simenv_session():
     preflight = (REPO_ROOT / 'scripts' / 'check_official_simenv_exclusive_session.sh').read_text(encoding='utf-8')
     stack = (REPO_ROOT / 'scripts' / 'run_official_simenv_ros1_ros2_stack.sh').read_text(encoding='utf-8')
@@ -454,6 +452,11 @@ def test_compose_starts_the_complete_official_ros1_entry():
     assert 'SIMENV_HEADLESS_MODE: ${SIMENV_HEADLESS_MODE:-move_base}' in source
     assert 'START_ROSBRIDGE: ${START_ROSBRIDGE:-1}' in source
     assert 'START_ODOM_RELAY: ${START_ODOM_RELAY:-1}' in source
+    assert 'healthcheck:' in source
+    assert 'pgrep -x junior_ctrl' in source
+    assert 'rosnode ping -c 1 /unitree_gazebo_servo' in source
+    assert 'rostopic info /cmd_vel' in source
+    assert '/unitree_gazebo_servo' in source
     assert 'tail -f /dev/null' not in source
     assert 'START_ROS1_DYNAMIC_BRIDGE' not in source
     assert 'ros1_bridge.sh' not in source
@@ -471,8 +474,19 @@ def test_compose_starts_the_complete_official_ros1_entry():
     ).read_text(encoding='utf-8')
     assert 'scripts/rosbridge_odom_relay.py' in entry
     assert 'rosbridge_websocket.launch' in entry
-    assert r'\[HEADLESS_FSM\].*auto_rl=1' in entry
+    assert r'\[HEADLESS_FSM\].*mode=move_base.*auto_rl=1' in entry
     assert 'SIMENV_HEADLESS_MODE="${SIMENV_HEADLESS_MODE:-move_base}"' in entry
+    assert 'rostopic info /cmd_vel' in entry
+    assert 'Timed out waiting for /gazebo/unpause_physics.' in entry
+    assert 'Timed out waiting for /unitree_gazebo_servo to subscribe /cmd_vel.' in entry
+    assert 'Switched from fixed stand to RL' in entry
+    assert 'Controller physical /cmd_vel probe passed:' in entry
+    assert 'scripts/controller_motion_probe.py' in entry
+    assert 'CONTROLLER_PROBE_MIN_DISPLACEMENT_M' in entry
+    assert 'CONTROLLER_PROBE_MAX_DISPLACEMENT_M' in entry
+    assert 'CONTROLLER_PROBE_MIN_BASE_HEIGHT_M' in entry
+    assert 'CONTROLLER_RL_SETTLE_SEC' in entry
+    assert 'UNITREE_CTRL_DT="${UNITREE_CTRL_DT:-0.002}"' in entry
     assert 'wait "$LAUNCH_PID"' in entry
 
     docker_wrapper = (
@@ -481,6 +495,8 @@ def test_compose_starts_the_complete_official_ros1_entry():
     ).read_text(encoding='utf-8')
     assert 'image)' in docker_wrapper
     assert 'auto_noetic.sh" image' in docker_wrapper
+    assert 'source is newer than devel/lib/unitree_guide/junior_ctrl' in docker_wrapper
+    assert "./auto_docker.sh build force" in docker_wrapper
 
     relay = (
         REPO_ROOT / 'ros2_ws' / 'src' / 'hazardwalker_platform' / 'scripts' /
@@ -488,3 +504,50 @@ def test_compose_starts_the_complete_official_ros1_entry():
     ).read_text(encoding='utf-8')
     assert "default='/Odometry_gazebo'" in relay
     assert "default='/hazardwalker/odom'" in relay
+
+
+def test_rl_controller_has_safe_cmd_vel_watchdog_and_thread_lifecycle():
+    """RL 控制器需安全读取速度，且线程重入、时钟冻结和退出均不得留下旧状态。"""
+
+    controller_root = (
+        REPO_ROOT / 'ros2_ws' / 'src' / 'hazardwalker_platform' / 'src' /
+        'unitree_guide' / 'unitree_guide' / 'unitree_guide'
+    )
+    rl_source = (
+        controller_root / 'src' / 'FSM' / 'State_RL_test.cpp'
+    ).read_text(encoding='utf-8')
+    base_source = (
+        controller_root / 'src' / 'FSM' / 'FSMState.cpp'
+    ).read_text(encoding='utf-8')
+    base_header = (
+        controller_root / 'include' / 'FSM' / 'FSMState.h'
+    ).read_text(encoding='utf-8')
+    rl_header = (
+        controller_root / 'include' / 'FSM' / 'State_RL_test.h'
+    ).read_text(encoding='utf-8')
+    move_base_source = (
+        controller_root / 'src' / 'FSM' / 'State_move_base.cpp'
+    ).read_text(encoding='utf-8')
+    fsm_source = (
+        controller_root / 'src' / 'FSM' / 'FSM.cpp'
+    ).read_text(encoding='utf-8')
+
+    assert 'void State_RL::run(){' in rl_source
+    assert 'nh.subscribe<geometry_msgs::Twist>("/cmd_vel",1' in rl_source
+    assert 'command_age_sec <= 0.5' in rl_source
+    assert 'std::chrono::steady_clock::now()' in rl_source
+    assert 'infer_thread_running.store(State_RL::RUNNING)' in rl_source
+    assert 'infer_thread.reset(new std::thread' in rl_source
+    assert 'stopWorkerThreads();' in rl_source
+    assert 'amp_obs_thread && amp_obs_thread->joinable()' in rl_source
+    assert 'std::lock_guard<std::mutex>' in rl_source
+    assert 'std::lock_guard<std::mutex>' in base_source
+    assert 'std::isfinite(msg->linear.x)' in base_source
+    assert 'std::mutex cmd_vel_mutex_' in base_header
+    assert 'std::chrono::steady_clock::time_point received_at' in base_header
+    assert 'std::atomic<uint8_t> infer_thread_running' in rl_header
+    assert 'std::unique_ptr<std::thread> amp_obs_thread' in rl_header
+    assert '_vx(0.0), _vy(0.0), _wz(0.0)' in move_base_source
+    assert '[HEADLESS_FSM] mode=' in fsm_source
+    assert 'Switched from ' in fsm_source
+    assert '_headlessStandDelaySec + _headlessRlDelaySec' in fsm_source

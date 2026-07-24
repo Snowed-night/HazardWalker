@@ -5,6 +5,8 @@
 ## 文档边界
 
 - 全员日常启动、接入和安全边界以 [官方 SimEnv 平台环境使用手册](../../guidebook/官方SimEnv平台环境使用手册.md) 为准。
+- 导航控制与 W/S/A/D/K 键盘验收以
+  [官方 SimEnv 控制链路与键盘测试](../nav/官方SimEnv控制链路与键盘测试.md) 为准；该文档由负责人修改。
 - 官方原始传感器、评测和接口资料保留在 [`ros2_ws/src/hazardwalker_platform/docs/`](../../../ros2_ws/src/hazardwalker_platform/docs/)，不得改写为团队真值或私有接口。
 - 本目录仅保存平台组提交的设计、验收和整改证据；不重复维护一份“平台使用手册”。
 
