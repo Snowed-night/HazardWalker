@@ -1,3 +1,4 @@
+// 负责人修改：ROS1 兼容键盘工具统一使用 W/S 前后、A/D 左右转、K 立即停止。
 #include "ros/ros.h"
 #include <geometry_msgs/Twist.h>
 #include <termios.h>
@@ -63,6 +64,8 @@ int main(int argc, char **argv)
 		switch (ch)
 		{
 		case 'q':
+			pub.publish(twist);
+			ros::spinOnce();
 			printf("already quit!\n");
 			return 0;
 
@@ -77,23 +80,17 @@ int main(int argc, char **argv)
 			break;
 
 		case 'a':
-			twist.linear.y = 0.5;
-			printf("move left!\n");
-			break;
-
-		case 'd':
-			twist.linear.y = -0.5;
-			printf("move right!\n");
-			break;
-
-		case 'j':
 			twist.angular.z = 1.0;
 			printf("turn left!\n");
 			break;
 
-		case 'l':
+		case 'd':
 			twist.angular.z = -1.0;
 			printf("turn right!\n");
+			break;
+
+		case 'k':
+			printf("emergency stop!\n");
 			break;
 
 		default:

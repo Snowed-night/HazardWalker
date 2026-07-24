@@ -1,49 +1,33 @@
-# 感知组 reports 目录
+# 感知组成果目录
 
-本目录统一保存感知组可展示结果、测试记录和阶段材料。
+本目录只保存感知组检测、跨帧确认、主动复查请求和三维定位成果。SLAM、Frontier、
+Nav2及地图构建由导航组负责；感知只能消费经过合规审计的位姿。
 
-## 目录结构
+## 结构
 
 ```text
 reports/perception/
-├─ simulation/       Gazebo 或官方仿真下的红球检测效果
-├─ 2d_detection/     二维红球检测效果图、summary 和精选拼图
-├─ test_records/     按测试组模板整理的感知专项表格
-└─ docs/             感知组阶段汇报和说明材料
+├─ simulation/
+│  ├─ 3d_native/   可控官方 SimEnv / Gazebo 原生3D专项
+│  └─ 2d_derived/  历史二维派生压力回归
+├─ official_random/ 未修改布局和光照的官方 auto.sh 随机场景
+├─ 2d_detection/    早期二维检测材料
+├─ test_records/    与每个实验目录同步的测试组记录副本
+└─ docs/            阶段报告与审计说明
 ```
 
-## 当前成果
+阶段和统一实验类别见 `simulation/3d_native/README.md`。20260705、20260710、
+20260715 历史成果已分开保存；来源不确定的材料以 `provenance_uncertain` 标记，
+不会强行归类或改写为成功。
+官方随机场景的历史证据等级、B5 多 SEED 门禁和当前组间依赖见
+`official_random/README.md`。
 
-```text
-simulation/20260614_171740/
-2d_detection/synthetic_20260620_230333/
-2d_detection/real_images_20260620_230333/
-test_records/20260620_230333/
-docs/perception_progress_report_2026-06-12.md
-```
+## 合规边界
 
-## 生成命令
-
-二维合成检测案例：
-
-```bash
-python scripts/generate_perception_cases.py
-```
-
-实物图片检测案例：
-
-```bash
-python scripts/evaluate_real_red_ball_images.py --input-dir C:\Users\jiangchen\OneDrive\Desktop\red_ball
-```
-
-Gazebo 仿真截图：
-
-```bash
-python scripts/capture_red_ball_gallery.py
-```
-
-测试组表格优先放到：
-
-```text
-reports/perception/test_records/<timestamp>/
-```
+- 唯一危险源是半径0.15 m红球；官方干扰源只有红方块和绿球。
+- 只使用RGB、深度、点云、相机内参及合法SLAM位姿。
+- 相机/base局部定位可作诊断结果，但不能写入要求world坐标的官方JSON。
+- 黄色 `reobserve` 是待复查候选，不计虚警，也不等于确认。
+- 官方随机场景不得与人工生成夹具混放。
+- 新实验必须同时保存原图、标注图、README、summary、测试表、SEED、真实时间、
+  Git版本、解析后的参数、启动命令和失败原因。

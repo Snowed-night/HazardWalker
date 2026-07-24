@@ -6,6 +6,9 @@
 
 #include <string>
 #include <iostream>
+#include <chrono>
+#include <cmath>
+#include <mutex>
 #include <unistd.h>
 #include "control/CtrlComponents.h"
 #include "message/LowlevelCmd.h"
@@ -28,7 +31,8 @@ struct CmdVel {
     double linear_y = 0.0;
     double angular_z = 0.0;
     bool valid = false;
-    ros::Time stamp;
+    // 安全看门狗必须使用不受 /clock 暂停、回拨影响的单调时钟。
+    std::chrono::steady_clock::time_point received_at;
 };
 
 public:
@@ -63,6 +67,8 @@ protected:
 public:
     //cmd_vel callback function
     CmdVel current_cmd_vel_;
+    // RL 推理线程读取速度的同时，ROS 主循环可能更新回调；互斥保护用于避免数据竞争。
+    std::mutex cmd_vel_mutex_;
     void cmdVelCallback(const geometry_msgs::Twist::ConstPtr& cmd_msg);
     ros::NodeHandle nh;
     //声明订阅节点与发布节点

@@ -80,20 +80,28 @@ def _compact_detection(item: dict) -> dict:
             'is_partial', 'requires_reobservation', 'may_be_merged',
             'quality_reason', 'shape', 'depth_shape', 'confirmation_eligible',
             'depth_synchronized', 'depth_stamp_delta_sec', 'localization_status',
-            'localized_position', 'track_id', 'track_status', 'track_association', 'source',
-            'detector_backend',
+            'localized_position', 'raw_surface_depth_m', 'candidate_id', 'track_id',
+            'track_status', 'track_association', 'source', 'detector_backend',
         )
         if key in item
     }
 
 
 def _compact_hazard(item: dict) -> dict:
-    """保存轨迹状态和位置，避免将运行期内部字段写入报告。"""
+    """保存可复核确认门槛的轨迹摘要，排除冗长逐帧 source_ids。"""
     return {
         key: item[key]
         for key in (
-            'track_id', 'status', 'position', 'position_frame_id', 'confidence',
-            'observation_count', 'distinct_view_count', 'source',
+            'id', 'status', 'position', 'position_frame_id', 'confidence',
+            'observation_count', 'missed_count', 'distinct_view_count',
+            'eligible_observation_count', 'eligible_view_ids', 'flat_view_ids',
+            'spherical_view_ids', 'apparent_diameter_cv',
+            'median_apparent_diameter_m', 'min_multiview_aspect_ratio',
+            'depth_curvature_cv', 'median_normalized_depth_curvature',
+            'view_bearing_span_deg', 'evidence_status',
+            'required_min_eligible_observations', 'required_min_distinct_views',
+            'required_min_spherical_views', 'required_min_view_bearing_span_deg',
+            'localization_provenance', 'source',
         )
         if key in item
     }
@@ -111,7 +119,14 @@ def _draw_annotations(image: np.ndarray, detections: list[dict]) -> np.ndarray:
             continue
         color = (0, 165, 255) if item.get('requires_reobservation') else (0, 0, 255)
         cv2.rectangle(annotated, (x0, y0), (x1, y1), color, 2)
-        status = 'reobserve' if item.get('requires_reobservation') else 'stable'
+        track_status = str(item.get('track_status') or '').strip()
+        status = (
+            'confirmed'
+            if track_status == 'confirmed'
+            else 'reobserve'
+            if item.get('requires_reobservation')
+            else track_status or 'stable'
+        )
         label = f'#{index} {item.get("confidence", 0.0):.2f} {status}'
         cv2.putText(annotated, label, (x0, max(18, y0 - 6)),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 1, cv2.LINE_AA)
@@ -190,6 +205,11 @@ def main():
         'localization_ready': bool(node.payload.get('localization_ready')),
         'detections_2d': [_compact_detection(item) for item in detections],
         'hazards': [_compact_hazard(item) for item in node.payload.get('hazards', [])],
+        'view_recommendation': (
+            node.payload.get('view_recommendation')
+            if isinstance(node.payload.get('view_recommendation'), dict)
+            else {}
+        ),
         'raw_image': raw_path.name,
         'annotated_image': annotated_path.name,
         'depth_metric_image': depth_metric_path.name,

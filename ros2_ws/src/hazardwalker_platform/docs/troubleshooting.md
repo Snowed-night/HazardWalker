@@ -16,20 +16,18 @@ The program has already cost 2435us.
 当前 `auto.sh` 默认设置：
 
 ```bash
-UNITREE_CTRL_DT=0.004
+UNITREE_CTRL_DT=0.002
 ```
 
-即 250 Hz，通常能减少该 warning。仍持续刷屏时可降低 Gazebo 负载：
+即 500 Hz。warning 持续时先降低 Gazebo 与桥接负载：
 
 ```bash
-GUI=false UNITREE_CTRL_DT=0.006 ./auto.sh
+GUI=false UNITREE_CTRL_DT=0.002 ./auto.sh
 ```
 
-如机器性能充足并需要沿用 500 Hz：
-
-```bash
-UNITREE_CTRL_DT=0.002 ./auto.sh
-```
+不要把控制周期改成 `0.004` 或 `0.006` 后仅凭日志安静就宣称修复；修改后必须重新看到
+`Switched from fixed stand to RL`、`CMD_VEL_RX`、`RL_CMD_APPLIED` 和
+`Controller physical /cmd_vel probe passed`，再完成直行、转向和停止验收。
 
 ## Gazebo 没有正常退出或端口被占用
 

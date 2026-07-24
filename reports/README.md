@@ -1,63 +1,20 @@
-# Reports
+# HazardWalker 成果与证据目录
 
-比赛材料目录。
+`reports/` 只保存可追溯的实验成果、测试记录、阶段报告和展示素材；它不是平台启动手册，也不复制组内设计文档。
 
-建议存放：
+## 目录边界
 
-- 可用素材
-- 技术方案报告
-- 自测试报告
-- 答辩 PPT 草稿
-- 演示视频脚本
-- 专利和论文草稿
+| 目录 | 内容 |
+|---|---|
+| `perception/` | 感知专项实验、官方随机场景证据、阶段报告与测试记录 |
+| `platform/` | 官方平台接入和生命周期验收记录 |
+| `nav/` | 导航组运行/诊断记录 |
+| `decision/`、`integration_test/` | 后续由对应组提交的联调与测试记录 |
 
-当前可生成的实验结果：
+## 记录规则
 
-```bash
-python scripts/generate_perception_cases.py
-```
-
-默认输出到：
-
-```text
-reports/perception/2d_detection/synthetic_<timestamp>/
-```
-
-实物红球图片评估：
-
-```bash
-python scripts/evaluate_real_red_ball_images.py --input-dir C:\Users\jiangchen\OneDrive\Desktop\red_ball
-```
-
-默认输出到：
-
-```text
-reports/perception/2d_detection/real_images_<timestamp>/
-```
-
-Gazebo 红球 gallery：
-
-```bash
-python scripts/capture_red_ball_gallery.py
-```
-
-默认输出到：
-
-```text
-reports/perception/simulation/<timestamp>/
-```
-
-官方 SimEnv 或远程 Gazebo 仿真结果也统一放到：
-
-```text
-reports/perception/simulation/2d_derived/official_simenv_<YYYYMMDD>_<purpose>/
-reports/perception/simulation/3d_native/official_simenv_<YYYYMMDD>_<purpose>/
-```
-
-不要在 `reports/perception/` 下新建 `official_simenv/`、`result/`、`real_result/` 等并列目录。原始 `.ppm` 或未筛选帧需要保留时压缩成 `raw_attempts.zip` / `raw_frames.zip`，展示图、summary、CSV/JSON 和小体积 demo 视频保留在结果目录中。
-
-测试组表格统一放到：
-
-```text
-reports/perception/test_records/<timestamp>/
-```
+- 每项实验保存原始或代表性输入、标注/输出、`README.md`、`summary.json`、CSV/JSON 测试记录、启动参数、SEED、Git 版本和失败边界。
+- 官方随机场景与人工受控夹具必须分目录保存；历史结果可保留作优化路径，但不得覆盖新实验或被改写为正式成绩。
+- 运行期不得读取真值、内部场景文件或硬编码目标位置；离线评分须在采集结束后进行，并记录真值隔离方式。
+- 通用记录格式见 [`docs/guidebook/测试记录规范.md`](../docs/guidebook/测试记录规范.md)。
+- 原始 rosbag、大视频、模型权重、缓存和临时帧不直接提交 Git；在 README 中记录受控存放位置或压缩产物。

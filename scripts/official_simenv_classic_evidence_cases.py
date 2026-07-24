@@ -51,8 +51,13 @@ def _link(name: str, pose: Point3, geometry: str, *, rpy=(0.0, 0.0, 0.0), materi
     )
 
 
-def _sphere(name: str, point: Point3, radius: float) -> str:
-    return _link(name, point, f'<sphere><radius>{radius:.4f}</radius></sphere>')
+def _sphere(name: str, point: Point3, radius: float, *, material=None) -> str:
+    return _link(
+        name,
+        point,
+        f'<sphere><radius>{radius:.4f}</radius></sphere>',
+        material=material,
+    )
 
 
 def _box(name: str, point: Point3, size: Sequence[float], *, rpy=(0.0, 0.0, 0.0), material=None) -> str:
@@ -113,18 +118,18 @@ def _official_a1_partial_precalibration(side: str, target_visible_ratio: float) 
     后续正式批次仍会在 ``cases.csv`` 中再次量测，超过 0.15 的偏差一律失败。
     """
 
+    # 运行器会先把整个夹具的 +Y 观察轴旋到真实相机前向，因此左右两侧在
+    # 相机坐标系中必须互为镜像。旧表是在夹具没有随相机旋转时分别测得，
+    # 其中右侧数值实际混入了斜视投影；继续使用会把 15% 右侧案例完全遮住。
+    # 这里只补偿遮挡板比球更靠近相机产生的共同透视放大，左右共用一组值。
     calibrated = {
-        'left': {
-            0.05: 0.314, 0.10: 0.369, 0.15: 0.426, 0.25: 0.515, 0.35: 0.600,
-            0.45: 0.683, 0.55: 0.759, 0.65: 0.833, 0.75: 0.910, 0.85: 0.980,
-        },
-        'right': {
-            0.05: 0.001, 0.10: 0.019, 0.15: 0.051, 0.25: 0.116, 0.35: 0.189,
-            0.45: 0.265, 0.55: 0.345, 0.65: 0.429, 0.75: 0.517, 0.85: 0.610,
-        },
+        0.05: 0.314, 0.10: 0.369, 0.15: 0.426, 0.25: 0.515, 0.35: 0.600,
+        0.45: 0.683, 0.55: 0.759, 0.65: 0.833, 0.75: 0.910, 0.85: 0.980,
     }
-    key = min(calibrated[side], key=lambda value: abs(value - float(target_visible_ratio)))
-    return float(calibrated[side][key])
+    if side not in {'left', 'right'}:
+        raise ValueError(f'不支持的遮挡方向：{side}')
+    key = min(calibrated, key=lambda value: abs(value - float(target_visible_ratio)))
+    return float(calibrated[key])
 
 
 def _object_links(shape: str, center: Point3) -> Tuple[str, ...]:
@@ -328,6 +333,56 @@ def build_partial_visibility(center: Point3) -> Tuple[ClassicCase, ...]:
     return tuple(cases)
 
 
+def build_active_partial_reobservation(center: Point3) -> Tuple[ClassicCase, ...]:
+    """返回 B 阶段局部可见红球主动复查案例。
+
+    复用已经按圆面积标定的 15%/25%/35% 左右遮挡夹具，但赋予独立 suite，
+    使执行器必须从首帧黄色候选开始，根据实时策略移动并最终确认，而不能把
+    7 月 10 日的静态遮挡截图当作 B 阶段闭环证据。
+    """
+
+    selected_ratios = {0.15, 0.25, 0.35}
+    cases = []
+    for source in build_partial_visibility(center):
+        visible_ratio = source.metadata.get('visible_ratio_design')
+        if visible_ratio not in selected_ratios:
+            continue
+        side = str(source.metadata.get('occlusion_side', 'unknown'))
+        percent = int(round(float(visible_ratio) * 100.0))
+        case_id = f'official_b_reobserve_{side}_{percent:02d}pct'
+        metadata = dict(source.metadata)
+        metadata.update({
+            'delivery_stage': '20260730',
+            'required_initial_state': 'partial_candidate',
+            'required_final_state': 'single_confirmed_red_ball',
+            'runtime_policy_must_not_read_fixture_metadata': True,
+        })
+        cases.append(ClassicCase(
+            case_id,
+            'active_partial_reobservation',
+            f'B阶段真实移动主动复查：{side}侧约 {percent}% 可见红球',
+            source.expected_sphere_positions,
+            _sdf(case_id, _object_links_from_sdf(source.sdf)),
+            metadata,
+        ))
+    return tuple(cases)
+
+
+def _object_links_from_sdf(sdf: str) -> Tuple[str, ...]:
+    """提取受控 SDF 中的 link 片段，供同几何不同 suite 复用。
+
+    案例生成仅处理本文件自身产生的固定 SDF，不接受外部场景文件；若结构异常
+    直接报错，避免静默生成空模型。
+    """
+
+    import re
+
+    links = tuple(re.findall(r'(<link name="[^"]+">.*?</link>)', sdf))
+    if not links:
+        raise ValueError('受控部分可见案例 SDF 不含 link，不能生成 B 阶段夹具。')
+    return links
+
+
 def build_complex_localization(center: Point3) -> Tuple[ClassicCase, ...]:
     """返回 8 个非规则多球布局，定位真值只用于运行后误差统计。"""
 
@@ -353,12 +408,125 @@ def build_complex_localization(center: Point3) -> Tuple[ClassicCase, ...]:
     return tuple(cases)
 
 
+def build_red_ball_3d_localization(center: Point3) -> Tuple[ClassicCase, ...]:
+    """构造 A 阶段五个官方规格红球局部三维定位案例。
+
+    每个正例严格使用半径 0.15 m 的红球；真值只在截图完成后转换到检测输出
+    坐标系并计算误差，不得进入检测节点。
+    """
+
+    offsets = (
+        (0.00, 0.00, 0.00),
+        (-0.12, 0.00, 0.00),
+        (0.12, 0.00, 0.00),
+        (0.00, -0.20, 0.00),
+        (0.00, 0.20, 0.00),
+    )
+    cases = []
+    for index, offset in enumerate(offsets, start=1):
+        position = _at(center, *offset)
+        case_id = f'official_a_localization_{index:02d}'
+        cases.append(ClassicCase(
+            case_id,
+            'red_ball_3d_localization',
+            f'A阶段官方0.15 m红球局部三维定位 {index:02d}',
+            (position,),
+            _sdf(case_id, [_sphere('official_red_ball', position, 0.15)]),
+            {
+                'target_type': 'red_sphere',
+                'target_radius_m': 0.15,
+                'official_target_spec': True,
+                'truth_usage': 'post_capture_evaluation_only',
+            },
+        ))
+    return tuple(cases)
+
+
+def build_official_distractor_rejection(center: Point3) -> Tuple[ClassicCase, ...]:
+    """构造 A 阶段五个官方干扰源组合，目标仍仅为0.15 m红球。"""
+
+    red_ball = _at(center, dx=-0.32)
+    red_cube = _at(center, dx=0.32)
+    green_ball = center
+    green_material = _material(0.0, 0.85, 0.05)
+    definitions = (
+        (
+            'red_cube_only',
+            (),
+            (_box('official_red_cube', center, (0.30, 0.30, 0.30)),),
+        ),
+        (
+            'green_sphere_only',
+            (),
+            (_sphere('official_green_sphere', center, 0.15, material=green_material),),
+        ),
+        (
+            'red_ball_with_red_cube',
+            (red_ball,),
+            (
+                _sphere('official_red_ball', red_ball, 0.15),
+                _box('official_red_cube', red_cube, (0.30, 0.30, 0.30)),
+            ),
+        ),
+        (
+            'red_ball_with_green_sphere',
+            (red_ball,),
+            (
+                _sphere('official_red_ball', red_ball, 0.15),
+                _sphere(
+                    'official_green_sphere',
+                    green_ball,
+                    0.15,
+                    material=green_material,
+                ),
+            ),
+        ),
+        (
+            'red_ball_with_both_distractors',
+            (red_ball,),
+            (
+                _sphere('official_red_ball', red_ball, 0.15),
+                _box('official_red_cube', red_cube, (0.30, 0.30, 0.30)),
+                _sphere(
+                    'official_green_sphere',
+                    green_ball,
+                    0.15,
+                    material=green_material,
+                ),
+            ),
+        ),
+    )
+    cases = []
+    for index, (scene, targets, links) in enumerate(definitions, start=1):
+        case_id = f'official_a_distractor_{index:02d}_{scene}'
+        cases.append(ClassicCase(
+            case_id,
+            'official_distractor_rejection',
+            f'A阶段官方干扰源：{scene}',
+            tuple(targets),
+            _sdf(case_id, links),
+            {
+                'scene': scene,
+                'official_target_count': len(targets),
+                'target_radius_m': 0.15,
+                'official_distractors': [
+                    item for item in ('red_cube', 'green_sphere')
+                    if item in scene or scene == 'red_ball_with_both_distractors'
+                ],
+            },
+        ))
+    return tuple(cases)
+
+
 BUILDERS = {
     'multi_ball_clutter': build_multi_ball,
     'partial_visibility': build_partial_visibility,
     'red_objects': build_red_objects,
     'active_multiview': build_active_multiview,
+    'active_partial_reobservation': build_active_partial_reobservation,
     'complex_localization': build_complex_localization,
+    'red_ball_3d_localization': build_red_ball_3d_localization,
+    'official_distractor_rejection': build_official_distractor_rejection,
 }
 
 

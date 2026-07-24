@@ -40,7 +40,17 @@ source ./devel/setup.bash
 3. 写入 `generated_building/competition_scene.world`。
 4. 启动 Gazebo、Unitree A1 模型、传感器、状态话题和控制器接口。
 5. 启动 `building_generator_classic` 门/电梯控制服务。
-6. 启动 `devel/lib/unitree_guide/junior_ctrl`。
+6. 启动 `devel/lib/unitree_guide/junior_ctrl`，等待实际进入 RL。
+7. 自动发送低速短命令，验证 `/cmd_vel` 引起有限真实位移且机身未倒地；失败则终止启动。
+
+修改 `src/unitree_guide/` 控制源码后先强制重编：
+
+```bash
+./auto_docker.sh build force
+./auto_docker.sh up
+```
+
+`up` 会检查控制源码与 `junior_ctrl` 的时间戳，拒绝启动明显过期的编译产物。
 
 ## 常用启动方式
 
@@ -62,7 +72,7 @@ GUI=false ./auto.sh
 SEED=20260507 FLOOR_COUNT=4 ROOMS_PER_FLOOR=5 DANGER_COUNT=5 DISTRACTOR_COUNT=8 ./auto.sh
 ```
 
-不启动控制器，只启动环境：
+只做无控制传感器诊断（不属于控制或完整链路验收）：
 
 ```bash
 START_CONTROLLER=0 ./auto.sh
@@ -82,9 +92,14 @@ START_CONTROLLER=0 ./auto.sh
 | `GUI` | `true` | 是否启动 Gazebo GUI |
 | `PAUSED` | `true` | Gazebo 启动后是否暂停 |
 | `START_CONTROLLER` | `1` | 是否启动 `junior_ctrl` |
-| `CONTROLLER_FOREGROUND` | `1` | 是否在前台运行控制器 |
+| `CONTROLLER_FOREGROUND` | `0` | 是否在前台运行控制器；正式 Docker 流程保持后台 |
+| `SIMENV_AUTO_RL` | `1` | 启用官方已编译控制器的 headless-RL 模式，并核验模式日志 |
+| `SIMENV_HEADLESS_MODE` | `move_base` | 将 RL 控制器接入官方 `/cmd_vel` 行走接口；正式控制流程不可省略 |
+| `START_ROSBRIDGE` | `1` | 是否启动镜像内固化的 `rosbridge_websocket` |
+| `START_ODOM_RELAY` | `1` | 是否生成 `/Odometry_gazebo -> /hazardwalker/odom` 诊断中继 |
 | `START_BUILDING_CONTROL` | `1` | 是否启动楼栋门/电梯控制服务 |
-| `UNITREE_CTRL_DT` | `0.004` | `junior_ctrl` 控制周期，单位 s。默认 250 Hz |
+| `UNITREE_CTRL_DT` | `0.002` | `junior_ctrl` 控制周期，单位 s。默认 500 Hz；当前 RL 冷启动验收基线 |
+| `VERIFY_CONTROLLER_MOTION` | `1` | 正式启动时执行真实运动探针；仅无控制诊断可关闭 |
 | `START_VIRTUAL_JOY` | `0` | 是否启动虚拟手柄，通常需要 `uinput` 权限 |
 | `ROBOT_X` | `0.0` | 机器人出生点 x |
 | `ROBOT_Y` | `-2.2` | 机器人出生点 y |

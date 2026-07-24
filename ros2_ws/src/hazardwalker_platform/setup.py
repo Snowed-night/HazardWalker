@@ -8,6 +8,7 @@
 
 当前入口：
 - `fake_platform_node`：最小 demo 使用的平台占位节点。
+- `keyboard_control_node`：负责人维护的 /hw/cmd_vel 安全键盘控制工具。
 - `gazebo_adapter_node`：[Phase 2] Gazebo 平台适配节点（占位，待实现）。
 
 Phase 1 安装内容：
@@ -56,6 +57,7 @@ setup(
     entry_points={
         'console_scripts': [
             'fake_platform_node = hazardwalker_platform.fake_platform_node:main',
+            'keyboard_control_node = hazardwalker_platform.keyboard_control_node:main',
         ],
     },
 )

@@ -1,0 +1,28 @@
+[INFO] [1784520769.974970582] [hsv_detector_node]: HSV detector subscribed to camera image, camera info and depth image.
+[INFO] [1784520770.413954777] [hsv_detector_node]: Received RGB frame 1: 640x480 rgb8.
+[WARN] [1784520770.418364487] [hsv_detector_node]: TF lookup failed from real_sense to base: "base" passed to lookupTransform argument target_frame does not exist. 
+[INFO] [1784520770.418612587] [hsv_detector_node]: RGB frame 1 processed: detections=2 tf=False.
+[INFO] [1784520770.421444098] [hsv_detector_node]: Published perception payload for RGB frame 1.
+[INFO] [1784520770.937086415] [hsv_detector_node]: Received RGB frame 2: 640x480 rgb8.
+[INFO] [1784520770.941224045] [hsv_detector_node]: RGB frame 2 processed: detections=2 tf=False.
+[INFO] [1784520770.945904323] [hsv_detector_node]: Published perception payload for RGB frame 2.
+Traceback (most recent call last):
+  File "/tmp/hazardwalker_stage_a_20260720_v2/ros2_ws/install/hazardwalker_perception/lib/hazardwalker_perception/hsv_detector_node", line 33, in <module>
+    sys.exit(load_entry_point('hazardwalker-perception', 'console_scripts', 'hsv_detector_node')())
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/tmp/hazardwalker_stage_a_20260720_v2/ros2_ws/build/hazardwalker_perception/hazardwalker_perception/hsv_detector_node.py", line 792, in main
+    rclpy.spin(node)
+  File "/opt/ros/jazzy/lib/python3.12/site-packages/rclpy/__init__.py", line 247, in spin
+    executor.spin_once()
+  File "/opt/ros/jazzy/lib/python3.12/site-packages/rclpy/executors.py", line 926, in spin_once
+    self._spin_once_impl(timeout_sec)
+  File "/opt/ros/jazzy/lib/python3.12/site-packages/rclpy/executors.py", line 907, in _spin_once_impl
+    handler, entity, node = self.wait_for_ready_callbacks(
+                            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/ros/jazzy/lib/python3.12/site-packages/rclpy/executors.py", line 877, in wait_for_ready_callbacks
+    return next(self._cb_iter)
+           ^^^^^^^^^^^^^^^^^^^
+  File "/opt/ros/jazzy/lib/python3.12/site-packages/rclpy/executors.py", line 757, in _wait_for_ready_callbacks
+    wait_set = _rclpy.WaitSet(
+               ^^^^^^^^^^^^^^^
+rclpy._rclpy_pybind11.RCLError: failed to initialize wait set: the given context is not valid, either rcl_init() was not called or rcl_shutdown() was called., at ./src/rcl/wait.c:130

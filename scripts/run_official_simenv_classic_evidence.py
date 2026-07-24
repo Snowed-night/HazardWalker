@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""在隔离的官方 SimEnv ROS1/Gazebo Classic 环境运行五类红球证据实验。
+"""在隔离的官方 SimEnv ROS1/Gazebo Classic 环境运行受控感知证据实验。
 
 所属组：感知定位组 / 测试组。
 
@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+from dataclasses import replace
 import json
 import math
 import os
@@ -31,6 +32,7 @@ import subprocess
 import sys
 import tempfile
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
 
@@ -44,11 +46,25 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 CAPTURE_SCRIPT = PROJECT_ROOT / 'scripts' / 'capture_official_simenv_rgbd_case.py'
 SHARED_CONTAINER_NAMES = {'simenv_run', 'simenv'}
 SUITE_ARCHIVE_DIRS = {
-    'multi_ball_clutter': 'official_simenv_20260710_rgbd_multi_ball_clutter',
-    'partial_visibility': 'official_simenv_20260710_rgbd_partial_visibility',
-    'red_objects': 'official_simenv_20260710_rgbd_red_objects',
-    'active_multiview': 'official_simenv_20260710_rgbd_active_multiview',
-    'complex_localization': 'official_simenv_20260710_rgbd_complex_localization',
+    'multi_ball_clutter': 'official_simenv_20260710_multi_ball_clutter',
+    'partial_visibility': 'official_simenv_20260710_partial_visibility',
+    'red_objects': 'official_simenv_20260710_extended_red_object_stress',
+    'active_multiview': 'official_simenv_20260710_active_multiview_reobservation',
+    'complex_localization': 'official_simenv_20260710_red_ball_3d_localization',
+}
+STAGE_SUITE_ARCHIVE_DIRS = {
+    'red_ball_3d_localization': 'official_simenv_20260725_red_ball_3d_localization',
+    'official_distractor_rejection': (
+        'official_simenv_20260725_official_distractor_rejection'
+    ),
+    'active_partial_reobservation': (
+        'official_simenv_20260730_active_multiview_reobservation'
+    ),
+}
+STAGE_DELIVERY_LABELS = {
+    'red_ball_3d_localization': '20260725',
+    'official_distractor_rejection': '20260725',
+    'active_partial_reobservation': '20260730',
 }
 RUN_ID_PATTERN = re.compile(r'^[0-9]{8}_[A-Za-z0-9][A-Za-z0-9._-]*$')
 
@@ -76,15 +92,17 @@ def _validate_isolated_container(container: str, env: dict[str, str]) -> None:
 
 
 def _suite_output_dir(output_root: Path, suite: str, run_id: str = '') -> Path:
-    """把有效复跑结果固定放回五类历史目录下，空 run_id 保持旧临时布局兼容。"""
+    """按历史类别或固定交付阶段返回唯一成果目录。"""
 
-    if suite not in SUITE_ARCHIVE_DIRS:
-        raise ValueError(f'未知五类实验：{suite}')
+    if suite not in SUITE_ARCHIVE_DIRS and suite not in STAGE_SUITE_ARCHIVE_DIRS:
+        raise ValueError(f'未知实验：{suite}')
     normalized_run_id = str(run_id or '').strip()
     if not normalized_run_id:
         return Path(output_root) / f'official_simenv_{time.strftime("%Y%m%d")}_{suite}'
     if RUN_ID_PATTERN.fullmatch(normalized_run_id) is None:
         raise ValueError('--run-id 必须符合 YYYYMMDD_<seed或批次标识>。')
+    if suite in STAGE_SUITE_ARCHIVE_DIRS:
+        return Path(output_root) / STAGE_SUITE_ARCHIVE_DIRS[suite]
     return (
         Path(output_root)
         / SUITE_ARCHIVE_DIRS[suite]
@@ -99,6 +117,8 @@ def _test_record_output_dir(test_record_root: Path, suite: str, run_id: str) -> 
     normalized_run_id = str(run_id or '').strip()
     if RUN_ID_PATTERN.fullmatch(normalized_run_id) is None:
         raise ValueError('生成测试记录时必须提供合法 --run-id。')
+    if suite in STAGE_SUITE_ARCHIVE_DIRS:
+        return Path(test_record_root) / STAGE_SUITE_ARCHIVE_DIRS[suite]
     return (
         Path(test_record_root)
         / SUITE_ARCHIVE_DIRS[suite]
@@ -107,11 +127,48 @@ def _test_record_output_dir(test_record_root: Path, suite: str, run_id: str) -> 
     )
 
 
-def _ros1_bash(container: str, command: str, env: dict[str, str], *, timeout: float = 30.0, check: bool = True):
-    setup = (
+def _prepare_suite_output(
+        output_root: Path,
+        suite_dir: Path,
+        *,
+        replace_existing: bool,
+) -> None:
+    """防止新旧批次混图；只有显式允许时才替换固定成果目录。"""
+
+    root = Path(output_root).resolve()
+    target = Path(suite_dir).resolve()
+    if root != target and root not in target.parents:
+        raise ValueError(f'实验输出目录越界：{target}')
+    if not target.exists():
+        return
+    if any(target.iterdir()):
+        if not replace_existing:
+            raise FileExistsError(
+                f'成果目录已存在且非空：{target}；确认新结果更好后加 '
+                '--replace-stage-output 才能替换。'
+            )
+        shutil.rmtree(target)
+
+
+def _ros1_setup_prefix() -> str:
+    """兼容正式镜像和隔离副本的 SimEnv 工作空间路径。"""
+
+    return (
         'source /opt/ros/noetic/setup.bash; '
-        'source /home/ros/Guoyulun/Competition/SimEnv/devel/setup.bash; '
+        'simenv_setup=""; '
+        'for candidate in '
+        '/home/ros/simenv_ws/devel/setup.bash '
+        '/home/ros/Guoyulun/Competition/SimEnv/devel/setup.bash; do '
+        'if [ -f "${candidate}" ]; then simenv_setup="${candidate}"; break; fi; '
+        'done; '
+        'if [ -z "${simenv_setup}" ]; then '
+        'echo "未找到 SimEnv devel/setup.bash" >&2; exit 3; fi; '
+        'source "${simenv_setup}"; '
     )
+
+
+def _ros1_bash(container: str, command: str, env: dict[str, str], *, timeout: float = 30.0, check: bool = True):
+    setup = _ros1_setup_prefix()
     return _run(['docker', 'exec', container, 'bash', '-lc', setup + command], env, timeout=timeout, check=check)
 
 
@@ -135,14 +192,130 @@ def _project_camera_forward_center(translation: tuple[float, float, float],
     )
 
 
-def _fixture_center_from_camera(container: str, world_frame: str, camera_frame: str,
-                                forward_distance_m: float, target_z: float,
-                                env: dict[str, str]) -> tuple[float, float, float]:
-    """读取 ROS1 TF 后计算夹具中心；TF 只在测试建模阶段使用。"""
+def _fixture_yaw_from_camera(
+        quaternion: tuple[float, float, float, float],
+) -> float:
+    """返回把案例的规范 ``+Y`` 观察轴旋到相机水平前向所需的偏航角。
+
+    案例生成器使用 ``+Y`` 为相机到目标的前向、``+X`` 为画面水平轴。官方
+    随机场景中机器人初始朝向并不固定，因此仅把中心放到相机前方还不够；
+    遮挡板也必须随相机朝向整体旋转，否则会退化成侧置大平板。
+    """
+
+    qx, qy, qz, qw = (float(value) for value in quaternion)
+    forward_x = 1.0 - 2.0 * (qy * qy + qz * qz)
+    forward_y = 2.0 * (qx * qy + qw * qz)
+    horizontal_norm = math.hypot(forward_x, forward_y)
+    if horizontal_norm < 1e-6:
+        raise ValueError('相机前向在水平面上的投影为零，不能对齐测试夹具。')
+    camera_forward_yaw = math.atan2(forward_y, forward_x)
+    return math.atan2(
+        math.sin(camera_forward_yaw - math.pi / 2.0),
+        math.cos(camera_forward_yaw - math.pi / 2.0),
+    )
+
+
+def _yaw_align_case(case, center: tuple[float, float, float], yaw_rad: float):
+    """绕夹具中心整体旋转 SDF 和评估真值，使其正对当前相机。
+
+    旋转写在 SDF ``model pose``，因此 link 的位置和几何朝向会一起变化；
+    检测器仍只接收 RGB-D/TF，运行期不会收到这里的夹具姿态或真值。
+    """
+
+    yaw = float(yaw_rad)
+    cosine = math.cos(yaw)
+    sine = math.sin(yaw)
+    center_x, center_y, _center_z = (float(value) for value in center)
+    translation_x = center_x - (cosine * center_x - sine * center_y)
+    translation_y = center_y - (sine * center_x + cosine * center_y)
+    model_pose = (
+        f'<pose>{translation_x:.8f} {translation_y:.8f} 0.00000000 '
+        f'0.00000000 0.00000000 {yaw:.8f}</pose>'
+    )
+    sdf = case.sdf.replace(
+        '<static>true</static>',
+        f'<static>true</static>{model_pose}',
+        1,
+    )
+    if sdf == case.sdf:
+        raise ValueError(f'案例 {case.case_id} 的 SDF 缺少 model static 标记，无法对齐。')
+
+    def rotate_point(point):
+        dx = float(point[0]) - center_x
+        dy = float(point[1]) - center_y
+        return (
+            center_x + cosine * dx - sine * dy,
+            center_y + sine * dx + cosine * dy,
+            float(point[2]),
+        )
+
+    metadata = dict(case.metadata)
+    metadata['fixture_camera_alignment_yaw_rad'] = round(yaw, 8)
+    return replace(
+        case,
+        expected_sphere_positions=tuple(
+            rotate_point(point) for point in case.expected_sphere_positions
+        ),
+        sdf=sdf,
+        metadata=metadata,
+    )
+
+
+def _quaternion_rotation_matrix(
+        quaternion: tuple[float, float, float, float],
+) -> tuple[tuple[float, float, float], ...]:
+    """把正规化四元数转为旋转矩阵，供运行后真值坐标转换使用。"""
+
+    qx, qy, qz, qw = (float(value) for value in quaternion)
+    norm = math.sqrt(qx * qx + qy * qy + qz * qz + qw * qw)
+    if norm <= 0.0:
+        raise ValueError('TF quaternion has zero norm.')
+    qx, qy, qz, qw = (value / norm for value in (qx, qy, qz, qw))
+    return (
+        (
+            1.0 - 2.0 * (qy * qy + qz * qz),
+            2.0 * (qx * qy - qz * qw),
+            2.0 * (qx * qz + qy * qw),
+        ),
+        (
+            2.0 * (qx * qy + qz * qw),
+            1.0 - 2.0 * (qx * qx + qz * qz),
+            2.0 * (qy * qz - qx * qw),
+        ),
+        (
+            2.0 * (qx * qz - qy * qw),
+            2.0 * (qy * qz + qx * qw),
+            1.0 - 2.0 * (qx * qx + qy * qy),
+        ),
+    )
+
+
+def _world_point_to_local(
+        point: tuple[float, float, float],
+        world_from_local: dict[str, tuple[float, ...]],
+) -> tuple[float, float, float]:
+    """将测试真值从夹具世界系变到指定局部系；仅用于抓帧后的评估。"""
+
+    translation = world_from_local['translation']
+    rotation = _quaternion_rotation_matrix(world_from_local['quaternion'])
+    delta = tuple(float(point[index]) - float(translation[index]) for index in range(3))
+    # world_from_local 的逆变换为 R^T * (p_world - t)。
+    return tuple(
+        sum(rotation[row][column] * delta[row] for row in range(3))
+        for column in range(3)
+    )
+
+
+def _fixture_transform_from_camera(
+        container: str,
+        world_frame: str,
+        camera_frame: str,
+        env: dict[str, str],
+) -> dict[str, tuple[float, ...]]:
+    """读取建模阶段 world<-camera TF；数据不会进入运行期检测器。"""
 
     result = _ros1_bash(
         container,
-        # tf_echo 在非交互管道下会缓冲 stdout；无缓冲保证 timeout 结束前已经拿到至少一帧 TF。
         f'PYTHONUNBUFFERED=1 timeout -s INT 7 rosrun tf tf_echo '
         f'{shlex.quote(world_frame)} {shlex.quote(camera_frame)}',
         env,
@@ -151,18 +324,35 @@ def _fixture_center_from_camera(container: str, world_frame: str, camera_frame: 
     )
     output = f'{result.stdout}\n{result.stderr}'
     translations = re.findall(
-        r'Translation:\s*\[\s*([-+0-9.eE]+)\s*,\s*([-+0-9.eE]+)\s*,\s*([-+0-9.eE]+)\s*\]', output,
+        r'Translation:\s*\[\s*([-+0-9.eE]+)\s*,\s*([-+0-9.eE]+)\s*,\s*([-+0-9.eE]+)\s*\]',
+        output,
     )
     rotations = re.findall(
-        r'Rotation:\s*in Quaternion\s*\[\s*([-+0-9.eE]+)\s*,\s*([-+0-9.eE]+)\s*,\s*([-+0-9.eE]+)\s*,\s*([-+0-9.eE]+)\s*\]', output,
+        r'Rotation:\s*in Quaternion\s*\[\s*([-+0-9.eE]+)\s*,\s*([-+0-9.eE]+)\s*,\s*([-+0-9.eE]+)\s*,\s*([-+0-9.eE]+)\s*\]',
+        output,
     )
     if not translations or not rotations:
         raise RuntimeError(
-            f'无法读取 {world_frame}->{camera_frame} 的 TF，拒绝使用固定坐标生成不可见案例。\n{output[-1200:]}'
+            f'无法读取 {world_frame}->{camera_frame} 的 TF，拒绝使用固定坐标生成不可见案例。\n'
+            f'{output[-1200:]}'
         )
+    return {
+        'translation': tuple(float(value) for value in translations[-1]),
+        'quaternion': tuple(float(value) for value in rotations[-1]),
+    }
+
+
+def _fixture_center_from_camera(container: str, world_frame: str, camera_frame: str,
+                                forward_distance_m: float, target_z: float,
+                                env: dict[str, str]) -> tuple[float, float, float]:
+    """读取 ROS1 TF 后计算夹具中心；TF 只在测试建模阶段使用。"""
+
+    transform = _fixture_transform_from_camera(
+        container, world_frame, camera_frame, env,
+    )
     return _project_camera_forward_center(
-        tuple(float(value) for value in translations[-1]),
-        tuple(float(value) for value in rotations[-1]),
+        transform['translation'],
+        transform['quaternion'],
         forward_distance_m,
         target_z,
     )
@@ -246,25 +436,114 @@ def _background_edge_ratio(snapshot: dict[str, Any], image_dir: Path) -> float:
     return float(np.count_nonzero(structured_edges)) / float(structured_edges.size)
 
 
+def _background_complexity_pass(
+        suite: str, edge_ratios: list[float], minimum: float) -> bool:
+    """判断证据序列是否来自有结构的官方场景，而非纯色占位画面。
+
+    主动换视角途中和最终近距离观察允许落在低纹理墙面，但复杂场景中的首帧
+    和至少一半过程帧必须达到门槛；静态套件仍要求每张图都通过。
+    """
+
+    if not edge_ratios:
+        return False
+    threshold = max(0.0, float(minimum))
+    passed_count = sum(value >= threshold for value in edge_ratios)
+    if suite in ('active_partial_reobservation', 'active_multiview'):
+        return (
+            edge_ratios[0] >= threshold
+            and passed_count * 2 >= len(edge_ratios)
+        )
+    return passed_count == len(edge_ratios)
+
+
 def _read_legal_motion(topic: str, env: dict[str, str]) -> dict[str, float] | None:
-    """从导航组的合法 SLAM 位姿读取 xy，禁止读取 Gazebo 真值里程计。"""
+    """从导航组的合法 SLAM 位姿读取平面位姿，禁止读取 Gazebo 真值里程计。"""
 
     normalized = str(topic or '').strip()
     forbidden = {'/hw/odom', '/Odometry_gazebo'}
     if not normalized or normalized in forbidden or 'ground_truth' in normalized:
         return None
 
+    if normalized.startswith('tf://'):
+        frame_pair = normalized.removeprefix('tf://').split('/', 1)
+        if len(frame_pair) != 2 or not all(frame_pair):
+            return None
+        fixed_frame, robot_frame = frame_pair
+        if fixed_frame not in {'map', 'world'} or robot_frame != 'base':
+            return None
+        result = _run(
+            [
+                'timeout', '5', 'ros2', 'run', 'tf2_ros', 'tf2_echo',
+                fixed_frame, robot_frame,
+            ],
+            env,
+            timeout=8.0,
+            check=False,
+        )
+        translation = re.search(
+            r'Translation:\s*\[([-+0-9.eE]+),\s*([-+0-9.eE]+),\s*([-+0-9.eE]+)\]',
+            result.stdout,
+        )
+        yaw = re.search(
+            r'Rotation:\s*in RPY \(radian\)\s*\[[^\]]*,\s*[^,\]]+,\s*([-+0-9.eE]+)\]',
+            result.stdout,
+        )
+        if not translation or not yaw:
+            return None
+        return {
+            'x': float(translation.group(1)),
+            'y': float(translation.group(2)),
+            'z': float(translation.group(3)),
+            'yaw_rad': float(yaw.group(1)),
+        }
+
     result = _run(
-        ['timeout', '8', 'ros2', 'topic', 'echo', normalized, '--once'],
+        [
+            'timeout', '8', 'ros2', 'topic', 'echo', normalized, '--once',
+            '--field', 'pose.pose',
+        ],
         env,
         timeout=12.0,
         check=False,
     )
-    match_x = re.search(r'\n\s*x:\s*([-+0-9.eE]+)', result.stdout)
-    match_y = re.search(r'\n\s*y:\s*([-+0-9.eE]+)', result.stdout)
-    if not match_x or not match_y:
+    position = re.search(
+        r'position:\s*\n\s*x:\s*([-+0-9.eE]+)\s*\n'
+        r'\s*y:\s*([-+0-9.eE]+)\s*\n\s*z:\s*([-+0-9.eE]+)',
+        result.stdout,
+    )
+    orientation = re.search(
+        r'orientation:\s*\n\s*x:\s*([-+0-9.eE]+)\s*\n'
+        r'\s*y:\s*([-+0-9.eE]+)\s*\n\s*z:\s*([-+0-9.eE]+)\s*\n'
+        r'\s*w:\s*([-+0-9.eE]+)',
+        result.stdout,
+    )
+    if not position or not orientation:
         return None
-    return {'x': float(match_x.group(1)), 'y': float(match_y.group(1))}
+    qx, qy, qz, qw = (float(orientation.group(index)) for index in range(1, 5))
+    yaw = math.atan2(
+        2.0 * (qw * qz + qx * qy),
+        1.0 - 2.0 * (qy * qy + qz * qz),
+    )
+    return {
+        'x': float(position.group(1)),
+        'y': float(position.group(2)),
+        'z': float(position.group(3)),
+        'yaw_rad': yaw,
+    }
+
+
+def _motion_delta(before: Optional[dict[str, float]],
+                  after: Optional[dict[str, float]]) -> tuple[float, float]:
+    """返回合法位姿的平移和最短偏航变化；缺任一端时均为零。"""
+
+    if not before or not after:
+        return 0.0, 0.0
+    translation = math.hypot(after['x'] - before['x'], after['y'] - before['y'])
+    yaw_delta = abs(math.atan2(
+        math.sin(after['yaw_rad'] - before['yaw_rad']),
+        math.cos(after['yaw_rad'] - before['yaw_rad']),
+    ))
+    return translation, math.degrees(yaw_delta)
 
 
 def _move_laterally(command_y: float, duration_sec: float, legal_motion_topic: str,
@@ -291,11 +570,129 @@ def _move_laterally(command_y: float, duration_sec: float, legal_motion_topic: s
         )
     time.sleep(1.0)
     after = _read_legal_motion(legal_motion_topic, env)
-    translation = 0.0 if not before or not after else math.hypot(after['x'] - before['x'], after['y'] - before['y'])
+    translation, yaw_change_deg = _motion_delta(before, after)
     return {'command_y': command_y, 'duration_sec': duration_sec, 'before': before, 'after': after,
             'translation_m': round(translation, 4),
+            'yaw_change_deg': round(yaw_change_deg, 4),
             'motion_evidence_topic': str(legal_motion_topic or ''),
             'motion_evidence_status': 'legal_slam' if before and after else 'unverified'}
+
+
+def _execute_reobservation_action(
+        action: str,
+        duration_sec: float,
+        legal_motion_topic: str,
+        env: dict[str, str],
+        *,
+        lateral_speed_mps: float,
+        forward_speed_mps: float,
+        turn_speed_radps: float,
+) -> dict[str, Any]:
+    """执行感知策略给出的单步语义动作，并用合法 SLAM 位姿验证实际运动。
+
+    本函数只供隔离受控实验调用；正式随机场景由导航组结合代价地图和避障执行。
+    """
+
+    normalized = str(action or '').strip()
+    commands = {
+        # 官方 A1 为全向步态；侧移语义必须保持为 linear.y，避免前进弧线
+        # 把机器人越带越近并令目标从图像下边缘逸出。
+        'move_left': (0.0, abs(lateral_speed_mps), 0.0),
+        'move_right': (0.0, -abs(lateral_speed_mps), 0.0),
+        'move_forward': (abs(forward_speed_mps), 0.0, 0.0),
+        'move_backward': (-abs(forward_speed_mps), 0.0, 0.0),
+        'turn_left': (0.0, 0.0, abs(turn_speed_radps)),
+        'turn_right': (0.0, 0.0, -abs(turn_speed_radps)),
+    }
+    before = _read_legal_motion(legal_motion_topic, env)
+    if normalized == 'hold_observation':
+        time.sleep(max(0.0, duration_sec))
+        after = _read_legal_motion(legal_motion_topic, env)
+        translation, yaw_change_deg = _motion_delta(before, after)
+        return {
+            'action': normalized,
+            'duration_sec': duration_sec,
+            'before': before,
+            'after': after,
+            'translation_m': round(translation, 4),
+            'yaw_change_deg': round(yaw_change_deg, 4),
+            'motion_evidence_topic': str(legal_motion_topic or ''),
+            'motion_evidence_status': (
+                'legal_slam_stationary_observation' if before and after else 'unverified'
+            ),
+        }
+    if normalized not in commands:
+        raise RuntimeError(f'主动复查策略返回不可执行动作：{normalized or "(空)"}')
+    linear_x, linear_y, angular_z = commands[normalized]
+    payload = (
+        '{linear: {x: %.3f, y: %.3f}, angular: {z: %.3f}}'
+        % (linear_x, linear_y, angular_z)
+    )
+    try:
+        _run(
+            [
+                'timeout', str(duration_sec), 'ros2', 'topic', 'pub',
+                '--wait-matching-subscriptions', '1', '--rate', '10',
+                '/hw/cmd_vel', 'geometry_msgs/msg/Twist', payload,
+            ],
+            env,
+            timeout=duration_sec + 8.0,
+            check=False,
+        )
+    finally:
+        _run(
+            [
+                'ros2', 'topic', 'pub', '--once', '/hw/cmd_vel',
+                'geometry_msgs/msg/Twist',
+                '{linear: {x: 0.0, y: 0.0}, angular: {z: 0.0}}',
+            ],
+            env,
+            timeout=8.0,
+            check=False,
+        )
+    time.sleep(1.0)
+    after = _read_legal_motion(legal_motion_topic, env)
+    translation, yaw_change_deg = _motion_delta(before, after)
+    return {
+        'action': normalized,
+        'duration_sec': duration_sec,
+        'command': {
+            'linear_x': linear_x,
+            'linear_y': linear_y,
+            'angular_z': angular_z,
+        },
+        'before': before,
+        'after': after,
+        'translation_m': round(translation, 4),
+        'yaw_change_deg': round(yaw_change_deg, 4),
+        'motion_evidence_topic': str(legal_motion_topic or ''),
+        'motion_evidence_status': 'legal_slam' if before and after else 'unverified',
+    }
+
+
+def _bounded_lost_candidate_recovery(
+        motions: list[dict[str, Any]], blind_recovery_count: int,
+) -> str:
+    """候选短时离开画面时，最多两步沿既有搜索方向重新捕获。
+
+    优先复用最近一次转向来把刚从边界逸出的目标带回视野；尚未发生转向时
+    才沿最近侧移方向再走一步。所有方向都来自此前感知建议，不读取夹具信息。
+    """
+
+    if int(blind_recovery_count) >= 2:
+        return ''
+    actions = [
+        str(item.get('action', '')).strip()
+        for item in motions
+        if isinstance(item, dict)
+    ]
+    for action in reversed(actions):
+        if action in ('turn_left', 'turn_right'):
+            return action
+    for action in reversed(actions):
+        if action in ('move_left', 'move_right'):
+            return action
+    return ''
 
 
 def _start_case_detector(command: str, log_path: Path, env: dict[str, str]) -> Optional[subprocess.Popen]:
@@ -387,14 +784,66 @@ def _red_pixel_count(snapshot: dict[str, Any], image_dir: Path) -> int:
     return int(cv2.countNonZero(cv2.bitwise_or(low, high)))
 
 
-def _localization_errors(snapshot: dict[str, Any], truth_positions: tuple) -> list[float]:
-    """运行结束后才将预测位置和本用例 SDF 真值匹配，产生透明定位误差。"""
+def _localization_errors(
+        snapshot: dict[str, Any],
+        truth_positions: tuple,
+        *,
+        truth_frame_id: str,
+        evaluation_frame_id: str,
+        world_from_evaluation: Optional[dict[str, tuple[float, ...]]] = None,
+) -> dict[str, Any]:
+    """在同一坐标系内做完整一对一匹配；任何帧不明均 fail-closed。"""
 
-    predictions = [tuple(item.get('position', ())) for item in snapshot.get('hazards', [])]
-    predictions = [value for value in predictions if len(value) == 3]
+    positioned_hazards = [
+        item for item in snapshot.get('hazards', [])
+        if len(tuple(item.get('position', ()))) == 3
+    ]
+    frames = {
+        str(item.get('position_frame_id', '')).strip()
+        for item in positioned_hazards
+    }
+    if not positioned_hazards:
+        return {
+            'status': 'no_predictions',
+            'prediction_count': 0,
+            'errors_m': [],
+        }
+    if frames != {str(evaluation_frame_id).strip()}:
+        return {
+            'status': 'frame_mismatch',
+            'prediction_count': len(positioned_hazards),
+            'prediction_frames': sorted(frames),
+            'expected_frame': str(evaluation_frame_id),
+            'errors_m': [],
+        }
+
+    normalized_truth = tuple(tuple(float(value) for value in point) for point in truth_positions)
+    if truth_frame_id != evaluation_frame_id:
+        if (
+            truth_frame_id == 'fixture_world'
+            and evaluation_frame_id in ('real_sense', 'base', 'world')
+            and world_from_evaluation is not None
+        ):
+            normalized_truth = tuple(
+                _world_point_to_local(point, world_from_evaluation)
+                for point in normalized_truth
+            )
+        else:
+            return {
+                'status': 'truth_transform_unavailable',
+                'prediction_count': len(positioned_hazards),
+                'truth_frame': truth_frame_id,
+                'expected_frame': evaluation_frame_id,
+                'errors_m': [],
+            }
+
+    predictions = [
+        tuple(float(value) for value in item['position'])
+        for item in positioned_hazards
+    ]
     unmatched = set(range(len(predictions)))
     errors: list[float] = []
-    for truth in truth_positions:
+    for truth in normalized_truth:
         candidates = [
             (math.sqrt(sum((float(predictions[index][axis]) - float(truth[axis])) ** 2 for axis in range(3))), index)
             for index in unmatched
@@ -404,11 +853,19 @@ def _localization_errors(snapshot: dict[str, Any], truth_positions: tuple) -> li
         error, index = min(candidates)
         unmatched.remove(index)
         errors.append(error)
-    return errors
+    return {
+        'status': 'ok',
+        'prediction_count': len(predictions),
+        'truth_count': len(normalized_truth),
+        'unmatched_prediction_count': len(unmatched),
+        'errors_m': errors,
+    }
 
 
 def _evaluate_case(case, snapshots: list[dict[str, Any]], motions: list[dict[str, Any]], min_translation_m: float,
-                   *, image_dir: Optional[Path] = None, baseline_red_pixel_count: int = 0) -> dict[str, Any]:
+                   *, image_dir: Optional[Path] = None, baseline_red_pixel_count: int = 0,
+                   localization_context: Optional[dict[str, Any]] = None,
+                   max_localization_error_m: float = 1.0) -> dict[str, Any]:
     """按不同类别给出严格、可复核的结果；不把候选数伪装成确认数。"""
 
     initial = snapshots[0]
@@ -416,8 +873,23 @@ def _evaluate_case(case, snapshots: list[dict[str, Any]], motions: list[dict[str
     strict_by_view = [_strict_count(item) for item in snapshots]
     partial_by_view = [_partial_count(item) for item in snapshots]
     confirmed = _confirmed_count(final)
-    errors = _localization_errors(final, case.expected_sphere_positions)
-    actual_moves = sum(item['translation_m'] >= min_translation_m for item in motions)
+    context = localization_context or {}
+    localization = _localization_errors(
+        final,
+        case.expected_sphere_positions,
+        truth_frame_id=str(context.get('truth_frame_id', 'fixture_world')),
+        evaluation_frame_id=str(context.get('evaluation_frame_id', '')),
+        world_from_evaluation=context.get('world_from_evaluation'),
+    )
+    errors = localization['errors_m']
+    actual_moves = sum(
+        (
+            float(item.get('translation_m', 0.0)) >= min_translation_m
+            or float(item.get('yaw_change_deg', 0.0)) >= 8.0
+        )
+        and item.get('motion_evidence_status', 'legal_slam') == 'legal_slam'
+        for item in motions
+    )
     is_target = bool(case.expected_sphere_positions)
     actual_red_pixel_count = _red_pixel_count(initial, image_dir) if image_dir else 0
     actual_visible_ratio = (
@@ -443,6 +915,21 @@ def _evaluate_case(case, snapshots: list[dict[str, Any]], motions: list[dict[str
         moves_ok = actual_moves >= 2
         passed = moves_ok and (confirmed >= 1 if is_target else confirmed == 0)
         criterion = '两次里程计横移均达阈值；红球确认、非球体不得确认。'
+    elif case.suite == 'active_partial_reobservation':
+        initial_partial = _partial_count(initial) >= 1
+        moves_ok = actual_moves >= 2
+        localization_ok = (
+            localization['status'] == 'ok'
+            and localization['prediction_count'] == 1
+            and len(errors) == 1
+            and max(errors, default=float('inf')) <= max_localization_error_m
+        )
+        passed = initial_partial and moves_ok and confirmed == 1 and localization_ok
+        criterion = (
+            '首帧必须为黄色局部候选；至少两次策略动作由合法SLAM位姿证明真实执行；'
+            '后续恰好确认一个红球，完成三视角球面证据、三维定位和去重，且最大误差'
+            f' <= {max_localization_error_m:.3f} m。'
+        )
     elif case.suite == 'multi_ball_clutter':
         # 粘连拆分的单帧圆数只是一组待复查假设，不能以“候选数 >= 真值数”掩盖
         # 重复圆、红箱或圆柱端面的虚警。必须在两个合法侧视后仅保留恰好对应
@@ -451,8 +938,36 @@ def _evaluate_case(case, snapshots: list[dict[str, Any]], motions: list[dict[str
         passed = moves_ok and confirmed == len(case.expected_sphere_positions)
         criterion = '两次合法横移后，confirmed 轨迹数必须与受控红球数完全相等；候选框数量不作为计数成功。'
     elif case.suite == 'complex_localization':
-        passed = len(errors) == len(case.expected_sphere_positions)
-        criterion = '每个受控红球都要获得一个可匹配的三维预测，误差另行报告。'
+        passed = (
+            localization['status'] == 'ok'
+            and len(errors) == len(case.expected_sphere_positions)
+            and localization['prediction_count'] == len(case.expected_sphere_positions)
+            and max(errors, default=float('inf')) <= max_localization_error_m
+        )
+        criterion = '同帧完整一对一定位，预测数必须等于真值数且最大误差不超过阈值。'
+    elif case.suite == 'red_ball_3d_localization':
+        passed = (
+            localization['status'] == 'ok'
+            and len(errors) == len(case.expected_sphere_positions)
+            and localization['prediction_count'] == len(case.expected_sphere_positions)
+            and max(errors, default=float('inf')) <= max_localization_error_m
+        )
+        criterion = (
+            '合法局部坐标系内完整一对一定位；帧必须明确，预测数等于目标数，'
+            f'最大误差 <= {max_localization_error_m:.3f} m。'
+        )
+    elif case.suite == 'official_distractor_rejection':
+        target_count = len(case.expected_sphere_positions)
+        # 单稳定视角只验证候选召回和干扰源不会被提升为 confirmed；候选框
+        # 不计虚警，多视角确认留给 B 阶段合法运动复查。
+        passed = (
+            confirmed == 0
+            and (_strict_count(initial) >= 1 if target_count else True)
+        )
+        criterion = (
+            '官方红方块/绿球不得形成 confirmed；含红球场景应至少有一个严格候选。'
+            '候选框不计虚警，局部坐标不得写入官方 JSON。'
+        )
     else:
         passed = max(strict_by_view, default=0) + max(partial_by_view, default=0) >= len(case.expected_sphere_positions)
         criterion = '各视角可见候选数必须覆盖受控红球数；最终确认另行统计。'
@@ -470,8 +985,18 @@ def _evaluate_case(case, snapshots: list[dict[str, Any]], motions: list[dict[str
         'partial_counts_by_view': partial_by_view,
         'final_confirmed_count': confirmed,
         'actual_lateral_move_count': actual_moves,
+        'actual_motion_count': actual_moves,
+        'action_sequence': [
+            str(item.get('action', 'lateral_move')) for item in motions
+        ],
         'motions': motions,
         'localized_truth_count': len(errors),
+        'localization_status': localization['status'],
+        'localization_prediction_count': localization.get('prediction_count', 0),
+        'localization_evaluation_frame': context.get('evaluation_frame_id', ''),
+        'localization_unmatched_prediction_count': localization.get(
+            'unmatched_prediction_count', 0,
+        ),
         'mean_localization_error_m': round(sum(errors) / len(errors), 4) if errors else '',
         'max_localization_error_m': round(max(errors), 4) if errors else '',
         'criterion': criterion,
@@ -481,13 +1006,16 @@ def _evaluate_case(case, snapshots: list[dict[str, Any]], motions: list[dict[str
 
 
 def _write_suite_report(suite_dir: Path, suite: str, rows: list[dict[str, Any]], args) -> None:
-    """写入五类目录统一的 summary/CSV/README，图片由 capture 脚本保存在 images/。"""
+    """写入统一 summary、测试表和 README，图片由 capture 脚本保存。"""
 
     suite_dir.mkdir(parents=True, exist_ok=True)
     serialized_rows = []
     for row in rows:
         serialized = dict(row)
-        for key in ('strict_counts_by_view', 'partial_counts_by_view', 'background_edge_ratios', 'motions', 'metadata'):
+        for key in (
+            'strict_counts_by_view', 'partial_counts_by_view',
+            'background_edge_ratios', 'motions', 'action_sequence', 'metadata',
+        ):
             if key in serialized:
                 serialized[key] = json.dumps(serialized[key], ensure_ascii=False)
         serialized_rows.append(serialized)
@@ -505,9 +1033,27 @@ def _write_suite_report(suite_dir: Path, suite: str, rows: list[dict[str, Any]],
             writer.writerows(serialized_rows)
     (suite_dir / 'cases.json').write_text(json.dumps(rows, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
     collage_path = _write_annotated_collage(suite_dir, suite)
+    target_rows = [
+        item for item in rows if int(item.get('expected_red_ball_count', 0)) > 0
+    ]
+    localized_errors = [
+        float(item['mean_localization_error_m'])
+        for item in rows
+        if item.get('mean_localization_error_m') not in ('', None)
+    ]
+    max_localized_errors = [
+        float(item['max_localization_error_m'])
+        for item in rows
+        if item.get('max_localization_error_m') not in ('', None)
+    ]
     summary = {
-        'schema': 'hazardwalker_official_simenv_classic_evidence_v1',
+        'schema': 'hazardwalker_official_simenv_classic_evidence_v2',
         'run_id': args.run_id or suite_dir.name,
+        'delivery_stage': STAGE_DELIVERY_LABELS.get(suite, 'historical_rerun'),
+        'actual_start_utc': args.run_started_utc,
+        'actual_end_utc': args.run_finished_utc,
+        'elapsed_sec': round(args.run_elapsed_sec, 3),
+        'seed': str(args.seed or 'not_recorded'),
         'code_version': args.code_version or 'unrecorded',
         'evidence_class': 'internal_regression',
         'official_score_eligible': False,
@@ -515,10 +1061,45 @@ def _write_suite_report(suite_dir: Path, suite: str, rows: list[dict[str, Any]],
         'case_count': len(rows),
         'pass_count': sum(item['result'] == 'pass' for item in rows),
         'fail_count': sum(item['result'] == 'fail' for item in rows),
+        'target_case_count': len(target_rows),
+        'target_candidate_recall': (
+            round(
+                sum(
+                    int(item.get('initial_strict_count', 0))
+                    + int(item.get('initial_partial_count', 0)) >= 1
+                    for item in target_rows
+                ) / float(len(target_rows)),
+                4,
+            )
+            if target_rows else None
+        ),
+        'confirmed_false_positive_count': sum(
+            int(item.get('final_confirmed_count', 0))
+            for item in rows
+            if int(item.get('expected_red_ball_count', 0)) == 0
+        ),
+        'confirmed_duplicate_count': sum(
+            max(
+                0,
+                int(item.get('final_confirmed_count', 0))
+                - int(item.get('expected_red_ball_count', 0)),
+            )
+            for item in rows
+        ),
+        'mean_localization_error_m': (
+            round(sum(localized_errors) / len(localized_errors), 4)
+            if localized_errors else None
+        ),
+        'max_observed_localization_error_m': (
+            round(max(max_localized_errors), 4) if max_localized_errors else None
+        ),
         'container': args.isolated_container,
         'ros_domain_id': args.ros_domain_id,
         'camera_topic': '/hw/camera/image_raw',
         'detection_topic': args.detection_topic,
+        'detector_command': args.detector_command or 'external_prestarted_detector',
+        'localization_evaluation_frame': args.localization_evaluation_frame,
+        'max_localization_error_m': args.max_localization_error_m,
         'control_enabled': bool(args.allow_control),
         'cleanup_mode': (
             'isolated_container_reset'
@@ -526,11 +1107,21 @@ def _write_suite_report(suite_dir: Path, suite: str, rows: list[dict[str, Any]],
         ),
         'fixture_center_world': list(args.resolved_fixture_center),
         'fixture_center_source': args.fixture_center_source,
+        'fixture_camera_alignment_yaw_rad': args.fixture_camera_alignment_yaw_rad,
         'min_background_edge_ratio': args.min_background_edge_ratio,
         'truth_usage': '仅在快照保存后由本脚本匹配；运行期检测器和运动策略不读取真值。',
+        'official_json_written': False,
+        'official_json_reason': (
+            '受控专项仅作内部回归；正式随机场景结果必须另走官方任务归档链。'
+        ),
         'annotated_collage': collage_path.name if collage_path else '',
     }
     (suite_dir / 'summary.json').write_text(json.dumps(summary, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
+    localization_label = args.localization_evaluation_frame or (
+        '本套件不评估定位'
+        if suite == 'official_distractor_rejection'
+        else '未提供（定位案例会失败）'
+    )
     (suite_dir / 'README.md').write_text(
         f'# 官方 SimEnv Gazebo Classic：{suite}\n\n'
         '> 证据类别：内部回归；人工生成受控物体，不属于官方随机场景全流程成绩。\n\n'
@@ -539,18 +1130,30 @@ def _write_suite_report(suite_dir: Path, suite: str, rows: list[dict[str, Any]],
         f'- 案例数：{summary["case_count"]}\n'
         f'- 通过/失败：{summary["pass_count"]}/{summary["fail_count"]}\n'
         f'- ROS_DOMAIN_ID：{args.ros_domain_id}\n'
+        f'- 真实运行：{args.run_started_utc} 至 {args.run_finished_utc}'
+        f'（{args.run_elapsed_sec:.3f} s）\n'
+        f'- SEED：{summary["seed"]}\n'
+        f'- Git：{summary["code_version"]}\n'
+        f'- 定位评估帧：{localization_label}\n'
         f'- 临时夹具中心：{summary["fixture_center_world"]}（{summary["fixture_center_source"]}）\n'
         '- 失败案例保留在 `cases.csv` 和 `images/`，不得删除或改写为成功。\n',
+        encoding='utf-8',
+    )
+    # 每个实验目录自身必须具备测试组表格，不能只在全局 test_records 留副本。
+    source_csv = suite_dir / 'cases.csv'
+    if source_csv.exists():
+        shutil.copyfile(source_csv, suite_dir / 'testing_record_perception.csv')
+    record_payload = dict(summary)
+    record_payload['records'] = rows
+    (suite_dir / 'testing_record_perception.json').write_text(
+        json.dumps(record_payload, ensure_ascii=False, indent=2) + '\n',
         encoding='utf-8',
     )
     if args.test_record_root is not None:
         record_dir = _test_record_output_dir(args.test_record_root, suite, args.run_id)
         record_dir.mkdir(parents=True, exist_ok=True)
-        source_csv = suite_dir / 'cases.csv'
         if source_csv.exists():
             shutil.copyfile(source_csv, record_dir / 'testing_record_perception.csv')
-        record_payload = dict(summary)
-        record_payload['records'] = rows
         (record_dir / 'testing_record_perception.json').write_text(
             json.dumps(record_payload, ensure_ascii=False, indent=2) + '\n',
             encoding='utf-8',
@@ -606,23 +1209,49 @@ def main() -> int:
         'reruns/<run-id>/；省略时仅使用旧临时输出布局。'
     ))
     parser.add_argument('--code-version', default='', help='本轮 Git commit；归档模式必须显式提供。')
+    parser.add_argument('--seed', default='', help='官方随机种子或隔离场景固定种子。')
     parser.add_argument('--test-record-root', type=Path, default=None, help=(
         '例如 reports/perception/test_records；归档模式必须提供，并使用相同 run_id 写测试表。'
     ))
+    parser.add_argument(
+        '--replace-stage-output',
+        action='store_true',
+        help='仅当本轮结果经审查优于同阶段旧结果时，清空并替换固定成果目录。',
+    )
     parser.add_argument('--detection-topic', default='/hw/perception/hazard_detections')
+    parser.add_argument(
+        '--localization-evaluation-frame',
+        default='',
+        choices=('', 'real_sense', 'base', 'world'),
+        help='运行后误差评估坐标系；world 仅可配合显式的公开出生点对齐。',
+    )
+    parser.add_argument(
+        '--fixture-world-equals-evaluation-world',
+        action='store_true',
+        help=(
+            '声明受控夹具坐标与算法 world 坐标已由公开出生点对齐；'
+            '只用于运行后误差统计，不向检测器提供夹具位置。'
+        ),
+    )
+    parser.add_argument('--max-localization-error-m', type=float, default=1.0)
     parser.add_argument('--ros-domain-id', default=os.environ.get('ROS_DOMAIN_ID', '0'))
     parser.add_argument('--capture-timeout-sec', type=float, default=20.0)
     parser.add_argument('--settle-sec', type=float, default=2.0)
-    parser.add_argument('--min-background-edge-ratio', type=float, default=0.006, help=(
+    parser.add_argument('--min-background-edge-ratio', type=float, default=0.0035, help=(
         '正式证据每张真实 RGB 图去除红色目标轮廓后的最小 Canny 边缘比例；'
-        '低于该值通常是近墙/空白视野，会如实记为失败。'
+        '阈值按官方低纹理平面渲染标定，低于该值通常是纯墙/空白视野，会如实记为失败。'
     ))
     parser.add_argument('--allow-control', action='store_true')
     parser.add_argument('--lateral-speed-y', type=float, default=-0.70)
     parser.add_argument('--lateral-duration-sec', type=float, default=4.0)
     parser.add_argument('--min-lateral-translation-m', type=float, default=0.20)
+    parser.add_argument('--reobservation-action-duration-sec', type=float, default=2.0)
+    parser.add_argument('--reobservation-forward-speed-mps', type=float, default=0.30)
+    parser.add_argument('--reobservation-turn-speed-radps', type=float, default=0.45)
+    parser.add_argument('--max-reobservation-steps', type=int, default=12)
     parser.add_argument('--legal-motion-topic', default='', help=(
-        '导航组发布的合法 SLAM 位姿 topic；禁止使用 /hw/odom、/Odometry_gazebo 或 ground_truth。'
+        '导航组发布的合法 SLAM 位姿 topic，或 tf://map/base；'
+        '禁止使用 /hw/odom、/Odometry_gazebo 或 ground_truth。'
     ))
     parser.add_argument('--case-limit', type=int, default=0, help='仅用于先验收执行链路，0 表示所有案例。')
     parser.add_argument('--case-id-regex', default='', help='仅运行匹配案例；部分可见套件会自动保留 baseline 供像素比例归一化。')
@@ -644,21 +1273,42 @@ def main() -> int:
             parser.error('归档模式必须显式提供 --test-record-root。')
     elif args.test_record_root is not None:
         parser.error('--test-record-root 只能与 --run-id 一起使用，防止无批次测试表。')
+    if args.suite in STAGE_SUITE_ARCHIVE_DIRS or args.suite == 'all':
+        if not args.seed.strip():
+            parser.error('阶段归档必须显式提供 --seed。')
+    if args.max_localization_error_m <= 0.0:
+        parser.error('--max-localization-error-m 必须为正数。')
+    if args.max_reobservation_steps < 1:
+        parser.error('--max-reobservation-steps 必须至少为 1。')
+    if (
+        args.fixture_world_equals_evaluation_world
+        and args.localization_evaluation_frame != 'world'
+    ):
+        parser.error('--fixture-world-equals-evaluation-world 仅与 world 评估帧配合使用。')
 
     env = dict(os.environ)
     env['ROS_DOMAIN_ID'] = str(args.ros_domain_id)
     _validate_isolated_container(args.isolated_container, env)
     selected = tuple(BUILDERS) if args.suite == 'all' else (args.suite,)
     fixture_center = tuple(args.center)
+    args.fixture_world_from_camera = None
+    args.fixture_camera_alignment_yaw_rad = 0.0
     args.fixture_center_source = 'explicit_center'
     if args.fixture_center_from_camera_forward_m > 0.0:
-        fixture_center = _fixture_center_from_camera(
+        args.fixture_world_from_camera = _fixture_transform_from_camera(
             args.isolated_container,
             args.fixture_world_frame,
             args.fixture_camera_frame,
+            env,
+        )
+        fixture_center = _project_camera_forward_center(
+            args.fixture_world_from_camera['translation'],
+            args.fixture_world_from_camera['quaternion'],
             args.fixture_center_from_camera_forward_m,
             args.center[2],
-            env,
+        )
+        args.fixture_camera_alignment_yaw_rad = _fixture_yaw_from_camera(
+            args.fixture_world_from_camera['quaternion'],
         )
         args.fixture_center_source = (
             f'{args.fixture_world_frame}->{args.fixture_camera_frame} camera_forward '
@@ -670,10 +1320,40 @@ def main() -> int:
             file=sys.stderr,
         )
     args.resolved_fixture_center = fixture_center
+    args.world_from_evaluation = None
+    if args.localization_evaluation_frame:
+        if args.fixture_world_equals_evaluation_world:
+            args.world_from_evaluation = {
+                'translation': (0.0, 0.0, 0.0),
+                'quaternion': (0.0, 0.0, 0.0, 1.0),
+            }
+        elif (
+            args.localization_evaluation_frame == args.fixture_camera_frame
+            and args.fixture_world_from_camera is not None
+        ):
+            args.world_from_evaluation = args.fixture_world_from_camera
+        else:
+            args.world_from_evaluation = _fixture_transform_from_camera(
+                args.isolated_container,
+                args.fixture_world_frame,
+                args.localization_evaluation_frame,
+                env,
+            )
+    run_started_monotonic = time.monotonic()
+    args.run_started_utc = datetime.now(timezone.utc).isoformat()
     with tempfile.TemporaryDirectory(prefix='hazardwalker_classic_evidence_') as temporary:
         work_dir = Path(temporary)
         for suite in selected:
             cases = list(build_suite(suite, fixture_center))
+            if args.fixture_world_from_camera is not None:
+                cases = [
+                    _yaw_align_case(
+                        item,
+                        fixture_center,
+                        args.fixture_camera_alignment_yaw_rad,
+                    )
+                    for item in cases
+                ]
             if args.case_id_regex:
                 pattern = re.compile(args.case_id_regex)
                 selected_cases = [item for item in cases if pattern.search(item.case_id)]
@@ -685,6 +1365,11 @@ def main() -> int:
             if args.case_limit > 0:
                 cases = cases[:args.case_limit]
             suite_dir = _suite_output_dir(args.output_root, suite, args.run_id)
+            _prepare_suite_output(
+                args.output_root,
+                suite_dir,
+                replace_existing=args.replace_stage_output,
+            )
             rows = []
             baseline_red_pixel_count = 0
             for case in cases:
@@ -697,7 +1382,7 @@ def main() -> int:
                     model_name = _spawn_case(args.isolated_container, case, work_dir, env)
                     time.sleep(args.settle_sec)
                     detector_process = _start_case_detector(
-                        args.detector_command, suite_dir / 'logs' / f'{case.case_id}_detector.log', env,
+                        args.detector_command, suite_dir / 'logs' / f'{case.case_id}_detector.txt', env,
                     )
                     if detector_process is not None:
                         time.sleep(args.detector_warmup_sec)
@@ -710,18 +1395,81 @@ def main() -> int:
                                 command_y, args.lateral_duration_sec, args.legal_motion_topic, env,
                             ))
                             snapshots.append(_capture_snapshot(case.case_id, view_index, suite_dir, args.detection_topic, env, args.capture_timeout_sec))
+                    elif suite == 'active_partial_reobservation':
+                        if not args.allow_control:
+                            raise RuntimeError(
+                                'B阶段主动复查必须加 --allow-control 并在独立容器内执行。'
+                            )
+                        if _read_legal_motion(args.legal_motion_topic, env) is None:
+                            raise RuntimeError(
+                                'B阶段主动复查缺少可读的合法SLAM位姿；禁止用 /hw/odom '
+                                '或Gazebo真值代替。'
+                            )
+                        if _partial_count(snapshots[0]) < 1:
+                            raise RuntimeError(
+                                '首帧没有黄色局部候选，不能把普通完整球横移测试冒充主动复查。'
+                            )
+                        blind_recovery_count = 0
+                        for view_index in range(1, args.max_reobservation_steps + 1):
+                            if _confirmed_count(snapshots[-1]) == 1:
+                                break
+                            recommendation = snapshots[-1].get(
+                                'view_recommendation', {},
+                            )
+                            if not isinstance(recommendation, dict):
+                                recommendation = {}
+                            action = str(recommendation.get('action', '')).strip()
+                            if action in ('', 'continue_exploring'):
+                                action = _bounded_lost_candidate_recovery(
+                                    motions, blind_recovery_count,
+                                )
+                                if not action:
+                                    raise RuntimeError(
+                                        '局部候选连续丢失且两步受限恢复无效，'
+                                        '不能继续盲目移动。'
+                                    )
+                                blind_recovery_count += 1
+                            else:
+                                blind_recovery_count = 0
+                            motions.append(_execute_reobservation_action(
+                                action,
+                                args.reobservation_action_duration_sec,
+                                args.legal_motion_topic,
+                                env,
+                                lateral_speed_mps=abs(args.lateral_speed_y),
+                                forward_speed_mps=args.reobservation_forward_speed_mps,
+                                turn_speed_radps=args.reobservation_turn_speed_radps,
+                            ))
+                            time.sleep(args.settle_sec)
+                            snapshots.append(_capture_snapshot(
+                                case.case_id,
+                                view_index,
+                                suite_dir,
+                                args.detection_topic,
+                                env,
+                                args.capture_timeout_sec,
+                            ))
                     if case.suite == 'partial_visibility' and case.metadata.get('visible_ratio_design') == 1.0:
                         baseline_red_pixel_count = _red_pixel_count(snapshots[0], suite_dir / 'images')
                     rows.append(_evaluate_case(
                         case, snapshots, motions, args.min_lateral_translation_m,
                         image_dir=suite_dir / 'images', baseline_red_pixel_count=baseline_red_pixel_count,
+                        localization_context={
+                            'truth_frame_id': 'fixture_world',
+                            'evaluation_frame_id': args.localization_evaluation_frame,
+                            'world_from_evaluation': args.world_from_evaluation,
+                        },
+                        max_localization_error_m=args.max_localization_error_m,
                     ))
                     edge_ratios = [_background_edge_ratio(item, suite_dir / 'images') for item in snapshots]
                     rows[-1]['background_edge_ratios'] = edge_ratios
-                    if any(value < args.min_background_edge_ratio for value in edge_ratios):
+                    if not _background_complexity_pass(
+                        suite, edge_ratios, args.min_background_edge_ratio,
+                    ):
                         rows[-1]['result'] = 'fail'
                         rows[-1]['criterion'] += (
-                            f'；背景结构边缘比例必须 >= {args.min_background_edge_ratio:.4f}，'
+                            f'；背景结构边缘比例门槛为 {args.min_background_edge_ratio:.4f}：'
+                            '主动序列首尾和至少半数帧必须通过，静态序列每帧通过，'
                             '防止近墙/空白画面充当复杂环境证据。'
                         )
                 except Exception as exc:
@@ -748,6 +1496,8 @@ def main() -> int:
                             ) + 'Gazebo 临时模型清理失败；为防止残留物污染，已中止该套件。'
                 if cleanup_failed:
                     break
+            args.run_finished_utc = datetime.now(timezone.utc).isoformat()
+            args.run_elapsed_sec = time.monotonic() - run_started_monotonic
             _write_suite_report(suite_dir, suite, rows, args)
     return 0
 

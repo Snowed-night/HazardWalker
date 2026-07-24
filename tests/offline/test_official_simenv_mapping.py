@@ -119,10 +119,7 @@ def test_official_controller_discovers_split_cuda_runtime_libraries():
 def test_official_headless_startup_reuses_display_and_cleans_only_stale_lock():
     """容器 restart 后不能因陈旧 X 锁静默丢失 RGB-D 插件。"""
 
-    for relative_path in (
-        'ros2_ws/src/hazardwalker_platform/auto.sh',
-        'ros2_ws/src/hazardwalker_platform/auto_noetic_headless.sh',
-    ):
+    for relative_path in ('ros2_ws/src/hazardwalker_platform/auto.sh',):
         source = (REPO_ROOT / relative_path).read_text(encoding='utf-8')
         assert 'SIMENV_HEADLESS_DISPLAY' in source
         assert 'display_is_ready()' in source
@@ -212,8 +209,9 @@ def test_rosbridge_fragment_contract_is_bounded_and_adapter_keeps_image_bytes():
     assert 'Latest TF rejected' in detector
     assert "'tf_synchronized': self._last_tf_synchronized" in detector
     assert "localization_provenance not in ('', 'unverified')" in detector
-
-
+    assert 'self.tracker.published_tracks()' in detector
+    assert "'raw_surface_depth_m': raw_surface_depth_m" in detector
+    assert "declare_parameter('max_rgb_depth_sync_delta_sec', 0.06)" in detector
 def test_official_full_stack_requires_an_exclusive_simenv_session():
     preflight = (REPO_ROOT / 'scripts' / 'check_official_simenv_exclusive_session.sh').read_text(encoding='utf-8')
     stack = (REPO_ROOT / 'scripts' / 'run_official_simenv_ros1_ros2_stack.sh').read_text(encoding='utf-8')
@@ -228,8 +226,9 @@ def test_official_full_stack_requires_an_exclusive_simenv_session():
     assert 'check_official_simenv_exclusive_session.sh' in stack
     assert 'bash "$ROOT/scripts/check_official_simenv_exclusive_session.sh"' in stack
     assert 'check_official_simenv_exclusive_session.sh' in direct
-    legacy_launcher = (REPO_ROOT / 'scripts' / 'run_official_simenv_ros1_adapter.sh').read_text(encoding='utf-8')
-    assert 'run_official_simenv_rosbridge_adapter.sh' in legacy_launcher
+    adapter_runner = (REPO_ROOT / 'scripts' / 'run_official_simenv_rosbridge_adapter.sh').read_text(
+        encoding='utf-8')
+    assert 'official_simenv_rosbridge_ros2_adapter_node.py' in adapter_runner
 
 
 def test_official_navigation_opens_main_entrance_via_public_service_only():
@@ -438,52 +437,117 @@ def test_stack_keeps_adapter_alive_while_business_launch_runs():
     assert 'min_laser_range: 0.40' in slam_config
 
 
-def test_legacy_topic_relay_cannot_forward_control_or_be_run_from_install():
-    setup_source = (
-        REPO_ROOT / 'ros2_ws' / 'src' / 'hazardwalker_platform' / 'setup.py'
-    ).read_text(encoding='utf-8')
-    relay_source = (
-        REPO_ROOT / 'ros2_ws' / 'src' / 'hazardwalker_platform' /
-        'hazardwalker_platform' / 'hw_topic_relay_node.py'
-    ).read_text(encoding='utf-8')
-    assert 'hw_topic_relay_node =' not in setup_source
-    assert '"/hw/cmd_vel"' not in relay_source
-    assert '"/cmd_vel"' not in relay_source
-    assert '"/Odometry_gazebo"' not in relay_source
-    assert '"/hw/Odometry_gazebo"' not in relay_source
-    assert 'TFMessage' not in relay_source
-
-
-def test_legacy_json_bridge_fails_closed_in_official_profile():
-    source = (REPO_ROOT / 'ros2_ws' / 'src' / 'hazardwalker_platform' / 'hw_bridge.py').read_text(
-        encoding='utf-8')
-    assert 'HAZARDWALKER_ENABLE_LEGACY_JSON_BRIDGE' in source
-    assert 'run_official_simenv_rosbridge_adapter.sh' in source
-    # PR #33 曾让已停用的历史管道重新转发控制，并用 Gazebo 里程计生成正式
-    # /tf。即使调用方显式打开历史诊断，它也必须保持只读且不能污染 SLAM。
-    assert 'def _cmd_forward_loop' not in source
-    assert "self._pub['/tf'].publish" not in source
-    assert "self._pub['/scan'].publish" not in source
-    assert "t == 'odom'" not in source
-    assert "t == 'tf'" not in source
-
-    pipe_source = (
-        REPO_ROOT / 'ros2_ws' / 'src' / 'hazardwalker_platform' /
-        'docker_pipe.py'
-    ).read_text(encoding='utf-8')
-    assert "Subscriber('/Odometry_gazebo'" not in pipe_source
-    assert "Subscriber('/tf'" not in pipe_source
-
-
-def test_legacy_compose_mounts_complete_workspace_and_fails_closed():
-    """旧 Compose 不得再用 tail 掩盖缺失入口，也不能默认启动错误 ROS2 桥。"""
+def test_compose_starts_the_complete_official_ros1_entry():
+    """Docker 必须调用含中继/rosbridge/控制门禁的唯一正式入口。"""
 
     source = (
         REPO_ROOT / 'ros2_ws' / 'src' / 'hazardwalker_platform' / 'docker' /
         'docker-compose.yml'
     ).read_text(encoding='utf-8')
     assert '${SIMENV_HOST_PATH:-..}:/home/ros/simenv_ws' in source
-    assert 'test -x ./auto_noetic_headless.sh' in source
-    assert 'exec ./auto_noetic_headless.sh' in source
+    assert 'test -x ./auto.sh' in source
+    assert 'exec ./auto.sh' in source
+    assert 'START_CONTROLLER: ${START_CONTROLLER:-1}' in source
+    assert 'SIMENV_AUTO_RL: ${SIMENV_AUTO_RL:-1}' in source
+    assert 'SIMENV_HEADLESS_MODE: ${SIMENV_HEADLESS_MODE:-move_base}' in source
+    assert 'START_ROSBRIDGE: ${START_ROSBRIDGE:-1}' in source
+    assert 'START_ODOM_RELAY: ${START_ODOM_RELAY:-1}' in source
+    assert 'healthcheck:' in source
+    assert 'pgrep -x junior_ctrl' in source
+    assert 'rosnode ping -c 1 /unitree_gazebo_servo' in source
+    assert 'rostopic info /cmd_vel' in source
+    assert '/unitree_gazebo_servo' in source
     assert 'tail -f /dev/null' not in source
-    assert 'START_ROS1_DYNAMIC_BRIDGE: ${START_ROS1_DYNAMIC_BRIDGE:-0}' in source
+    assert 'START_ROS1_DYNAMIC_BRIDGE' not in source
+    assert 'ros1_bridge.sh' not in source
+
+    dockerfile = (
+        REPO_ROOT / 'ros2_ws' / 'src' / 'hazardwalker_platform' / 'docker' /
+        'Dockerfile'
+    ).read_text(encoding='utf-8')
+    assert 'ros-noetic-rosbridge-server' in dockerfile
+    assert 'expect' in dockerfile
+    assert 'ros-foxy-ros1-bridge' not in dockerfile
+
+    entry = (
+        REPO_ROOT / 'ros2_ws' / 'src' / 'hazardwalker_platform' / 'auto.sh'
+    ).read_text(encoding='utf-8')
+    assert 'scripts/rosbridge_odom_relay.py' in entry
+    assert 'rosbridge_websocket.launch' in entry
+    assert r'\[HEADLESS_FSM\].*mode=move_base.*auto_rl=1' in entry
+    assert 'SIMENV_HEADLESS_MODE="${SIMENV_HEADLESS_MODE:-move_base}"' in entry
+    assert 'rostopic info /cmd_vel' in entry
+    assert 'Timed out waiting for /gazebo/unpause_physics.' in entry
+    assert 'Timed out waiting for /unitree_gazebo_servo to subscribe /cmd_vel.' in entry
+    assert 'Switched from fixed stand to RL' in entry
+    assert 'Controller physical /cmd_vel probe passed:' in entry
+    assert 'scripts/controller_motion_probe.py' in entry
+    assert 'CONTROLLER_PROBE_MIN_DISPLACEMENT_M' in entry
+    assert 'CONTROLLER_PROBE_MAX_DISPLACEMENT_M' in entry
+    assert 'CONTROLLER_PROBE_MIN_BASE_HEIGHT_M' in entry
+    assert 'CONTROLLER_RL_SETTLE_SEC' in entry
+    assert 'UNITREE_CTRL_DT="${UNITREE_CTRL_DT:-0.002}"' in entry
+    assert 'wait "$LAUNCH_PID"' in entry
+
+    docker_wrapper = (
+        REPO_ROOT / 'ros2_ws' / 'src' / 'hazardwalker_platform' /
+        'auto_docker.sh'
+    ).read_text(encoding='utf-8')
+    assert 'image)' in docker_wrapper
+    assert 'auto_noetic.sh" image' in docker_wrapper
+    assert 'source is newer than devel/lib/unitree_guide/junior_ctrl' in docker_wrapper
+    assert "./auto_docker.sh build force" in docker_wrapper
+
+    relay = (
+        REPO_ROOT / 'ros2_ws' / 'src' / 'hazardwalker_platform' / 'scripts' /
+        'rosbridge_odom_relay.py'
+    ).read_text(encoding='utf-8')
+    assert "default='/Odometry_gazebo'" in relay
+    assert "default='/hazardwalker/odom'" in relay
+
+
+def test_rl_controller_has_safe_cmd_vel_watchdog_and_thread_lifecycle():
+    """RL 控制器需安全读取速度，且线程重入、时钟冻结和退出均不得留下旧状态。"""
+
+    controller_root = (
+        REPO_ROOT / 'ros2_ws' / 'src' / 'hazardwalker_platform' / 'src' /
+        'unitree_guide' / 'unitree_guide' / 'unitree_guide'
+    )
+    rl_source = (
+        controller_root / 'src' / 'FSM' / 'State_RL_test.cpp'
+    ).read_text(encoding='utf-8')
+    base_source = (
+        controller_root / 'src' / 'FSM' / 'FSMState.cpp'
+    ).read_text(encoding='utf-8')
+    base_header = (
+        controller_root / 'include' / 'FSM' / 'FSMState.h'
+    ).read_text(encoding='utf-8')
+    rl_header = (
+        controller_root / 'include' / 'FSM' / 'State_RL_test.h'
+    ).read_text(encoding='utf-8')
+    move_base_source = (
+        controller_root / 'src' / 'FSM' / 'State_move_base.cpp'
+    ).read_text(encoding='utf-8')
+    fsm_source = (
+        controller_root / 'src' / 'FSM' / 'FSM.cpp'
+    ).read_text(encoding='utf-8')
+
+    assert 'void State_RL::run(){' in rl_source
+    assert 'nh.subscribe<geometry_msgs::Twist>("/cmd_vel",1' in rl_source
+    assert 'command_age_sec <= 0.5' in rl_source
+    assert 'std::chrono::steady_clock::now()' in rl_source
+    assert 'infer_thread_running.store(State_RL::RUNNING)' in rl_source
+    assert 'infer_thread.reset(new std::thread' in rl_source
+    assert 'stopWorkerThreads();' in rl_source
+    assert 'amp_obs_thread && amp_obs_thread->joinable()' in rl_source
+    assert 'std::lock_guard<std::mutex>' in rl_source
+    assert 'std::lock_guard<std::mutex>' in base_source
+    assert 'std::isfinite(msg->linear.x)' in base_source
+    assert 'std::mutex cmd_vel_mutex_' in base_header
+    assert 'std::chrono::steady_clock::time_point received_at' in base_header
+    assert 'std::atomic<uint8_t> infer_thread_running' in rl_header
+    assert 'std::unique_ptr<std::thread> amp_obs_thread' in rl_header
+    assert '_vx(0.0), _vy(0.0), _wz(0.0)' in move_base_source
+    assert '[HEADLESS_FSM] mode=' in fsm_source
+    assert 'Switched from ' in fsm_source
+    assert '_headlessStandDelaySec + _headlessRlDelaySec' in fsm_source

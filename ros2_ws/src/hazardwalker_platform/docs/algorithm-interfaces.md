@@ -2,23 +2,42 @@
 
 本文说明参赛算法常用的控制输入、状态输出和传感器接口。
 
+本轮控制链路与键盘规范修改人：负责人（姜晨）。
+
 ## 控制器状态切换
 
-`auto.sh` 默认以前台方式启动 `junior_ctrl`。该控制器仍遵循 Unitree 原有交互流程：
+正式 `auto_docker.sh up` 通过 `auto.sh` 在后台启动 `junior_ctrl`，由镜像内的 `expect` 发送 Unitree 原有
+交互序列并检查日志：
 
-- 键盘输入 `2`：站立。
-- 键盘输入 `6`：切换到 RL 模式。
-- RL 模式下订阅 `/cmd_vel`。
+- `2`：站立。
+- `6`：切换到 RL 模式。
+- 正式模式先确认日志出现 `[HEADLESS_FSM] mode=move_base auto_rl=1`，再解除物理暂停；
+  随后必须出现 `Switched from fixed stand to RL`，并由启动器的低速探针证明真实位移。
+  `/cmd_vel` 的唯一订阅者只证明 ROS 图连通，不能单独作为控制生效证据。
 
-如果 `CONTROLLER_FOREGROUND=0`，`junior_ctrl` 会在后台运行，键盘状态切换通常不可用，日志写入 `logs/junior_ctrl.log`。
+需要人工排障时可显式设置 `CONTROLLER_FOREGROUND=1 SIMENV_AUTO_RL=0`，再直接执行 `./auto.sh`。该模式不属于
+Docker 正式流程，也不能替代 RL 就绪验收。
 
 ## 最小控制接口
 
 | 接口 | 类型 | 说明 |
 |------|------|------|
-| `/cmd_vel` | `geometry_msgs/Twist` | 机器人速度指令输入 |
+| `/hw/cmd_vel` | `geometry_msgs/Twist` | 导航、键盘与业务层的唯一控制输入 |
+| `/cmd_vel` | `geometry_msgs/Twist` | ROS1 容器内控制输入，由适配器转发，不供业务节点直连 |
 
-`/cmd_vel` 在 RL 模式下生效。
+正式链路为 `/hw/cmd_vel → ROS2 适配器 → /cmd_vel → junior_ctrl(RL)`。`/cmd_vel`
+只有在 RL 模式下生效，适配器必须显式设置 `enable_cmd_vel_relay=true`。同一轮只能有一个最终
+速度发布者。
+
+负责人维护的键盘工具：
+
+```bash
+ros2 run hazardwalker_platform keyboard_control_node
+```
+
+按键为 `w` 前进、`s` 后退、`a` 左转、`d` 右转、`k` 立即停止。工具带短时命令超时和退出
+零速度；完整步骤见
+[导航组控制链路与键盘测试](../../../../docs/groups/nav/官方SimEnv控制链路与键盘测试.md)。
 
 ## 常用状态与传感器接口
 
@@ -39,14 +58,11 @@
 
 ## 控制周期
 
-`junior_ctrl` 原始控制周期为 `0.002 s`，即 500 Hz。当前 `auto.sh` 默认设置：
+`junior_ctrl` 当前验收控制周期为 `0.002 s`，即 500 Hz。`auto.sh` 默认设置：
 
 ```bash
-UNITREE_CTRL_DT=0.004
+UNITREE_CTRL_DT=0.002
 ```
 
-默认值即 250 Hz，通常更适合 Gazebo GUI、随机楼栋、传感器和 RL 推理同时运行的比赛场景。如机器性能充足，可显式恢复 500 Hz：
-
-```bash
-UNITREE_CTRL_DT=0.002 ./auto.sh
-```
+`0.004 s` 曾使 RL 动作与仿真动力学响应不稳定，因此不再作为正式默认值。出现
+`absoluteWait` warning 时先关闭 GUI、降低渲染或点云负载；修改控制周期后必须重新通过启动物理探针和完整控制验收。

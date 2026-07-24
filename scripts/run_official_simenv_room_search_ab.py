@@ -786,7 +786,7 @@ def _write_outputs(output_dir, test_record_dir, rows):
     )
     (test_record_dir / 'room_search_ab_testing_record.json').write_text(
         json.dumps({
-            'run_id': 'official_simenv_20260710_rgbd_active_multiview_room_search_ab',
+            'run_id': 'official_simenv_20260710_active_multiview_reobservation_room_search_ab',
             'environment': 'official SimEnv complex room with stabilized placeholder base',
             'case_count': len(rows),
             'pass_count': sum(row['result'] == 'pass' for row in rows),

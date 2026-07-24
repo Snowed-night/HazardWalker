@@ -99,6 +99,56 @@ def _make_valid_evidence(root):
     return result_path
 
 
+def _add_valid_active_reobservation_episode(root):
+    """在基础正式证据前加入一个局部候选，并让后续 track 保留候选别名。"""
+
+    frames = [
+        json.loads(line)
+        for line in (root / 'frames.jsonl').read_text(encoding='utf-8').splitlines()
+    ]
+    start_pose = {
+        'frame_id': 'world',
+        'position': {'x': 0.0, 'y': 0.0, 'z': 0.0},
+        'orientation': {'x': 0.0, 'y': 0.0, 'z': 0.0, 'w': 1.0},
+    }
+    moved_pose = {
+        'frame_id': 'world',
+        'position': {'x': 0.10, 'y': 0.0, 'z': 0.0},
+        'orientation': {'x': 0.0, 'y': 0.0, 'z': 0.0, 'w': 1.0},
+    }
+    partial = {
+        'timestamp_sec': 0.0,
+        'robot_pose': start_pose,
+        'detections_2d': [{
+            'id': 1,
+            'candidate_id': 'candidate-1',
+            'is_partial': True,
+            'requires_reobservation': True,
+            'confirmation_eligible': False,
+        }],
+        'hazards': [],
+        'view_recommendation': {
+            'target_id': 'candidate-1',
+            'action': 'move_left',
+        },
+        'evidence_image': '',
+        'evidence_depth': '',
+    }
+    for index, frame in enumerate(frames, start=1):
+        frame['timestamp_sec'] = float(index)
+        frame['robot_pose'] = moved_pose
+        frame['detections_2d'][0]['candidate_id'] = 'candidate-1'
+        frame['view_recommendation'] = {
+            'target_id': 'candidate-1',
+            'action': 'move_left' if index == 1 else 'hold_and_observe',
+        }
+        frame['hazards'][0]['candidate_ids'] = ['candidate-1']
+    (root / 'frames.jsonl').write_text(
+        ''.join(json.dumps(frame) + '\n' for frame in [partial] + frames),
+        encoding='utf-8',
+    )
+
+
 def test_validator_accepts_complete_structural_evidence():
     with tempfile.TemporaryDirectory() as temporary:
         root = Path(temporary)
@@ -109,6 +159,88 @@ def test_validator_accepts_complete_structural_evidence():
         assert report['errors'] == []
         assert report['rgb_evidence_count'] == 1
         assert report['depth_evidence_count'] == 1
+
+
+def test_active_reobservation_gate_accepts_partial_motion_and_same_target_confirmation():
+    with tempfile.TemporaryDirectory() as temporary:
+        root = Path(temporary)
+        result_path = _make_valid_evidence(root)
+        _add_valid_active_reobservation_episode(root)
+
+        report = validate(root, result_path, require_active_reobservation=True)
+
+        assert report['structural_evidence_complete'] is True
+        assert report['active_reobservation_required'] is True
+        assert report['errors'] == []
+
+
+def test_active_reobservation_gate_rejects_recommendation_without_actual_motion():
+    """控制建议发布成功但合法 SLAM 位姿不变时，不能冒充主动复查成功。"""
+
+    with tempfile.TemporaryDirectory() as temporary:
+        root = Path(temporary)
+        result_path = _make_valid_evidence(root)
+        _add_valid_active_reobservation_episode(root)
+        frames = [
+            json.loads(line)
+            for line in (root / 'frames.jsonl').read_text(encoding='utf-8').splitlines()
+        ]
+        for frame in frames[1:]:
+            frame['robot_pose'] = frames[0]['robot_pose']
+        (root / 'frames.jsonl').write_text(
+            ''.join(json.dumps(frame) + '\n' for frame in frames),
+            encoding='utf-8',
+        )
+
+        report = validate(root, result_path, require_active_reobservation=True)
+
+        assert report['structural_evidence_complete'] is False
+        assert 'no_complete_active_reobservation_episode' in report['errors']
+        assert 'no_observed_robot_motion' in report['errors']
+
+
+def test_active_reobservation_gate_rejects_complete_detection_without_partial_start():
+    with tempfile.TemporaryDirectory() as temporary:
+        root = Path(temporary)
+        result_path = _make_valid_evidence(root)
+
+        report = validate(root, result_path, require_active_reobservation=True)
+
+        assert report['structural_evidence_complete'] is False
+        assert 'no_partial_reobservation_start' in report['errors']
+
+
+def test_v2_validator_requires_paired_raw_and_annotated_rgb():
+    with tempfile.TemporaryDirectory() as temporary:
+        root = Path(temporary)
+        result_path = _make_valid_evidence(root)
+        manifest = json.loads(
+            (root / 'run_manifest.json').read_text(encoding='utf-8')
+        )
+        manifest['schema'] = 'hazardwalker_perception_official_evidence_v2'
+        _write_json(root / 'run_manifest.json', manifest)
+
+        missing_raw = validate(root, result_path)
+        assert missing_raw['structural_evidence_complete'] is False
+        assert 'no_raw_rgb_evidence' in missing_raw['errors']
+
+        raw_path = root / 'selected_images' / 'frame_raw.png'
+        raw_path.write_bytes(b'png')
+        frames = [
+            json.loads(line)
+            for line in (root / 'frames.jsonl').read_text(
+                encoding='utf-8'
+            ).splitlines()
+        ]
+        frames[-1]['evidence_raw_image'] = 'selected_images/frame_raw.png'
+        (root / 'frames.jsonl').write_text(
+            ''.join(json.dumps(frame) + '\n' for frame in frames),
+            encoding='utf-8',
+        )
+
+        complete = validate(root, result_path)
+        assert complete['structural_evidence_complete'] is True
+        assert complete['raw_rgb_evidence_count'] == 1
 
 
 def test_validator_rejects_missing_confirmation_and_truth_safe_contract():

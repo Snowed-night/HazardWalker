@@ -77,6 +77,7 @@ def build_dynamic_summary(records):
     confidences = [float(item.get('confidence', 0.0)) for item in detections]
     action_counts = Counter(item.get('action', 'unknown') for item in recommendations)
 
+    episode_metrics = build_reobservation_episode_metrics(records)
     return {
         'frame_count': len(records),
         'frames_with_candidates': sum(1 for record in records if record.get('detections_2d')),
@@ -85,11 +86,116 @@ def build_dynamic_summary(records):
         'confirmed_hazard_count': len(confirmed_ids),
         'average_confidence': round(sum(confidences) / len(confidences), 4) if confidences else 0.0,
         'view_action_counts': dict(sorted(action_counts.items())),
+        'reobservation_episode_count': episode_metrics['episode_count'],
+        'partial_start_episode_count': episode_metrics['partial_start_count'],
+        'resolved_confirmed_episode_count': episode_metrics[
+            'resolved_confirmed_count'
+        ],
+        'resolved_rejected_episode_count': episode_metrics[
+            'resolved_rejected_count'
+        ],
+        'incomplete_reobservation_episode_count': episode_metrics[
+            'incomplete_count'
+        ],
+        'candidate_to_confirmation_latency_sec': episode_metrics[
+            'candidate_to_confirmation_latency_sec'
+        ],
+        'reobservation_episodes': episode_metrics['episodes'],
         'ground_truth_available': False,
         'limitations': [
             '未提供逐帧真值时，不计算识别率、虚警率、定位误差。',
             '三维定位结果需在相机内参、对齐深度和 TF 坐标链均可用时再作结论。',
         ],
+    }
+
+
+def build_reobservation_episode_metrics(records):
+    """重建“候选→复查动作→确认/拒绝”闭环，不依赖场景真值。
+
+    连续帧中同一 ``target_id`` 的靠近、转向、横移与停稳观察属于同一 episode。
+    只有感知载荷里的实际 ``confirmed``/``rejected`` 轨迹才能关闭 episode；记录
+    结束仍未闭环的请求明确计为 incomplete，避免把“发过动作建议”包装成成功。
+    """
+
+    episodes = []
+    active = None
+    for frame_index, record in enumerate(records):
+        stamp_sec = _record_stamp_sec(record, frame_index)
+        recommendation = record.get('view_recommendation', {})
+        action = str(recommendation.get('action', '')).strip()
+        target_id = _canonical_target_id(recommendation.get('target_id'))
+        has_request = (
+            action
+            and action not in ('continue_exploring', 'unknown')
+            and bool(target_id)
+        )
+
+        if has_request and (
+            active is None or active['target_id'] != target_id
+        ):
+            if active is not None:
+                active['end_stamp_sec'] = stamp_sec
+                episodes.append(active)
+            active = {
+                'target_id': target_id,
+                'start_stamp_sec': stamp_sec,
+                'end_stamp_sec': stamp_sec,
+                'initial_partial': _target_is_partial(record, target_id),
+                'actions': [],
+                'outcome': 'incomplete',
+                'resolution_stamp_sec': None,
+                'candidate_to_resolution_latency_sec': None,
+            }
+        if active is not None:
+            active['end_stamp_sec'] = stamp_sec
+            if has_request and target_id == active['target_id']:
+                if not active['actions'] or active['actions'][-1] != action:
+                    active['actions'].append(action)
+            outcome = _target_resolution(record, active['target_id'])
+            if outcome:
+                active['outcome'] = outcome
+                active['resolution_stamp_sec'] = stamp_sec
+                active['candidate_to_resolution_latency_sec'] = round(
+                    max(0.0, stamp_sec - active['start_stamp_sec']), 4,
+                )
+                episodes.append(active)
+                active = None
+
+    if active is not None:
+        episodes.append(active)
+
+    confirmed_latencies = [
+        item['candidate_to_resolution_latency_sec']
+        for item in episodes
+        if (
+            item['outcome'] == 'confirmed'
+            and item['candidate_to_resolution_latency_sec'] is not None
+        )
+    ]
+    return {
+        'episode_count': len(episodes),
+        'partial_start_count': sum(
+            1 for item in episodes if item['initial_partial']
+        ),
+        'resolved_confirmed_count': sum(
+            1 for item in episodes if item['outcome'] == 'confirmed'
+        ),
+        'resolved_rejected_count': sum(
+            1 for item in episodes if item['outcome'] == 'rejected'
+        ),
+        'incomplete_count': sum(
+            1 for item in episodes if item['outcome'] == 'incomplete'
+        ),
+        'candidate_to_confirmation_latency_sec': {
+            'count': len(confirmed_latencies),
+            'mean': (
+                round(sum(confirmed_latencies) / len(confirmed_latencies), 4)
+                if confirmed_latencies else None
+            ),
+            'max': round(max(confirmed_latencies), 4)
+            if confirmed_latencies else None,
+        },
+        'episodes': episodes,
     }
 
 
@@ -109,5 +215,75 @@ def build_dynamic_testing_record(summary, scenario, notes=''):
         'total_candidate_count': int(summary.get('total_candidate_count', 0)),
         'localized_candidate_count': int(summary.get('localized_candidate_count', 0)),
         'view_action_counts': summary.get('view_action_counts', {}),
+        'reobservation_episode_count': int(
+            summary.get('reobservation_episode_count', 0)
+        ),
+        'resolved_confirmed_episode_count': int(
+            summary.get('resolved_confirmed_episode_count', 0)
+        ),
+        'incomplete_reobservation_episode_count': int(
+            summary.get('incomplete_reobservation_episode_count', 0)
+        ),
         'notes': notes or '未提供真值，不计算识别率、漏检率、虚警率和定位误差。',
     }
+
+
+def _record_stamp_sec(record, fallback):
+    """读取记录时间；损坏或缺失时使用单调帧序号，保证汇总可生成。"""
+
+    try:
+        value = float(record.get('timestamp_sec'))
+    except (TypeError, ValueError):
+        value = float(fallback)
+    return value
+
+
+def _canonical_target_id(value):
+    text = str(value or '').strip()
+    return text.split(':', 1)[1] if text.startswith('untracked:') else text
+
+
+def _target_is_partial(record, target_id):
+    """判断 episode 首帧目标是否来自局部可见/强制复查候选。"""
+
+    expected = _canonical_target_id(target_id)
+    for detection in record.get('detections_2d', []):
+        if not isinstance(detection, dict):
+            continue
+        identities = (
+            detection.get('id'),
+            detection.get('track_id'),
+            detection.get('candidate_id'),
+        )
+        if expected not in {
+            _canonical_target_id(value) for value in identities
+        }:
+            continue
+        return bool(
+            detection.get('is_partial')
+            or detection.get('requires_reobservation')
+        )
+    return False
+
+
+def _target_resolution(record, target_id):
+    """返回当前帧同目标的 confirmed/rejected，其他状态返回空串。"""
+
+    expected = _canonical_target_id(target_id)
+    for hazard in record.get('hazards', []):
+        if not isinstance(hazard, dict):
+            continue
+        identities = [hazard.get('id'), hazard.get('track_id')]
+        aliases = hazard.get('candidate_ids', [])
+        if isinstance(aliases, (list, tuple)):
+            identities.extend(aliases)
+        if expected not in {
+            _canonical_target_id(value) for value in identities
+        }:
+            continue
+        status = str(hazard.get('status', '')).strip()
+        if status == 'confirmed':
+            return 'confirmed'
+        if status in ('rejected', 'rejected_non_spherical'):
+            return 'rejected'
+    return ''

@@ -5,7 +5,9 @@
 #define STATE_RL_TEST_H
 
 #include "FSM/FSMState.h"
+#include <atomic>
 #include <fstream>  // 包含文件流的头文件
+#include <memory>
 #include <thread>
 #include <string>
 #include <torch/torch.h>
@@ -15,7 +17,7 @@ class State_RL : public FSMState{
 
 public:
     State_RL(CtrlComponents *ctrlComp);
-    ~State_RL(){}
+    ~State_RL();
     void enter();
     void run();
     void exit();
@@ -27,6 +29,7 @@ public:
     void save_amp_obs_thread();
     void open_amp_save_file();
     void close_amp_save_file();
+    void stopWorkerThreads();
     void load_policy();
     void printSegments(const torch::Tensor& tensor, int segment_size, const std::vector<int>& sub_sizes);
     void printTensorHorizontal(const torch::Tensor& tensor, const std::string& name);
@@ -90,10 +93,10 @@ private:
     torch::Tensor obs_history_tensor = torch::zeros({HISTORY_LEN, 45});
     long long dofPosSwitBeginTime = 0.0;//关节位置切换开始时间
     float motion_time = 0.0;
-    std::thread* infer_thread;
-    std::thread* amp_obs_thread;
-    uint8_t infer_thread_runnning=false;
-    uint8_t ampthreadRunning=false;
+    std::unique_ptr<std::thread> infer_thread;
+    std::unique_ptr<std::thread> amp_obs_thread;
+    std::atomic<uint8_t> infer_thread_running{State_RL::STOP};
+    std::atomic<uint8_t> amp_thread_running{State_RL::STOP};
     float infer_duration = 0.02;
     float amp_duration = 0.005;
 };

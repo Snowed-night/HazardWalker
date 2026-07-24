@@ -7,10 +7,13 @@
 ## HazardWalker 官方适配覆盖层
 
 本目录还包含 `hazardwalker_platform/official_simenv_mapping.py`，用于约束 HazardWalker 对官方 ROS1
-Noetic + Gazebo Classic 环境的稳定 `/hw/*` 接口。官方场景不复用本地 `ros_gz_bridge.yaml`：应启动容器内
-ROS1 中继和 `ros1_bridge dynamic_bridge`，并按
-`docs/environment/官方SimEnv_ROS1_ROS2双向适配整改_20260714.md` 完成 ROS1 直连控制、传感器和跨栈控制
-的逐段验收后，才运行业务闭环。
+Noetic + Gazebo Classic 环境的稳定 `/hw/*` 接口。官方场景不复用本地 `ros_gz_bridge.yaml`：当前接入通过容器
+`rosbridge_websocket` 与 ROS2 适配器完成，不能假设容器内存在 `ros1_bridge dynamic_bridge`。启动、传感器与控制
+验收应按 [`docs/guidebook/官方SimEnv平台环境使用手册.md`](../../../docs/guidebook/官方SimEnv平台环境使用手册.md)
+逐段完成后，才运行业务闭环。
+
+负责人统一的导航控制、W/S/A/D/K 键盘与安全停止流程见
+[`docs/groups/nav/官方SimEnv控制链路与键盘测试.md`](../../../docs/groups/nav/官方SimEnv控制链路与键盘测试.md)。
 
 ## 选手快速入口
 
@@ -58,9 +61,13 @@ source ./devel/setup.bash
 | `/camera/image_raw` | `sensor_msgs/Image` | 前视 RGB 图像 |
 | `/real_sense/depth/points` | `sensor_msgs/PointCloud2` | 深度相机点云 |
 
-共享场景的 `junior_ctrl` 默认以前台方式启动。headless 验收已验证的入口为先以
-`START_CONTROLLER=0` 启动场景、再单独以 `SIMENV_AUTO_RL=1` 启动控制器；终端手动模式可输入 `2` 进入
-站立状态、输入 `6` 切换到 RL 模式。每轮控制验收必须独占 ROS master，避免遗留 `/cmd_vel` 发布者污染结果。
+正式 Docker 链路由 `auto_docker.sh up` 调用 `auto.sh`：它固定启动 `junior_ctrl`、确认官方已编译控制器的
+headless-RL 配置后解除物理暂停，等待状态机实际进入 RL，并以低速 `/cmd_vel` 探针验证 A1
+产生有限真实位移且没有倒地，再启动
+`/hazardwalker/odom` 中继和 rosbridge。手工启动 `junior_ctrl` 只允许诊断，不能作为控制就绪证据。每轮控制
+验收必须独占 ROS master，避免遗留 `/cmd_vel` 发布者污染结果。
+修改 `src/unitree_guide/` 后必须先执行 `./auto_docker.sh build force`；若源码比
+`devel/lib/unitree_guide/junior_ctrl` 新，`auto_docker.sh up` 会拒绝复用旧二进制并给出重编提示。
 完整接口见 [算法接入接口](docs/algorithm-interfaces.md)。
 
 ## 结果文件

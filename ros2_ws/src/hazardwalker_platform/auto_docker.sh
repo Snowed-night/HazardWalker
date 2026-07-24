@@ -22,7 +22,8 @@ if [[ ! -d "$ROOT/src" ]]; then
   exit 1
 fi
 
-chmod +x "$ROOT/docker/auto_noetic.sh" "$ROOT/docker/build_catkin.sh" 2>/dev/null || true
+chmod +x "$ROOT/auto.sh" "$ROOT/scripts/rosbridge_odom_relay.py" \
+  "$ROOT/docker/auto_noetic.sh" "$ROOT/docker/build_catkin.sh" 2>/dev/null || true
 
 case "${1:-up}" in
   build)
@@ -42,6 +43,16 @@ case "${1:-up}" in
     if [[ ! -f "$ROOT/devel/setup.bash" ]]; then
       echo "WARN: devel/setup.bash not found — run './auto_docker.sh build' first (or rsync devel/ from platform)."
     fi
+    controller_binary="$ROOT/devel/lib/unitree_guide/junior_ctrl"
+    controller_source_root="$ROOT/src/unitree_guide"
+    if [[ -x "$controller_binary" && -d "$controller_source_root" ]] &&
+       find "$controller_source_root" -type f \
+         \( -name '*.cpp' -o -name '*.h' -o -name 'CMakeLists.txt' -o -name 'package.xml' \) \
+         -newer "$controller_binary" -print -quit | grep -q .; then
+      echo "ERROR: unitree_guide source is newer than devel/lib/unitree_guide/junior_ctrl." >&2
+      echo "Run './auto_docker.sh build force' before './auto_docker.sh up'." >&2
+      exit 1
+    fi
     exec "$ROOT/docker/auto_noetic.sh" up
     ;;
   down|stop)
@@ -56,8 +67,12 @@ case "${1:-up}" in
   status)
     exec "$ROOT/docker/auto_noetic.sh" status
     ;;
+  image)
+    # 仅重建镜像；`--no-cache` 等参数原样转交，供平台管理员执行干净验收。
+    exec "$ROOT/docker/auto_noetic.sh" image "${@:2}"
+    ;;
   *)
-    echo "Usage: $0 {build|up|down|logs|shell|status}" >&2
+    echo "Usage: $0 {build|image|up|down|logs|shell|status}" >&2
     exit 1
     ;;
 esac

@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# 官方 SimEnv Docker 的唯一正式 ROS1 启动链路。
+# 依次启动 Gazebo、控制器、/hazardwalker/odom 最新值中继和 rosbridge；本脚本不把
+# Gazebo 里程计包装成 SLAM 真值，/hazardwalker/odom 仅供平台诊断适配。
 set -euo pipefail
 
 WORKSPACE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -17,15 +20,31 @@ START_CONTROLLER="${START_CONTROLLER:-1}"
 START_VIRTUAL_JOY="${START_VIRTUAL_JOY:-0}"
 START_ROSBRIDGE="${START_ROSBRIDGE:-1}"
 START_ODOM_RELAY="${START_ODOM_RELAY:-1}"
-CONTROLLER_FOREGROUND="${CONTROLLER_FOREGROUND:-1}"
+CONTROLLER_FOREGROUND="${CONTROLLER_FOREGROUND:-0}"
+SIMENV_AUTO_RL="${SIMENV_AUTO_RL:-1}"
+# 已编译的官方控制器仅在 move_base headless 模式下把 /cmd_vel 接入 RL 行走状态。
+# 不能只设置 SIMENV_AUTO_RL，否则节点会存在却不对速度命令产生有效运动。
+SIMENV_HEADLESS_MODE="${SIMENV_HEADLESS_MODE:-move_base}"
 START_BUILDING_CONTROL="${START_BUILDING_CONTROL:-1}"
-UNITREE_CTRL_DT="${UNITREE_CTRL_DT:-0.004}"
+UNITREE_CTRL_DT="${UNITREE_CTRL_DT:-0.002}"
 AUTO_UNPAUSE_AFTER_CONTROLLER="${AUTO_UNPAUSE_AFTER_CONTROLLER:-1}"
 CONTROLLER_SENSOR_READY_TIMEOUT_SEC="${CONTROLLER_SENSOR_READY_TIMEOUT_SEC:-5}"
 # GUI=false 只禁用 gzclient；相机与激光的 headless 渲染仍由 Xvfb 提供软件 GL。
 GAZEBO_HEADLESS="${GAZEBO_HEADLESS:-false}"
 # 后台控制器必须完成 FSM 初始化后再解除暂停，避免 A1 在接管前跌倒。
 CONTROLLER_READY_TIMEOUT_SEC="${CONTROLLER_READY_TIMEOUT_SEC:-60}"
+# 自动控制器使用当前已编译 Unitree 控制器的 SIMENV_AUTO_RL headless 模式。
+# 伪终端只为兼容其键盘接口；不能在物理暂停前等待“状态切换”日志，否则状态机没有
+# 仿真步进机会而会形成启动死锁。
+CONTROLLER_AUTO_STAND_DELAY_SEC="${CONTROLLER_AUTO_STAND_DELAY_SEC:-5}"
+CONTROLLER_AUTO_RL_DELAY_SEC="${CONTROLLER_AUTO_RL_DELAY_SEC:-2}"
+VERIFY_CONTROLLER_MOTION="${VERIFY_CONTROLLER_MOTION:-1}"
+CONTROLLER_RL_SETTLE_SEC="${CONTROLLER_RL_SETTLE_SEC:-3.0}"
+CONTROLLER_PROBE_SPEED_MPS="${CONTROLLER_PROBE_SPEED_MPS:-0.30}"
+CONTROLLER_PROBE_DURATION_SEC="${CONTROLLER_PROBE_DURATION_SEC:-3.0}"
+CONTROLLER_PROBE_MIN_DISPLACEMENT_M="${CONTROLLER_PROBE_MIN_DISPLACEMENT_M:-0.05}"
+CONTROLLER_PROBE_MAX_DISPLACEMENT_M="${CONTROLLER_PROBE_MAX_DISPLACEMENT_M:-1.00}"
+CONTROLLER_PROBE_MIN_BASE_HEIGHT_M="${CONTROLLER_PROBE_MIN_BASE_HEIGHT_M:-0.30}"
 # 等仿真时钟稳定后再启动 rosbridge，避免新客户端收到启动期陈旧队列。
 ROSBRIDGE_START_AFTER_SIM_TIME_SEC="${ROSBRIDGE_START_AFTER_SIM_TIME_SEC:-1}"
 ROBOT_X="${ROBOT_X:-0.0}"
@@ -192,6 +211,21 @@ roslaunch unitree_guide multi_floor_gazeboSim.launch \
 LAUNCH_PID=$!
 echo "$LAUNCH_PID" > "$WORKSPACE_DIR/logs/competition_gazebo.pid"
 
+# paused 模式同样必须等 Gazebo 服务真正注册；固定 sleep 会在冷启动或重启后偶发
+# 早于 gzserver 就绪，继而使解除暂停失败并退出整个容器。
+gazebo_ready_deadline=$((SECONDS + CONTROLLER_READY_TIMEOUT_SEC))
+until rosservice info /gazebo/unpause_physics >/dev/null 2>&1; do
+  if ! kill -0 "$LAUNCH_PID" 2>/dev/null; then
+    echo "Gazebo launch exited before /gazebo/unpause_physics became available." >&2
+    exit 1
+  fi
+  if [ "$SECONDS" -ge "$gazebo_ready_deadline" ]; then
+    echo "Timed out waiting for /gazebo/unpause_physics." >&2
+    exit 1
+  fi
+  sleep 0.2
+done
+
 # 非暂停启动时先取得真实关节状态；暂停 profile 只需让服务完成注册。
 if [ "$START_CONTROLLER" = "1" ] && [ "$PAUSED" != "true" ]; then
   echo "Waiting for the first A1 joint-state sample before starting controller..."
@@ -219,26 +253,61 @@ if [ "$START_CONTROLLER" = "1" ]; then
     echo "UNITREE_CTRL_DT=$UNITREE_CTRL_DT seconds."
     echo "Use keyboard input in this terminal: 2 = stand, 6 = RL mode."
     "$WORKSPACE_DIR/devel/lib/unitree_guide/junior_ctrl"
-  else
-    echo "Starting junior_ctrl controller in the background. Keyboard state switching may not be available."
-    echo "UNITREE_CTRL_DT=$UNITREE_CTRL_DT seconds."
-    "$WORKSPACE_DIR/devel/lib/unitree_guide/junior_ctrl" \
-      > "$WORKSPACE_DIR/logs/junior_ctrl.log" 2>&1 &
+  elif [ "$SIMENV_AUTO_RL" = "1" ]; then
+    if ! command -v expect >/dev/null 2>&1; then
+      echo "expect is missing; the image is incomplete and cannot certify RL control." >&2
+      exit 1
+    fi
+    export CONTROLLER_BINARY="$WORKSPACE_DIR/devel/lib/unitree_guide/junior_ctrl"
+    export SIMENV_HEADLESS_MODE
+    export CONTROLLER_AUTO_STAND_DELAY_SEC CONTROLLER_AUTO_RL_DELAY_SEC
+    echo "Starting junior_ctrl with formal headless RL mode..."
+    expect -c '
+      set timeout -1
+      log_user 1
+      # Debian/Noetic 自带 expect 不接受 spawn 的 GNU 风格 "--"；直接传绝对路径。
+      spawn -noecho $env(CONTROLLER_BINARY)
+      after [expr {$env(CONTROLLER_AUTO_STAND_DELAY_SEC) * 1000}]
+      send -- "2\r"
+      after [expr {$env(CONTROLLER_AUTO_RL_DELAY_SEC) * 1000}]
+      send -- "6\r"
+      expect eof
+    ' > "$WORKSPACE_DIR/logs/junior_ctrl.log" 2>&1 &
     echo $! > "$WORKSPACE_DIR/logs/junior_ctrl.pid"
 
     controller_deadline=$((SECONDS + CONTROLLER_READY_TIMEOUT_SEC))
-    until grep -q '\[HEADLESS_FSM\]' "$WORKSPACE_DIR/logs/junior_ctrl.log" 2>/dev/null; do
+    until grep -q '\[HEADLESS_FSM\].*mode=move_base.*auto_rl=1' \
+        "$WORKSPACE_DIR/logs/junior_ctrl.log" 2>/dev/null; do
       if ! kill -0 "$(cat "$WORKSPACE_DIR/logs/junior_ctrl.pid")" 2>/dev/null; then
-        echo "junior_ctrl exited before FSM initialization." >&2
+        echo "junior_ctrl exited before entering headless RL mode; see logs/junior_ctrl.log." >&2
         exit 1
       fi
       if [ "$SECONDS" -ge "$controller_deadline" ]; then
-        echo "Timed out waiting for junior_ctrl FSM initialization." >&2
+        echo "Timed out waiting for junior_ctrl headless RL mode; refusing control-ready status." >&2
         exit 1
       fi
       sleep 0.2
     done
-    echo "junior_ctrl FSM is ready."
+    # 日志只证明控制器解析了 headless 参数；若节点随后退出、重名节点尚未注册，
+    # 或 move_base 订阅没有建立，/cmd_vel 仍会显示 Subscribers: None。正式入口
+    # 必须同时验证 ROS 图中的真实订阅者，不能把一行旧日志当作控制就绪证据。
+    until rostopic info /cmd_vel 2>/dev/null \
+        | grep -Eq '^[[:space:]]*\*[[:space:]]+/unitree_gazebo_servo[[:space:]]'; do
+      if ! kill -0 "$(cat "$WORKSPACE_DIR/logs/junior_ctrl.pid")" 2>/dev/null; then
+        echo "junior_ctrl exited before /cmd_vel subscription became ready." >&2
+        exit 1
+      fi
+      if [ "$SECONDS" -ge "$controller_deadline" ]; then
+        echo "Timed out waiting for /unitree_gazebo_servo to subscribe /cmd_vel." >&2
+        exit 1
+      fi
+      sleep 0.2
+    done
+    echo "junior_ctrl headless RL mode and /cmd_vel subscription are ready; physics can now unpause."
+  else
+    echo "Background junior_ctrl without SIMENV_AUTO_RL=1 cannot prove RL mode." >&2
+    echo "Use CONTROLLER_FOREGROUND=1 for manual diagnosis, or SIMENV_AUTO_RL=1 for formal startup." >&2
+    exit 1
   fi
 fi
 
@@ -251,6 +320,61 @@ if [ "$PAUSED" = "true" ] && [ "$START_CONTROLLER" = "1" ] \
     echo "Failed to unpause Gazebo after controller startup." >&2
     exit 1
   }
+fi
+
+if [ "$START_CONTROLLER" = "1" ] && [ "$SIMENV_AUTO_RL" = "1" ]; then
+  # 初始化日志只表示 headless 参数已生效；必须等状态机实际进入 RL，订阅者存在本身
+  # 不能证明回调被处理。
+  controller_state_deadline=$((SECONDS + CONTROLLER_READY_TIMEOUT_SEC))
+  until grep -q 'Switched from fixed stand to RL' \
+      "$WORKSPACE_DIR/logs/junior_ctrl.log" 2>/dev/null; do
+    if ! kill -0 "$(cat "$WORKSPACE_DIR/logs/junior_ctrl.pid")" 2>/dev/null; then
+      echo "junior_ctrl exited before entering the active RL state." >&2
+      exit 1
+    fi
+    if [ "$SECONDS" -ge "$controller_state_deadline" ]; then
+      echo "Timed out waiting for junior_ctrl to enter the active RL state." >&2
+      exit 1
+    fi
+    sleep 0.2
+  done
+
+  if [ "$VERIFY_CONTROLLER_MOTION" = "1" ]; then
+    # RL 推理线程需完成历史观测初始化；刚切换状态就发速度会被初始化阶段吞掉。
+    sleep "$CONTROLLER_RL_SETTLE_SEC"
+    read_odom_pose() {
+      timeout 10 rostopic echo -n 1 /Odometry_gazebo |
+        awk '
+          /^pose:/{in_pose=1; next}
+          in_pose && /^  pose:/{in_pose_pose=1; next}
+          in_pose_pose && /^    position:/{in_position=1; next}
+          in_position && /^      x:/{x=$2; next}
+          in_position && /^      y:/{y=$2; next}
+          in_position && /^      z:/{print x, y, $2; exit}
+        '
+    }
+    read -r probe_x_before probe_y_before probe_z_before < <(read_odom_pose)
+    python3 "$WORKSPACE_DIR/scripts/controller_motion_probe.py" \
+      --speed-mps "$CONTROLLER_PROBE_SPEED_MPS" \
+      --duration-sec "$CONTROLLER_PROBE_DURATION_SEC"
+    sleep 1
+    read -r probe_x_after probe_y_after probe_z_after < <(read_odom_pose)
+    probe_displacement="$(
+      python3 -c 'import math,sys; print(math.hypot(float(sys.argv[3])-float(sys.argv[1]), float(sys.argv[4])-float(sys.argv[2])))' \
+        "$probe_x_before" "$probe_y_before" "$probe_x_after" "$probe_y_after"
+    )"
+    if ! python3 -c '
+import sys
+distance, minimum, maximum, height, min_height = map(float, sys.argv[1:])
+raise SystemExit(0 if minimum <= distance <= maximum and height >= min_height else 1)
+' "$probe_displacement" "$CONTROLLER_PROBE_MIN_DISPLACEMENT_M" \
+        "$CONTROLLER_PROBE_MAX_DISPLACEMENT_M" "$probe_z_after" \
+        "$CONTROLLER_PROBE_MIN_BASE_HEIGHT_M"; then
+      echo "Controller probe failed: displacement=${probe_displacement}m, base_z=${probe_z_after}m." >&2
+      exit 1
+    fi
+    echo "Controller physical /cmd_vel probe passed: ${probe_displacement}m, base_z=${probe_z_after}m."
+  fi
 fi
 
 # 正式 rosbridge 必须在控制器、当前里程计和 /clock 稳定后启动。
@@ -289,9 +413,10 @@ if [ "$START_ROSBRIDGE" = "1" ]; then
   echo $! > "$WORKSPACE_DIR/logs/rosbridge.pid"
 fi
 
-echo "Simulation startup command completed."
-if [ "${SIMENV_AUTO_RL:-0}" = "1" ]; then
-  echo "SIMENV_AUTO_RL=1: controller entered RL mode without keyboard interaction."
-else
-  echo "Controller mode remains governed by unitree_guide keyboard/joy input."
+echo "Simulation startup completed; keeping Docker main process attached to Gazebo."
+if [ "$START_CONTROLLER" = "1" ] && [ "$SIMENV_AUTO_RL" = "1" ]; then
+  echo "Headless RL state and physical /cmd_vel response were verified."
 fi
+# Docker 以本脚本为 PID 1。等待 roslaunch 退出可避免“脚本结束但 Gazebo/中继被
+# Docker 回收”的脱节；容器停止时 Docker 会向同一进程组发送终止信号。
+wait "$LAUNCH_PID"

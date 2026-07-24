@@ -1,0 +1,11 @@
+{
+  "delivery_stage": "20260705",
+  "canonical_experiment_category": "multi_ball_clutter",
+  "original_directory": "official_simenv_20260705_multi_red",
+  "source_commit": "437d8c6",
+  "restored_from_commit": "fd1fd21",
+  "classification_status": "verified",
+  "classification_basis": ["git_commit", "README", "summary.json", "testing_record"],
+  "raw_source_status": "raw_source_missing",
+  "note": "历史 selected_cases 引用的部分 selected_images 未提交，现有文件原样保留。"
+}

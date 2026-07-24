@@ -6,18 +6,13 @@ HazardWalker 是面向 DG-202602 “基于四足机器人的危险源自主搜�
 
 ## Repository Structure
 
-当前已有分支结构：
+分支约定：
 
 ```text
 main                 稳定版本，只放可演示、可提交版本
 dev                  日常集成版本
-feature/offline-algorithm-tests 当前最小 demo 和离线算法测试
-feature/platform     平台与仿真开发
-feature/nav          导航探索开发
-feature/perception   感知定位开发
-feature/decision     决策状态机开发
-feature/test         测试脚本开发
-docs/report          文档材料开发
+feature/<group>-<topic> 平台、导航、感知、决策、测试等功能开发
+docs/<topic>         文档、报告、答辩材料开发
 fix/xxx              Bug 修复
 ```
 
@@ -57,16 +52,18 @@ hazardwalker_msgs         自定义消息定义
 - 修改某个 ROS 2 包、脚本、配置、测试或文档目录时，同步更新对应目录下的 `README.md`。
 - 如果确认 README 不需要改动，需要在提交说明或 PR 中写明原因。
 
-官方 SimEnv（ROS1 Noetic + Gazebo Classic）与本地 Gazebo Harmonic profile 的平台接口不可混用：业务节点始终
-使用 `/hw/*`，官方接入由 ROS1 中继和 `ros1_bridge dynamic_bridge` 完成。官方运行、控制和 RGB-D 验收说明见
-[`docs/environment/官方SimEnv_ROS1_ROS2双向适配整改_20260714.md`](docs/environment/官方SimEnv_ROS1_ROS2双向适配整改_20260714.md)。
+官方 SimEnv（ROS1 Noetic + Gazebo Classic）与早期本地 Gazebo Harmonic 方案不可混用：业务节点始终使用
+`/hw/*`，当前官方接入经容器 `rosbridge_websocket` 与 ROS2 适配器完成，不依赖容器内的 `ros1_bridge dynamic_bridge`。
+官方运行、控制和 RGB-D 验收说明见
+[`docs/guidebook/官方SimEnv平台环境使用手册.md`](docs/guidebook/官方SimEnv平台环境使用手册.md)。
 
 新增代码文件时，需要在文件首部注明本文件的作用，建议包含所属小组、文件职责、当前实现边界和验证方式。重要模块、重要类和重要函数需要有简明注释或 docstring，说明输入、输出、关键逻辑和后续扩展点。注释应帮助成员理解代码，不写重复代码本身含义的空泛说明。
 
-## 当前最小 demo
+## 早期最小 demo（历史基线）
 
-仓库当前正在实现最小闭环 demo，目标是先把平台、感知、导航、决策和结果输出串起来。
-最小 demo 是接口和启动流程的验证线，不是最终比赛方案。各组从初期就要同步推进 Gazebo/官方平台适配、Frontier/SLAM/Nav2、点云三维定位、完整 FSM 和指标统计；YOLO/NBV、主动重观察等增强模块先做小实验，再按收益接入主流程。
+仓库保留最小闭环 demo，用于本地接口和启动流程回归；它不是官方比赛环境、未知楼宇探索或最终评测方案。`fake_platform_node`、固定航点与本地 Harmonic 配置不得替代当前官方 SimEnv 链路。
+
+当前官方平台操作以 [`docs/guidebook/官方SimEnv平台环境使用手册.md`](docs/guidebook/官方SimEnv平台环境使用手册.md) 为准；早期设计与文件说明见 [`docs/history/project_early/`](docs/history/project_early/)。
 
 相关文件：
 

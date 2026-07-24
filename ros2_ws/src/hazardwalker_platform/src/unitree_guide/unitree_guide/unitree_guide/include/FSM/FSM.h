@@ -4,6 +4,8 @@
 #ifndef FSM_H
 #define FSM_H
 
+#include <string>
+
 // FSM States
 #include "FSM/FSMState.h"
 #include "FSM/State_FixedStand.h"
@@ -58,6 +60,7 @@ public:
     void run();
 private:
     FSMState* getNextState(FSMStateName stateName);
+    FSMStateName getHeadlessNextState();
     bool checkSafty();
     CtrlComponents *_ctrlComp;
     FSMState *_currentState;
@@ -66,6 +69,12 @@ private:
     FSMStateList _stateList;
     FSMMode _mode;
     long long _startTime;
+    long long _stateEnteredTime;
+    bool _headlessEnabled;
+    bool _headlessAutoRl;
+    double _headlessStandDelaySec;
+    double _headlessRlDelaySec;
+    std::string _headlessMode;
     int count;
 };
 

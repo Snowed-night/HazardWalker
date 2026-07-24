@@ -1,0 +1,147 @@
+{
+  "case_id": "official_a_distractor_03_red_ball_with_red_cube_view00",
+  "image_stamp": {
+    "sec": 76,
+    "nanosec": 140000000
+  },
+  "depth_stamp": {
+    "sec": 76,
+    "nanosec": 140000000
+  },
+  "localization_ready": true,
+  "detections_2d": [
+    {
+      "id": "1",
+      "frame_id": "real_sense",
+      "view_id": "xy:0.4:0.0|yaw:0",
+      "stamp": {
+        "sec": 76,
+        "nanosec": 90000000
+      },
+      "bbox": {
+        "x_min": 230,
+        "y_min": 279,
+        "x_max": 285,
+        "y_max": 335
+      },
+      "confidence": 0.9551512790526501,
+      "red_pixel_count": 2498,
+      "is_partial": false,
+      "requires_reobservation": false,
+      "may_be_merged": false,
+      "quality_reason": "stable_shape",
+      "shape": {
+        "circularity": 0.8984206237208165,
+        "aspect_ratio": 0.9824561403508771,
+        "extent": 0.7576754385964912
+      },
+      "depth_shape": {
+        "status": "spherical",
+        "center_depth_m": 2.840381145477295,
+        "outer_depth_m": 2.884636878967285,
+        "curvature_m": 0.044255733489990234,
+        "horizontal_curvature_m": 0.043303608894348145,
+        "vertical_curvature_m": 0.04513227939605713,
+        "diagonal_positive_curvature_m": 0.04587733745574951,
+        "diagonal_negative_curvature_m": 0.04343211650848389,
+        "curvature_isotropy_ratio": 0.943899783550346,
+        "center_points": 304,
+        "outer_points": 1032,
+        "horizontal_points": 184,
+        "vertical_points": 188,
+        "diagonal_positive_points": 130,
+        "diagonal_negative_points": 130
+      },
+      "confirmation_eligible": true,
+      "depth_synchronized": true,
+      "depth_stamp_delta_sec": 0.0,
+      "localization_status": "localized",
+      "localized_position": [
+        3.2818,
+        0.341,
+        -0.3169
+      ],
+      "track_id": "1",
+      "track_status": "tentative",
+      "track_association": "image_projection",
+      "source": "hsv_minimal",
+      "detector_backend": "hsv_opencv"
+    },
+    {
+      "id": "untracked:2",
+      "frame_id": "real_sense",
+      "view_id": "xy:0.4:0.0|yaw:0",
+      "stamp": {
+        "sec": 76,
+        "nanosec": 90000000
+      },
+      "bbox": {
+        "x_min": 346,
+        "y_min": 280,
+        "x_max": 409,
+        "y_max": 343
+      },
+      "confidence": 0.407939466196659,
+      "red_pixel_count": 3849,
+      "is_partial": true,
+      "requires_reobservation": true,
+      "may_be_merged": false,
+      "quality_reason": "partial_or_low_light",
+      "shape": {
+        "circularity": 0.7922936602304147,
+        "aspect_ratio": 1.0,
+        "extent": 0.9105224609375
+      },
+      "depth_shape": {
+        "status": "flat",
+        "center_depth_m": 2.84636914730072,
+        "outer_depth_m": 2.846470594406128,
+        "curvature_m": 0.00010144710540771484,
+        "horizontal_curvature_m": null,
+        "vertical_curvature_m": null,
+        "diagonal_positive_curvature_m": null,
+        "diagonal_negative_curvature_m": null,
+        "curvature_isotropy_ratio": null,
+        "center_points": 392,
+        "outer_points": 1336,
+        "horizontal_points": 240,
+        "vertical_points": 240,
+        "diagonal_positive_points": 164,
+        "diagonal_negative_points": 164
+      },
+      "confirmation_eligible": false,
+      "depth_synchronized": true,
+      "depth_stamp_delta_sec": 0.0,
+      "localization_status": "suppressed_non_spherical_depth_shape",
+      "localized_position": [
+        3.1268,
+        -0.2926,
+        -0.3214
+      ],
+      "track_id": "",
+      "track_status": "untracked",
+      "track_association": "none",
+      "source": "hsv_minimal",
+      "detector_backend": "hsv_opencv"
+    }
+  ],
+  "hazards": [
+    {
+      "status": "tentative",
+      "position": [
+        3.2818,
+        0.341,
+        -0.3169
+      ],
+      "position_frame_id": "base",
+      "confidence": 0.9552,
+      "observation_count": 7,
+      "distinct_view_count": 1,
+      "source": "hsv_depth_tf"
+    }
+  ],
+  "raw_image": "official_a_distractor_03_red_ball_with_red_cube_view00_raw.png",
+  "annotated_image": "official_a_distractor_03_red_ball_with_red_cube_view00_annotated.png",
+  "depth_metric_image": "official_a_distractor_03_red_ball_with_red_cube_view00_depth_mm.png",
+  "depth_visual_image": "official_a_distractor_03_red_ball_with_red_cube_view00_depth_visual.png"
+}

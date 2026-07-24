@@ -1,0 +1,11 @@
+{
+  "delivery_stage": "20260705",
+  "canonical_experiment_category": "red_ball_detection",
+  "original_directory": "official_simenv_20260705_native_3d_validation",
+  "source_commit": "437d8c6",
+  "restored_from_commit": "fd1fd21",
+  "classification_status": "verified",
+  "classification_basis": ["git_commit", "README", "summary.json", "testing_record"],
+  "raw_source_status": "raw_source_missing",
+  "note": "目录用于历史原生3D检测链验证，不代表当前官方随机场景成绩。"
+}

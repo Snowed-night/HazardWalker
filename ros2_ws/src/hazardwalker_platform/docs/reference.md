@@ -95,9 +95,14 @@ SEED=77 FLOOR_COUNT=3 ROOMS_PER_FLOOR=4 ./auto.sh
 | `GUI` | `true` | 是否启动 Gazebo GUI |
 | `PAUSED` | `true` | Gazebo 启动后是否暂停 |
 | `START_CONTROLLER` | `1` | 是否启动 `junior_ctrl` |
-| `CONTROLLER_FOREGROUND` | `1` | 是否在前台运行控制器。前台运行时可以在当前终端输入 `2`、`6` 切换状态 |
+| `CONTROLLER_FOREGROUND` | `0` | 正式 Docker 流程在后台运行控制器；需要人工排障时才设为 `1` |
+| `SIMENV_AUTO_RL` | `1` | 启用官方已编译控制器的 headless-RL 模式；若设为 `0`，正式后台启动会明确失败，避免伪造控制就绪 |
+| `SIMENV_HEADLESS_MODE` | `move_base` | 使官方已编译 RL 控制器消费 `/cmd_vel`；仅有控制器进程不足以证明该模式已启用 |
+| `START_ROSBRIDGE` | `1` | 启动镜像内固化的 `rosbridge_websocket`，供 ROS2 适配器连接 |
+| `START_ODOM_RELAY` | `1` | 将 `/Odometry_gazebo` 限频中继为 `/hazardwalker/odom`；仅供平台诊断适配，不能作为 SLAM 真值 |
 | `START_BUILDING_CONTROL` | `1` | 是否启动楼栋门/电梯控制服务 |
-| `UNITREE_CTRL_DT` | `0.004` | `junior_ctrl` 控制周期，单位 s。默认 250 Hz，降低 Gazebo 大场景下控制循环超时 warning |
+| `UNITREE_CTRL_DT` | `0.002` | `junior_ctrl` 控制周期，单位 s。默认 500 Hz，为当前 RL 冷启动验收基线 |
+| `VERIFY_CONTROLLER_MOTION` | `1` | 正式启动时用短时低速命令验证实际位移和机身高度 |
 | `START_VIRTUAL_JOY` | `0` | 是否启动虚拟手柄。该功能通常需要 `uinput` 权限 |
 | `ROBOT_X` | `0.0` | 机器人出生点 x |
 | `ROBOT_Y` | `-2.2` | 机器人出生点 y |
@@ -173,17 +178,16 @@ rosrun building_obstacles generate_multi_floor_building.py ./generated_building 
 The program has already cost 2435us.
 ```
 
-该提示表示单次控制循环耗时超过了 2 ms 目标周期，不代表场景生成失败。当前 `auto.sh` 默认设置 `UNITREE_CTRL_DT=0.004`，即 250 Hz，通常能减少该 warning，并保持仿真控制稳定。如机器性能充足或需要沿用 500 Hz，可显式启动：
+该提示表示单次控制循环耗时超过了 2 ms 目标周期，不代表场景生成失败。当前正式默认仍为
+`UNITREE_CTRL_DT=0.002`；独立冷启动验证表明 `0.004` 不能作为稳定控制基线。优先使用 headless、
+关闭非必要点云与 GUI 来减负：
 
 ```bash
-UNITREE_CTRL_DT=0.002 ./auto.sh
+GUI=false UNITREE_CTRL_DT=0.002 ./auto.sh
 ```
 
-如仍持续刷屏，建议同时降低运行负载：
-
-```bash
-GUI=false UNITREE_CTRL_DT=0.006 ./auto.sh
-```
+如确需修改控制周期，必须在独占容器中重新通过启动物理探针、直行、转向、停止和机身高度验收，
+不得只因 warning 消失就宣称控制可用。
 
 算法接入建议：
 
