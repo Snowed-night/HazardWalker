@@ -26,7 +26,11 @@ from hazardwalker_perception.active_view_geometry import (
     quantized_camera_view_id,
 )
 from hazardwalker_perception.active_view_policy import (
+    ActiveViewDirectionMemory,
+    ActiveViewPolicyConfig,
+    TransientCandidateMemory,
     annotate_detections_with_tracks,
+    attach_candidate_aliases_to_hazards,
     choose_active_view_action,
     project_tracks_for_image_association,
 )
@@ -86,7 +90,19 @@ class HsvDetectorNode(Node):
         # 避免候选在抵达第二视角前被删除。
         self.declare_parameter('reject_after_missed_count', 300)
         self.declare_parameter('merge_distance_m', 0.5)
-        self.declare_parameter('track_projection_max_age_s', 2.0)
+        self.declare_parameter('single_track_reacquire_distance_m', 1.0)
+        self.declare_parameter(
+            'single_track_reacquire_diameter_relative_error', 0.25,
+        )
+        self.declare_parameter('same_frame_duplicate_distance_m', 0.12)
+        self.declare_parameter(
+            'same_frame_duplicate_diameter_relative_error', 0.25,
+        )
+        # 官方控制链一次侧移、停稳、稳定帧和截图可超过 20 秒，局部目标连续
+        # 离开视野可达约 80 秒；危险源静止，因而保留 180 秒投影以跨多个
+        # 动作周期恢复同一轨迹。多目标投影近似重合时
+        # 关联器会拒绝歧义，不会据此把两个红球强行合并。
+        self.declare_parameter('track_projection_max_age_s', 180.0)
         self.declare_parameter('max_apparent_diameter_cv', 0.35)
         # 官方唯一目标为半径 0.15 m 的球体；用 35% 容差吸收低分辨率、深度噪声与
         # 轻度遮挡的投影误差，但拒绝尺寸明显不符的红色圆形物体。
@@ -104,6 +120,11 @@ class HsvDetectorNode(Node):
         # 只在同一正面方向的前后移动无法排除圆柱/圆锥端面；正式确认至少需要
         # 目标相对相机的水平视线改变 25 度，促使机器人获得侧面反证。
         self.declare_parameter('min_view_bearing_span_deg', 25.0)
+        # 当前官方 SLAM 在长距离侧移时可能产生单向漂移；用首个完整球面视角
+        # 锚定静态危险源位置，后续视角只用于确认/反证，避免帧数把坐标拖走。
+        self.declare_parameter(
+            'track_position_fusion_mode', 'earliest_view_anchor',
+        )
         self.declare_parameter('emit_partial_candidates', True)
         # 7 月 5 日真实遮挡帧中约 5% 可见球面只剩约 24--28 px 轮廓面积；
         # 该阈值只产出黄色重观察候选，严格球体确认仍使用更高的 min_area_px。
@@ -133,6 +154,26 @@ class HsvDetectorNode(Node):
         self.declare_parameter('stable_view_min_frames', 3)
         self.declare_parameter('stable_view_max_translation_m', 0.002)
         self.declare_parameter('stable_view_max_yaw_deg', 0.3)
+        # 主动视角策略阈值全部暴露为 ROS 参数，现场调优不修改源码。
+        self.declare_parameter('active_view_edge_margin_ratio', 0.05)
+        self.declare_parameter('active_view_min_bbox_area_px', 900)
+        self.declare_parameter('active_view_min_red_pixel_count', 300)
+        self.declare_parameter('active_view_min_circularity', 0.72)
+        self.declare_parameter('active_view_min_confidence', 0.70)
+        self.declare_parameter('active_view_far_distance_m', 5.0)
+        self.declare_parameter('active_view_dense_iou_threshold', 0.15)
+        self.declare_parameter(
+            'active_view_min_normalized_depth_curvature', 0.10,
+        )
+        self.declare_parameter(
+            'active_view_max_normalized_depth_curvature', 0.30,
+        )
+        self.declare_parameter('candidate_memory_ttl_s', 8.0)
+        self.declare_parameter('active_view_direction_memory_ttl_s', 12.0)
+        self.declare_parameter('candidate_memory_min_iou', 0.05)
+        self.declare_parameter(
+            'candidate_memory_max_center_shift_ratio', 1.5,
+        )
 
         self.camera_intrinsics = None
         self.latest_depth_image = None
@@ -156,6 +197,24 @@ class HsvDetectorNode(Node):
             min_distinct_views=int(self.get_parameter('confirm_distinct_views').value),
             reject_after_missed_count=int(self.get_parameter('reject_after_missed_count').value),
             merge_distance_m=float(self.get_parameter('merge_distance_m').value),
+            single_track_reacquire_distance_m=float(
+                self.get_parameter(
+                    'single_track_reacquire_distance_m'
+                ).value
+            ),
+            single_track_reacquire_diameter_relative_error=float(
+                self.get_parameter(
+                    'single_track_reacquire_diameter_relative_error'
+                ).value
+            ),
+            same_frame_duplicate_distance_m=float(
+                self.get_parameter('same_frame_duplicate_distance_m').value
+            ),
+            same_frame_duplicate_diameter_relative_error=float(
+                self.get_parameter(
+                    'same_frame_duplicate_diameter_relative_error'
+                ).value
+            ),
             max_apparent_diameter_cv=float(self.get_parameter('max_apparent_diameter_cv').value),
             expected_sphere_diameter_m=float(
                 self.get_parameter('expected_sphere_diameter_m').value
@@ -177,7 +236,30 @@ class HsvDetectorNode(Node):
             min_view_bearing_span_deg=float(
                 self.get_parameter('min_view_bearing_span_deg').value
             ),
+            position_fusion_mode=str(
+                self.get_parameter('track_position_fusion_mode').value
+            ),
         ))
+        self.candidate_memory = TransientCandidateMemory(
+            ttl_s=float(
+                self.get_parameter('candidate_memory_ttl_s').value
+            ),
+            min_iou=float(
+                self.get_parameter('candidate_memory_min_iou').value
+            ),
+            max_center_shift_ratio=float(
+                self.get_parameter(
+                    'candidate_memory_max_center_shift_ratio'
+                ).value
+            ),
+        )
+        self.active_view_direction_memory = ActiveViewDirectionMemory(
+            ttl_s=float(
+                self.get_parameter(
+                    'active_view_direction_memory_ttl_s'
+                ).value
+            ),
+        )
 
         self.tf_buffer = Buffer()
         self.tf_listener = TransformListener(self.tf_buffer, self)
@@ -301,6 +383,15 @@ class HsvDetectorNode(Node):
             complete_for_3d_tracking = is_complete_candidate_for_3d_tracking(
                 detection_2d, msg.width, msg.height,
             )
+            # HSV 在重遮挡下偶尔仍会把带直边的红色弧段标成 stable_shape。
+            # 轮廓长宽比未达到多视角球体门槛时，禁止套用完整球半径先验，
+            # 也禁止把遮挡边缘的 flat/anisotropic 深度写入永久拒绝轨迹。
+            shape_complete_for_3d_tracking = (
+                complete_for_3d_tracking
+                and detection_2d.aspect_ratio >= float(
+                    self.get_parameter('min_multiview_aspect_ratio').value
+                )
+            )
             localization = None
             depth_shape = None
             raw_surface_depth_m = None
@@ -323,7 +414,7 @@ class HsvDetectorNode(Node):
                     bbox=bbox,
                     padding_px=(
                         int(self.get_parameter('roi_padding_px').value)
-                        if complete_for_3d_tracking else 0
+                        if shape_complete_for_3d_tracking else 0
                     ),
                     max_depth_m=float(self.get_parameter('max_detection_range_m').value),
                     min_points=int(self.get_parameter('min_depth_points_in_roi').value),
@@ -333,11 +424,8 @@ class HsvDetectorNode(Node):
             # 显示平面或轮廓明显非圆时才抑制正证据；unknown 保留给多视角策略。
             # 非圆视角仍进入轨迹用于复查，但不能污染后续完整球视角的尺寸/圆度统计。
             confirmation_eligible = (
-                complete_for_3d_tracking
+                shape_complete_for_3d_tracking
                 and depth_shape_status not in ('flat', 'anisotropic', 'non_spherical')
-                and detection_2d.aspect_ratio >= float(
-                    self.get_parameter('min_multiview_aspect_ratio').value
-                )
             )
             if self.camera_intrinsics and depth_synchronized and camera_to_output:
                 localization = localize_bbox_from_depth_image(
@@ -350,16 +438,16 @@ class HsvDetectorNode(Node):
                     # 不扩大 ROI，也不允许用标准半径反推球心。
                     roi_padding_px=(
                         int(self.get_parameter('roi_padding_px').value)
-                        if complete_for_3d_tracking else 0
+                        if shape_complete_for_3d_tracking else 0
                     ),
                     max_depth_m=float(self.get_parameter('max_detection_range_m').value),
                     min_points=int(self.get_parameter('min_depth_points_in_roi').value),
                     sphere_radius_m=(
                         float(self.get_parameter('sphere_radius_m').value)
-                        if complete_for_3d_tracking else 0.0
+                        if shape_complete_for_3d_tracking else 0.0
                     ),
                     use_sphere_projection_geometry=(
-                        complete_for_3d_tracking
+                        shape_complete_for_3d_tracking
                         and bool(self.get_parameter('use_sphere_projection_geometry').value)
                     ),
                     camera_axis_convention=str(
@@ -371,7 +459,7 @@ class HsvDetectorNode(Node):
                     bbox, raw_surface_depth_m,
                     self.camera_intrinsics,
                 )
-                if complete_for_3d_tracking and raw_surface_depth_m is not None
+                if shape_complete_for_3d_tracking and raw_surface_depth_m is not None
                 else None
             )
             view_bearing_rad = _view_bearing_from_camera(
@@ -381,6 +469,8 @@ class HsvDetectorNode(Node):
             source_id = f'{msg.header.stamp.sec}.{msg.header.stamp.nanosec}:{index}'
             detections_2d_payload.append({
                 'id': index,
+                # 仅用于本回调内把二维投影关联结果传给对应三维观测，发布前删除。
+                '_source_id': source_id,
                 'frame_id': msg.header.frame_id,
                 # 量化后的相机世界位姿标签用于后续多视角确认与实验审计。
                 'view_id': view_id,
@@ -393,7 +483,9 @@ class HsvDetectorNode(Node):
                 'red_pixel_count': detection_2d.red_pixel_count,
                 'is_partial': detection_2d.is_partial,
                 'requires_reobservation': (
-                    detection_2d.requires_reobservation or not complete_for_3d_tracking
+                    detection_2d.requires_reobservation
+                    or not shape_complete_for_3d_tracking
+                    or not confirmation_eligible
                 ),
                 'may_be_merged': detection_2d.may_be_merged,
                 'from_merged_split': detection_2d.from_merged_split,
@@ -402,6 +494,9 @@ class HsvDetectorNode(Node):
                     'circularity': detection_2d.circularity,
                     'aspect_ratio': detection_2d.aspect_ratio,
                     'extent': detection_2d.extent,
+                    'visible_centroid_x_ratio': (
+                        detection_2d.visible_centroid_x_ratio
+                    ),
                 },
                 'depth_shape': {
                     'status': depth_shape_status,
@@ -466,7 +561,7 @@ class HsvDetectorNode(Node):
             # partial/粘连/贴边框的 bbox 会把完整球半径先验放大为错误世界坐标，
             # 因而只能保留二维复查语义，不能创建或更新三维轨迹。完整严格框的
             # flat/anisotropic 深度反证仍可进入轨迹，用于跨视角拒绝非球体。
-            if localization and complete_for_3d_tracking:
+            if localization and shape_complete_for_3d_tracking:
                 observations.append(HazardObservation(
                     position=(
                         localization.position.x,
@@ -488,6 +583,59 @@ class HsvDetectorNode(Node):
                     depth_curvature_m=(depth_shape.curvature_m if depth_shape else None),
                     view_bearing_rad=view_bearing_rad,
                 ))
+
+        detections_2d_payload = self.candidate_memory.annotate(
+            detections_2d_payload, stamp_sec,
+        )
+        if camera_stable and observations and self.tracker.tracks:
+            # 先用上一时刻轨迹投影关联当前二维框。合法 SLAM 长距离漂移会让同一
+            # 静态球的世界坐标超过 merge_distance_m，但其旧轨迹投影仍可与当前
+            # 图像框唯一重合；把这个非真值提示交给三维跟踪器可避免拆成重复目标。
+            previous_projections = project_tracks_for_image_association(
+                self.tracker.tracks,
+                camera_to_output,
+                self.camera_intrinsics,
+                current_stamp_sec=stamp_sec,
+                max_track_age_s=float(
+                    self.get_parameter('track_projection_max_age_s').value
+                ),
+                sphere_radius_m=float(
+                    self.get_parameter('sphere_radius_m').value
+                ),
+                max_depth_m=float(
+                    self.get_parameter('max_detection_range_m').value
+                ),
+                camera_axis_convention=str(
+                    self.get_parameter('camera_axis_convention').value
+                ),
+            )
+            preassociated = annotate_detections_with_tracks(
+                detections_2d_payload,
+                self.tracker.tracks,
+                merge_distance_m=float(
+                    self.get_parameter('merge_distance_m').value
+                ),
+                projected_tracks=previous_projections,
+            )
+            hint_by_source_id = {
+                str(item.get('_source_id')): int(
+                    item.get('track_id')
+                    or item.get('_candidate_track_id_hint')
+                )
+                for item in preassociated
+                if str(item.get('_source_id', '')).strip()
+                and str(
+                    item.get('track_id')
+                    or item.get('_candidate_track_id_hint')
+                    or ''
+                ).isdigit()
+            }
+            for observation in observations:
+                observation.track_id_hint = hint_by_source_id.get(
+                    str(observation.source_id),
+                )
+        for item in detections_2d_payload:
+            item.pop('_source_id', None)
 
         if camera_stable:
             self.tracker.update(observations, stamp_sec=stamp_sec)
@@ -515,8 +663,15 @@ class HsvDetectorNode(Node):
             merge_distance_m=float(self.get_parameter('merge_distance_m').value),
             projected_tracks=projected_tracks,
         )
+        self.candidate_memory.remember_track_ids(annotated_detections)
+        for item in annotated_detections:
+            item.pop('_candidate_track_id_hint', None)
+        hazards = attach_candidate_aliases_to_hazards(
+            self._tracks_to_hazards(tracks_to_publish, output_frame),
+            annotated_detections,
+        )
         self._publish_detection_payload(
-            hazards=self._tracks_to_hazards(tracks_to_publish, output_frame),
+            hazards=hazards,
             detections_2d=annotated_detections,
             camera_stable=camera_stable,
             image_width=msg.width,
@@ -552,6 +707,43 @@ class HsvDetectorNode(Node):
             hazards.append(item)
         return hazards
 
+    def _active_view_policy_config(self):
+        """从 ROS 参数构造主动复查配置，避免运行阈值散落在策略调用处。"""
+
+        return ActiveViewPolicyConfig(
+            edge_margin_ratio=float(
+                self.get_parameter('active_view_edge_margin_ratio').value
+            ),
+            min_bbox_area_px=int(
+                self.get_parameter('active_view_min_bbox_area_px').value
+            ),
+            min_red_pixel_count=int(
+                self.get_parameter('active_view_min_red_pixel_count').value
+            ),
+            min_circularity=float(
+                self.get_parameter('active_view_min_circularity').value
+            ),
+            min_confidence=float(
+                self.get_parameter('active_view_min_confidence').value
+            ),
+            far_distance_m=float(
+                self.get_parameter('active_view_far_distance_m').value
+            ),
+            dense_iou_threshold=float(
+                self.get_parameter('active_view_dense_iou_threshold').value
+            ),
+            min_normalized_depth_curvature=float(
+                self.get_parameter(
+                    'active_view_min_normalized_depth_curvature'
+                ).value
+            ),
+            max_normalized_depth_curvature=float(
+                self.get_parameter(
+                    'active_view_max_normalized_depth_curvature'
+                ).value
+            ),
+        )
+
     def _publish_detection_payload(
             self, hazards, detections_2d, camera_stable=False,
             image_width=0, image_height=0, stamp_sec=None):
@@ -567,6 +759,15 @@ class HsvDetectorNode(Node):
             recommendation_candidates,
             image_width=int(image_width),
             image_height=int(image_height),
+            config=self._active_view_policy_config(),
+        )
+        recommendation = self.active_view_direction_memory.stabilize(
+            recommendation,
+            recommendation_candidates,
+            image_width=int(image_width),
+            stamp_sec=(
+                float(stamp_sec) if stamp_sec is not None else time.time()
+            ),
         ).to_dict()
         localization_provenance = str(
             self.get_parameter('localization_provenance').value).strip()

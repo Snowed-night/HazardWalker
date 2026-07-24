@@ -50,6 +50,10 @@ perception:
     min_view_bearing_span_deg: 25.0
     reject_after_missed_count: 300
     merge_distance_m: 0.5
+    single_track_reacquire_distance_m: 1.0
+    single_track_reacquire_diameter_relative_error: 0.25
+    same_frame_duplicate_distance_m: 0.12
+    same_frame_duplicate_diameter_relative_error: 0.25
     max_apparent_diameter_cv: 0.35
     # 官方目标直径 0.30 m；保持一定裕量以覆盖 RGB-D 投影/深度噪声。
     expected_sphere_diameter_m: 0.30
@@ -74,3 +78,21 @@ perception:
     stable_view_min_frames: 3
     stable_view_max_translation_m: 0.002
     stable_view_max_yaw_deg: 0.3
+    # 已建立轨迹在短时机动离开视场后继续参与图像投影关联。
+    track_projection_max_age_s: 180.0
+    # 以下键对应 hsv_detector_node 的 active_view_* ROS 参数。
+    edge_margin_ratio: 0.05
+    min_bbox_area_px: 900
+    min_red_pixel_count: 300
+    min_circularity: 0.72
+    min_confidence: 0.70
+    far_distance_m: 5.0
+    dense_iou_threshold: 0.15
+    min_normalized_depth_curvature: 0.10
+    max_normalized_depth_curvature: 0.30
+    # 纯局部候选尚不能建立 3D 轨迹时，仅用短时图像关联维持复查会话 ID。
+    candidate_memory_ttl_s: 8.0
+    # 同一候选的侧移方向短时保持，避免目标跨过画面中心后左右振荡。
+    active_view_direction_memory_ttl_s: 12.0
+    candidate_memory_min_iou: 0.05
+    candidate_memory_max_center_shift_ratio: 1.5

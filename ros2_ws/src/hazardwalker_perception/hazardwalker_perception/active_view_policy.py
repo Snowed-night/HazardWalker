@@ -51,6 +51,174 @@ class ViewRecommendation:
         }
 
 
+class TransientCandidateMemory:
+    """给尚未建立三维轨迹的局部候选分配短时稳定 ID。
+
+    该记忆只做图像空间一对一关联，不创建危险源轨迹、也不参与确认。候选一旦
+    关联到正式三维轨迹，仍保留 ``candidate_id`` 作为复查会话别名，正式结果
+    始终使用 ``track_id``。
+    """
+
+    def __init__(
+            self, ttl_s=8.0, min_iou=0.05,
+            max_center_shift_ratio=1.5):
+        self.ttl_s = max(0.1, float(ttl_s))
+        self.min_iou = max(0.0, min(1.0, float(min_iou)))
+        self.max_center_shift_ratio = max(
+            0.1, float(max_center_shift_ratio),
+        )
+        self._entries = {}
+        self._next_id = 1
+
+    def annotate(self, detections, stamp_sec):
+        """返回带 ``candidate_id`` 的拷贝，同帧每个别名最多分配一次。"""
+
+        now = float(stamp_sec)
+        self._entries = {
+            key: value for key, value in self._entries.items()
+            if 0.0 <= now - value['last_seen_sec'] <= self.ttl_s
+        }
+        result = [dict(item) for item in detections]
+        pairs = []
+        for detection_index, detection in enumerate(result):
+            bbox = _normalized_bbox(detection)
+            if bbox is None:
+                continue
+            for candidate_id, entry in self._entries.items():
+                cost = _transient_candidate_cost(
+                    bbox,
+                    entry['bbox'],
+                    self.min_iou,
+                    self.max_center_shift_ratio,
+                )
+                if cost is not None:
+                    pairs.append((cost, detection_index, candidate_id))
+
+        assignments = {}
+        used_ids = set()
+        for _cost, detection_index, candidate_id in sorted(pairs):
+            if detection_index in assignments or candidate_id in used_ids:
+                continue
+            assignments[detection_index] = candidate_id
+            used_ids.add(candidate_id)
+
+        for detection_index, detection in enumerate(result):
+            bbox = _normalized_bbox(detection)
+            if bbox is None:
+                continue
+            candidate_id = assignments.get(detection_index)
+            if candidate_id is None:
+                candidate_id = 'candidate-%d' % self._next_id
+                self._next_id += 1
+            previous_track_id = str(
+                self._entries.get(candidate_id, {}).get('track_id') or ''
+            ).strip()
+            track_id = str(detection.get('track_id') or '').strip()
+            self._entries[candidate_id] = {
+                'bbox': bbox,
+                'last_seen_sec': now,
+                'track_id': track_id or previous_track_id,
+            }
+            detection['candidate_id'] = candidate_id
+            detection['candidate_aliases'] = [candidate_id]
+            if not track_id and previous_track_id:
+                # 只作为下一步三维关联提示，不提前把候选伪装成正式轨迹。
+                detection['_candidate_track_id_hint'] = previous_track_id
+            if str(detection.get('track_status', '')) == 'untracked':
+                detection['id'] = 'untracked:' + candidate_id
+        return result
+
+    def remember_track_ids(self, detections):
+        """把本帧正式三维关联写回候选记忆，供下一帧跨定位漂移恢复。"""
+
+        for detection in detections:
+            candidate_id = str(detection.get('candidate_id') or '').strip()
+            track_id = str(detection.get('track_id') or '').strip()
+            if not candidate_id or not track_id or candidate_id not in self._entries:
+                continue
+            self._entries[candidate_id]['track_id'] = track_id
+
+
+class ActiveViewDirectionMemory:
+    """在同一候选复查会话内保持侧移方向，避免越过画面中心后左右振荡。"""
+
+    def __init__(self, ttl_s=12.0, reversal_edge_ratio=0.12):
+        self.ttl_s = max(0.1, float(ttl_s))
+        self.reversal_edge_ratio = max(
+            0.01, min(0.45, float(reversal_edge_ratio)),
+        )
+        self._entries = {}
+
+    def stabilize(
+            self, recommendation, detections, image_width, stamp_sec):
+        """返回带方向滞回的建议；目标接近反侧边缘时才允许反向。"""
+
+        now = float(stamp_sec)
+        self._entries = {
+            key: value for key, value in self._entries.items()
+            if 0.0 <= now - value['last_seen_sec'] <= self.ttl_s
+        }
+        action = str(recommendation.action)
+        target_id = str(recommendation.target_id or '')
+        lateral_actions = {'move_left', 'move_right'}
+        if action not in lateral_actions or not target_id:
+            return recommendation
+
+        center_ratio = _candidate_center_ratio(
+            detections, target_id, image_width,
+        )
+        previous = self._entries.get(target_id)
+        # 部分可见轮廓的质心偏斜直接描述遮挡边缘在哪一侧，比普通 bbox
+        # 中心更可靠；该强证据必须允许反向，否则方向记忆会把目标持续推离
+        # 视野。没有质心证据时仍保留中心区域防振荡。
+        strong_occlusion_direction = (
+            '可见红色轮廓质心' in str(recommendation.reason)
+        )
+        if (
+            previous
+            and previous['action'] in lateral_actions
+            and previous['action'] != action
+            and not strong_occlusion_direction
+            and center_ratio is not None
+            and self.reversal_edge_ratio
+            < center_ratio
+            < 1.0 - self.reversal_edge_ratio
+        ):
+            action = previous['action']
+            recommendation = ViewRecommendation(
+                action,
+                recommendation.reason
+                + ' 为保持视差方向并避免中心线附近左右振荡，本轮沿用上一侧移方向。',
+                recommendation.priority,
+                target_id,
+            )
+        self._entries[target_id] = {
+            'action': action,
+            'last_seen_sec': now,
+        }
+        return recommendation
+
+
+def attach_candidate_aliases_to_hazards(hazards, detections):
+    """把当前二维候选别名附到对应三维轨迹快照，供复查闭环解析。"""
+
+    aliases_by_track = {}
+    for detection in detections:
+        track_id = str(detection.get('track_id') or '').strip()
+        candidate_id = str(detection.get('candidate_id') or '').strip()
+        if track_id and candidate_id:
+            aliases_by_track.setdefault(track_id, set()).add(candidate_id)
+    result = []
+    for hazard in hazards:
+        item = dict(hazard)
+        track_id = str(item.get('track_id', item.get('id')) or '').strip()
+        aliases = sorted(aliases_by_track.get(track_id, set()))
+        if aliases:
+            item['candidate_ids'] = aliases
+        result.append(item)
+    return result
+
+
 def choose_active_view_action(detections, image_width, image_height, config=None):
     """为当前帧选择优先级最高的一次重观察动作。
 
@@ -124,6 +292,26 @@ def _urgent_target_action(target, image_width, image_height, policy):
             '深度曲率不在球体稳定区间，疑似圆锥端面、扁平物或深度异常；必须侧向复查。',
         )
     if target['requires_reobservation']:
+        # 极小/远距离局部弧段直接横移容易立刻丢出视场，而且可用视差仍不足。
+        # 先把已居中的候选放大到可稳定定位的尺度，再获取侧视；贴边候选已由
+        # 上面的 edge_action 先行居中。这里仍只输出语义建议，不控制机器人。
+        if (
+            target['red_pixel_count'] < policy.min_red_pixel_count
+            or target['bbox_area_px'] < policy.min_bbox_area_px
+        ):
+            return ViewRecommendation(
+                'move_forward',
+                '局部候选面积过小，先靠近扩大红色弧段，再横移获取独立侧视。',
+                96,
+                target['id'],
+            )
+        if target['depth_m'] is not None and target['depth_m'] > policy.far_distance_m:
+            return ViewRecommendation(
+                'move_forward',
+                '局部候选距离较远，先靠近提高像素与深度稳定性，再横移复查。',
+                96,
+                target['id'],
+            )
         return _lateral_action(
             target, image_width, 92, '候选局部可见或可能合并，沿目标所在侧横移后复查。',
         )
@@ -328,7 +516,9 @@ def _normalize_detection(item, index):
     x_max = max(x_min, int(bbox.get('x_max', x_min)))
     y_max = max(y_min, int(bbox.get('y_max', y_min)))
     shape = item.get('shape', {})
-    depth = item.get('depth_m')
+    # ROS2 正式检测节点发布 ``raw_surface_depth_m``；历史离线记录使用
+    # ``depth_m``。两者均表示候选可见表面深度，策略只用于远近分级。
+    depth = item.get('depth_m', item.get('raw_surface_depth_m'))
     depth_shape = item.get('depth_shape', {})
     curvature = depth_shape.get('curvature_m')
     diameter = item.get('apparent_diameter_m')
@@ -336,7 +526,9 @@ def _normalize_detection(item, index):
     if curvature is not None and diameter is not None and float(diameter) > 0.0:
         normalized_curvature = float(curvature) / float(diameter)
     return {
-        'id': str(item.get('id', index)),
+        # 已建立三维轨迹后仍沿用候选别名，避免一次复查在升级瞬间被当作新目标；
+        # 正式危险源输出仍只使用 track_id。
+        'id': str(item.get('candidate_id', item.get('id', index))),
         'x_min': x_min,
         'y_min': y_min,
         'x_max': x_max,
@@ -344,6 +536,9 @@ def _normalize_detection(item, index):
         'bbox_area_px': (x_max - x_min + 1) * (y_max - y_min + 1),
         'red_pixel_count': int(item.get('red_pixel_count', 0)),
         'circularity': float(shape.get('circularity', item.get('circularity', 0.0))),
+        'visible_centroid_x_ratio': float(
+            shape.get('visible_centroid_x_ratio', 0.5)
+        ),
         'confidence': float(item.get('confidence', 0.0)),
         'depth_m': float(depth) if depth is not None else None,
         'depth_shape_status': str(depth_shape.get('status', 'unknown')),
@@ -375,7 +570,17 @@ def _lateral_action(target, image_width, priority, reason):
     """把模糊的“横移”落成可执行方向，并尽量让目标留在视场内。"""
 
     center_x = (target['x_min'] + target['x_max']) / 2.0
-    action = 'move_left' if center_x <= max(1, image_width) / 2.0 else 'move_right'
+    centroid_ratio = float(target.get('visible_centroid_x_ratio', 0.5))
+    if target['requires_reobservation'] and centroid_ratio < 0.47:
+        # 右侧圆弧被竖直遮挡后，红色面积集中在 bbox 左半部；向右侧移才能
+        # 绕过前景边缘。反向情况同理。这里只决定观察方向，不改变确认门槛。
+        action = 'move_right'
+        reason += ' 可见红色轮廓质心偏左，推断右侧绕障更快。'
+    elif target['requires_reobservation'] and centroid_ratio > 0.53:
+        action = 'move_left'
+        reason += ' 可见红色轮廓质心偏右，推断左侧绕障更快。'
+    else:
+        action = 'move_left' if center_x <= max(1, image_width) / 2.0 else 'move_right'
     direction = '左' if action == 'move_left' else '右'
     return ViewRecommendation(action, f'{reason} 当前选择向{direction}横移。', priority, target['id'])
 
@@ -395,3 +600,77 @@ def _edge_action(target, image_width, image_height, policy):
             '候选框贴近上下边界且当前相机俯仰固定，改用侧向视差复查。',
         )
     return None
+
+
+def _normalized_bbox(detection):
+    bbox = detection.get('bbox', detection)
+    try:
+        x_min = float(bbox['x_min'])
+        y_min = float(bbox['y_min'])
+        x_max = float(bbox['x_max'])
+        y_max = float(bbox['y_max'])
+    except (KeyError, TypeError, ValueError):
+        return None
+    if not all(math.isfinite(value) for value in (
+            x_min, y_min, x_max, y_max)):
+        return None
+    if x_max < x_min or y_max < y_min:
+        return None
+    return {
+        'x_min': x_min,
+        'y_min': y_min,
+        'x_max': x_max,
+        'y_max': y_max,
+    }
+
+
+def _candidate_center_ratio(detections, target_id, image_width):
+    """查找候选当前水平中心；只用于方向滞回，不改变目标选择。"""
+
+    width = max(1.0, float(image_width))
+    for detection in detections:
+        identities = {
+            str(detection.get('candidate_id') or ''),
+            str(detection.get('track_id') or ''),
+            str(detection.get('id') or ''),
+        }
+        if str(target_id) not in identities:
+            continue
+        bbox = _normalized_bbox(detection)
+        if bbox is None:
+            return None
+        return 0.5 * (bbox['x_min'] + bbox['x_max']) / width
+    return None
+
+
+def _transient_candidate_cost(
+        current, previous, min_iou, max_center_shift_ratio):
+    """返回短时图像关联代价；位移过大且无重叠时拒绝关联。"""
+
+    overlap = bbox_iou(current, previous)
+    current_width = current['x_max'] - current['x_min'] + 1.0
+    current_height = current['y_max'] - current['y_min'] + 1.0
+    previous_width = previous['x_max'] - previous['x_min'] + 1.0
+    previous_height = previous['y_max'] - previous['y_min'] + 1.0
+    scale = max(
+        12.0,
+        math.hypot(current_width, current_height),
+        math.hypot(previous_width, previous_height),
+    )
+    current_center = (
+        0.5 * (current['x_min'] + current['x_max']),
+        0.5 * (current['y_min'] + current['y_max']),
+    )
+    previous_center = (
+        0.5 * (previous['x_min'] + previous['x_max']),
+        0.5 * (previous['y_min'] + previous['y_max']),
+    )
+    shift_ratio = math.hypot(
+        current_center[0] - previous_center[0],
+        current_center[1] - previous_center[1],
+    ) / scale
+    if overlap < min_iou and shift_ratio > max_center_shift_ratio:
+        return None
+    overlap_cost = 1.0 - overlap
+    motion_cost = shift_ratio / max_center_shift_ratio
+    return min(overlap_cost, motion_cost)

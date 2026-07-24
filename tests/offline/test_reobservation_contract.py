@@ -11,6 +11,7 @@ from hazardwalker_nav.reobservation_contract import (
     action_has_scan_clearance,
     bearing_change_deg,
     find_target_detection,
+    find_target_status,
     parse_reobservation_request,
     reobservation_actions_conflict,
     reobservation_request_is_eligible,
@@ -75,6 +76,36 @@ def test_reobservation_motion_requires_clear_relevant_scan_sector():
         'move_left', ranges, -3.141592653589793,
         3.141592653589793 / 180.0, 0.6,
     ) is True
+
+
+def test_ineligible_partial_box_stays_reobserve_and_archive_uses_real_views():
+    """黄色复查候选不能冒充已确认目标，证据也不能伪造多视角字段。"""
+
+    detector_path = os.path.join(
+        REPO_ROOT,
+        'ros2_ws',
+        'src',
+        'hazardwalker_perception',
+        'hazardwalker_perception',
+        'hsv_detector_node.py',
+    )
+    with open(detector_path, encoding='utf-8') as handle:
+        detector = handle.read()
+    assert 'or not confirmation_eligible' in detector
+    assert 'shape_complete_for_3d_tracking' in detector
+    assert 'if localization and shape_complete_for_3d_tracking' in detector
+
+    capture_path = os.path.join(
+        REPO_ROOT,
+        'scripts',
+        'capture_official_simenv_rgbd_case.py',
+    )
+    with open(capture_path, encoding='utf-8') as handle:
+        capture = handle.read()
+    assert "'view_bearing_span_deg'" in capture
+    assert "'required_min_distinct_views'" in capture
+    assert "'source_ids'" not in capture
+    assert "if track_status == 'confirmed'" in capture
 
 
 def test_reobservation_motion_fails_closed_without_valid_scan_samples():
@@ -181,6 +212,30 @@ def test_established_track_never_consumes_a_new_untracked_alias():
     assert find_target_detection(
         payload, '1', allow_untracked_upgrade=True,
     )['track_id'] == 'untracked:1'
+
+
+def test_stable_candidate_alias_links_partial_request_to_later_track_status():
+    payload = {
+        'detections_2d': [{
+            'id': 7,
+            'track_id': '7',
+            'candidate_id': 'candidate-3',
+            'candidate_aliases': ['candidate-3'],
+        }],
+        'hazards': [{
+            'id': 7,
+            'track_id': 7,
+            'candidate_ids': ['candidate-3'],
+            'status': 'confirmed',
+        }],
+    }
+
+    detection = find_target_detection(
+        payload, 'candidate-3', allow_untracked_upgrade=True,
+    )
+
+    assert detection['track_id'] == '7'
+    assert find_target_status(payload, 'candidate-3') == 'confirmed'
 
 
 def test_turn_feedback_stops_when_target_enters_center_band():

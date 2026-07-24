@@ -1,0 +1,125 @@
+{
+  "case_id": "official_b_reobserve_left_35pct_view07",
+  "image_stamp": {
+    "sec": 37,
+    "nanosec": 599000000
+  },
+  "depth_stamp": {
+    "sec": 37,
+    "nanosec": 599000000
+  },
+  "localization_ready": true,
+  "detections_2d": [
+    {
+      "id": "1",
+      "frame_id": "real_sense",
+      "view_id": "xy:1.6:-1.6|yaw:120",
+      "stamp": {
+        "sec": 37,
+        "nanosec": 499000000
+      },
+      "bbox": {
+        "x_min": 131,
+        "y_min": 315,
+        "x_max": 278,
+        "y_max": 443
+      },
+      "confidence": 0.9249795721226858,
+      "red_pixel_count": 15563,
+      "is_partial": false,
+      "requires_reobservation": false,
+      "may_be_merged": false,
+      "quality_reason": "stable_shape",
+      "shape": {
+        "circularity": 0.8766844286371697,
+        "aspect_ratio": 0.8716216216216216,
+        "extent": 0.8043159438508276,
+        "visible_centroid_x_ratio": 0.49924305921031253
+      },
+      "depth_shape": {
+        "status": "spherical",
+        "center_depth_m": 1.0212010145187378,
+        "outer_depth_m": 1.0575666427612305,
+        "curvature_m": 0.036365628242492676,
+        "horizontal_curvature_m": 0.038360655307769775,
+        "vertical_curvature_m": 0.022555530071258545,
+        "diagonal_positive_curvature_m": 0.03323519229888916,
+        "diagonal_negative_curvature_m": 0.0263100266456604,
+        "curvature_isotropy_ratio": 0.5879860469091107,
+        "center_points": 1840,
+        "outer_points": 6214,
+        "horizontal_points": 1130,
+        "vertical_points": 1120,
+        "diagonal_positive_points": 784,
+        "diagonal_negative_points": 784
+      },
+      "confirmation_eligible": true,
+      "depth_synchronized": true,
+      "depth_stamp_delta_sec": 0.0,
+      "localization_status": "localized",
+      "localized_position": [
+        0.9316,
+        -0.8405,
+        0.3371
+      ],
+      "raw_surface_depth_m": 1.059283196926117,
+      "candidate_id": "candidate-1",
+      "track_id": "1",
+      "track_status": "needs_reobservation",
+      "track_association": "world_distance",
+      "source": "hsv_minimal",
+      "detector_backend": "hsv_opencv"
+    }
+  ],
+  "hazards": [
+    {
+      "id": 1,
+      "status": "needs_reobservation",
+      "position": [
+        0.5961,
+        -0.7528,
+        0.3264
+      ],
+      "position_frame_id": "world",
+      "confidence": 0.9299,
+      "observation_count": 90,
+      "missed_count": 0,
+      "distinct_view_count": 3,
+      "eligible_observation_count": 90,
+      "eligible_view_ids": [
+        "xy:1.2:-2.0|yaw:90",
+        "xy:1.2:-2.0|yaw:120",
+        "xy:1.6:-1.6|yaw:120"
+      ],
+      "flat_view_ids": [],
+      "spherical_view_ids": [
+        "xy:1.2:-2.0|yaw:90",
+        "xy:1.2:-2.0|yaw:120",
+        "xy:1.6:-1.6|yaw:120"
+      ],
+      "apparent_diameter_cv": 0.0057,
+      "median_apparent_diameter_m": 0.2774,
+      "min_multiview_aspect_ratio": 0.8699,
+      "depth_curvature_cv": 0.0087,
+      "median_normalized_depth_curvature": 0.1307,
+      "view_bearing_span_deg": 15.186,
+      "evidence_status": "insufficient_lateral_parallax",
+      "required_min_eligible_observations": 3,
+      "required_min_distinct_views": 3,
+      "required_min_spherical_views": 2,
+      "required_min_view_bearing_span_deg": 25.0,
+      "localization_provenance": "slam_toolbox_scan_matching+public_floor_action",
+      "source": "hsv_depth_tf"
+    }
+  ],
+  "view_recommendation": {
+    "action": "move_right",
+    "reason": "单视角圆形仍可能是圆柱或圆锥端面；完成当前稳定帧后获取独立侧视再确认。 当前选择向左横移。 为保持视差方向并避免中心线附近左右振荡，本轮沿用上一侧移方向。",
+    "priority": 55,
+    "target_id": "candidate-1"
+  },
+  "raw_image": "official_b_reobserve_left_35pct_view07_raw.png",
+  "annotated_image": "official_b_reobserve_left_35pct_view07_annotated.png",
+  "depth_metric_image": "official_b_reobserve_left_35pct_view07_depth_mm.png",
+  "depth_visual_image": "official_b_reobserve_left_35pct_view07_depth_visual.png"
+}

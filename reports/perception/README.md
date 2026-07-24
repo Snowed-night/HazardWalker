@@ -19,6 +19,8 @@ reports/perception/
 阶段和统一实验类别见 `simulation/3d_native/README.md`。20260705、20260710、
 20260715 历史成果已分开保存；来源不确定的材料以 `provenance_uncertain` 标记，
 不会强行归类或改写为成功。
+官方随机场景的历史证据等级、B5 多 SEED 门禁和当前组间依赖见
+`official_random/README.md`。
 
 ## 合规边界
 

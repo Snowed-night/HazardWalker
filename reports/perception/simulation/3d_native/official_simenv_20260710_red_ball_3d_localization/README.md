@@ -1,4 +1,4 @@
-# official_simenv_20260710_rgbd_localization
+# official_simenv_20260710_red_ball_3d_localization
 
 > **历史内部回归，禁止作为官方成绩。** 8 场 32 个点可用于复核 RGB-D 反投影与误差计算，
 > 但均为生成场景单视角评估，没有合法 SLAM 多视角闭环。后续重跑放入 `reruns/YYYYMMDD_<seed>/`。

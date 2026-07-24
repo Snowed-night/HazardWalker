@@ -2,6 +2,7 @@
   "run_id": "official_simenv_20260710_rgbd_active_multiview",
   "run_date": "2026-07-10",
   "evidence_class": "historical_internal_regression",
+  "result_status": "invalidated",
   "official_score_eligible": false,
   "rerun_required": true,
   "known_limitations": ["strict_view_semantics_not_audited", "independent_lateral_parallax_not_proven"],

@@ -74,11 +74,14 @@ class DynamicDetectionRecorderNode(Node):
         self.output_dir = Path(output_dir).expanduser().resolve()
         self.test_record_dir = Path(test_record_dir).expanduser().resolve()
         self.image_dir = self.output_dir / 'selected_images'
+        self.raw_image_dir = self.image_dir / 'raw'
+        self.annotated_image_dir = self.image_dir / 'annotated'
         self.depth_dir = self.output_dir / 'selected_depth'
         self.output_dir.mkdir(parents=True, exist_ok=True)
         self.test_record_dir.mkdir(parents=True, exist_ok=True)
         if bool(self.get_parameter('save_images').value):
-            self.image_dir.mkdir(parents=True, exist_ok=True)
+            self.raw_image_dir.mkdir(parents=True, exist_ok=True)
+            self.annotated_image_dir.mkdir(parents=True, exist_ok=True)
         if bool(self.get_parameter('save_depth_evidence').value):
             self.depth_dir.mkdir(parents=True, exist_ok=True)
         self.evidence_contract = build_perception_evidence_contract(
@@ -89,7 +92,7 @@ class DynamicDetectionRecorderNode(Node):
             self.get_parameter('localization_provenance').value,
         )
         _write_json(self.output_dir / 'run_manifest.json', {
-            'schema': 'hazardwalker_perception_official_evidence_v1',
+            'schema': 'hazardwalker_perception_official_evidence_v2',
             'evidence_contract': self.evidence_contract,
             'input_topics': {
                 'image': str(self.get_parameter('image_topic').value),
@@ -225,7 +228,7 @@ class DynamicDetectionRecorderNode(Node):
                 fallback=self.latest_image_stamp or time.time(),
             ),
         ))
-        image_path, depth_path = self._save_evidence_image(
+        raw_image_path, image_path, depth_path = self._save_evidence_image(
             stamp_sec, detections, list(payload.get('hazards', [])), recommendation_dict,
         )
         record = {
@@ -240,6 +243,7 @@ class DynamicDetectionRecorderNode(Node):
             'hazards': list(payload.get('hazards', [])),
             'localization_ready': bool(payload.get('localization_ready', False)),
             'view_recommendation': recommendation_dict,
+            'evidence_raw_image': raw_image_path,
             'evidence_image': image_path,
             'evidence_depth': depth_path,
         }
@@ -387,28 +391,29 @@ class DynamicDetectionRecorderNode(Node):
         if is_context_frame:
             if self.context_evidence_count >= int(
                     self.get_parameter('max_context_evidence_count').value):
-                return '', ''
+                return '', '', ''
             context_interval = float(
                 self.get_parameter('context_save_interval_sec').value
             )
             if stamp_sec - self.last_context_save_sec < context_interval:
-                return '', ''
+                return '', '', ''
         if not bool(self.get_parameter('save_images').value) or self.latest_image is None:
-            return '', ''
+            return '', '', ''
         interval = (
             0.0 if is_context_frame
             else float(self.get_parameter('min_image_save_interval_sec').value)
         )
         if not is_context_frame and stamp_sec - self.last_image_save_sec < interval:
-            return '', ''
+            return '', '', ''
         try:
             import cv2
         except ImportError:
             self.get_logger().warn('未安装 OpenCV，跳过动态截图保存。', throttle_duration_sec=10.0)
-            return '', ''
+            return '', '', ''
         prefix = 'context' if is_context_frame else 'frame'
-        filename = f'{prefix}_{len(self.records) + 1:06d}_{stamp_sec:.3f}.png'
-        path = self.image_dir / filename
+        stem = f'{prefix}_{len(self.records) + 1:06d}_{stamp_sec:.3f}'
+        raw_path = self.raw_image_dir / f'{stem}_raw.png'
+        path = self.annotated_image_dir / f'{stem}_annotated.png'
         annotated = self.latest_image.copy()
         for detection in detections:
             bbox = detection.get('bbox', {})
@@ -440,14 +445,21 @@ class DynamicDetectionRecorderNode(Node):
                 (255, 255, 255),
                 1,
             )
-        cv2.imwrite(str(path), annotated)
-        depth_path = self._save_depth_evidence(filename)
+        if not cv2.imwrite(str(raw_path), self.latest_image):
+            self.get_logger().warn(f'原始 RGB 证据写入失败：{raw_path}')
+            return '', '', ''
+        if not cv2.imwrite(str(path), annotated):
+            self.get_logger().warn(f'标注 RGB 证据写入失败：{path}')
+            raw_path.unlink(missing_ok=True)
+            return '', '', ''
+        depth_path = self._save_depth_evidence(f'{stem}.png')
         if is_context_frame:
             self.last_context_save_sec = stamp_sec
             self.context_evidence_count += 1
         else:
             self.last_image_save_sec = stamp_sec
         return (
+            str(raw_path.relative_to(self.output_dir).as_posix()),
             str(path.relative_to(self.output_dir).as_posix()),
             depth_path,
         )

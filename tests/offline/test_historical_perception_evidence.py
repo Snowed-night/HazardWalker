@@ -9,7 +9,7 @@ SIMULATION_ROOT = ROOT / "reports" / "perception" / "simulation" / "3d_native"
 TEST_RECORD_ROOT = ROOT / "reports" / "perception" / "test_records"
 SUITES = (
     "official_simenv_20260710_active_multiview_reobservation",
-    "official_simenv_20260710_rgbd_localization",
+    "official_simenv_20260710_red_ball_3d_localization",
     "official_simenv_20260710_multi_ball_clutter",
     "official_simenv_20260710_partial_visibility",
     "official_simenv_20260710_extended_red_object_stress",
@@ -69,3 +69,37 @@ def test_reclassified_stages_keep_provenance_and_local_test_records():
         }
         assert (suite_dir / "testing_record_perception.csv").is_file()
         assert (suite_dir / "testing_record_perception.json").is_file()
+
+
+def test_invalidated_multiview_result_cannot_be_read_as_twenty_valid_passes():
+    """历史原始计数可以保留，但必须显式标记为已失效。"""
+
+    suite = "official_simenv_20260710_active_multiview_reobservation"
+    for path in (
+        SIMULATION_ROOT / suite / "summary.json",
+        SIMULATION_ROOT / suite / "testing_record_perception.json",
+        TEST_RECORD_ROOT / suite / "testing_record_perception.json",
+    ):
+        record = _read_json(path)
+        assert record["result_status"] == "invalidated"
+        assert record["official_score_eligible"] is False
+
+
+def test_uncertain_reprocessing_is_outside_dated_stage_directories():
+    """缺少运行提交和时间的再处理结果不能强行归入 7 月 5 日或 10 日。"""
+
+    uncertain_root = SIMULATION_ROOT / "provenance_uncertain"
+    expected = (
+        "reference_20260705_extended_red_object_stress_regression",
+        "reference_20260705_multi_ball_clutter_regression",
+        "reference_20260705_partial_visibility_regression",
+    )
+    for name in expected:
+        assert (uncertain_root / name / "provenance.json").is_file()
+
+    for suite in (
+        "official_simenv_20260710_extended_red_object_stress",
+        "official_simenv_20260710_multi_ball_clutter",
+        "official_simenv_20260710_partial_visibility",
+    ):
+        assert not (SIMULATION_ROOT / suite / "reference_20260705_regression").exists()

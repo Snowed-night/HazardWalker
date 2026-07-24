@@ -247,10 +247,13 @@ ros2 run hazardwalker_perception dynamic_detection_recorder_node --ros-args \
 
 ```text
 <output_dir>/frames.jsonl                 每次感知输出对应的候选、位姿、确认状态、动作建议
-<output_dir>/selected_images/*.png        按最小时间间隔保存的证据帧
+<output_dir>/selected_images/raw/*_raw.png
+                                            未叠加标注的原始 RGB 证据帧
+<output_dir>/selected_images/annotated/*_annotated.png
+                                            与原图一一对应的检测/动作标注帧
 <output_dir>/selected_depth/*.npy         与 RGB 时间差不超过 0.15 秒的米制深度帧
 <output_dir>/trajectory.jsonl             调用方显式提供的合法 SLAM 位姿采样
-<output_dir>/summary.json                 动态帧数、候选数、确认数、平均置信度、建议动作统计
+<output_dir>/summary.json                 候选、确认、动作及主动复查 episode 闭环统计
 <test_record_dir>/testing_record_perception.csv
 <test_record_dir>/testing_record_perception.json
 ```
@@ -273,6 +276,13 @@ cp /path/to/SimEnv/results/detected_danger.json \
 python scripts/validate_official_random_perception_evidence.py \
   reports/perception/official_random/seed_20260715_42 \
   --result-json reports/perception/official_random/seed_20260715_42/detected_danger.json
+
+# B 阶段主动复查归档必须额外证明：局部候选、实际 SLAM 位姿变化、
+# 同目标完整 RGB-D/TF 定位观测以及最终确认，而不能只记录动作建议。
+python scripts/validate_official_random_perception_evidence.py \
+  reports/perception/official_random/seed_20260715_42 \
+  --result-json reports/perception/official_random/seed_20260715_42/detected_danger.json \
+  --require-active-reobservation
 ~~~
 
 直接接入 ROS1 官方感知节点时，记录器也可以只更换输入话题，而不改变检测算法：

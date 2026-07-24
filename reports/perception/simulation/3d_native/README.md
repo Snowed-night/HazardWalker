@@ -7,7 +7,7 @@
 ## 统一类别
 
 - `red_ball_detection`：官方规格红球候选检测。
-- `red_ball_3d_localization` / `rgbd_localization`：RGB-D 三维定位。
+- `red_ball_3d_localization`：RGB-D 红球三维定位。
 - `official_distractor_rejection`：只测试官方红色立方体和绿色球体。
 - `partial_visibility`：部分可见候选边界。
 - `active_multiview_reobservation`：真实移动后的主动复查。
@@ -26,13 +26,14 @@
 | 20260710 | `official_simenv_20260710_partial_visibility` | 人工夹具，不代表随机场景召回率 |
 | 20260710 | `official_simenv_20260710_extended_red_object_stress` | 20+内部物品，超出官方干扰源范围 |
 | 20260710 | `official_simenv_20260710_active_multiview_reobservation` | 旧视角语义审计不合格 |
-| 20260710 | `official_simenv_20260710_rgbd_localization` | 历史跨帧误差口径失效，无合法SLAM闭环 |
+| 20260710 | `official_simenv_20260710_red_ball_3d_localization` | 历史跨帧误差口径失效，无合法SLAM闭环 |
 | 20260715 | `official_simenv_20260715_partial_visibility` | 实际2026-07-19运行，9/21，通过与失败均保留 |
 | 20260715 | `official_simenv_20260715_extended_red_object_stress` | 实际2026-07-19两批运行，9/24 |
+| 20260730 | `official_simenv_20260730_active_multiview_reobservation` | 6/6部分可见主动复查通过；0确认级虚警/重复，最大定位误差0.7766 m；内部可控专项 |
 
 每个历史目录新增 `provenance.json`，保存原目录、Git提交、真实运行日期和缺失项。
-三套 `reference_20260705_regression` 的再处理时间与运行提交无法确定，已明确标为
-`provenance_uncertain`，没有强行归入某次真实运行。
+三套以 7 月 5 日图像为输入的再处理结果，其处理时间与运行提交无法确定，已移至
+`provenance_uncertain/reference_20260705_*_regression`，没有强行归入某次真实运行。
 
 ## 当前固定交付标签
 
@@ -40,9 +41,10 @@
   `official_simenv_20260725_official_distractor_rejection`。5例base定位最大误差
   0.0644 m；5例官方干扰组合 confirmed 虚警为0。独立红球检测未出现回归，
   因此按目标约定没有重复新建 `official_simenv_20260725_red_ball_detection`。
-- B阶段：`official_simenv_20260730_partial_visibility_reobservation`、
-  `official_simenv_20260730_official_random_robustness`。其中真正的官方随机场景证据
-  仍必须保存到 `reports/perception/official_random/`，B阶段目录只保存专项汇总和链接。
+- B阶段主动复查已完成：
+  `official_simenv_20260730_active_multiview_reobservation`。官方随机鲁棒性仍待导航组
+  提供可复核的运动建图与覆盖证据；真正的官方随机场景证据必须保存到
+  `reports/perception/official_random/`，不得用本次人工夹具结果代替。
 
 所有新目录必须同时含原图、标注图、`README.md`、`summary.json`、
 `testing_record_perception.csv/json`、SEED、真实时间、Git版本、启动参数和失败说明。

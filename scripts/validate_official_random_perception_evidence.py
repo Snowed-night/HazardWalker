@@ -21,9 +21,19 @@ MIN_DISTINCT_VIEWS = 3
 MIN_SPHERICAL_VIEWS = 2
 MIN_VIEW_BEARING_SPAN_DEG = 25.0
 MAX_RESULT_TRACK_POSITION_DELTA_M = 0.05
+MIN_REOBSERVATION_TRANSLATION_M = 0.05
+MIN_REOBSERVATION_YAW_DEG = 5.0
+PHYSICAL_REOBSERVATION_ACTIONS = frozenset({
+    'turn_left',
+    'turn_right',
+    'move_left',
+    'move_right',
+    'move_forward',
+    'move_backward',
+})
 
 
-def validate(evidence_dir, result_path):
+def validate(evidence_dir, result_path, require_active_reobservation=False):
     """返回结构化校验报告；任何缺失或违规都会写入 errors。"""
 
     root = Path(evidence_dir)
@@ -48,7 +58,10 @@ def validate(evidence_dir, result_path):
         if not path.is_file() or path.stat().st_size == 0:
             errors.append('missing_or_empty_' + name)
     if errors:
-        return _report(root, result_file, errors, 0, 0, 0)
+        return _report(
+            root, result_file, errors, 0, 0, 0,
+            active_reobservation_required=require_active_reobservation,
+        )
 
     manifest = _read_json(required['run_manifest'], errors, 'run_manifest')
     summary = _read_json(required['summary'], errors, 'summary')
@@ -57,9 +70,16 @@ def validate(evidence_dir, result_path):
     frames = _read_json_lines(required['frames'], errors)
     trajectory = _read_json_lines(required['trajectory'], errors)
     if errors:
-        return _report(root, result_file, errors, len(frames), len(trajectory), 0)
+        return _report(
+            root, result_file, errors, len(frames), len(trajectory), 0,
+            active_reobservation_required=require_active_reobservation,
+        )
 
-    if manifest.get('schema') != 'hazardwalker_perception_official_evidence_v1':
+    schema = manifest.get('schema')
+    if schema not in {
+        'hazardwalker_perception_official_evidence_v1',
+        'hazardwalker_perception_official_evidence_v2',
+    }:
         errors.append('unexpected_manifest_schema')
     contract = manifest.get('evidence_contract', {})
     if not contract.get('formal_evidence_eligible', False):
@@ -76,6 +96,7 @@ def validate(evidence_dir, result_path):
         errors.append('failure_reasons_not_list')
 
     image_count = 0
+    raw_image_count = 0
     depth_count = 0
     candidate_seen = False
     confirmation_seen = False
@@ -88,11 +109,16 @@ def validate(evidence_dir, result_path):
             item.get('status') == 'confirmed' for item in frame.get('hazards', [])
         )
         image_path = str(frame.get('evidence_image', '')).strip()
+        raw_image_path = str(frame.get('evidence_raw_image', '')).strip()
         depth_path = str(frame.get('evidence_depth', '')).strip()
         if image_path:
             image_count += 1
             if not (root / image_path).is_file():
                 errors.append('missing_rgb_evidence_' + str(index))
+        if raw_image_path:
+            raw_image_count += 1
+            if not (root / raw_image_path).is_file():
+                errors.append('missing_raw_rgb_evidence_' + str(index))
         if depth_path:
             depth_count += 1
             if not (root / depth_path).is_file():
@@ -103,14 +129,213 @@ def validate(evidence_dir, result_path):
         errors.append('no_confirmed_red_ball')
     if image_count == 0:
         errors.append('no_key_rgb_evidence')
+    if schema == 'hazardwalker_perception_official_evidence_v2':
+        if raw_image_count == 0:
+            errors.append('no_raw_rgb_evidence')
+        if raw_image_count != image_count:
+            errors.append('raw_annotated_rgb_count_mismatch')
     if depth_count == 0:
         errors.append('no_time_paired_depth_evidence')
     if not trajectory:
         errors.append('empty_legal_slam_trajectory')
 
     _validate_official_result(result, frames, errors)
-    return _report(root, result_file, errors, len(frames), len(trajectory), image_count,
-                   depth_evidence_count=depth_count)
+    if require_active_reobservation:
+        _validate_active_reobservation(frames, errors)
+    return _report(
+        root, result_file, errors, len(frames), len(trajectory), image_count,
+        raw_rgb_evidence_count=raw_image_count,
+        depth_evidence_count=depth_count,
+        active_reobservation_required=require_active_reobservation,
+    )
+
+
+def _validate_active_reobservation(frames, errors):
+    """确认至少存在一个“局部候选→真实移动→完整观测→确认”的同目标闭环。
+
+    ``view_recommendation`` 只是感知层建议，不能证明控制器执行成功。因此本门禁还
+    要求合法 SLAM 位姿在候选与确认之间发生可测变化，并要求后续完整观测具备同步
+    RGB-D/TF 和三维定位。正式多视角强度与去重仍由 ``_validate_official_result``
+    逐帧重建校验。
+    """
+
+    attempts = []
+    for start_index, frame in enumerate(frames):
+        recommendation = frame.get('view_recommendation', {})
+        if not isinstance(recommendation, dict):
+            continue
+        action = str(recommendation.get('action', '')).strip()
+        target_id = _normalized_id(recommendation.get('target_id'))
+        if action not in PHYSICAL_REOBSERVATION_ACTIONS or not target_id:
+            continue
+        partial_detection = _matching_detection(
+            frame.get('detections_2d', []), target_id, require_partial=True,
+        )
+        if partial_detection is None:
+            continue
+
+        attempt = {
+            'motion_command': False,
+            'observed_motion': False,
+            'complete_detection': False,
+            'confirmation': False,
+        }
+        start_pose = _validated_robot_pose(frame.get('robot_pose'))
+        latest_pose = start_pose
+        for later in frames[start_index:]:
+            later_recommendation = later.get('view_recommendation', {})
+            if isinstance(later_recommendation, dict):
+                later_action = str(later_recommendation.get('action', '')).strip()
+                later_target = _normalized_id(later_recommendation.get('target_id'))
+                if (
+                    later_action in PHYSICAL_REOBSERVATION_ACTIONS
+                    and _identities_overlap(target_id, later_target)
+                ):
+                    attempt['motion_command'] = True
+
+            pose = _validated_robot_pose(later.get('robot_pose'))
+            if pose is not None:
+                latest_pose = pose
+            complete = _matching_detection(
+                later.get('detections_2d', []), target_id, require_partial=False,
+            )
+            if complete is not None and _is_eligible_detection(complete):
+                # “先看到完整球，随后机器人因其他原因移动”不属于主动复查成功。
+                # 完整观测必须发生在相对局部候选起点已有可测位姿变化之后。
+                if (
+                    start_pose is not None
+                    and latest_pose is not None
+                    and _poses_show_reobservation_motion(start_pose, latest_pose)
+                ):
+                    attempt['complete_detection'] = True
+                    target_id = _preferred_detection_identity(complete, target_id)
+            if _has_confirmed_target(later.get('hazards', []), target_id):
+                attempt['confirmation'] = True
+                if start_pose is not None and latest_pose is not None:
+                    attempt['observed_motion'] = _poses_show_reobservation_motion(
+                        start_pose, latest_pose,
+                    )
+                break
+        attempts.append(attempt)
+        if all(attempt.values()):
+            return
+
+    if not attempts:
+        errors.append('no_partial_reobservation_start')
+        return
+    errors.append('no_complete_active_reobservation_episode')
+    for field, error in (
+        ('motion_command', 'no_reobservation_motion_command'),
+        ('observed_motion', 'no_observed_robot_motion'),
+        ('complete_detection', 'no_reobserved_complete_detection'),
+        ('confirmation', 'no_reobservation_confirmation'),
+    ):
+        if not any(attempt[field] for attempt in attempts):
+            errors.append(error)
+
+
+def _matching_detection(detections, target_id, require_partial):
+    """返回与目标别名相符的局部或完整检测。"""
+
+    for detection in detections:
+        if not isinstance(detection, dict):
+            continue
+        identities = _detection_identities(detection)
+        if not any(_identities_overlap(target_id, value) for value in identities):
+            continue
+        is_partial = bool(
+            detection.get('is_partial')
+            or detection.get('requires_reobservation')
+        )
+        if is_partial == require_partial:
+            return detection
+    return None
+
+
+def _preferred_detection_identity(detection, fallback):
+    """候选升级为三维 track 后优先使用 track_id，同时保留候选别名匹配。"""
+
+    for key in ('track_id', 'candidate_id', 'id'):
+        value = _normalized_id(detection.get(key))
+        if value:
+            return value
+    return fallback
+
+
+def _detection_identities(detection):
+    return [
+        value for value in (
+            _normalized_id(detection.get('id')),
+            _normalized_id(detection.get('track_id')),
+            _normalized_id(detection.get('candidate_id')),
+        ) if value
+    ]
+
+
+def _has_confirmed_target(hazards, target_id):
+    for hazard in hazards:
+        if not isinstance(hazard, dict) or hazard.get('status') != 'confirmed':
+            continue
+        identities = [
+            _normalized_id(hazard.get('id')),
+            _normalized_id(hazard.get('track_id')),
+        ]
+        aliases = hazard.get('candidate_ids', [])
+        if isinstance(aliases, (list, tuple)):
+            identities.extend(_normalized_id(value) for value in aliases)
+        if any(_identities_overlap(target_id, value) for value in identities if value):
+            return True
+    return False
+
+
+def _identities_overlap(first, second):
+    """兼容 ``candidate-N``、``untracked:candidate-N`` 与升级后的 track 别名。"""
+
+    first_text = _normalized_id(first)
+    second_text = _normalized_id(second)
+    if first_text.startswith('untracked:'):
+        first_text = first_text.split(':', 1)[1]
+    if second_text.startswith('untracked:'):
+        second_text = second_text.split(':', 1)[1]
+    return bool(first_text and second_text and first_text == second_text)
+
+
+def _validated_robot_pose(value):
+    if not isinstance(value, dict):
+        return None
+    position = value.get('position')
+    orientation = value.get('orientation')
+    if not isinstance(position, dict) or not isinstance(orientation, dict):
+        return None
+    xyz = tuple(_finite_number(position.get(axis)) for axis in ('x', 'y', 'z'))
+    quaternion = tuple(
+        _finite_number(orientation.get(axis)) for axis in ('x', 'y', 'z', 'w')
+    )
+    if any(item is None for item in xyz + quaternion):
+        return None
+    return xyz, quaternion
+
+
+def _poses_show_reobservation_motion(first, second):
+    first_position, first_quaternion = first
+    second_position, second_quaternion = second
+    translation = _distance_m(first_position, second_position)
+    yaw_delta = abs(math.degrees(math.atan2(
+        math.sin(_quaternion_yaw(second_quaternion) - _quaternion_yaw(first_quaternion)),
+        math.cos(_quaternion_yaw(second_quaternion) - _quaternion_yaw(first_quaternion)),
+    )))
+    return (
+        translation >= MIN_REOBSERVATION_TRANSLATION_M
+        or yaw_delta >= MIN_REOBSERVATION_YAW_DEG
+    )
+
+
+def _quaternion_yaw(quaternion):
+    x, y, z, w = quaternion
+    return math.atan2(
+        2.0 * (w * z + x * y),
+        1.0 - 2.0 * (y * y + z * z),
+    )
 
 
 def _validate_official_result(result, frames, errors):
@@ -389,7 +614,8 @@ def _read_json_lines(path, errors):
 
 
 def _report(root, result_file, errors, frame_count, trajectory_count, image_count,
-            depth_evidence_count=0):
+            raw_rgb_evidence_count=0, depth_evidence_count=0,
+            active_reobservation_required=False):
     return {
         'schema': 'hazardwalker_official_random_perception_evidence_validation_v1',
         'evidence_dir': str(root),
@@ -397,7 +623,9 @@ def _report(root, result_file, errors, frame_count, trajectory_count, image_coun
         'frame_count': frame_count,
         'trajectory_sample_count': trajectory_count,
         'rgb_evidence_count': image_count,
+        'raw_rgb_evidence_count': raw_rgb_evidence_count,
         'depth_evidence_count': depth_evidence_count,
+        'active_reobservation_required': active_reobservation_required,
         'structural_evidence_complete': not errors,
         'errors': sorted(set(errors)),
         'scope_limitations': [
@@ -412,8 +640,17 @@ def main():
     parser.add_argument('evidence_dir', type=Path)
     parser.add_argument('--result-json', type=Path, required=True)
     parser.add_argument('--write-report', type=Path)
+    parser.add_argument(
+        '--require-active-reobservation',
+        action='store_true',
+        help='额外要求局部候选经真实位姿变化后完成同目标确认闭环。',
+    )
     args = parser.parse_args()
-    report = validate(args.evidence_dir, args.result_json)
+    report = validate(
+        args.evidence_dir,
+        args.result_json,
+        require_active_reobservation=args.require_active_reobservation,
+    )
     target = args.write_report or args.evidence_dir / 'independent_post_evaluation.json'
     target.write_text(json.dumps(report, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
     print(json.dumps(report, ensure_ascii=False, indent=2))

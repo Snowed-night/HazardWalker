@@ -151,12 +151,13 @@ def find_target_detection(
             item for item in detections
             if isinstance(item, dict)
             and (
-                _detection_identity(item) == expected
+                expected in _detection_identities(item)
                 or (
                     bool(allow_untracked_upgrade)
-                    and _canonical_target_id(
-                        _detection_identity(item)
-                    ) == expected_canonical
+                    and expected_canonical in {
+                        _canonical_target_id(value)
+                        for value in _detection_identities(item)
+                    }
                 )
             )
         ),
@@ -212,7 +213,13 @@ def find_target_status(payload, target_id):
     if not isinstance(hazards, list):
         return ''
     for item in hazards:
-        if isinstance(item, dict) and _same_target_id(item.get('id'), target_id):
+        if not isinstance(item, dict):
+            continue
+        identities = [item.get('id'), item.get('track_id')]
+        aliases = item.get('candidate_ids', [])
+        if isinstance(aliases, (list, tuple)):
+            identities.extend(aliases)
+        if any(_same_target_id(value, target_id) for value in identities):
             return str(item.get('status', '')).strip()
     return ''
 
@@ -239,6 +246,23 @@ def _detection_identity(detection):
     if track_id:
         return track_id
     return str(detection.get('id') or '').strip()
+
+
+def _detection_identities(detection):
+    """返回轨迹 ID、帧内 ID 和感知短时候选别名。"""
+
+    if not isinstance(detection, dict):
+        return set()
+    track_id = str(detection.get('track_id') or '').strip()
+    # 一旦有显式 track_id，帧内 ``id`` 只是显示序号，不能绕过精确轨迹门禁。
+    values = [track_id or detection.get('id'), detection.get('candidate_id')]
+    aliases = detection.get('candidate_aliases', [])
+    if isinstance(aliases, (list, tuple)):
+        values.extend(aliases)
+    return {
+        str(value).strip() for value in values
+        if str(value or '').strip()
+    }
 
 
 def action_has_scan_clearance(

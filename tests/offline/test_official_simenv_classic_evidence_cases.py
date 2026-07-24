@@ -25,6 +25,7 @@ def test_historical_suites_keep_required_case_counts():
         'complex_localization': 8,
         'red_ball_3d_localization': 5,
         'official_distractor_rejection': 5,
+        'active_partial_reobservation': 6,
     }
     for suite, expected_count in expected_counts.items():
         cases = CASES.build_suite(suite, center)
@@ -89,3 +90,39 @@ def test_partial_visibility_cases_use_distinct_area_integral_occluder_positions(
     assert [item.metadata['circle_cut_x'] for item in left] == sorted(
         (item.metadata['circle_cut_x'] for item in left), reverse=True,
     )
+
+
+def test_stage_b_reobservation_cases_start_from_sub_45_percent_visibility():
+    """B阶段案例必须从真正局部可见开始，不能复用无遮挡完整球。"""
+
+    cases = CASES.build_suite(
+        'active_partial_reobservation', (0.0, 0.0, 0.15),
+    )
+
+    assert len(cases) == 6
+    assert {
+        item.metadata['visible_ratio_design'] for item in cases
+    } == {0.15, 0.25, 0.35}
+    assert {
+        item.metadata['occlusion_side'] for item in cases
+    } == {'left', 'right'}
+    assert all(item.metadata['delivery_stage'] == '20260730' for item in cases)
+    assert all(item.metadata['required_initial_state'] == 'partial_candidate'
+               for item in cases)
+
+
+def test_partial_visibility_precalibration_is_camera_mirrored():
+    """夹具正对相机后左右遮挡必须镜像，不能沿用斜视历史偏置。"""
+
+    cases = CASES.build_suite('active_partial_reobservation', (0.0, 0.0, 0.15))
+    by_ratio_and_side = {
+        (item.metadata['visible_ratio_design'], item.metadata['occlusion_side']): item
+        for item in cases
+    }
+    for ratio in (0.15, 0.25, 0.35):
+        left = by_ratio_and_side[(ratio, 'left')].metadata
+        right = by_ratio_and_side[(ratio, 'right')].metadata
+        assert left['visible_ratio_precalibration_input'] == right[
+            'visible_ratio_precalibration_input'
+        ]
+        assert abs(left['circle_cut_x'] + right['circle_cut_x']) < 1e-4

@@ -118,18 +118,18 @@ def _official_a1_partial_precalibration(side: str, target_visible_ratio: float) 
     后续正式批次仍会在 ``cases.csv`` 中再次量测，超过 0.15 的偏差一律失败。
     """
 
+    # 运行器会先把整个夹具的 +Y 观察轴旋到真实相机前向，因此左右两侧在
+    # 相机坐标系中必须互为镜像。旧表是在夹具没有随相机旋转时分别测得，
+    # 其中右侧数值实际混入了斜视投影；继续使用会把 15% 右侧案例完全遮住。
+    # 这里只补偿遮挡板比球更靠近相机产生的共同透视放大，左右共用一组值。
     calibrated = {
-        'left': {
-            0.05: 0.314, 0.10: 0.369, 0.15: 0.426, 0.25: 0.515, 0.35: 0.600,
-            0.45: 0.683, 0.55: 0.759, 0.65: 0.833, 0.75: 0.910, 0.85: 0.980,
-        },
-        'right': {
-            0.05: 0.001, 0.10: 0.019, 0.15: 0.051, 0.25: 0.116, 0.35: 0.189,
-            0.45: 0.265, 0.55: 0.345, 0.65: 0.429, 0.75: 0.517, 0.85: 0.610,
-        },
+        0.05: 0.314, 0.10: 0.369, 0.15: 0.426, 0.25: 0.515, 0.35: 0.600,
+        0.45: 0.683, 0.55: 0.759, 0.65: 0.833, 0.75: 0.910, 0.85: 0.980,
     }
-    key = min(calibrated[side], key=lambda value: abs(value - float(target_visible_ratio)))
-    return float(calibrated[side][key])
+    if side not in {'left', 'right'}:
+        raise ValueError(f'不支持的遮挡方向：{side}')
+    key = min(calibrated, key=lambda value: abs(value - float(target_visible_ratio)))
+    return float(calibrated[key])
 
 
 def _object_links(shape: str, center: Point3) -> Tuple[str, ...]:
@@ -333,6 +333,56 @@ def build_partial_visibility(center: Point3) -> Tuple[ClassicCase, ...]:
     return tuple(cases)
 
 
+def build_active_partial_reobservation(center: Point3) -> Tuple[ClassicCase, ...]:
+    """返回 B 阶段局部可见红球主动复查案例。
+
+    复用已经按圆面积标定的 15%/25%/35% 左右遮挡夹具，但赋予独立 suite，
+    使执行器必须从首帧黄色候选开始，根据实时策略移动并最终确认，而不能把
+    7 月 10 日的静态遮挡截图当作 B 阶段闭环证据。
+    """
+
+    selected_ratios = {0.15, 0.25, 0.35}
+    cases = []
+    for source in build_partial_visibility(center):
+        visible_ratio = source.metadata.get('visible_ratio_design')
+        if visible_ratio not in selected_ratios:
+            continue
+        side = str(source.metadata.get('occlusion_side', 'unknown'))
+        percent = int(round(float(visible_ratio) * 100.0))
+        case_id = f'official_b_reobserve_{side}_{percent:02d}pct'
+        metadata = dict(source.metadata)
+        metadata.update({
+            'delivery_stage': '20260730',
+            'required_initial_state': 'partial_candidate',
+            'required_final_state': 'single_confirmed_red_ball',
+            'runtime_policy_must_not_read_fixture_metadata': True,
+        })
+        cases.append(ClassicCase(
+            case_id,
+            'active_partial_reobservation',
+            f'B阶段真实移动主动复查：{side}侧约 {percent}% 可见红球',
+            source.expected_sphere_positions,
+            _sdf(case_id, _object_links_from_sdf(source.sdf)),
+            metadata,
+        ))
+    return tuple(cases)
+
+
+def _object_links_from_sdf(sdf: str) -> Tuple[str, ...]:
+    """提取受控 SDF 中的 link 片段，供同几何不同 suite 复用。
+
+    案例生成仅处理本文件自身产生的固定 SDF，不接受外部场景文件；若结构异常
+    直接报错，避免静默生成空模型。
+    """
+
+    import re
+
+    links = tuple(re.findall(r'(<link name="[^"]+">.*?</link>)', sdf))
+    if not links:
+        raise ValueError('受控部分可见案例 SDF 不含 link，不能生成 B 阶段夹具。')
+    return links
+
+
 def build_complex_localization(center: Point3) -> Tuple[ClassicCase, ...]:
     """返回 8 个非规则多球布局，定位真值只用于运行后误差统计。"""
 
@@ -473,6 +523,7 @@ BUILDERS = {
     'partial_visibility': build_partial_visibility,
     'red_objects': build_red_objects,
     'active_multiview': build_active_multiview,
+    'active_partial_reobservation': build_active_partial_reobservation,
     'complex_localization': build_complex_localization,
     'red_ball_3d_localization': build_red_ball_3d_localization,
     'official_distractor_rejection': build_official_distractor_rejection,

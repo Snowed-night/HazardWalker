@@ -45,9 +45,12 @@ class OfficialRos1EvidenceRecorder(object):
         self.output_dir = _required_directory('~output_dir')
         self.test_record_dir = _required_directory('~test_record_dir')
         self.image_dir = self.output_dir / 'selected_images'
+        self.raw_image_dir = self.image_dir / 'raw'
+        self.annotated_image_dir = self.image_dir / 'annotated'
         self.depth_dir = self.output_dir / 'selected_depth'
         if rospy.get_param('~save_images', True):
-            self.image_dir.mkdir(parents=True, exist_ok=True)
+            self.raw_image_dir.mkdir(parents=True, exist_ok=True)
+            self.annotated_image_dir.mkdir(parents=True, exist_ok=True)
         if rospy.get_param('~save_depth_evidence', True):
             self.depth_dir.mkdir(parents=True, exist_ok=True)
 
@@ -126,7 +129,7 @@ class OfficialRos1EvidenceRecorder(object):
 
     def _write_manifest(self):
         _write_json(self.output_dir / 'run_manifest.json', {
-            'schema': 'hazardwalker_perception_official_evidence_v1',
+            'schema': 'hazardwalker_perception_official_evidence_v2',
             'evidence_contract': self.evidence_contract,
             'input_topics': {
                 'image': str(rospy.get_param('~image_topic')),
@@ -189,7 +192,9 @@ class OfficialRos1EvidenceRecorder(object):
         width = int(self.latest_image.shape[1]) if self.latest_image is not None else 0
         recommendation = choose_active_view_action(detections, width, height).to_dict()
         stamp_sec = _payload_stamp(payload, detections, time.time())
-        image_path, depth_path = self._save_evidence(stamp_sec, detections, hazards, recommendation)
+        raw_image_path, image_path, depth_path = self._save_evidence(
+            stamp_sec, detections, hazards, recommendation,
+        )
         record = {
             'timestamp_sec': stamp_sec,
             'image_frame_id': self.latest_image_frame_id,
@@ -200,6 +205,7 @@ class OfficialRos1EvidenceRecorder(object):
             'hazards': hazards,
             'localization_ready': bool(payload.get('localization_ready', False)),
             'view_recommendation': recommendation,
+            'evidence_raw_image': raw_image_path,
             'evidence_image': image_path,
             'evidence_depth': depth_path,
         }
@@ -218,17 +224,17 @@ class OfficialRos1EvidenceRecorder(object):
         event_frame = bool(detections) or confirmed
         if not event_frame:
             if not rospy.get_param('~save_context_frames'):
-                return '', ''
+                return '', '', ''
             if self.context_image_count >= int(rospy.get_param('~max_context_images')):
-                return '', ''
+                return '', '', ''
         if not rospy.get_param('~save_images') or self.latest_image is None:
-            return '', ''
+            return '', '', ''
         interval_parameter = (
             '~min_image_save_interval_sec'
             if event_frame else '~context_image_save_interval_sec'
         )
         if stamp_sec - self.last_image_save_sec < float(rospy.get_param(interval_parameter)):
-            return '', ''
+            return '', '', ''
         prefix = 'event' if event_frame else 'context'
         filename = '%s_%06d_%.3f.png' % (
             prefix, len(self.records) + 1, stamp_sec,
@@ -253,8 +259,16 @@ class OfficialRos1EvidenceRecorder(object):
                 annotated, 'official random scene context (no candidate)',
                 (12, 50), cv2.FONT_HERSHEY_SIMPLEX, 0.52, (255, 255, 0), 1,
             )
-        image_path = self.image_dir / filename
-        cv2.imwrite(str(image_path), annotated)
+        stem = Path(filename).stem
+        raw_image_path = self.raw_image_dir / (stem + '_raw.png')
+        image_path = self.annotated_image_dir / (stem + '_annotated.png')
+        if not cv2.imwrite(str(raw_image_path), self.latest_image):
+            rospy.logwarn('原始 RGB 证据写入失败：%s', raw_image_path)
+            return '', '', ''
+        if not cv2.imwrite(str(image_path), annotated):
+            rospy.logwarn('标注 RGB 证据写入失败：%s', image_path)
+            raw_image_path.unlink(missing_ok=True)
+            return '', '', ''
         depth_relative = ''
         if (rospy.get_param('~save_depth_evidence') and self.latest_depth is not None
                 and abs(self.latest_depth_stamp - self.latest_image_stamp)
@@ -265,7 +279,11 @@ class OfficialRos1EvidenceRecorder(object):
         self.last_image_save_sec = stamp_sec
         if not event_frame:
             self.context_image_count += 1
-        return str(image_path.relative_to(self.output_dir).as_posix()), depth_relative
+        return (
+            str(raw_image_path.relative_to(self.output_dir).as_posix()),
+            str(image_path.relative_to(self.output_dir).as_posix()),
+            depth_relative,
+        )
 
     def close(self):
         """停止时写汇总、失败原因、测试表和可选的最终结果副本。"""
