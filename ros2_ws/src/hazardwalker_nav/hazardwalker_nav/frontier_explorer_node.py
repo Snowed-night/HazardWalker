@@ -61,6 +61,7 @@ from hazardwalker_nav.reobservation_contract import (
     reobservation_request_is_eligible,
     target_centered_in_image,
 )
+from hazardwalker_nav.nav_recorder import NavRecorder
 from hazardwalker_nav.waypoint_controller import normalize_angle
 
 
@@ -175,6 +176,9 @@ class FrontierExplorerNode(Node):
         # 必须长于基础 unreachable TTL + 一次重规划周期，否则目标刚过期前
         # 就会误判完成，永远没有机会用扩展后的地图重试。
         self.declare_parameter('frontier_completion_grace_s', 60.0)
+        # 导航数据记录
+        self.declare_parameter('nav_record_enabled', True)
+        self.declare_parameter('nav_record_dir', '')
 
         # ---- 状态机 ----
         self.state = 'INIT'
@@ -281,6 +285,12 @@ class FrontierExplorerNode(Node):
         self.timer = self.create_timer(
             0.1, self.on_timer, clock=self._control_clock)
 
+        # ---- 导航数据记录器 ----
+        self.recorder = NavRecorder(
+            output_dir=str(self.get_parameter('nav_record_dir').value),
+            enabled=bool(self.get_parameter('nav_record_enabled').value),
+        )
+
         self.get_logger().info(
             f'Frontier explorer ready. Home=({self.start_x:.1f}, {self.start_y:.1f})')
 
@@ -364,6 +374,10 @@ class FrontierExplorerNode(Node):
         self._reobserve_attempts[self.reobserve_target_id] = (
             int(self._reobserve_attempts.get(self.reobserve_target_id, 0)) + 1
         )
+        self.recorder.record_reobservation(
+            now, self.reobserve_target_id, self.reobserve_action,
+            'started', reason=str(request.get('reason', '')),
+        )
         self._transition('REOBSERVING')
         self.get_logger().info(
             f'Entering REOBSERVING: target={self.reobserve_target_id} '
@@ -380,6 +394,10 @@ class FrontierExplorerNode(Node):
         if status in ('confirmed', 'rejected', 'rejected_non_spherical'):
             self.reobserve_motion_end_time = now
             self.reobserve_end_time = now
+            self.recorder.record_reobservation(
+                now, self.reobserve_target_id, self.reobserve_action or '',
+                'aborted', reason=f'target_resolved:{status}',
+            )
             self.get_logger().info(
                 f'Reobservation target {self.reobserve_target_id} resolved: {status}.'
             )
@@ -481,6 +499,10 @@ class FrontierExplorerNode(Node):
             + self.reobserve_observe_duration_s
         )
         self._reobserve_motion_stop_latched = True
+        self.recorder.record_reobservation(
+            now_ros, self.reobserve_target_id, self.reobserve_action or '',
+            'aborted', reason=reason,
+        )
         self.get_logger().info(
             f'Reobservation motion stopped: {reason}; '
             'settling for stable RGB-D evidence.'
@@ -575,6 +597,19 @@ class FrontierExplorerNode(Node):
 
         self._update_stuck_detection(cmd)
         self.cmd_pub.publish(cmd)
+
+        # ---- 记录位姿与速度指令 ----
+        if self._has_fresh_pose():
+            target = None
+            if self.current_target is not None:
+                target = self.current_target.centroid
+            self.recorder.record_pose(
+                now_ros, self.robot_x, self.robot_y, self.robot_yaw,
+                self.state, target,
+            )
+        self.recorder.record_cmd_vel(
+            now_ros, cmd.linear.x, cmd.angular.z, cmd.linear.y,
+        )
 
     # ---- 状态处理 ----
 
@@ -769,6 +804,14 @@ class FrontierExplorerNode(Node):
 
         if now >= self.reobserve_end_time:
             self.get_logger().info('Reobservation complete, resuming exploration.')
+            self.recorder.record_reobservation(
+                now, self.reobserve_target_id or '', self.reobserve_action or '',
+                'completed',
+                bearing_change_deg=(
+                    None if self.reobserve_baseline_bearing_deg is None
+                    else None  # bearing_change recorded live by _update_reobservation_feedback
+                ),
+            )
             self.reobserve_action = None
             self.reobserve_target_id = ''
             self.reobserve_baseline_bearing_deg = None
@@ -1794,6 +1837,12 @@ class FrontierExplorerNode(Node):
                     'suppressing the current frontier instead of waiting '
                     'indefinitely.'
                 )
+                self.recorder.record_failure(
+                    now_ros, 'safety_blocked',
+                    self.robot_x, self.robot_y,
+                    'scan clearance gate blocked all motion for '
+                    f'{now_ros - self._safety_blocked_since_ros:.1f}s',
+                )
                 if self.current_target is not None:
                     self._mark_frontier_unreachable(self.current_target)
                 self.current_target = None
@@ -1849,6 +1898,11 @@ class FrontierExplorerNode(Node):
             self.get_logger().warn(
                 f'Stuck detected (moved {moved:.3f}m, rotated '
                 f'{rotated:.3f}rad). Recovery: clearing path.')
+            self.recorder.record_failure(
+                self._ros_time_sec(), 'stuck',
+                self.robot_x, self.robot_y,
+                f'moved={moved:.3f}m rotated={rotated:.3f}rad',
+            )
             # 先短时标记失败目标再清理，避免下一帧立即选回同一前沿。
             if self.current_target is not None:
                 self._mark_frontier_unreachable(self.current_target)
@@ -1864,6 +1918,9 @@ class FrontierExplorerNode(Node):
         self.prev_state = self.state
         self.state = new_state
         self._state_entry_time = time.monotonic()
+        self.recorder.record_state_transition(
+            self._ros_time_sec(), self.prev_state, new_state,
+        )
         if new_state == 'EXPLORING' and self.prev_state == 'INIT':
             # 保留探索阶段起点供诊断；正式总预算已从 /clock 首个有效值计时，
             # 不会在 INIT 完成后重新起表。
@@ -1901,6 +1958,16 @@ class FrontierExplorerNode(Node):
             self._return_recovery_turn_command = 0.0
             self._return_recovery_start_yaw = None
             self._return_recovery_scan_blocked_logged = False
+            # 保存地图并关闭记录器
+            if self.grid is not None:
+                self.recorder.save_map(
+                    self.grid, self.latest_map, self._ros_time_sec(),
+                )
+            self.recorder.close(
+                self._ros_time_sec(),
+                final_state='FINISHED',
+                total_frontiers_visited=len(self._visited_frontiers),
+            )
         self.get_logger().info(f'State: {self.prev_state} → {new_state}')
 
 
@@ -1911,7 +1978,19 @@ def main():
         rclpy.spin(node)
     except ExternalShutdownException:
         pass
+    except KeyboardInterrupt:
+        pass
     finally:
+        # 异常退出时也保存已有数据
+        try:
+            if node.recorder._enabled:
+                node.recorder.close(
+                    node._ros_time_sec(),
+                    final_state=node.state,
+                    total_frontiers_visited=len(node._visited_frontiers),
+                )
+        except Exception:
+            pass
         if rclpy.ok():
             node.destroy_node()
             rclpy.shutdown()
