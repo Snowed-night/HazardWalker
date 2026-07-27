@@ -20,6 +20,17 @@ export XDG_RUNTIME_DIR="/tmp/runtime-root"
 mkdir -p "$HOME_DIR" "$XDG_RUNTIME_DIR"
 chmod 700 "$XDG_RUNTIME_DIR"
 
+DISPLAY_NUMBER="${DISPLAY_VALUE#:}"
+DISPLAY_SOCKET="/tmp/.X11-unix/X${DISPLAY_NUMBER}"
+DISPLAY_LOCK="/tmp/.X${DISPLAY_NUMBER}-lock"
+# 旧 Docker 构建器曾把运行中 sidecar 的 X lock 写进镜像；仅删除本容器内无对应进程的陈旧锁。
+if [[ -f "$DISPLAY_LOCK" ]]; then
+  LOCK_PID="$(cat "$DISPLAY_LOCK" 2>/dev/null || true)"
+  if [[ -z "$LOCK_PID" ]] || ! kill -0 "$LOCK_PID" 2>/dev/null; then
+    rm -f "$DISPLAY_LOCK" "$DISPLAY_SOCKET"
+  fi
+fi
+
 # Noetic 的 profile 脚本会直接展开 ROS_MASTER_URI；严格模式下必须先给出默认值。
 export ROS_MASTER_URI="${ROS_MASTER_URI:-http://127.0.0.1:11311}"
 source /opt/ros/noetic/setup.bash
@@ -43,8 +54,6 @@ Xvfb "$DISPLAY_VALUE" -screen 0 "$GUI_RESOLUTION" +extension GLX +render \
   > /tmp/hazardwalker-gui-xvfb.log 2>&1 &
 XVFB_PID=$!
 
-DISPLAY_NUMBER="${DISPLAY_VALUE#:}"
-DISPLAY_SOCKET="/tmp/.X11-unix/X${DISPLAY_NUMBER}"
 display_ready() {
   if command -v xdpyinfo >/dev/null 2>&1; then
     xdpyinfo -display "$DISPLAY_VALUE" >/dev/null 2>&1

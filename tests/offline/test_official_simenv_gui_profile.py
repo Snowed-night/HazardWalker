@@ -22,6 +22,7 @@ def test_gui_sidecar_uses_virtual_display_and_loopback_novnc():
     assert 'gzclient -geometry "$GUI_GEOMETRY" --verbose' in entrypoint
     assert 'openbox --sm-disable' in entrypoint
     assert 'wmctrl -r Gazebo -b add,maximized_vert,maximized_horz' in entrypoint
+    assert 'DISPLAY_LOCK' in entrypoint
     assert '127.0.0.1:${NOVNC_PORT}' in entrypoint
 
 
