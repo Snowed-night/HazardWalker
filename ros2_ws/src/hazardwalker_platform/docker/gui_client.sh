@@ -36,9 +36,11 @@ case "$ACTION" in
     fi
     docker rm -f "$GUI_CONTAINER" >/dev/null 2>&1 || true
     # 默认 1080p；noVNC 的 resize=scale 可在不同 RDP/本地窗口中继续铺满视口。
+    # 全屏页面作为只读配置挂载，旧 Docker 构建器异常时也不会回退到旧页面。
     docker run -d --name "$GUI_CONTAINER" --network host \
       --entrypoint bash \
       --mount "type=bind,src=$SIMENV_ROOT,dst=/home/ros/simenv_ws,readonly" \
+      --mount "type=bind,src=$SCRIPT_DIR/gui_fullscreen.html,dst=/usr/share/novnc/hazardwalker.html,readonly" \
       -e GAZEBO_MASTER_URI="${GAZEBO_MASTER_URI:-http://127.0.0.1:11345}" \
       -e SIMENV_GUI_NOVNC_PORT="$NOVNC_PORT" \
       -e SIMENV_GUI_VNC_PORT="$VNC_PORT" \

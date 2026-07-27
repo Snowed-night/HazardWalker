@@ -36,6 +36,7 @@ def test_gui_client_only_manages_its_own_sidecar():
     assert 'SIMENV_GUI_CONTAINER' in client
     assert 'docker run -d' in client
     assert 'readonly' in client
+    assert 'gui_fullscreen.html,dst=/usr/share/novnc/hazardwalker.html,readonly' in client
     assert 'docker restart' not in client
     assert 'docker stop "$MAIN_CONTAINER"' not in client
     assert 'SIMENV_GUI_RESOLUTION:-1920x1080x24' in client
