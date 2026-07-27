@@ -35,13 +35,13 @@ case "$ACTION" in
       build_image
     fi
     docker rm -f "$GUI_CONTAINER" >/dev/null 2>&1 || true
+    # 默认 1080p；noVNC 的 resize=scale 可在不同 RDP/本地窗口中继续铺满视口。
     docker run -d --name "$GUI_CONTAINER" --network host \
       --entrypoint bash \
       --mount "type=bind,src=$SIMENV_ROOT,dst=/home/ros/simenv_ws,readonly" \
       -e GAZEBO_MASTER_URI="${GAZEBO_MASTER_URI:-http://127.0.0.1:11345}" \
       -e SIMENV_GUI_NOVNC_PORT="$NOVNC_PORT" \
       -e SIMENV_GUI_VNC_PORT="$VNC_PORT" \
-      # 默认 1080p；noVNC 的 resize=scale 可在不同 RDP/本地窗口中继续铺满视口。
       -e SIMENV_GUI_RESOLUTION="${SIMENV_GUI_RESOLUTION:-1920x1080x24}" \
       "$GUI_IMAGE" /usr/local/bin/hazardwalker_gui_entrypoint.sh >/dev/null
     echo "GUI sidecar 已启动：http://127.0.0.1:${NOVNC_PORT}/vnc.html"
