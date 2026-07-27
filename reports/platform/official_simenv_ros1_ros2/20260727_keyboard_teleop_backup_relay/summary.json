@@ -1,0 +1,35 @@
+{
+  "date": "2026-07-27",
+  "scope": "official_simenv_remote_keyboard_teleop_backup_relay",
+  "container": "simenv_ros1_hazard_platform",
+  "git_version": "a5af219 plus local uncommitted control-recovery changes",
+  "keyboard": {
+    "topic": "/hw/cmd_vel",
+    "mapping": {"w": [0.3, 0.0], "s": [-0.3, 0.0], "a": [0.0, 0.6], "d": [0.0, -0.6], "k": [0.0, 0.0]},
+    "exercise": "W 0.5s -> K -> Q",
+    "auto_stop_sec": 0.35,
+    "ros1_nonzero_cmd_samples": 8,
+    "ros1_zero_cmd_observed": true
+  },
+  "motion": {
+    "odom_before_xy_m": [-0.2740632935, -0.3393825297],
+    "odom_after_xy_m": [-0.2762447756, -0.3385740719],
+    "planar_displacement_m": 0.00233,
+    "interpretation": "short key press covered gait startup; not a cruise-speed benchmark"
+  },
+  "adapter_diagnosis": {
+    "ros1_raw_topics_live": true,
+    "official_adapter_graph_visible": true,
+    "official_adapter_status_and_parameter_service_live": false,
+    "official_adapter_forwarded_keyboard_cmd": false,
+    "backup_relay_used": true
+  },
+  "cleanup": {
+    "keyboard_publishers_after_test": 0,
+    "temporary_remote_directory_removed": true,
+    "container_restarted": false,
+    "official_adapter_terminated": false
+  },
+  "gui": {"available": false, "reason": "Gazebo Classic Qt/OpenGL conflicts with RDP XWayland"},
+  "result": "keyboard_control_pass_with_backup_relay_standard_adapter_liveness_failed"
+}

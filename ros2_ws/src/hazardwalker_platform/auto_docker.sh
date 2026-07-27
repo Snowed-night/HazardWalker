@@ -23,7 +23,8 @@ if [[ ! -d "$ROOT/src" ]]; then
 fi
 
 chmod +x "$ROOT/auto.sh" "$ROOT/scripts/rosbridge_odom_relay.py" \
-  "$ROOT/docker/auto_noetic.sh" "$ROOT/docker/build_catkin.sh" 2>/dev/null || true
+  "$ROOT/docker/auto_noetic.sh" "$ROOT/docker/build_catkin.sh" \
+  "$ROOT/docker/gui_client.sh" 2>/dev/null || true
 
 case "${1:-up}" in
   build)
@@ -67,12 +68,16 @@ case "${1:-up}" in
   status)
     exec "$ROOT/docker/auto_noetic.sh" status
     ;;
+  gui)
+    # GUI sidecar 只连接现有 Master，不会重启或重建正式仿真容器。
+    exec "$ROOT/docker/gui_client.sh" "${@:2}"
+    ;;
   image)
     # 仅重建镜像；`--no-cache` 等参数原样转交，供平台管理员执行干净验收。
     exec "$ROOT/docker/auto_noetic.sh" image "${@:2}"
     ;;
   *)
-    echo "Usage: $0 {build|image|up|down|logs|shell|status}" >&2
+    echo "Usage: $0 {build|image|up|down|logs|shell|status|gui}" >&2
     exit 1
     ;;
 esac

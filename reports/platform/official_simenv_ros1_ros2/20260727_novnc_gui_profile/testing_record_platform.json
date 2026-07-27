@@ -1,0 +1,13 @@
+{
+  "schema": "HazardWalker platform testing record v1",
+  "date": "2026-07-27",
+  "owner": "负责人",
+  "records": [
+    {"record_id": "gui_20260727_001", "item": "noVNC endpoint", "expected": "HTTP 200", "result": "pass", "evidence": "http://127.0.0.1:6081/vnc.html returned 200"},
+    {"record_id": "gui_20260727_002", "item": "Gazebo visible", "expected": "GUI process alive with scene frame", "result": "pass", "evidence": "gui_noVNC_final.png; Xvfb/x11vnc/websockify/gzclient alive"},
+    {"record_id": "gui_20260727_003", "item": "shared-container non-interference", "expected": "main container remains running", "result": "pass", "evidence": "simenv_ros1_hazard_platform was never restarted or stopped"},
+    {"record_id": "gui_20260727_004", "item": "keyboard forward and stop", "expected": "positive /cmd_vel then zero Twist", "result": "pass", "evidence": "8 ROS1 linear.x=0.30 samples then zero messages"},
+    {"record_id": "gui_20260727_005", "item": "short physical response", "expected": "odometry changes", "result": "pass", "evidence": "planar delta 0.001126 m"},
+    {"record_id": "gui_20260727_006", "item": "formal ROS2 adapter health", "expected": "topics and parameter service respond", "result": "fail", "evidence": "/hw/odom, adapter status and parameter service timed out"}
+  ]
+}

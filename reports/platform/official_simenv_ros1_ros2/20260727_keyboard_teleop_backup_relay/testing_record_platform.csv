@@ -1,0 +1,8 @@
+record_id,test_item,expected_evidence,result,owner,notes
+PLATFORM-20260727-01,共享控制预检,/hw/cmd_vel无发布者且容器healthy,pass,负责人,不重启容器或正式适配器
+PLATFORM-20260727-02,正式适配器活性,ROS2状态和参数服务有响应,fail,负责人,图可见但传感器状态和参数服务超时；不能作为可用链路
+PLATFORM-20260727-03,备用速度中继,连接rosbridge并仅桥接/hw/cmd_vel到/cmd_vel,pass,负责人,正式适配器失活时临时使用
+PLATFORM-20260727-04,W前进与K急停,ROS1收到0.30 Twist后收到零Twist,pass,负责人,非零样本8条；自动超时和K均发零速度
+PLATFORM-20260727-05,真实位姿响应,诊断里程计沿前向出现可测位移,pass,负责人,短按0.5秒约0.00233m；非巡航性能结论
+PLATFORM-20260727-06,清理,退出后无/hw/cmd_vel发布者和临时进程,pass,负责人,远程tmp和venv已删除
+PLATFORM-20260727-07,GUI可用性,RDP内gzclient稳定显示,fail,负责人,Qt/OpenGL与RDP XWayland不兼容；headless替代

@@ -91,11 +91,43 @@ source install/setup.bash
 cd ..
 ```
 
-在终端 C 运行：
+在**远程开发机**的终端 C 运行（本机终端只可作为 SSH 键盘输入窗口，节点和仿真均运行在远程）：
 
 ```bash
 ros2 run hazardwalker_platform keyboard_control_node
 ```
+
+若远程工作区源代码已同步、但尚未执行 `colcon build`，可用同一份源码启动；这不是容器内手工安装，
+也不需要重启任何平台进程：
+
+```bash
+cd ~/HazardWalker
+source /opt/ros/jazzy/setup.bash
+export PYTHONPATH="$PWD/ros2_ws/src/hazardwalker_platform:${PYTHONPATH}"
+python3 -m hazardwalker_platform.keyboard_control_node
+```
+
+该入口与 `ros2 run` 使用同一节点、同一参数和同一停止保护。不要在本机运行 ROS2 节点，也不要
+向容器内 `/cmd_vel` 直接发布。
+
+### 3.3 完整适配器失活时的控制备用中继
+
+如果 ROS1 原始相机/里程计正常，但完整适配器的 `/hw/odom`、状态话题和参数服务均长期无响应，
+先保存诊断证据并通知平台组。**不得重启共享容器或杀死他人适配器进程。**仅在平台管理员确认
+独占时段后，可在远程工作区另开终端临时启动下列备用中继：
+
+```bash
+cd ~/HazardWalker
+source /opt/ros/jazzy/setup.bash
+export ROS_DOMAIN_ID=42
+"${OFFICIAL_SIMENV_PYTHON_BIN:-python3}" -c 'import rclpy, websocket'
+"${OFFICIAL_SIMENV_PYTHON_BIN:-python3}" scripts/official_simenv_cmd_vel_relay_node.py
+```
+
+该节点仍只接收 `/hw/cmd_vel` 并通过 rosbridge 写入官方 ROS1 `/cmd_vel`，不转发传感器、
+不读取真值。它是完整适配器失活时的受控恢复工具：完整适配器恢复后，先按 `Ctrl+C` 停止备用
+中继，再恢复常规流程，禁止两个速度中继长期并行。若依赖检查失败，必须使用平台组已验收的
+`OFFICIAL_SIMENV_PYTHON_BIN`（含 `websocket-client`）；不要向共享容器或系统 Python 手工安装包。
 
 需要临时降低速度时使用 ROS 参数，不修改源码：
 
@@ -109,7 +141,7 @@ ros2 run hazardwalker_platform keyboard_control_node --ros-args \
 依次短按或短按住 `w → k → s → k → a → k → d → k`。每一步均观察机器人方向、
 SLAM 位姿和障碍物安全距离。遇到异常立即按 `k`，再按 `Ctrl+C` 退出。
 
-### 3.3 链路复核
+### 3.4 链路复核
 
 ROS2 侧：
 

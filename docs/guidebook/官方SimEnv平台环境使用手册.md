@@ -115,6 +115,43 @@ cd ../../..
 不要使用已弃用的
 `ros2_ws/src/hazardwalker_platform/scripts/start_simenv.sh`，也不要在同一容器中重复运行启动脚本。
 
+### 3.4 可视化 GUI（noVNC sidecar）
+
+当前 RDP/XWayland 不能直接稳定运行 Gazebo Classic `gzclient`，但容器内 Xvfb 软件渲染已验收可用。
+平台管理员应使用下列**独立 GUI sidecar**，它只连接现有 Gazebo Master，不会重启、停止或修改正式
+仿真容器：
+
+```bash
+cd ros2_ws/src/hazardwalker_platform
+export SIMENV_CONTAINER=simenv_ros1_hazard_platform
+./auto_docker.sh gui build  # 首次或 GUI Dockerfile 更新后执行
+./auto_docker.sh gui up
+```
+
+在远程 RDP 桌面的浏览器打开 `http://127.0.0.1:6081/vnc.html`，点击 Connect 后即可看到 Gazebo。
+端口仅绑定远程主机 loopback；从本机访问时使用 SSH 隧道，不要暴露到公网：
+
+```bash
+ssh -L 6081:127.0.0.1:6081 hxbl-codex-main
+```
+
+浏览器窗口用于观察仿真；键盘控制节点运行在**远程独占终端**，两者并排使用。不要在 noVNC 窗口中
+把 `w/s/a/d/k` 当作控制指令，它们属于 Gazebo GUI 快捷键。控制终端仍只向 `/hw/cmd_vel` 发布：
+
+```bash
+source /opt/ros/jazzy/setup.bash
+source ros2_ws/install/setup.bash
+export ROS_DOMAIN_ID=42
+ros2 run hazardwalker_platform keyboard_control_node
+```
+
+按 `w` 前进、`s` 后退、`a` 左转、`d` 右转、`k` 立即停止，`q` 或 `Ctrl+C` 停止并退出。结束 GUI
+观察后只停止 sidecar，不要执行正式容器的 `down`：
+
+```bash
+./auto_docker.sh gui down
+```
+
 ## 4. 三种接入方式
 
 ### 4.0 每台 ROS2 主机的一次性依赖

@@ -131,3 +131,9 @@ def main(args=None) -> None:
         termios.tcsetattr(sys.stdin, termios.TCSADRAIN, old_terminal)
         node.destroy_node()
         rclpy.shutdown()
+
+
+# 同时支持 ``ros2 run`` 与 ``python -m``。后者用于已装有 ROS2、
+# 但尚未构建本工作区的官方共享环境，不需要修改或重启平台容器。
+if __name__ == '__main__':
+    main()

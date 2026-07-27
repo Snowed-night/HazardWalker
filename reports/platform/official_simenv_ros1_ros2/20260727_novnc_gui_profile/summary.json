@@ -1,0 +1,30 @@
+{
+  "date": "2026-07-27",
+  "scope": "official SimEnv noVNC GUI sidecar and concurrent keyboard-control evidence",
+  "main_container": "simenv_ros1_hazard_platform",
+  "main_container_restarted": false,
+  "gui_container": "simenv_ros1_hazard_platform_gui",
+  "gui_image": "simenv_ros1-gui:noetic-focal",
+  "gui_image_digest": "sha256:96db1a216f6abf8427d551456ae4024de2f2330ecda198b3f9a3594193dea034",
+  "gazebo_master_uri": "http://127.0.0.1:11345",
+  "gui_endpoint": "http://127.0.0.1:6081/vnc.html",
+  "endpoint_http_status": 200,
+  "gui_processes_alive": ["Xvfb", "x11vnc", "websockify", "gzclient"],
+  "renderer": "llvmpipe software rendering on isolated Xvfb :100",
+  "representative_image": "gui_noVNC_final.png",
+  "keyboard_test": {
+    "keys": ["W", "K", "Q"],
+    "linear_speed_mps": 0.3,
+    "ros1_nonzero_cmd_samples": 8,
+    "odom_before_xy_m": [-0.277200273132375, -0.33858309074357396],
+    "odom_after_xy_m": [-0.2782510998087365, -0.3381788384308351],
+    "planar_delta_m": 0.001126,
+    "zero_stop_observed": true
+  },
+  "official_adapter_status": "graph-visible but unresponsive in this window; GUI evidence does not claim adapter health",
+  "limitations": [
+    "noVNC is loopback-only and must be accessed in RDP or via an SSH tunnel",
+    "keyboard control is run in a separate exclusive terminal, not in the noVNC page",
+    "the temporary backup relay must not coexist with a recovered formal adapter"
+  ]
+}
