@@ -9,10 +9,18 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
   <title>HazardWalker SimEnv GUI</title>
   <style>
-    html, body, #screen {
-      width: 100%;
-      height: 100%;
+    html, body {
+      width: 100vw;
+      height: 100vh;
       margin: 0;
+      overflow: hidden;
+      background: #000;
+    }
+    #screen {
+      position: fixed;
+      inset: 0;
+      width: 100vw;
+      height: 100vh;
       overflow: hidden;
       background: #000;
     }
@@ -35,7 +43,16 @@
       shared: true,
     });
 
-    // 画布随浏览器/RDP 视口缩放；只读避免浏览器焦点误触 Gazebo 快捷键。
+    // 画布随浏览器/RDP 视口缩放；连接成功和窗口变化后都重新计算，避免首次握手时拿到旧尺寸。
+    const fitViewport = () => {
+      const target = document.getElementById('screen');
+      target.style.width = `${window.innerWidth}px`;
+      target.style.height = `${window.innerHeight}px`;
+      rfb.scaleViewport = false;
+      rfb.scaleViewport = true;
+    };
+    rfb.addEventListener('connect', () => requestAnimationFrame(fitViewport));
+    window.addEventListener('resize', () => requestAnimationFrame(fitViewport));
     rfb.scaleViewport = true;
     rfb.clipViewport = false;
     rfb.viewOnly = true;

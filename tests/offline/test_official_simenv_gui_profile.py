@@ -25,8 +25,10 @@ def test_fullscreen_viewer_fills_viewport_and_blocks_vnc_input():
     viewer = (DOCKER_DIR / 'gui_fullscreen.html').read_text(encoding='utf-8')
     assert 'gui_fullscreen.html /usr/share/novnc/hazardwalker.html' in dockerfile
     assert 'rfb.scaleViewport = true' in viewer
+    assert 'rfb.addEventListener(\'connect\'' in viewer
+    assert 'position: fixed' in viewer
     assert 'rfb.viewOnly = true' in viewer
-    assert 'height: 100%' in viewer
+    assert 'height: 100vh' in viewer
 
 
 def test_gui_client_only_manages_its_own_sidecar():
