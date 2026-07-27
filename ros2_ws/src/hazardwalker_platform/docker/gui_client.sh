@@ -41,7 +41,8 @@ case "$ACTION" in
       -e GAZEBO_MASTER_URI="${GAZEBO_MASTER_URI:-http://127.0.0.1:11345}" \
       -e SIMENV_GUI_NOVNC_PORT="$NOVNC_PORT" \
       -e SIMENV_GUI_VNC_PORT="$VNC_PORT" \
-      -e SIMENV_GUI_RESOLUTION="${SIMENV_GUI_RESOLUTION:-1440x900x24}" \
+      # 默认 1080p；noVNC 的 resize=scale 可在不同 RDP/本地窗口中继续铺满视口。
+      -e SIMENV_GUI_RESOLUTION="${SIMENV_GUI_RESOLUTION:-1920x1080x24}" \
       "$GUI_IMAGE" /usr/local/bin/hazardwalker_gui_entrypoint.sh >/dev/null
     echo "GUI sidecar 已启动：http://127.0.0.1:${NOVNC_PORT}/vnc.html"
     echo "RDP 中用浏览器打开上述地址；键盘控制仍在独占终端向 /hw/cmd_vel 发布。"

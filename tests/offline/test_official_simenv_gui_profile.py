@@ -27,6 +27,7 @@ def test_gui_client_only_manages_its_own_sidecar():
     assert 'readonly' in client
     assert 'docker restart' not in client
     assert 'docker stop "$MAIN_CONTAINER"' not in client
+    assert 'SIMENV_GUI_RESOLUTION:-1920x1080x24' in client
 
 
 def test_auto_docker_exposes_gui_profile_without_changing_normal_up():

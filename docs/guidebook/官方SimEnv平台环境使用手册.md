@@ -128,7 +128,9 @@ export SIMENV_CONTAINER=simenv_ros1_hazard_platform
 ./auto_docker.sh gui up
 ```
 
-在远程 RDP 桌面的浏览器打开 `http://127.0.0.1:6081/vnc.html`，点击 Connect 后即可看到 Gazebo。
+在远程 RDP 桌面的浏览器打开
+`http://127.0.0.1:6081/vnc.html?autoconnect=1&resize=scale`，即可按浏览器视口自适应缩放显示 Gazebo。
+需要真正全屏时再按浏览器 `F11`；若浏览器仍显示旧的 1440×900 会话，按 `Ctrl+F5` 后重新连接。
 端口仅绑定远程主机 loopback；从本机访问时使用 SSH 隧道，不要暴露到公网：
 
 ```bash
