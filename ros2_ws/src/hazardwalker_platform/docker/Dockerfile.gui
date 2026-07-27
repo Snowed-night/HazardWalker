@@ -11,6 +11,8 @@ RUN apt-get update -qq \
       websockify \
       x11-apps \
       x11-xserver-utils \
+      openbox \
+      wmctrl \
     && rm -rf /var/lib/apt/lists/*
 
 COPY gui_entrypoint.sh /usr/local/bin/hazardwalker_gui_entrypoint.sh

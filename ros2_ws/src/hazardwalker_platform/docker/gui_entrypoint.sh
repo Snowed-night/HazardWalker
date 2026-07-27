@@ -34,8 +34,8 @@ export LD_LIBRARY_PATH="$GAZEBO_PLUGIN_DIR:${LD_LIBRARY_PATH:-}"
 
 cleanup() {
   # GUI 客户端退出不能影响共享 gzserver；只收尾本 sidecar 的子进程。
-  kill "${GZCLIENT_PID:-}" "${NOVNC_PID:-}" "${VNC_PID:-}" "${XVFB_PID:-}" 2>/dev/null || true
-  wait "${GZCLIENT_PID:-}" "${NOVNC_PID:-}" "${VNC_PID:-}" "${XVFB_PID:-}" 2>/dev/null || true
+  kill "${GZCLIENT_PID:-}" "${OPENBOX_PID:-}" "${NOVNC_PID:-}" "${VNC_PID:-}" "${XVFB_PID:-}" 2>/dev/null || true
+  wait "${GZCLIENT_PID:-}" "${OPENBOX_PID:-}" "${NOVNC_PID:-}" "${VNC_PID:-}" "${XVFB_PID:-}" 2>/dev/null || true
 }
 trap cleanup EXIT INT TERM
 
@@ -63,6 +63,10 @@ if ! display_ready; then
   exit 1
 fi
 
+# Xvfb 本身没有窗口管理器。Openbox 接管后可将 gzclient 真正最大化，消除 VNC 桌面内的黑边。
+DISPLAY="$DISPLAY_VALUE" openbox --sm-disable > /tmp/hazardwalker-gui-openbox.log 2>&1 &
+OPENBOX_PID=$!
+
 # 两个端口均只绑定 loopback；RDP 中访问本机浏览器或通过 SSH 隧道访问。
 x11vnc -display "$DISPLAY_VALUE" -localhost -forever -shared -nopw \
   -rfbport "$VNC_PORT" > /tmp/hazardwalker-gui-vnc.log 2>&1 &
@@ -77,7 +81,14 @@ echo "Gazebo Master：${GAZEBO_MASTER_URI:-http://127.0.0.1:11345}"
 # Xvfb 没有窗口管理器；不指定 Qt geometry 时 gzclient 只会显示默认小窗口，造成四周黑边。
 gzclient -geometry "$GUI_GEOMETRY" --verbose > /tmp/hazardwalker-gui-gzclient.log 2>&1 &
 GZCLIENT_PID=$!
-sleep 3
+for _ in $(seq 1 50); do
+  if DISPLAY="$DISPLAY_VALUE" wmctrl -l 2>/dev/null | grep -q ' Gazebo$'; then
+    DISPLAY="$DISPLAY_VALUE" wmctrl -r Gazebo -b add,maximized_vert,maximized_horz || true
+    break
+  fi
+  sleep 0.1
+done
+sleep 1
 if ! kill -0 "$GZCLIENT_PID" 2>/dev/null; then
   tail -80 /tmp/hazardwalker-gui-gzclient.log >&2 || true
   exit 1

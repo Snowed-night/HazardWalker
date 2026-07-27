@@ -14,10 +14,14 @@ def test_gui_sidecar_uses_virtual_display_and_loopback_novnc():
     assert 'x11vnc' in dockerfile
     assert 'novnc' in dockerfile
     assert 'websockify' in dockerfile
+    assert 'openbox' in dockerfile
+    assert 'wmctrl' in dockerfile
     assert 'LIBGL_ALWAYS_SOFTWARE=1' in entrypoint
     assert 'GALLIUM_DRIVER' in entrypoint
     assert 'GUI_GEOMETRY' in entrypoint
     assert 'gzclient -geometry "$GUI_GEOMETRY" --verbose' in entrypoint
+    assert 'openbox --sm-disable' in entrypoint
+    assert 'wmctrl -r Gazebo -b add,maximized_vert,maximized_horz' in entrypoint
     assert '127.0.0.1:${NOVNC_PORT}' in entrypoint
 
 
