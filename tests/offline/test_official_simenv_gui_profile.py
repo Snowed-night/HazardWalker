@@ -16,7 +16,8 @@ def test_gui_sidecar_uses_virtual_display_and_loopback_novnc():
     assert 'websockify' in dockerfile
     assert 'LIBGL_ALWAYS_SOFTWARE=1' in entrypoint
     assert 'GALLIUM_DRIVER' in entrypoint
-    assert 'gzclient --verbose' in entrypoint
+    assert 'GUI_GEOMETRY' in entrypoint
+    assert 'gzclient -geometry "$GUI_GEOMETRY" --verbose' in entrypoint
     assert '127.0.0.1:${NOVNC_PORT}' in entrypoint
 
 
@@ -37,6 +38,7 @@ def test_gui_client_only_manages_its_own_sidecar():
     assert 'docker run -d' in client
     assert 'readonly' in client
     assert 'gui_fullscreen.html,dst=/usr/share/novnc/hazardwalker.html,readonly' in client
+    assert 'gui_entrypoint.sh,dst=/usr/local/bin/hazardwalker_gui_entrypoint.sh,readonly' in client
     assert 'docker restart' not in client
     assert 'docker stop "$MAIN_CONTAINER"' not in client
     assert 'SIMENV_GUI_RESOLUTION:-1920x1080x24' in client

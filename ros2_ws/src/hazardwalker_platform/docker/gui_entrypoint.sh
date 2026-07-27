@@ -5,6 +5,9 @@ set -euo pipefail
 DISPLAY_VALUE="${SIMENV_GUI_DISPLAY:-:100}"
 VNC_PORT="${SIMENV_GUI_VNC_PORT:-5901}"
 NOVNC_PORT="${SIMENV_GUI_NOVNC_PORT:-6081}"
+GUI_RESOLUTION="${SIMENV_GUI_RESOLUTION:-1920x1080x24}"
+# Qt 接受的 geometry 不含色深，例如 1920x1080+0+0。
+GUI_GEOMETRY="${GUI_RESOLUTION%x*}+0+0"
 WORKSPACE_DIR="${SIMENV_WORKSPACE_DIR:-/home/ros/simenv_ws}"
 HOME_DIR="/tmp/hazardwalker-gui-home"
 
@@ -36,7 +39,7 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
-Xvfb "$DISPLAY_VALUE" -screen 0 "${SIMENV_GUI_RESOLUTION:-1440x900x24}" +extension GLX +render \
+Xvfb "$DISPLAY_VALUE" -screen 0 "$GUI_RESOLUTION" +extension GLX +render \
   > /tmp/hazardwalker-gui-xvfb.log 2>&1 &
 XVFB_PID=$!
 
@@ -71,7 +74,8 @@ NOVNC_PID=$!
 echo "HazardWalker GUI 已启动：noVNC http://127.0.0.1:${NOVNC_PORT}/vnc.html"
 echo "Gazebo Master：${GAZEBO_MASTER_URI:-http://127.0.0.1:11345}"
 
-gzclient --verbose > /tmp/hazardwalker-gui-gzclient.log 2>&1 &
+# Xvfb 没有窗口管理器；不指定 Qt geometry 时 gzclient 只会显示默认小窗口，造成四周黑边。
+gzclient -geometry "$GUI_GEOMETRY" --verbose > /tmp/hazardwalker-gui-gzclient.log 2>&1 &
 GZCLIENT_PID=$!
 sleep 3
 if ! kill -0 "$GZCLIENT_PID" 2>/dev/null; then

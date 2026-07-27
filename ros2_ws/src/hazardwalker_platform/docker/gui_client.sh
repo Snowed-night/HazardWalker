@@ -40,6 +40,7 @@ case "$ACTION" in
     docker run -d --name "$GUI_CONTAINER" --network host \
       --entrypoint bash \
       --mount "type=bind,src=$SIMENV_ROOT,dst=/home/ros/simenv_ws,readonly" \
+      --mount "type=bind,src=$SCRIPT_DIR/gui_entrypoint.sh,dst=/usr/local/bin/hazardwalker_gui_entrypoint.sh,readonly" \
       --mount "type=bind,src=$SCRIPT_DIR/gui_fullscreen.html,dst=/usr/share/novnc/hazardwalker.html,readonly" \
       -e GAZEBO_MASTER_URI="${GAZEBO_MASTER_URI:-http://127.0.0.1:11345}" \
       -e SIMENV_GUI_NOVNC_PORT="$NOVNC_PORT" \
