@@ -1,0 +1,44 @@
+<!doctype html>
+<!--
+  HazardWalker 官方 SimEnv 专用全屏 noVNC 页面。
+  仅显示现有 Gazebo GUI，禁用 VNC 键盘/鼠标输入，机器狗控制仍必须经 ROS2 键盘节点。
+-->
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+  <title>HazardWalker SimEnv GUI</title>
+  <style>
+    html, body, #screen {
+      width: 100%;
+      height: 100%;
+      margin: 0;
+      overflow: hidden;
+      background: #000;
+    }
+    /* RFB 画布由 noVNC 插入；绝不保留工具栏或固定尺寸容器。 */
+    #screen canvas { display: block; }
+  </style>
+</head>
+<body>
+  <div id="screen" aria-label="Gazebo SimEnv 图形界面"></div>
+  <script type="module">
+    import * as WebUtil from './app/webutil.js';
+    import RFB from './core/rfb.js';
+
+    const host = WebUtil.getConfigVar('host', window.location.hostname);
+    const port = WebUtil.getConfigVar('port', window.location.port || '6081');
+    const path = WebUtil.getConfigVar('path', 'websockify');
+    const scheme = window.location.protocol === 'https:' ? 'wss' : 'ws';
+    const url = `${scheme}://${host}:${port}/${path}`;
+    const rfb = new RFB(document.getElementById('screen'), url, {
+      shared: true,
+    });
+
+    // 画布随浏览器/RDP 视口缩放；只读避免浏览器焦点误触 Gazebo 快捷键。
+    rfb.scaleViewport = true;
+    rfb.clipViewport = false;
+    rfb.viewOnly = true;
+  </script>
+</body>
+</html>

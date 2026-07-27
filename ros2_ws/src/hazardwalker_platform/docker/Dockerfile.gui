@@ -14,5 +14,6 @@ RUN apt-get update -qq \
     && rm -rf /var/lib/apt/lists/*
 
 COPY gui_entrypoint.sh /usr/local/bin/hazardwalker_gui_entrypoint.sh
+COPY gui_fullscreen.html /usr/share/novnc/hazardwalker.html
 # 入口由 gui_client.sh 的 ``docker run --entrypoint bash`` 显式指定。这样不新增最终
 # Docker 配置层，兼容共享主机上会卡在镜像收尾阶段的旧构建器。

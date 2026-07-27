@@ -20,6 +20,15 @@ def test_gui_sidecar_uses_virtual_display_and_loopback_novnc():
     assert '127.0.0.1:${NOVNC_PORT}' in entrypoint
 
 
+def test_fullscreen_viewer_fills_viewport_and_blocks_vnc_input():
+    dockerfile = (DOCKER_DIR / 'Dockerfile.gui').read_text(encoding='utf-8')
+    viewer = (DOCKER_DIR / 'gui_fullscreen.html').read_text(encoding='utf-8')
+    assert 'gui_fullscreen.html /usr/share/novnc/hazardwalker.html' in dockerfile
+    assert 'rfb.scaleViewport = true' in viewer
+    assert 'rfb.viewOnly = true' in viewer
+    assert 'height: 100%' in viewer
+
+
 def test_gui_client_only_manages_its_own_sidecar():
     client = (DOCKER_DIR / 'gui_client.sh').read_text(encoding='utf-8')
     assert 'SIMENV_GUI_CONTAINER' in client
