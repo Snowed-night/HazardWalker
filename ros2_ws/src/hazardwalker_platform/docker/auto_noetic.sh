@@ -7,7 +7,8 @@ SIMENV_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 COMPOSE_FILE="$SCRIPT_DIR/docker-compose.yml"
 
 export SIMENV_HOST_PATH="$SIMENV_ROOT"
-export DOCKER_SIMENV_USER="${USER:-default}"
+# 共享正式环境可显式指定容器属主；未指定时才沿用当前登录账号，避免主账号误建平行容器。
+export DOCKER_SIMENV_USER="${DOCKER_SIMENV_USER:-${USER:-default}}"
 export COMPOSE_PROJECT_NAME="simenv_ros1_${DOCKER_SIMENV_USER}"
 
 CONTAINER_NAME="simenv_ros1_${DOCKER_SIMENV_USER}"

@@ -3,6 +3,8 @@
 <robot name="a1" xmlns:xacro="http://www.ros.org/wiki/xacro">
 
     <xacro:arg name="DEBUG" default="false"/>
+    <!-- 默认关闭激光雷达，导航/SLAM profile 通过 ENABLE_LIDAR:=true 显式开启。 -->
+    <xacro:arg name="ENABLE_LIDAR" default="false"/>
 
     <xacro:include filename="$(find a1_description)/xacro/const.xacro"/>
     <xacro:include filename="$(find a1_description)/xacro/materials.xacro"/>

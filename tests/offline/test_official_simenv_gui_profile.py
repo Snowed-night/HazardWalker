@@ -26,14 +26,16 @@ def test_gui_sidecar_uses_virtual_display_and_loopback_novnc():
     assert '127.0.0.1:${NOVNC_PORT}' in entrypoint
 
 
-def test_fullscreen_viewer_fills_viewport_and_blocks_vnc_input():
+def test_fullscreen_viewer_fills_viewport_and_keeps_gazebo_mouse_input():
     dockerfile = (DOCKER_DIR / 'Dockerfile.gui').read_text(encoding='utf-8')
     viewer = (DOCKER_DIR / 'gui_fullscreen.html').read_text(encoding='utf-8')
     assert 'gui_fullscreen.html /usr/share/novnc/hazardwalker.html' in dockerfile
     assert 'rfb.scaleViewport = true' in viewer
     assert 'rfb.addEventListener(\'connect\'' in viewer
     assert 'position: fixed' in viewer
-    assert 'rfb.viewOnly = true' in viewer
+    # GUI 视角必须允许鼠标旋转、平移和缩放，机器狗速度仍只由 ROS2 键盘节点发布。
+    assert 'rfb.viewOnly = false' in viewer
+    assert 'rfb.clipViewport = false' in viewer
     assert 'height: 100vh' in viewer
 
 
@@ -46,7 +48,7 @@ def test_gui_client_only_manages_its_own_sidecar():
     assert 'gui_entrypoint.sh,dst=/usr/local/bin/hazardwalker_gui_entrypoint.sh,readonly' in client
     assert 'docker restart' not in client
     assert 'docker stop "$MAIN_CONTAINER"' not in client
-    assert 'SIMENV_GUI_RESOLUTION:-1920x1080x24' in client
+    assert 'SIMENV_GUI_RESOLUTION:-1280x720x24' in client
 
 
 def test_auto_docker_exposes_gui_profile_without_changing_normal_up():

@@ -10,6 +10,7 @@ class DoorState:
     kind: str
     model_name: str
     is_open: bool
+    initial_is_open: bool
     closed_pose: list[float]
     open_pose: list[float]
     panel_poses: dict[str, list[float]]
@@ -37,6 +38,7 @@ class BuildingControlRuntime:
                 kind=str(spec.get("kind", "")),
                 model_name=str(spec.get("model_name", f"dynamic_{spec['id']}")),
                 is_open=bool(spec.get("initial_open", False)),
+                initial_is_open=bool(spec.get("initial_open", False)),
                 closed_pose=[float(value) for value in spec.get("closed_pose", spec.get("pose", [0, 0, 0, 0, 0, 0]))],
                 open_pose=[float(value) for value in spec.get("open_pose", spec.get("pose", [0, 0, 0, 0, 0, 0]))],
                 panel_poses={
@@ -60,6 +62,14 @@ class BuildingControlRuntime:
             )
             for spec in elevator_specs
         }
+
+    def initial_door_states(self) -> list[tuple[str, bool]]:
+        """Return the configured initial state of each dynamic door."""
+
+        return [
+            (door_id, state.initial_is_open)
+            for door_id, state in self._doors.items()
+        ]
 
     def set_door_state(self, door_id: str, open_state: bool) -> dict[str, Any]:
         if door_id not in self._doors:

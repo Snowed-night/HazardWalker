@@ -1,7 +1,7 @@
 <!doctype html>
 <!--
   HazardWalker 官方 SimEnv 专用全屏 noVNC 页面。
-  仅显示现有 Gazebo GUI，禁用 VNC 键盘/鼠标输入，机器狗控制仍必须经 ROS2 键盘节点。
+  显示并允许操作现有 Gazebo GUI；机器狗控制仍必须经 ROS2 键盘节点。
 -->
 <html lang="zh-CN">
 <head>
@@ -55,7 +55,9 @@
     window.addEventListener('resize', () => requestAnimationFrame(fitViewport));
     rfb.scaleViewport = true;
     rfb.clipViewport = false;
-    rfb.viewOnly = true;
+    // 允许鼠标旋转、平移和缩放 Gazebo 视角，以及使用 Gazebo 自身快捷键。
+    // noVNC 的键盘输入只交给 Gazebo，不会发布 ROS /hw/cmd_vel；机器狗仍由独立终端控制。
+    rfb.viewOnly = false;
   </script>
 </body>
 </html>

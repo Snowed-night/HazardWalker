@@ -48,7 +48,17 @@ void UnitreeConnection::stopRecv() {
 void UnitreeConnection::send(const std::vector<uint8_t> &cmd) {
   if (socket_ && socket_->is_open()) {
     std::lock_guard<std::mutex> lock(data_mutex);
-    socket_->send_to(boost::asio::buffer(cmd), *receiver_endpoint_);
+    // 仿真主控制仍经 ROS/Gazebo 通道工作；此 UDP 旁路在无实体机器狗网段时可能不可达。
+    // 不能让可选旁路的发送失败抛出异常并终止 junior_ctrl。
+    boost::system::error_code error;
+    socket_->send_to(boost::asio::buffer(cmd), *receiver_endpoint_, 0, error);
+    if (error) {
+      static std::atomic<bool> warned{false};
+      if (!warned.exchange(true)) {
+        std::cerr << "[WARN] Optional FreeDog UDP send disabled: "
+                  << error.message() << '\n';
+      }
+    }
   }
 }
 

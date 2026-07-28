@@ -3,9 +3,10 @@
 set -euo pipefail
 
 DISPLAY_VALUE="${SIMENV_GUI_DISPLAY:-:100}"
+DISPLAY_BACKEND="${SIMENV_GUI_DISPLAY_BACKEND:-xvfb}"
 VNC_PORT="${SIMENV_GUI_VNC_PORT:-5901}"
 NOVNC_PORT="${SIMENV_GUI_NOVNC_PORT:-6081}"
-GUI_RESOLUTION="${SIMENV_GUI_RESOLUTION:-1920x1080x24}"
+GUI_RESOLUTION="${SIMENV_GUI_RESOLUTION:-1280x720x24}"
 # Qt 接受的 geometry 不含色深，例如 1920x1080+0+0。
 GUI_GEOMETRY="${GUI_RESOLUTION%x*}+0+0"
 WORKSPACE_DIR="${SIMENV_WORKSPACE_DIR:-/home/ros/simenv_ws}"
@@ -13,8 +14,16 @@ HOME_DIR="/tmp/hazardwalker-gui-home"
 
 export HOME="$HOME_DIR"
 export DISPLAY="$DISPLAY_VALUE"
-export LIBGL_ALWAYS_SOFTWARE=1
-export GALLIUM_DRIVER="${GALLIUM_DRIVER:-llvmpipe}"
+# 当前 NVIDIA GLX 与 Xvfb/Gazebo Classic 会黑屏，默认使用已验证的软件渲染。
+# 仅在平台完成独立 GPU 兼容性验收后，才可显式设置 SIMENV_GUI_USE_GPU=1。
+if [[ "${SIMENV_GUI_USE_GPU:-0}" == "1" ]]; then
+  unset LIBGL_ALWAYS_SOFTWARE
+  unset GALLIUM_DRIVER
+  export __GLX_VENDOR_LIBRARY_NAME=nvidia
+else
+  export LIBGL_ALWAYS_SOFTWARE=1
+  export GALLIUM_DRIVER="${GALLIUM_DRIVER:-llvmpipe}"
+fi
 export QT_X11_NO_MITSHM=1
 export XDG_RUNTIME_DIR="/tmp/runtime-root"
 mkdir -p "$HOME_DIR" "$XDG_RUNTIME_DIR"
@@ -50,15 +59,31 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
-Xvfb "$DISPLAY_VALUE" -screen 0 "$GUI_RESOLUTION" +extension GLX +render \
-  > /tmp/hazardwalker-gui-xvfb.log 2>&1 &
-XVFB_PID=$!
+XVFB_PID=""
+case "$DISPLAY_BACKEND" in
+  xvfb)
+    Xvfb "$DISPLAY_VALUE" -screen 0 "$GUI_RESOLUTION" +extension GLX +render \
+      > /tmp/hazardwalker-gui-xvfb.log 2>&1 &
+    XVFB_PID=$!
+    ;;
+  host-xorg)
+    # GPU Xorg 由宿主机 systemd 服务负责；sidecar 仅连接既有显示，不得终止它。
+    if [[ ! -S "$DISPLAY_SOCKET" ]]; then
+      echo "GPU Xorg 显示 $DISPLAY_VALUE 不可用，请先启动 hazardwalker-gpu-xorg 服务。" >&2
+      exit 1
+    fi
+    ;;
+  *)
+    echo "不支持的 SIMENV_GUI_DISPLAY_BACKEND：$DISPLAY_BACKEND" >&2
+    exit 1
+    ;;
+esac
 
 display_ready() {
   if command -v xdpyinfo >/dev/null 2>&1; then
     xdpyinfo -display "$DISPLAY_VALUE" >/dev/null 2>&1
   else
-    [[ -S "$DISPLAY_SOCKET" ]] && kill -0 "$XVFB_PID" 2>/dev/null
+    [[ -S "$DISPLAY_SOCKET" ]] && [[ "$DISPLAY_BACKEND" = "host-xorg" || -n "$XVFB_PID" ]]
   fi
 }
 for _ in $(seq 1 50); do

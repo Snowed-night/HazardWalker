@@ -9,6 +9,9 @@ GUI_CONTAINER="${SIMENV_GUI_CONTAINER:-${MAIN_CONTAINER}_gui}"
 GUI_IMAGE="${SIMENV_GUI_IMAGE:-simenv_ros1-gui:noetic-focal}"
 NOVNC_PORT="${SIMENV_GUI_NOVNC_PORT:-6081}"
 VNC_PORT="${SIMENV_GUI_VNC_PORT:-5901}"
+GUI_USE_GPU="${SIMENV_GUI_USE_GPU:-0}"
+GUI_DISPLAY="${SIMENV_GUI_DISPLAY:-:100}"
+GUI_DISPLAY_BACKEND="${SIMENV_GUI_DISPLAY_BACKEND:-xvfb}"
 ACTION="${1:-up}"
 
 build_image() {
@@ -34,18 +37,42 @@ case "$ACTION" in
     if ! docker image inspect "$GUI_IMAGE" >/dev/null 2>&1; then
       build_image
     fi
+    # gzserver 会把 A1 的 package:// 网格展开为主容器 catkin 工作区中的绝对路径。
+    # 因此 sidecar 直接只读挂载主容器的完整工作区；仅挂载当前目录会缺失
+    # `.ros1_catkin_ws`，GUI 就只能显示足端碰撞几何而没有机器狗本体。
+    MAIN_WORKSPACE_HOST="$(docker inspect --format '{{range .Mounts}}{{if eq .Destination "/home/ros/simenv_ws"}}{{.Source}}{{end}}{{end}}' "$MAIN_CONTAINER")"
+    # 宿主机工作区通常归平台账号所有，当前成员账号未必有目录遍历权限；
+    # Docker 守护进程仍可只读挂载，因此这里只验证路径是否从正式容器解析成功。
+    if [[ -z "$MAIN_WORKSPACE_HOST" ]]; then
+      echo "未解析到正式 SimEnv 的工作区挂载，无法启动完整模型 GUI。" >&2
+      exit 1
+    fi
+    GPU_ARGS=()
+    if [[ "$GUI_USE_GPU" == "1" ]]; then
+      GPU_ARGS=(--gpus all)
+    fi
+    DISPLAY_MOUNT_ARGS=()
+    if [[ "$GUI_DISPLAY_BACKEND" == "host-xorg" ]]; then
+      # 宿主机 GPU Xorg 的 Unix socket；无 TCP 监听，不暴露额外网络端口。
+      DISPLAY_MOUNT_ARGS=(--mount "type=bind,src=/tmp/.X11-unix,dst=/tmp/.X11-unix")
+    fi
     docker rm -f "$GUI_CONTAINER" >/dev/null 2>&1 || true
-    # 默认 1080p；noVNC 的 resize=scale 可在不同 RDP/本地窗口中继续铺满视口。
+    # 默认 540p，降低 llvmpipe 软件渲染占用；noVNC 会继续缩放到浏览器视口。
     # 全屏页面作为只读配置挂载，旧 Docker 构建器异常时也不会回退到旧页面。
-    docker run -d --name "$GUI_CONTAINER" --network host \
+    docker run -d --name "$GUI_CONTAINER" --network host "${GPU_ARGS[@]}" \
       --entrypoint bash \
-      --mount "type=bind,src=$SIMENV_ROOT,dst=/home/ros/simenv_ws,readonly" \
+      --mount "type=bind,src=$MAIN_WORKSPACE_HOST,dst=/home/ros/simenv_ws,readonly" \
       --mount "type=bind,src=$SCRIPT_DIR/gui_entrypoint.sh,dst=/usr/local/bin/hazardwalker_gui_entrypoint.sh,readonly" \
       --mount "type=bind,src=$SCRIPT_DIR/gui_fullscreen.html,dst=/usr/share/novnc/hazardwalker.html,readonly" \
+      "${DISPLAY_MOUNT_ARGS[@]}" \
       -e GAZEBO_MASTER_URI="${GAZEBO_MASTER_URI:-http://127.0.0.1:11345}" \
       -e SIMENV_GUI_NOVNC_PORT="$NOVNC_PORT" \
       -e SIMENV_GUI_VNC_PORT="$VNC_PORT" \
-      -e SIMENV_GUI_RESOLUTION="${SIMENV_GUI_RESOLUTION:-1920x1080x24}" \
+      -e SIMENV_GUI_RESOLUTION="${SIMENV_GUI_RESOLUTION:-1280x720x24}" \
+      -e SIMENV_GUI_USE_GPU="$GUI_USE_GPU" \
+      -e SIMENV_GUI_DISPLAY="$GUI_DISPLAY" \
+      -e SIMENV_GUI_DISPLAY_BACKEND="$GUI_DISPLAY_BACKEND" \
+      -e NVIDIA_DRIVER_CAPABILITIES=all \
       "$GUI_IMAGE" /usr/local/bin/hazardwalker_gui_entrypoint.sh >/dev/null
     echo "GUI sidecar 已启动：http://127.0.0.1:${NOVNC_PORT}/hazardwalker.html"
     echo "RDP 中用浏览器打开上述地址；键盘控制仍在独占终端向 /hw/cmd_vel 发布。"

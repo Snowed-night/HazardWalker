@@ -29,6 +29,18 @@ def main(argv: list[str] | None = None) -> int:
     rospy.wait_for_service("/gazebo/set_link_state")
     set_model_state = rospy.ServiceProxy("/gazebo/set_model_state", SetModelState)
     set_link_state = rospy.ServiceProxy("/gazebo/set_link_state", SetLinkState)
+    # SDF 中的门板始终按闭合位姿生成；必须在服务就绪后把配置中的
+    # initial_open 实际写入 Gazebo，否则入口会与 door_config.yaml 不一致。
+    for door_id, is_open in runtime.initial_door_states():
+        result = runtime.set_door_state(door_id, is_open)
+        if result.get("accepted") and result.get("panel_poses"):
+            _apply_model_pose(set_model_state, result["model_name"], result["model_pose"])
+            _apply_panel_poses(
+                set_link_state,
+                result["model_name"],
+                result["model_pose"],
+                result["panel_poses"],
+            )
     rospy.Service(
         "/call_elevator",
         CallElevator,

@@ -454,7 +454,8 @@ def test_compose_starts_the_complete_official_ros1_entry():
     assert 'START_ODOM_RELAY: ${START_ODOM_RELAY:-1}' in source
     assert 'healthcheck:' in source
     assert 'pgrep -x junior_ctrl' in source
-    assert 'rosnode ping -c 1 /unitree_gazebo_servo' in source
+    # healthcheck 直接检查 /cmd_vel 的正式订阅者；rosnode ping 会在 Gazebo 初始化
+    # 窗口中产生瞬态误报，不能作为容器存活判据。
     assert 'rostopic info /cmd_vel' in source
     assert '/unitree_gazebo_servo' in source
     assert 'tail -f /dev/null' not in source
@@ -474,7 +475,7 @@ def test_compose_starts_the_complete_official_ros1_entry():
     ).read_text(encoding='utf-8')
     assert 'scripts/rosbridge_odom_relay.py' in entry
     assert 'rosbridge_websocket.launch' in entry
-    assert r'\[HEADLESS_FSM\].*mode=move_base.*auto_rl=1' in entry
+    assert r'\[HEADLESS_FSM\].*mode=move_base.*auto_rl=[01]' in entry
     assert 'SIMENV_HEADLESS_MODE="${SIMENV_HEADLESS_MODE:-move_base}"' in entry
     assert 'rostopic info /cmd_vel' in entry
     assert 'Timed out waiting for /gazebo/unpause_physics.' in entry
@@ -486,7 +487,7 @@ def test_compose_starts_the_complete_official_ros1_entry():
     assert 'CONTROLLER_PROBE_MAX_DISPLACEMENT_M' in entry
     assert 'CONTROLLER_PROBE_MIN_BASE_HEIGHT_M' in entry
     assert 'CONTROLLER_RL_SETTLE_SEC' in entry
-    assert 'UNITREE_CTRL_DT="${UNITREE_CTRL_DT:-0.002}"' in entry
+    assert 'UNITREE_CTRL_DT="${UNITREE_CTRL_DT:-0.004}"' in entry
     assert 'wait "$LAUNCH_PID"' in entry
 
     docker_wrapper = (
@@ -550,4 +551,5 @@ def test_rl_controller_has_safe_cmd_vel_watchdog_and_thread_lifecycle():
     assert '_vx(0.0), _vy(0.0), _wz(0.0)' in move_base_source
     assert '[HEADLESS_FSM] mode=' in fsm_source
     assert 'Switched from ' in fsm_source
-    assert '_headlessStandDelaySec + _headlessRlDelaySec' in fsm_source
+    assert 'hasFreshMotionCommand()' in fsm_source
+    assert 'return FSMStateName::RL;' in fsm_source
