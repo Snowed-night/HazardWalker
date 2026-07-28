@@ -38,6 +38,9 @@ services:
       START_CONTROLLER: ${START_CONTROLLER:-1}
       SIMENV_AUTO_RL: ${SIMENV_AUTO_RL:-1}
       SIMENV_HEADLESS_MODE: ${SIMENV_HEADLESS_MODE:-move_base}
+      ENABLE_LIDAR: ${ENABLE_LIDAR:-false}
+      CAMERA_IMAGER_RATE_HZ: ${CAMERA_IMAGER_RATE_HZ:-10}
+      CAMERA_JPEG_QUALITY: ${CAMERA_JPEG_QUALITY:-92}
       START_ROSBRIDGE: ${START_ROSBRIDGE:-1}
       START_ODOM_RELAY: ${START_ODOM_RELAY:-1}
       START_BUILDING_CONTROL: ${START_BUILDING_CONTROL:-1}
@@ -59,7 +62,6 @@ services:
           bash -lc 'source /opt/ros/noetic/setup.bash &&
           { [ "$${START_CONTROLLER:-1}" != "1" ] ||
           { pgrep -x junior_ctrl >/dev/null &&
-          rosnode ping -c 1 /unitree_gazebo_servo >/dev/null 2>&1 &&
           rostopic info /cmd_vel 2>/dev/null |
           grep -Eq "^[[:space:]]*\*[[:space:]]+/unitree_gazebo_servo[[:space:]]"; }; } &&
           { [ "$${START_ROSBRIDGE:-1}" != "1" ] ||

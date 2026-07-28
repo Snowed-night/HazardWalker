@@ -151,19 +151,19 @@ FSMStateName FSM::getHeadlessNextState(){
         return FSMStateName::FIXEDSTAND;
     }
     if (_currentState->_stateName == FSMStateName::FIXEDSTAND) {
-        // 保留原启动流程的“站立稳定 + 切入 RL”总等待时间。
-        if (stateAgeSec < _headlessStandDelaySec + _headlessRlDelaySec) {
+        // 无速度命令时始终固定站立；只有用户实际发出非零 /cmd_vel 才进入 RL。
+        // 这样既避免启动瞬间跌倒，也避免 RL 静止策略呈现为低趴姿态。
+        if (!_headlessAutoRl || !_stateList.fixedStand->hasFreshMotionCommand()) {
             return FSMStateName::FIXEDSTAND;
         }
-        if (_headlessAutoRl) {
-            return FSMStateName::RL;
-        }
-#ifdef COMPILE_WITH_MOVE_BASE
-        return FSMStateName::MOVE_BASE;
-#else
-        return FSMStateName::FIXEDSTAND;
-#endif
+        return FSMStateName::RL;
     }
-    // 进入目标行走状态后保持该状态；速度失联由 RL 命令看门狗负责停车。
+    if (_currentState->_stateName == FSMStateName::RL) {
+        // 已切入 RL 后由 RL 自身的速度看门狗完成停车。不能再读取 fixedStand
+        // 对象的时间戳：RL 状态下该对象不处理 ROS 回调，会把正常行走误判为超时，
+        // 导致每个速度指令刚生效就被切回固定站立。
+        return FSMStateName::RL;
+    }
+    // 其他状态保持不变。
     return _currentState->_stateName;
 }

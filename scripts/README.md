@@ -21,6 +21,11 @@
   Gazebo Harmonic。
 - `run_official_simenv_rosbridge_adapter.sh`：实际官方 profile 使用的 ROS2 主机入口；经容器内
   `rosbridge_websocket` 双向传输 `/hw/*` 与 `/cmd_vel`，需要安装轻量 `websocket-client`。
+- `official_simenv_cmd_vel_relay_node.py`：正式完整适配器已失活时的**临时控制备用中继**；只将
+  `/hw/cmd_vel` 发送到官方 ROS1 `/cmd_vel`，带 WebSocket 重连与超时零速度。仅限独占时段使用，
+  正式适配器恢复后必须停止，禁止长期并行桥接。
+- `ros2_ws/src/hazardwalker_platform/docker/gui_client.sh`：官方 Gazebo Classic 的 noVNC GUI sidecar；
+  连接已运行的 Master，不重启正式容器。通过 Xvfb 软件渲染避开 RDP/XWayland 的 Qt/OpenGL 崩溃。
 - `official_simenv_ros1_evidence_recorder.py`：官方 ROS1 感知证据记录入口。仅订阅 RealSense
   RGB-D、感知候选 JSON 和调用方声明的自建 SLAM 位姿；停止时输出 `run_manifest.json`、逐帧
   RGB-D/轨迹、`summary.json`、测试表，并将最终 `detected_danger.json` 复制到同一证据目录。

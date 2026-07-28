@@ -92,6 +92,7 @@ bash scripts/check_official_simenv_exclusive_session.sh \
 
 ```bash
 cd ros2_ws/src/hazardwalker_platform
+export DOCKER_SIMENV_USER=hazard_platform
 ./auto_docker.sh status
 ./auto_docker.sh down
 ./auto_docker.sh image --no-cache
@@ -101,19 +102,88 @@ cd ros2_ws/src/hazardwalker_platform
 cd ../../..
 ```
 
-`auto_docker.sh up` 现在唯一调用容器内的 `auto.sh`：它启动 Gazebo、`junior_ctrl`、
+主账号登录名不是正式容器名；必须保留 `DOCKER_SIMENV_USER=hazard_platform`，否则会创建错误的
+`simenv_ros1_hxbl` 平行容器。`auto_docker.sh up` 现在唯一调用容器内的 `auto.sh`：它启动 Gazebo、`junior_ctrl`、
 `/Odometry_gazebo -> /hazardwalker/odom` 最新值中继和 `rosbridge_websocket`。镜像已固定包含
 `ros-noetic-rosbridge-server` 与 `expect`；不得再进入容器手工安装软件包、手工启动 rosbridge 或手工拉起控制器。
-默认 `START_CONTROLLER=1`、`SIMENV_AUTO_RL=1`、`SIMENV_HEADLESS_MODE=move_base`、`START_ROSBRIDGE=1`、`START_ODOM_RELAY=1`，并在控制器日志确认
-`[HEADLESS_FSM] mode=move_base auto_rl=1`、ROS 图确认
-`/unitree_gazebo_servo` 已订阅 `/cmd_vel` 后解除物理暂停。随后必须等到
-`Switched from fixed stand to RL`，并自动发送一段低速命令验证真实位移和机身高度；
-只有日志出现 `Controller physical /cmd_vel probe passed` 才会宣布启动完成。默认控制周期为
-`UNITREE_CTRL_DT=0.002`（500 Hz），不得仅为消除超时 warning 擅自放宽到 `0.004`。
+默认 `START_CONTROLLER=1`、`SIMENV_AUTO_RL=1`、`SIMENV_HEADLESS_MODE=move_base`、`START_ROSBRIDGE=1`、`START_ODOM_RELAY=1`。启动后 A1 先保持固定站立；收到合法的非零 `/cmd_vel` 才切换到 RL 行走。容器不会为了“验收”自动发送运动命令，真实运动测试必须在独占时段执行。默认控制周期为 `UNITREE_CTRL_DT=0.004`（250 Hz），该值为当前平台稳定 profile，不要自行修改。
 只要修改或同步过 `src/unitree_guide/`，就必须先执行 `build force`；`up` 会拒绝复用时间戳早于控制源码的
 `junior_ctrl`。ROS 图中的控制节点名是 `/unitree_gazebo_servo`，不能以未出现 `/junior_ctrl` 节点名判断订阅失败。
 不要使用已弃用的
 `ros2_ws/src/hazardwalker_platform/scripts/start_simenv.sh`，也不要在同一容器中重复运行启动脚本。
+
+### 3.4 可视化 GUI 与第一人称画面
+
+当前 RDP/XWayland 不直接运行 Gazebo Classic `gzclient`。默认 GUI 链路为宿主机 NVIDIA Xorg `:101`、
+VirtualGL、TurboVNC `:110` 和 noVNC `:6081`；GPU 只负责图形渲染，不替代 Gazebo 物理性能、控制链路或
+业务节点验收。默认分辨率为 1280×720。平台管理员使用独立 GUI sidecar，它只连接现有 Gazebo Master，不会重启、停止或修改正式仿真容器：
+
+```bash
+cd ros2_ws/src/hazardwalker_platform
+export SIMENV_CONTAINER=simenv_ros1_hazard_platform
+./auto_docker.sh gui up
+```
+
+首次 `gui up` 会在缺少镜像时自动构建 NVIDIA GUI 镜像。运行状态和日志：
+
+```bash
+./auto_docker.sh gui status
+./auto_docker.sh gui logs
+```
+
+日志应包含 `vglrun(:101) → TurboVNC(:110) → noVNC(:6081)`，并在
+`/tmp/hazardwalker-gui-glx.log` 显示 NVIDIA OpenGL renderer。若 GPU 链路排障期间不可用，可显式回退为 Xvfb
+软件渲染；先停 GPU sidecar，再启动回退实例：
+
+```bash
+./auto_docker.sh gui down
+SIMENV_GUI_XSERVER=xvfb SIMENV_GUI_DISPLAY=:100 ./auto_docker.sh gui up
+```
+
+恢复 GPU 图形渲染时，停止软件 sidecar 后直接执行 `./auto_docker.sh gui up`。在远程 RDP 桌面或经 SSH 隧道的
+浏览器中打开 `http://127.0.0.1:6081/hazardwalker.html`；该专用页面会自动连接，且仅保留按浏览器视口铺满的 Gazebo
+画面，页面内亦可使用“全屏”按钮或浏览器 `F11`。
+该页面允许鼠标操作 Gazebo 视角，但浏览器键盘不会向 ROS `/hw/cmd_vel` 发布控制命令；机器狗仍由独占终端的 ROS2 键盘节点控制。
+若仍显示旧页面，按 `Ctrl+F5` 后重新连接。
+端口仅绑定远程主机 loopback；从本机访问时使用 SSH 隧道，不要暴露到公网：
+
+```bash
+ssh -N -L 6081:127.0.0.1:6081 -L 6082:127.0.0.1:6082 hxbl-codex-main
+```
+
+浏览器窗口用于观察仿真；键盘控制节点运行在**远程独占终端**，两者并排使用。不要在 noVNC 窗口中
+把 `w/s/a/d/k` 当作控制指令，它们属于 Gazebo GUI 快捷键。控制终端仍只向 `/hw/cmd_vel` 发布：
+
+```bash
+source /opt/ros/jazzy/setup.bash
+export ROS_DOMAIN_ID=42
+export PYTHONPATH="$HOME/桌面/HazardWalker/ros2_ws/src/hazardwalker_platform:${PYTHONPATH}"
+python3 -m hazardwalker_platform.keyboard_control_node
+```
+
+按 `w` 前进、`s` 后退、`a` 左转、`d` 右转、`k` 立即停止，`q` 或 `Ctrl+C` 停止并退出。默认线速度为 `0.45 m/s`、转向角速度为 `0.80 rad/s`、单次命令保持 `0.8 s`。运行中的节点支持以下受限热调参；不要超过提示范围：
+
+```bash
+ros2 param set /hazardwalker_keyboard_control linear_speed 0.45
+ros2 param set /hazardwalker_keyboard_control angular_speed 0.80
+ros2 param set /hazardwalker_keyboard_control command_hold_sec 0.8
+```
+
+第一人称服务直接订阅官方 `/real_sense/rgb/image_raw/compressed`，不发布控制命令。平台管理员可在同一目录启动：
+
+```bash
+./auto_docker.sh first_person up
+```
+
+普通成员完成 SSH 隧道后，在浏览器打开 `http://127.0.0.1:6082/first_person`。第一人称页面与上帝视角可同时打开；
+页面按浏览器视口显示相机画面，并提供全屏按钮。观察结束后仅停止 sidecar，不要执行正式容器的 `down`：
+
+```bash
+./auto_docker.sh gui down
+./auto_docker.sh first_person down
+```
+
+`gui down` 会同时回收对应 TurboVNC/noVNC 图形进程；页面刷新后不应保留旧画面。`Xorg :101 already up` 表示宿主机共享 GPU 图形服务仍在运行，是再次 `gui up` 时的正常提示；不得手动停止 Xorg 或执行全局 VNC 清理。
 
 ## 4. 三种接入方式
 
@@ -238,23 +308,22 @@ bash scripts/run_official_simenv_ros1_ros2_stack.sh \
 平台管理员按以下顺序验收，任一项失败都应停止向业务组交付：
 
 1. 容器唯一且运行稳定。
-2. `junior_ctrl` 存活，日志先确认 `HEADLESS_FSM.*mode=move_base.*auto_rl=1`，再确认
-   `Switched from fixed stand to RL`，且无模型加载失败和关节力矩 NaN。
-3. `/clock` 连续递增；RGB-D、内参、激光、IMU 和里程计均有新消息。
-4. `/cmd_vel` 有真实 A1 控制链订阅者，且本轮启动日志存在
-   `Controller physical /cmd_vel probe passed`；只有订阅者不能证明回调和 RL 动作实际生效。
+2. `junior_ctrl` 存活，日志确认 `HEADLESS_FSM.*mode=move_base.*auto_rl=1` 与
+   `fixed stand state is ready`，且无模型加载失败和关节力矩 NaN。
+3. `/clock` 连续递增；RGB-D、内参、IMU 和里程计均有新消息。仅在启用
+   `ENABLE_LIDAR=true` 的导航/SLAM profile 中检查激光。
+4. `/cmd_vel` 有真实 A1 控制链订阅者；独占运动测试时还必须同时看到
+   `CMD_VEL_RX` 与 `RL_CMD_APPLIED`，并由里程计或视频证明真实动作。只有订阅者不能证明回调和 RL 动作实际生效。
 5. 在独占、安全条件下完成真实直行、转向和停止验收。
 
-启动脚本会在第 4 项未满足时拒绝宣布就绪；启动探针只验证最小物理响应，不能替代第 5 项
-完整控制验收。Docker 健康检查会继续监测控制器、订阅者和
-rosbridge，但只标记 `unhealthy`，不会代替平台管理员重启进程。只读检查可使用：
+启动脚本会在控制链订阅者未就绪时拒绝宣布容器健康；它不自动发送速度命令，不能替代第 5 项完整控制验收。Docker 健康检查会继续监测控制器、订阅者和 rosbridge，但只标记 `unhealthy`，不会代替平台管理员重启进程。只读检查可使用：
 
 ```bash
 docker inspect --format '{{.State.Status}} / {{if .State.Health}}{{.State.Health.Status}}{{else}}no-healthcheck{{end}}' \
   "$SIMENV_CONTAINER"
 docker exec "$SIMENV_CONTAINER" pgrep -a -x junior_ctrl
 docker exec "$SIMENV_CONTAINER" bash -lc '
-  grep -E "HEADLESS_FSM.*auto_rl=1|Switched from fixed stand to RL|CMD_VEL_RX|RL_CMD_APPLIED|load model|setTau function meets Nan|Traceback" \
+  grep -E "HEADLESS_FSM.*auto_rl=1|fixed stand state is ready|Switched from fixed stand to RL|CMD_VEL_RX|RL_CMD_APPLIED|load model|setTau function meets Nan|Traceback" \
     logs/junior_ctrl.log | tail -30
   source /opt/ros/noetic/setup.bash
   rostopic info /cmd_vel
@@ -291,7 +360,7 @@ bash scripts/verify_official_simenv_ros1_direct_control.sh --run
 
 ## 6. 正确停止
 
-1. 在业务栈终端按 `Ctrl+C`，等待进程组完成回收；不要直接关闭终端。
+1. 在键盘或业务栈终端先发送零速度（键盘节点按 `k`），再按 `Ctrl+C`，等待进程组完成回收；不要直接关闭终端。
 2. 检查无遗留控制发布者：
 
    ```bash
@@ -299,25 +368,31 @@ bash scripts/verify_official_simenv_ros1_direct_control.sh --run
    ros2 topic info /hw/cmd_vel --verbose
    ```
 
-3. 只有容器所有者确认无人使用时才停止官方环境：
+3. 只有容器所有者确认无人使用时，才在平台终端关闭观测服务、唯一适配器和官方环境：
 
    ```bash
-   cd ros2_ws/src/hazardwalker_platform
+   # 平台终端
+   cd ~/桌面/HazardWalker/ros2_ws/src/hazardwalker_platform
+   export DOCKER_SIMENV_USER=hazard_platform
+
+   ./auto_docker.sh first_person down
+   ./auto_docker.sh gui down
+   pkill -TERM -f hazardwalker_official_rosbridge_adapter
    ./auto_docker.sh down
-   cd ../../..
    ```
 
-不要执行全局 `pkill`、批量 `docker rm` 或停止其他成员容器。控制中断时应优先发送零速度。
+不要执行全局 `pkill`、批量 `docker rm`、`pkill Xorg` 或停止其他成员容器。`Xorg :101 already up` 是 GPU GUI 共享服务正常复用的提示，不是故障。控制中断时应优先发送零速度。
 
 ## 7. 故障速查
 
 | 现象 | 依次检查 |
 |---|---|
-| 模型存在但机器人不动 | Docker 启动日志必须有物理探针通过 → `junior_ctrl` 已进入 `Switched from fixed stand to RL` → `CMD_VEL_RX` 与 `RL_CMD_APPLIED` 同时出现 → Gazebo 未暂停 → `/cmd_vel` 唯一订阅/发布链 → NaN 日志；仅有订阅者不算通过，共享容器只报告平台管理员 |
+| 模型存在但机器人不动 | 容器先处于 `fixed stand state is ready` → 确认唯一 ROS2 适配器已订阅 `/hw/cmd_vel` → 独占测试发送非零速度后同时检查 `CMD_VEL_RX`、`RL_CMD_APPLIED`、Gazebo 未暂停和里程计变化 → 检查 NaN 日志；仅有订阅者不算通过 |
 | `/hazardwalker/odom` 或 `/hw/odom` 缺失 | `auto_docker.sh image --no-cache` → `auto_docker.sh up` → 容器内 `rosnode list` 的 `hazardwalker_odom_relay` → 再启动唯一 ROS2 适配器；不要用点云或控制开关替代中继 |
 | 没有 `/hw/*` | 容器名 → rosbridge → ROS1 原话题 → 唯一适配器 → 相同 `ROS_DOMAIN_ID` → 最新工作空间 |
 | 有 `/clock` 但业务不运行 | 连续采样两帧确认时间递增；单帧旧消息无效 |
 | `setTau ... Nan` | 立即停止控制，由平台管理员独占重启并检查关节状态 |
+| 机器人翻倒 | 立即发送零速度并结束键盘节点；不要在 Gazebo 拖动模型。由容器所有者停止 sidecar、适配器和主容器后重新启动本轮仿真 |
 | `cuda::is_available():0` | 表示 CPU 回退；继续以周期、无 NaN 和真实运动验收 |
 | 平台可用但 SLAM 失败 | 检查时间同步、TF、激光/IMU、合法位姿来源和 SLAM 参数；属于导航侧验收 |
 

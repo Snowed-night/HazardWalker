@@ -70,6 +70,9 @@ public:
     // RL 推理线程读取速度的同时，ROS 主循环可能更新回调；互斥保护用于避免数据竞争。
     std::mutex cmd_vel_mutex_;
     void cmdVelCallback(const geometry_msgs::Twist::ConstPtr& cmd_msg);
+    // 仅把新近收到的非零速度视为“需要行走”。零速度或断流时应回到固定站立，
+    // 不让 RL 策略在静止时维持低趴姿态。
+    bool hasFreshMotionCommand(double deadband = 0.02, double timeout_sec = 0.50);
     ros::NodeHandle nh;
     //声明订阅节点与发布节点
     ros::Subscriber Sub_;

@@ -1,0 +1,11 @@
+{
+  "records": [
+    {"record_id": "PLATFORM-20260727-01", "item": "共享控制预检", "result": "pass"},
+    {"record_id": "PLATFORM-20260727-02", "item": "正式适配器活性", "result": "fail", "reason": "ROS2状态、里程计与参数服务无响应"},
+    {"record_id": "PLATFORM-20260727-03", "item": "备用速度中继", "result": "pass"},
+    {"record_id": "PLATFORM-20260727-04", "item": "W前进与K急停", "result": "pass", "ros1_nonzero_cmd_samples": 8, "zero_cmd_observed": true},
+    {"record_id": "PLATFORM-20260727-05", "item": "真实位姿响应", "result": "pass", "planar_displacement_m": 0.00233},
+    {"record_id": "PLATFORM-20260727-06", "item": "清理", "result": "pass", "cmd_vel_publishers_after_test": 0},
+    {"record_id": "PLATFORM-20260727-07", "item": "GUI可用性", "result": "fail", "reason": "RDP XWayland渲染段错误"}
+  ]
+}

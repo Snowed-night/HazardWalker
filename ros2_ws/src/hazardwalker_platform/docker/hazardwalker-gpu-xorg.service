@@ -1,0 +1,15 @@
+# HazardWalker GPU GUI 专用虚拟显示服务；不启动或管理 Gazebo 主仿真。
+[Unit]
+Description=HazardWalker NVIDIA Xorg virtual display
+After=multi-user.target nvidia-persistenced.service
+Wants=nvidia-persistenced.service
+
+[Service]
+Type=simple
+ExecStartPre=/usr/bin/rm -f /tmp/.X102-lock /tmp/.X11-unix/X102
+ExecStart=/usr/bin/Xorg :102 -noreset -nolisten tcp -ac -config /etc/hazardwalker/host_gpu_xorg.conf -logfile /var/log/Xorg.hazardwalker-gpu.log
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

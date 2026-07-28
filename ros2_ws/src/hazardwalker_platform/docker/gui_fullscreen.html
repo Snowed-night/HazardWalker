@@ -1,0 +1,63 @@
+<!doctype html>
+<!--
+  HazardWalker 官方 SimEnv 专用全屏 noVNC 页面。
+  显示并允许操作现有 Gazebo GUI；机器狗控制仍必须经 ROS2 键盘节点。
+-->
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+  <title>HazardWalker SimEnv GUI</title>
+  <style>
+    html, body {
+      width: 100vw;
+      height: 100vh;
+      margin: 0;
+      overflow: hidden;
+      background: #000;
+    }
+    #screen {
+      position: fixed;
+      inset: 0;
+      width: 100vw;
+      height: 100vh;
+      overflow: hidden;
+      background: #000;
+    }
+    /* RFB 画布由 noVNC 插入；绝不保留工具栏或固定尺寸容器。 */
+    #screen canvas { display: block; }
+  </style>
+</head>
+<body>
+  <div id="screen" aria-label="Gazebo SimEnv 图形界面"></div>
+  <script type="module">
+    import * as WebUtil from './app/webutil.js';
+    import RFB from './core/rfb.js';
+
+    const host = WebUtil.getConfigVar('host', window.location.hostname);
+    const port = WebUtil.getConfigVar('port', window.location.port || '6081');
+    const path = WebUtil.getConfigVar('path', 'websockify');
+    const scheme = window.location.protocol === 'https:' ? 'wss' : 'ws';
+    const url = `${scheme}://${host}:${port}/${path}`;
+    const rfb = new RFB(document.getElementById('screen'), url, {
+      shared: true,
+    });
+
+    // 画布随浏览器/RDP 视口缩放；连接成功和窗口变化后都重新计算，避免首次握手时拿到旧尺寸。
+    const fitViewport = () => {
+      const target = document.getElementById('screen');
+      target.style.width = `${window.innerWidth}px`;
+      target.style.height = `${window.innerHeight}px`;
+      rfb.scaleViewport = false;
+      rfb.scaleViewport = true;
+    };
+    rfb.addEventListener('connect', () => requestAnimationFrame(fitViewport));
+    window.addEventListener('resize', () => requestAnimationFrame(fitViewport));
+    rfb.scaleViewport = true;
+    rfb.clipViewport = false;
+    // 允许鼠标旋转、平移和缩放 Gazebo 视角，以及使用 Gazebo 自身快捷键。
+    // noVNC 的键盘输入只交给 Gazebo，不会发布 ROS /hw/cmd_vel；机器狗仍由独立终端控制。
+    rfb.viewOnly = false;
+  </script>
+</body>
+</html>
