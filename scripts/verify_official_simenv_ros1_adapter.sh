@@ -10,8 +10,12 @@ RGB_TOPIC="${OFFICIAL_SIMENV_RGB_TOPIC:-/real_sense/rgb/image_raw}"
 DEPTH_TOPIC="${OFFICIAL_SIMENV_DEPTH_TOPIC:-/real_sense/depth/image_raw}"
 RGB_INFO_TOPIC="${OFFICIAL_SIMENV_RGB_CAMERA_INFO_TOPIC:-/real_sense/rgb/camera_info}"
 
+# Jazzy 的环境脚本会读取若干可选 AMENT_* 变量；干净终端中这些变量未定义时，
+# 本脚本的 `set -u` 不应把正常环境加载误判为适配器故障。加载完成后立即恢复严格模式。
+set +u
 source /opt/ros/jazzy/setup.bash
 source "$ROOT/ros2_ws/install/setup.bash" 2>/dev/null || true
+set -u
 
 check_ros1() {
   local topic="$1"
