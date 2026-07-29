@@ -72,6 +72,11 @@ pkill -f "rosbridge_odom_relay.py" 2>/dev/null || true
 echo "Sourcing ROS environment..."
 export ROS_MASTER_URI="${ROS_MASTER_URI:-http://127.0.0.1:11311}"
 source /opt/ros/noetic/setup.bash
+if [[ ! -f "$CATKIN_DEVEL_DIR/setup.bash" ]]; then
+  echo "ERROR: missing $CATKIN_DEVEL_DIR/setup.bash." >&2
+  echo "Run './auto_docker.sh build' from the host before starting this container." >&2
+  exit 66
+fi
 source "$CATKIN_DEVEL_DIR/setup.bash"
 
 # ROS 的 OpenNI Kinect 包依赖 Gazebo Classic 自带的 DepthCameraPlugin。
