@@ -106,6 +106,9 @@ cd ../../..
 `simenv_ros1_hxbl` 平行容器。`auto_docker.sh up` 现在唯一调用容器内的 `auto.sh`：它启动 Gazebo、`junior_ctrl`、
 `/Odometry_gazebo -> /hazardwalker/odom` 最新值中继和 `rosbridge_websocket`。镜像已固定包含
 `ros-noetic-rosbridge-server` 与 `expect`；不得再进入容器手工安装软件包、手工启动 rosbridge 或手工拉起控制器。
+`.ros1_catkin_ws` 是本地 ROS1 构建产物，不纳入 Git；日常不要删除。首次运行、误删或构建产物缺失时，
+`./auto_docker.sh up` 会先自动重建该目录，再启动正式容器。构建结束会自动将目录所有权归还给当前宿主账号，
+不得使用 `sudo` 或 `git clean` 清理它。
 默认 `START_CONTROLLER=1`、`SIMENV_AUTO_RL=1`、`SIMENV_HEADLESS_MODE=move_base`、`START_ROSBRIDGE=1`、`START_ODOM_RELAY=1`。启动后 A1 先保持固定站立；收到合法的非零 `/cmd_vel` 才切换到 RL 行走。容器不会为了“验收”自动发送运动命令，真实运动测试必须在独占时段执行。默认控制周期为 `UNITREE_CTRL_DT=0.004`（250 Hz），该值为当前平台稳定 profile，不要自行修改。
 只要修改或同步过 `src/unitree_guide/`，就必须先执行 `build force`；`up` 会拒绝复用时间戳早于控制源码的
 `junior_ctrl`。ROS 图中的控制节点名是 `/unitree_gazebo_servo`，不能以未出现 `/junior_ctrl` 节点名判断订阅失败。

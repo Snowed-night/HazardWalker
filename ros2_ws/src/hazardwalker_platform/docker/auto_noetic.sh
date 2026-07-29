@@ -70,8 +70,8 @@ case "$cmd" in
     compose build "$@"
     clean=""
     if [[ -n "$force" ]]; then
-      clean="rm -rf build devel install && "
-      echo "Force rebuild: cleaning build/ devel/ install/"
+      clean="rm -rf .ros1_catkin_ws/build .ros1_catkin_ws/devel .ros1_catkin_ws/install && "
+      echo "Force rebuild: cleaning .ros1_catkin_ws/{build,devel,install}/"
     fi
     compose run --rm --entrypoint /ros_entrypoint.sh \
       -e HOST_UID="$(id -u)" -e HOST_GID="$(id -g)" \
@@ -92,7 +92,7 @@ case "$cmd" in
     ;;
   shell)
     docker exec -it "$CONTAINER_NAME" bash -lc \
-      'source /opt/ros/noetic/setup.bash && source devel/setup.bash && bash'
+      'source /opt/ros/noetic/setup.bash && source .ros1_catkin_ws/devel/setup.bash && bash'
     ;;
   status)
     docker ps -a --filter "name=${CONTAINER_NAME}" --format 'table {{.Names}}\t{{.Status}}\t{{.Image}}'

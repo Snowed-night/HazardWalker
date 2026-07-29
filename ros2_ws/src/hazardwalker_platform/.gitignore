@@ -1,0 +1,2 @@
+# Docker 内 Catkin 的本地构建产物；由 auto_docker.sh 自动恢复，不纳入源码与 Git 变更。
+.ros1_catkin_ws/

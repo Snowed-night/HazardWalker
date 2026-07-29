@@ -46,7 +46,7 @@ services:
       START_BUILDING_CONTROL: ${START_BUILDING_CONTROL:-1}
       START_VIRTUAL_JOY: ${START_VIRTUAL_JOY:-0}
       CONTROLLER_FOREGROUND: ${CONTROLLER_FOREGROUND:-0}
-      UNITREE_CTRL_DT: ${UNITREE_CTRL_DT:-0.002}
+      UNITREE_CTRL_DT: ${UNITREE_CTRL_DT:-0.004}
     command: >
       bash -lc "
         test -x ./auto.sh ||

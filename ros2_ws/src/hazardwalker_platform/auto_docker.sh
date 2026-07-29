@@ -4,6 +4,7 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$ROOT"
+CATKIN_WORKSPACE="$ROOT/.ros1_catkin_ws"
 
 if ! command -v docker >/dev/null 2>&1; then
   echo "ERROR: docker not found. Ask hazard_admin to run setup_hxbl_docker_group.sh" >&2
@@ -26,10 +27,31 @@ chmod +x "$ROOT/auto.sh" "$ROOT/scripts/rosbridge_odom_relay.py" \
   "$ROOT/docker/auto_noetic.sh" "$ROOT/docker/build_catkin.sh" \
   "$ROOT/docker/gui_client.sh" 2>/dev/null || true
 
+# `.ros1_catkin_ws` 是 Docker 内 Catkin 的独立构建工作区，而不是源码目录。
+# 若它被清理、首次克隆尚未构建，`up` 必须先恢复产物；否则容器入口加载
+# `devel/setup.bash` 会立即退出，留下一个反复重启的无效容器。
+runtime_ready() {
+  [[ -f "$CATKIN_WORKSPACE/devel/setup.bash" && \
+     -x "$CATKIN_WORKSPACE/devel/lib/unitree_guide/junior_ctrl" ]]
+}
+
+ensure_runtime() {
+  if runtime_ready; then
+    return 0
+  fi
+  echo "Catkin runtime missing; rebuilding .ros1_catkin_ws before startup..."
+  "$ROOT/docker/auto_noetic.sh" build
+  if ! runtime_ready; then
+    echo "ERROR: Catkin rebuild did not produce devel/setup.bash and junior_ctrl." >&2
+    echo "       Run './auto_docker.sh build' and inspect its complete output." >&2
+    exit 1
+  fi
+}
+
 case "${1:-up}" in
   build)
-    if [[ -f "$ROOT/devel/lib/unitree_guide/junior_ctrl" && "${2:-}" != "force" ]]; then
-      echo "devel/ already contains junior_ctrl."
+    if [[ -f "$CATKIN_WORKSPACE/devel/lib/unitree_guide/junior_ctrl" && "${2:-}" != "force" ]]; then
+      echo ".ros1_catkin_ws/devel/ already contains junior_ctrl."
       echo "Use './auto_docker.sh build force' to rebuild inside container (LibTorch is in the image)."
       echo "Or './auto_docker.sh up' to run with the existing binary."
       exit 0
@@ -41,16 +63,14 @@ case "${1:-up}" in
     fi
     ;;
   up|start)
-    if [[ ! -f "$ROOT/devel/setup.bash" ]]; then
-      echo "WARN: devel/setup.bash not found — run './auto_docker.sh build' first (or rsync devel/ from platform)."
-    fi
-    controller_binary="$ROOT/devel/lib/unitree_guide/junior_ctrl"
+    ensure_runtime
+    controller_binary="$CATKIN_WORKSPACE/devel/lib/unitree_guide/junior_ctrl"
     controller_source_root="$ROOT/src/unitree_guide"
     if [[ -x "$controller_binary" && -d "$controller_source_root" ]] &&
        find "$controller_source_root" -type f \
          \( -name '*.cpp' -o -name '*.h' -o -name 'CMakeLists.txt' -o -name 'package.xml' \) \
          -newer "$controller_binary" -print -quit | grep -q .; then
-      echo "ERROR: unitree_guide source is newer than devel/lib/unitree_guide/junior_ctrl." >&2
+      echo "ERROR: unitree_guide source is newer than .ros1_catkin_ws/devel/lib/unitree_guide/junior_ctrl." >&2
       echo "Run './auto_docker.sh build force' before './auto_docker.sh up'." >&2
       exit 1
     fi
