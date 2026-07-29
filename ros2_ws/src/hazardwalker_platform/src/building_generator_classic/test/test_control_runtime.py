@@ -35,6 +35,7 @@ class BuildingControlRuntimeTest(unittest.TestCase):
         self.assertEqual(door_result["panel_poses"]["left_panel"], [0.0, -0.35, 0.0, 0.0, 0.0, 0.0])
         self.assertEqual(elevator_result["current_floor"], 2)
         self.assertEqual(elevator_result["state"], "door_open")
+        self.assertEqual(runtime.initial_door_states(), [("elevator_floor_0", True)])
 
     def test_compose_world_pose_rotates_local_offsets(self) -> None:
         pose = _compose_world_pose(

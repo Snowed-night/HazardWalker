@@ -47,6 +47,26 @@ def test_platform_package_registers_keyboard_node():
     ) in setup_source
 
 
+def test_keyboard_node_also_supports_python_module_startup():
+    """共享机尚未构建工作区时，仍可安全地按模块方式启动节点。"""
+
+    source = (PLATFORM_SRC / 'hazardwalker_platform' /
+              'keyboard_control_node.py').read_text(encoding='utf-8')
+    assert "if __name__ == '__main__':" in source
+    assert '    main()' in source
+
+
+def test_keyboard_node_supports_bounded_live_motion_parameter_updates():
+    """参数热更新不得只修改 ROS 参数表而忽略控制节点缓存。"""
+
+    source = (PLATFORM_SRC / 'hazardwalker_platform' /
+              'keyboard_control_node.py').read_text(encoding='utf-8')
+    assert 'add_on_set_parameters_callback(self._update_motion_parameters)' in source
+    assert "'linear_speed': (0.05, 0.65)" in source
+    assert "'angular_speed': (0.10, 1.20)" in source
+    assert 'self.linear_speed = values[\'linear_speed\']' in source
+
+
 def test_legacy_keyboard_paths_keep_the_same_wsadk_semantics():
     controller = (
         PLATFORM_SRC / 'src' / 'unitree_guide' / 'unitree_guide' /

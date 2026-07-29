@@ -33,6 +33,7 @@ PUBLIC_START_Z="${OFFICIAL_PUBLIC_START_Z:-0.6}"
 PUBLIC_START_YAW="${OFFICIAL_PUBLIC_START_YAW:-1.5708}"
 ROS2_SETUP="${OFFICIAL_SIMENV_ROS2_SETUP:-/opt/ros/jazzy/setup.bash}"
 PYTHON_BIN="${OFFICIAL_SIMENV_PYTHON_BIN:-python3}"
+RUNTIME_VENV="${OFFICIAL_SIMENV_RUNTIME_VENV:-$HOME/.local/share/hazardwalker/ros2_bridge_venv}"
 
 as_ros_bool() {
   case "${1,,}" in
@@ -52,7 +53,7 @@ if [[ ! -f "$ROS2_SETUP" ]]; then
 fi
 # 共享主机常遗留已删除工作区的 AMENT/COLCON 前缀；Jazzy 会沿这些前缀继续 source
 # setup.bash，进而把一次性启动误报成“缺少 rclpy”。正式适配器从干净 ROS2 基础环境
-# 加载，再只叠加当前仓库 install，避免把其他成员的终端状态带入平台链路。
+# 加载；适配器以源码方式运行，只补充当前包路径，不能再 source 可能过期的 install。
 unset AMENT_PREFIX_PATH COLCON_PREFIX_PATH COLCON_CURRENT_PREFIX AMENT_CURRENT_PREFIX \
   CMAKE_PREFIX_PATH PYTHONPATH \
   ROS_DISTRO ROS_VERSION ROS_PYTHON_VERSION ROS_PACKAGE_PATH
@@ -60,11 +61,18 @@ unset AMENT_PREFIX_PATH COLCON_PREFIX_PATH COLCON_CURRENT_PREFIX AMENT_CURRENT_P
 # set -u 中断；加载环境期间暂时关闭 nounset，随后立即恢复严格模式。
 set +u
 source "$ROS2_SETUP"
-source "$ROOT/ros2_ws/install/setup.bash"
 set -u
+# 脚本直接运行适配器源码，需要显式加入当前包；保留 ROS2 setup 提供的 PYTHONPATH。
+export PYTHONPATH="$ROOT/ros2_ws/src/hazardwalker_platform:${PYTHONPATH:-}"
+# 系统 Python 未安装 websocket-client 时，优先使用平台运行时 venv。该 venv 使用
+# --system-site-packages 创建，仍可访问 ROS2 的 rclpy，避免改动系统 Python。
+if ! "$PYTHON_BIN" -c 'import rclpy, websocket' 2>/dev/null \
+  && [[ "$PYTHON_BIN" == "python3" && -x "$RUNTIME_VENV/bin/python" ]]; then
+  PYTHON_BIN="$RUNTIME_VENV/bin/python"
+fi
 if ! command -v ros2 >/dev/null || ! "$PYTHON_BIN" -c 'import rclpy, websocket' 2>/dev/null; then
   echo '[rosbridge-adapter] ROS2 主机缺少 ros2/rclpy 或 websocket-client；未启动适配器。' >&2
-  echo '请安装完整 ROS2 运行时和 websocket-client 后重试；Ubuntu 受 PEP 668 保护时请按手册使用独立 venv，不能在仅 ROS1 的官方容器内运行。' >&2
+  echo "请先创建 $RUNTIME_VENV 并安装 websocket-client，或设置 OFFICIAL_SIMENV_PYTHON_BIN；不能在仅 ROS1 的官方容器内运行。" >&2
   exit 1
 fi
 if ! docker inspect -f '{{.State.Running}}' "$CONTAINER" 2>/dev/null | grep -qx true; then

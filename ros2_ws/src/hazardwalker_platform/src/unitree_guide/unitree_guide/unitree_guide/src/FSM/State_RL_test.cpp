@@ -25,13 +25,8 @@ State_RL::~State_RL(){
 
 void State_RL::enter(){
     stopWorkerThreads();
-    {
-        std::lock_guard<std::mutex> lock(this->cmd_vel_mutex_);
-        this->current_cmd_vel_.linear_x = 0.0;
-        this->current_cmd_vel_.linear_y = 0.0;
-        this->current_cmd_vel_.angular_z = 0.0;
-        this->current_cmd_vel_.valid = false;
-    }
+    // 切入 RL 时保留刚收到的 /cmd_vel。若在此清空，键盘持续按住的首帧会丢失，
+    // 状态机会立即回到固定站立并造成“站立/RL”反复切换。
      // if (real == false){
         for(int i=0; i<12; i++){
             _lowCmd->motorCmd[i].q = _lowState->motorState[i].q;

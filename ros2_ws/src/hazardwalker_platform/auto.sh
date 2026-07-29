@@ -5,6 +5,8 @@
 set -euo pipefail
 
 WORKSPACE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+CATKIN_WORKSPACE_DIR="${CATKIN_WORKSPACE_DIR:-$WORKSPACE_DIR/.ros1_catkin_ws}"
+CATKIN_DEVEL_DIR="$CATKIN_WORKSPACE_DIR/devel"
 cd "$WORKSPACE_DIR"
 
 SEED="${SEED:-}"
@@ -26,11 +28,18 @@ SIMENV_AUTO_RL="${SIMENV_AUTO_RL:-1}"
 # 不能只设置 SIMENV_AUTO_RL，否则节点会存在却不对速度命令产生有效运动。
 SIMENV_HEADLESS_MODE="${SIMENV_HEADLESS_MODE:-move_base}"
 START_BUILDING_CONTROL="${START_BUILDING_CONTROL:-1}"
-UNITREE_CTRL_DT="${UNITREE_CTRL_DT:-0.002}"
+UNITREE_CTRL_DT="${UNITREE_CTRL_DT:-0.004}"
 AUTO_UNPAUSE_AFTER_CONTROLLER="${AUTO_UNPAUSE_AFTER_CONTROLLER:-1}"
 CONTROLLER_SENSOR_READY_TIMEOUT_SEC="${CONTROLLER_SENSOR_READY_TIMEOUT_SEC:-5}"
 # GUI=false 只禁用 gzclient；相机与激光的 headless 渲染仍由 Xvfb 提供软件 GL。
 GAZEBO_HEADLESS="${GAZEBO_HEADLESS:-false}"
+# 默认不加载激光雷达：感知组的 RGB-D 与平台控制不依赖 /scan，关闭可显著降低
+# Gazebo 图形与物理负载。导航/SLAM 测试显式设置 ENABLE_LIDAR=true。
+ENABLE_LIDAR="${ENABLE_LIDAR:-false}"
+# 第一人称和感知均复用 RealSense RGB。官方插件默认仅 2 Hz，浏览器画面会明显跳帧；
+# 设为 10 Hz 以匹配当前低负载 profile。JPEG 质量仅在压缩话题有订阅者时生效。
+CAMERA_IMAGER_RATE_HZ="${CAMERA_IMAGER_RATE_HZ:-10}"
+CAMERA_JPEG_QUALITY="${CAMERA_JPEG_QUALITY:-92}"
 # 后台控制器必须完成 FSM 初始化后再解除暂停，避免 A1 在接管前跌倒。
 CONTROLLER_READY_TIMEOUT_SEC="${CONTROLLER_READY_TIMEOUT_SEC:-60}"
 # 自动控制器使用当前已编译 Unitree 控制器的 SIMENV_AUTO_RL headless 模式。
@@ -38,7 +47,7 @@ CONTROLLER_READY_TIMEOUT_SEC="${CONTROLLER_READY_TIMEOUT_SEC:-60}"
 # 仿真步进机会而会形成启动死锁。
 CONTROLLER_AUTO_STAND_DELAY_SEC="${CONTROLLER_AUTO_STAND_DELAY_SEC:-5}"
 CONTROLLER_AUTO_RL_DELAY_SEC="${CONTROLLER_AUTO_RL_DELAY_SEC:-2}"
-VERIFY_CONTROLLER_MOTION="${VERIFY_CONTROLLER_MOTION:-1}"
+VERIFY_CONTROLLER_MOTION="${VERIFY_CONTROLLER_MOTION:-0}"
 CONTROLLER_RL_SETTLE_SEC="${CONTROLLER_RL_SETTLE_SEC:-3.0}"
 CONTROLLER_PROBE_SPEED_MPS="${CONTROLLER_PROBE_SPEED_MPS:-0.30}"
 CONTROLLER_PROBE_DURATION_SEC="${CONTROLLER_PROBE_DURATION_SEC:-3.0}"
@@ -63,14 +72,14 @@ pkill -f "rosbridge_odom_relay.py" 2>/dev/null || true
 echo "Sourcing ROS environment..."
 export ROS_MASTER_URI="${ROS_MASTER_URI:-http://127.0.0.1:11311}"
 source /opt/ros/noetic/setup.bash
-source "$WORKSPACE_DIR/devel/setup.bash"
+source "$CATKIN_DEVEL_DIR/setup.bash"
 
 # ROS 的 OpenNI Kinect 包依赖 Gazebo Classic 自带的 DepthCameraPlugin。
 # 该目录默认在 GAZEBO_PLUGIN_PATH，却不一定进入动态链接器搜索路径；缺失时
 # Gazebo 仍会生成内部 image topic，但 ROS 的 RGB/深度/点云话题完全不存在。
 GAZEBO_CLASSIC_PLUGIN_DIR="/usr/lib/x86_64-linux-gnu/gazebo-11/plugins"
 if [ -d "$GAZEBO_CLASSIC_PLUGIN_DIR" ]; then
-  export GAZEBO_PLUGIN_PATH="$WORKSPACE_DIR/devel/lib:/opt/ros/noetic/lib:$GAZEBO_CLASSIC_PLUGIN_DIR:${GAZEBO_PLUGIN_PATH:-}"
+  export GAZEBO_PLUGIN_PATH="$CATKIN_DEVEL_DIR/lib:/opt/ros/noetic/lib:$GAZEBO_CLASSIC_PLUGIN_DIR:${GAZEBO_PLUGIN_PATH:-}"
   export LD_LIBRARY_PATH="$GAZEBO_CLASSIC_PLUGIN_DIR:${LD_LIBRARY_PATH:-}"
 fi
 
@@ -111,7 +120,7 @@ if [ -n "$SEED" ]; then
   GENERATOR_ARGS+=(--seed "$SEED")
 fi
 if [ "${SIMENV_PRACTICE:-0}" = "1" ]; then
-  "$WORKSPACE_DIR/devel/lib/building_obstacles/generate_competition_scene.py" "${GENERATOR_ARGS[@]}" \
+  "$CATKIN_DEVEL_DIR/lib/building_obstacles/generate_competition_scene.py" "${GENERATOR_ARGS[@]}" \
     > "$SCENE_OUTPUT_DIR/scene_manifest.stdout.json"
 else
   python3 "$BUILDING_OBSTACLES_DIR/scripts/generate_competition_scene.py" "${GENERATOR_ARGS[@]}" \
@@ -201,6 +210,7 @@ roslaunch unitree_guide multi_floor_gazeboSim.launch \
   gui:="$GUI" \
   headless:="$GAZEBO_HEADLESS" \
   paused:="$PAUSED" \
+  enable_lidar:="$ENABLE_LIDAR" \
   user_debug:=False \
   rname:=a1 \
   robot_x:="$ROBOT_X" \
@@ -225,6 +235,26 @@ until rosservice info /gazebo/unpause_physics >/dev/null 2>&1; do
   fi
   sleep 0.2
 done
+
+# OpenNI/RealSense 的 imager_rate 属于动态参数，xacro 内 updateRate 不能覆盖其
+# 默认 2 Hz。等待插件服务注册后显式设置，避免第一人称画面因低帧率产生闪烁感。
+camera_config_deadline=$((SECONDS + CONTROLLER_READY_TIMEOUT_SEC))
+until rosservice info /real_sense/set_parameters >/dev/null 2>&1; do
+  if ! kill -0 "$LAUNCH_PID" 2>/dev/null; then
+    echo "Gazebo launch exited before RealSense dynamic parameters became available." >&2
+    exit 1
+  fi
+  if [ "$SECONDS" -ge "$camera_config_deadline" ]; then
+    echo "Timed out waiting for RealSense dynamic parameters." >&2
+    exit 1
+  fi
+  sleep 0.2
+done
+rosrun dynamic_reconfigure dynparam set /real_sense imager_rate "$CAMERA_IMAGER_RATE_HZ" >/dev/null
+rosparam set /real_sense/rgb/image_raw/compressed/jpeg_quality "$CAMERA_JPEG_QUALITY"
+rosparam set /real_sense/rgb/image_raw/compressed/jpeg_progressive false
+rosparam set /real_sense/rgb/image_raw/compressed/jpeg_optimize true
+echo "RealSense RGB configured: imager_rate=${CAMERA_IMAGER_RATE_HZ} Hz, jpeg_quality=${CAMERA_JPEG_QUALITY}."
 
 # 非暂停启动时先取得真实关节状态；暂停 profile 只需让服务完成注册。
 if [ "$START_CONTROLLER" = "1" ] && [ "$PAUSED" != "true" ]; then
@@ -252,16 +282,16 @@ if [ "$START_CONTROLLER" = "1" ]; then
     echo "Starting junior_ctrl controller in the foreground."
     echo "UNITREE_CTRL_DT=$UNITREE_CTRL_DT seconds."
     echo "Use keyboard input in this terminal: 2 = stand, 6 = RL mode."
-    "$WORKSPACE_DIR/devel/lib/unitree_guide/junior_ctrl"
-  elif [ "$SIMENV_AUTO_RL" = "1" ]; then
+    "$CATKIN_DEVEL_DIR/lib/unitree_guide/junior_ctrl"
+  elif [ "$SIMENV_HEADLESS_MODE" = "move_base" ]; then
     if ! command -v expect >/dev/null 2>&1; then
-      echo "expect is missing; the image is incomplete and cannot certify RL control." >&2
+      echo "expect is missing; the image is incomplete and cannot start the headless controller." >&2
       exit 1
     fi
-    export CONTROLLER_BINARY="$WORKSPACE_DIR/devel/lib/unitree_guide/junior_ctrl"
+    export CONTROLLER_BINARY="$CATKIN_DEVEL_DIR/lib/unitree_guide/junior_ctrl"
     export SIMENV_HEADLESS_MODE
     export CONTROLLER_AUTO_STAND_DELAY_SEC CONTROLLER_AUTO_RL_DELAY_SEC
-    echo "Starting junior_ctrl with formal headless RL mode..."
+    echo "Starting junior_ctrl with formal headless controller mode..."
     expect -c '
       set timeout -1
       log_user 1
@@ -276,14 +306,14 @@ if [ "$START_CONTROLLER" = "1" ]; then
     echo $! > "$WORKSPACE_DIR/logs/junior_ctrl.pid"
 
     controller_deadline=$((SECONDS + CONTROLLER_READY_TIMEOUT_SEC))
-    until grep -q '\[HEADLESS_FSM\].*mode=move_base.*auto_rl=1' \
+    until grep -Eq '\[HEADLESS_FSM\].*mode=move_base.*auto_rl=[01]' \
         "$WORKSPACE_DIR/logs/junior_ctrl.log" 2>/dev/null; do
       if ! kill -0 "$(cat "$WORKSPACE_DIR/logs/junior_ctrl.pid")" 2>/dev/null; then
-        echo "junior_ctrl exited before entering headless RL mode; see logs/junior_ctrl.log." >&2
+        echo "junior_ctrl exited before entering headless controller mode; see logs/junior_ctrl.log." >&2
         exit 1
       fi
       if [ "$SECONDS" -ge "$controller_deadline" ]; then
-        echo "Timed out waiting for junior_ctrl headless RL mode; refusing control-ready status." >&2
+        echo "Timed out waiting for junior_ctrl headless controller mode; refusing control-ready status." >&2
         exit 1
       fi
       sleep 0.2
@@ -303,10 +333,10 @@ if [ "$START_CONTROLLER" = "1" ]; then
       fi
       sleep 0.2
     done
-    echo "junior_ctrl headless RL mode and /cmd_vel subscription are ready; physics can now unpause."
+    echo "junior_ctrl headless controller and /cmd_vel subscription are ready; physics can now unpause."
   else
-    echo "Background junior_ctrl without SIMENV_AUTO_RL=1 cannot prove RL mode." >&2
-    echo "Use CONTROLLER_FOREGROUND=1 for manual diagnosis, or SIMENV_AUTO_RL=1 for formal startup." >&2
+    echo "Background junior_ctrl requires SIMENV_HEADLESS_MODE=move_base for formal startup." >&2
+    echo "Use CONTROLLER_FOREGROUND=1 for manual diagnosis, or set SIMENV_HEADLESS_MODE=move_base." >&2
     exit 1
   fi
 fi
@@ -322,7 +352,27 @@ if [ "$PAUSED" = "true" ] && [ "$START_CONTROLLER" = "1" ] \
   }
 fi
 
-if [ "$START_CONTROLLER" = "1" ] && [ "$SIMENV_AUTO_RL" = "1" ]; then
+if [ "$START_CONTROLLER" = "1" ] && [ "$SIMENV_HEADLESS_MODE" = "move_base" ]; then
+  # 正式静止验收：无命令时必须停在固定站立，不能把“进程存在”误报为已站稳。
+  controller_state_deadline=$((SECONDS + CONTROLLER_READY_TIMEOUT_SEC))
+  until grep -q 'Switched from passive to fixed stand' \
+      "$WORKSPACE_DIR/logs/junior_ctrl.log" 2>/dev/null; do
+    if ! kill -0 "$(cat "$WORKSPACE_DIR/logs/junior_ctrl.pid")" 2>/dev/null; then
+      echo "junior_ctrl exited before entering fixed stand." >&2
+      exit 1
+    fi
+    if [ "$SECONDS" -ge "$controller_state_deadline" ]; then
+      echo "Timed out waiting for junior_ctrl fixed stand state." >&2
+      exit 1
+    fi
+    sleep 0.2
+  done
+  echo "junior_ctrl fixed stand state is ready; non-zero /cmd_vel will switch to RL walking."
+fi
+
+# 仅保留给专门的动态控制诊断，不在正常启动时自动进入 RL。
+if [ "$START_CONTROLLER" = "1" ] && [ "${CONTROLLER_DYNAMIC_RL_STARTUP:-0}" = "1" ] \
+    && [ "$SIMENV_AUTO_RL" = "1" ]; then
   # 初始化日志只表示 headless 参数已生效；必须等状态机实际进入 RL，订阅者存在本身
   # 不能证明回调被处理。
   controller_state_deadline=$((SECONDS + CONTROLLER_READY_TIMEOUT_SEC))
@@ -338,6 +388,24 @@ if [ "$START_CONTROLLER" = "1" ] && [ "$SIMENV_AUTO_RL" = "1" ]; then
     fi
     sleep 0.2
   done
+
+elif [ "$START_CONTROLLER" = "1" ] && [ "${CONTROLLER_DYNAMIC_RL_STARTUP:-0}" = "1" ] \
+    && [ "$SIMENV_HEADLESS_MODE" = "move_base" ]; then
+  # 标准步态模式：先完成固定站立，再切到可接收 /cmd_vel 的 move_base 状态。
+  controller_state_deadline=$((SECONDS + CONTROLLER_READY_TIMEOUT_SEC))
+  until grep -q 'Switched from fixed stand to move_base' \
+      "$WORKSPACE_DIR/logs/junior_ctrl.log" 2>/dev/null; do
+    if ! kill -0 "$(cat "$WORKSPACE_DIR/logs/junior_ctrl.pid")" 2>/dev/null; then
+      echo "junior_ctrl exited before entering move_base state." >&2
+      exit 1
+    fi
+    if [ "$SECONDS" -ge "$controller_state_deadline" ]; then
+      echo "Timed out waiting for junior_ctrl to enter move_base state." >&2
+      exit 1
+    fi
+    sleep 0.2
+  done
+  echo "junior_ctrl move_base state is ready; the robot is standing and /cmd_vel is active."
 
   if [ "$VERIFY_CONTROLLER_MOTION" = "1" ]; then
     # RL 推理线程需完成历史观测初始化；刚切换状态就发速度会被初始化阶段吞掉。

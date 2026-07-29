@@ -1,0 +1,7 @@
+record_id,stage,item,expected,evidence,result,owner
+gui_20260727_001,gui_sidecar,noVNC endpoint,"HTTP 200 and browser-accessible loopback endpoint","curl http://127.0.0.1:6081/vnc.html returned 200",pass,负责人
+gui_20260727_002,gui_sidecar,Gazebo visible,"GUI process alive and representative frame contains Gazebo scene","Xvfb/x11vnc/websockify/gzclient alive; gui_noVNC_final.png saved",pass,负责人
+gui_20260727_003,non_interference,shared simulation,"Main container is not restarted or stopped","simenv_ros1_hazard_platform stayed healthy throughout",pass,负责人
+gui_20260727_004,keyboard_with_gui,forward and stop,"W produces positive command and K produces zero command","8 ROS1 /cmd_vel linear.x=0.30 samples followed by zero Twist",pass,负责人
+gui_20260727_005,keyboard_with_gui,physical response,"Odom changes after short forward command","planar odom delta 0.001126 m",pass,负责人
+gui_20260727_006,adapter_boundary,formal ROS2 adapter,"Adapter should publish/respond before being declared usable","/hw/odom/status/parameter service timed out in test window",fail,负责人

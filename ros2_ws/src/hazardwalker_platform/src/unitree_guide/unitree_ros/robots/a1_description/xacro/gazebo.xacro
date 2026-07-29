@@ -342,6 +342,7 @@
 
      <!-- gazebo livox mid360 plugins -->
     <xacro:property name="M_PI" value="3.14159"/>
+    <xacro:if value="$(arg ENABLE_LIDAR)">
     <gazebo reference="laser_livox">
         <sensor type="ray" name="laser_livox">
             <!-- laser_livox 链路俯仰约 +45°；反向补偿后 ray 扫描面保持水平。 -->
@@ -376,6 +377,7 @@
             </plugin>
         </sensor>
     </gazebo>
+    </xacro:if>
 
 
     <!-- gazebo livox imu-link plugins -->
