@@ -9,6 +9,10 @@
 - 探索完成后返航，到达起点时发布 FINISHED。
 
 状态机: INIT → EXPLORING → REOBSERVING → RETURNING → FINISHED
+
+多楼层扩展（target_floors 非空时）:
+  INIT → EXPLORING(floor N) → FLOOR_COMPLETE → FLOOR_TRANSITION → EXPLORING(floor N+1) ...
+  → RETURNING → FINISHED
 """
 
 from __future__ import annotations
@@ -27,7 +31,7 @@ from rclpy.clock import Clock, ClockType
 from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
 from sensor_msgs.msg import LaserScan
-from std_msgs.msg import String
+from std_msgs.msg import Int32, String
 
 from hazardwalker_nav.frontier_detector import (
     Frontier,
@@ -60,6 +64,14 @@ from hazardwalker_nav.reobservation_contract import (
     reobservation_actions_conflict,
     reobservation_request_is_eligible,
     target_centered_in_image,
+)
+from hazardwalker_nav.coverage_tracker import CoverageGrid
+from hazardwalker_nav.elevator_controller import (
+    ElevatorResult,
+    call_elevator,
+    elevator_approach_position,
+    elevator_door_id,
+    set_door_state,
 )
 from hazardwalker_nav.nav_recorder import NavRecorder
 from hazardwalker_nav.waypoint_controller import normalize_angle
@@ -179,6 +191,14 @@ class FrontierExplorerNode(Node):
         # 导航数据记录
         self.declare_parameter('nav_record_enabled', True)
         self.declare_parameter('nav_record_dir', '')
+        # 多楼层参数（默认单层，向后兼容）
+        self.declare_parameter('target_floors', [])  # 空列表=单层模式
+        self.declare_parameter('current_floor_index', 0)
+        self.declare_parameter('floor_coverage_threshold', 0.90)
+        self.declare_parameter('elevator_id', 'elevator_main')
+        self.declare_parameter('elevator_entry_floor', 0)
+        self.declare_parameter('stair_detection_enabled', False)
+        self.declare_parameter('simenv_container', 'simenv_ros1_hazard_platform')
 
         # ---- 状态机 ----
         self.state = 'INIT'
@@ -290,6 +310,20 @@ class FrontierExplorerNode(Node):
             output_dir=str(self.get_parameter('nav_record_dir').value),
             enabled=bool(self.get_parameter('nav_record_enabled').value),
         )
+
+        # ---- 多楼层 ----
+        self._target_floors: list = []
+        self._current_floor: int = 0
+        self._coverage: Optional[CoverageGrid] = None
+        self._elevator_initiated: bool = False
+        self._elevator_floor_reached: bool = False
+        self._floor_complete_since_ros: Optional[float] = None
+        self._floor_transition_phase: str = ''  # navigating | calling | waiting | entering | exiting
+        self._floor_transition_start_ros: Optional[float] = None
+
+        # floor_index 发布器（发布 Int32，触发 scan_imu_localizer 重置匹配地图）
+        self.floor_index_pub = self.create_publisher(
+            Int32, '/hazardwalker/navigation/floor_index', 10)
 
         self.get_logger().info(
             f'Frontier explorer ready. Home=({self.start_x:.1f}, {self.start_y:.1f})')
@@ -588,8 +622,13 @@ class FrontierExplorerNode(Node):
             cmd = self._handle_init()
         elif self.state == 'EXPLORING':
             cmd = self._handle_exploring()
+            self._update_coverage()  # 多楼层：更新覆盖网格
         elif self.state == 'REOBSERVING':
             cmd = self._handle_reobserving()
+        elif self.state == 'FLOOR_COMPLETE':
+            cmd = self._handle_floor_complete()
+        elif self.state == 'FLOOR_TRANSITION':
+            cmd = self._handle_floor_transition()
         elif self.state == 'RETURNING':
             cmd = self._handle_returning()
         elif self.state == 'FINISHED':
@@ -631,6 +670,8 @@ class FrontierExplorerNode(Node):
                 self.get_logger().info(
                     f'Map ready ({free_cells} free cells). '
                     f'Starting exploration from ({self.start_x:.2f}, {self.start_y:.2f})')
+                # 多楼层初始化
+                self._init_multi_floor()
                 self._transition('EXPLORING')
                 return cmd
 
@@ -725,8 +766,11 @@ class FrontierExplorerNode(Node):
                         float(self.get_parameter('angular_speed').value),
                     )
                 return cmd
-            self.get_logger().info('No frontiers remaining. Returning home.')
-            self._transition('RETURNING')
+            self.get_logger().info('No frontiers remaining.')
+            if self._target_floors and self._next_floor() is not None:
+                self._transition('FLOOR_COMPLETE')
+            else:
+                self._transition('RETURNING')
             return cmd
         self._no_reachable_frontier_since = None
 
@@ -1110,6 +1154,204 @@ class FrontierExplorerNode(Node):
         self._return_last_net_progress_time = now_ros
         self._return_net_progress_reference_distance = dist_home
         return True
+
+    # ---- 多楼层处理 ----
+
+    def _init_multi_floor(self):
+        """读取 target_floors 参数，初始化多楼层探索。空列表则跳过（单层模式）。"""
+        try:
+            target_floors = list(self.get_parameter('target_floors').value)
+        except (TypeError, ValueError):
+            target_floors = []
+        if not target_floors:
+            return
+        self._target_floors = sorted(target_floors)
+        self._current_floor = int(
+            self.get_parameter('current_floor_index').value)
+        if self.grid is not None:
+            h, w = self.grid.shape
+            self._coverage = CoverageGrid(h, w)
+        self._publish_floor_index(self._current_floor)
+        self.recorder.record_floor_change(
+            self._ros_time_sec(), -1, self._current_floor, 'initial')
+        self.get_logger().info(
+            f'Multi-floor exploration enabled: '
+            f'floors={self._target_floors}, '
+            f'current={self._current_floor}')
+
+    def _update_coverage(self):
+        """以 2 Hz 降采样更新覆盖网格。"""
+        if self._coverage is None or self.grid is None:
+            return
+        now = time.monotonic()
+        if (getattr(self, '_last_coverage_update', None) is not None
+                and now - self._last_coverage_update < 0.5):
+            return
+        self._last_coverage_update = now
+        gx, gy = world_to_grid(
+            self.robot_x, self.robot_y, self.latest_map)
+        if 0 <= gx < self.grid.shape[1] and 0 <= gy < self.grid.shape[0]:
+            self._coverage.update(gx, gy, self.grid)
+
+    def _floor_is_covered(self) -> bool:
+        """判断当前楼层是否覆盖达标。"""
+        if self._target_floors is None or len(self._target_floors) == 0:
+            return False
+        threshold = float(
+            self.get_parameter('floor_coverage_threshold').value)
+        no_frontiers = (
+            self.current_target is None
+            and len(self.current_path) == 0
+            and len(self._visited_frontiers) > 0
+        )
+        coverage_ok = False
+        if self._coverage is not None and self.grid is not None:
+            ratio = self._coverage.floor_coverage_ratio(self.grid)
+            coverage_ok = ratio >= threshold
+        return no_frontiers and coverage_ok
+
+    def _handle_floor_complete(self) -> Twist:
+        """FLOOR_COMPLETE: 当前层探索完毕，准备跨层。"""
+        cmd = Twist()
+        now_ros = self._ros_time_sec()
+        if self._floor_complete_since_ros is None:
+            self._floor_complete_since_ros = now_ros
+        if now_ros - self._floor_complete_since_ros < 2.0:
+            return cmd
+        next_floor = self._next_floor()
+        if next_floor is None:
+            self.get_logger().info(
+                'All target floors explored. Preparing to return home.')
+            self._transition('RETURNING')
+            return cmd
+        self._current_floor = next_floor
+        self._floor_complete_since_ros = None
+        self._elevator_initiated = False
+        self._elevator_floor_reached = False
+        self._floor_transition_phase = 'navigating'
+        self._floor_transition_start_ros = now_ros
+        self.recorder.record_floor_change(
+            now_ros, self._current_floor, next_floor, 'elevator')
+        self.get_logger().info(
+            f'Floor {self._current_floor} complete. '
+            f'Transitioning to floor {next_floor}.')
+        self._transition('FLOOR_TRANSITION')
+        return cmd
+
+    def _handle_floor_transition(self) -> Twist:
+        """FLOOR_TRANSITION: 导航到电梯 → 呼叫电梯 → 跨层 → 新层探索。"""
+        cmd = Twist()
+        now_ros = self._ros_time_sec()
+        container = str(self.get_parameter('simenv_container').value)
+        elevator_id = str(self.get_parameter('elevator_id').value)
+        tol = float(self.get_parameter('goal_tolerance_m').value)
+        if self._floor_transition_phase == 'navigating':
+            elevator_pos = elevator_approach_position(self._current_floor)
+            dist = math.hypot(
+                self.robot_x - elevator_pos[0],
+                self.robot_y - elevator_pos[1])
+            if dist > tol:
+                if self.grid is not None:
+                    self.current_path = []
+                    try:
+                        path = a_star_path(
+                            self.grid, self.latest_map,
+                            self.robot_x, self.robot_y,
+                            elevator_pos[0], elevator_pos[1],
+                            start_search_radius_m=0.50,
+                        )
+                        self.current_path = path
+                    except Exception:
+                        pass
+                self.path_index = 0
+                if len(self.current_path) > 0:
+                    cmd = self._follow_path()
+                return cmd
+            self._floor_transition_phase = 'calling'
+            self._floor_transition_start_ros = now_ros
+            self.get_logger().info('Arrived at elevator. Calling...')
+        if self._floor_transition_phase == 'calling':
+            if not self._elevator_initiated:
+                try:
+                    entry_floor = int(
+                        self.get_parameter('elevator_entry_floor').value)
+                    result = call_elevator(
+                        container, elevator_id, entry_floor,
+                        open_doors=True, timeout_s=30.0,
+                    )
+                    self.recorder.record_elevator_call(
+                        now_ros, elevator_id, entry_floor,
+                        'called', result.state)
+                    if result.accepted:
+                        self._elevator_initiated = True
+                        self.get_logger().info(
+                            f'Elevator called to floor {entry_floor}: '
+                            f'{result.state}')
+                    else:
+                        self.get_logger().warn(
+                            f'Elevator call rejected: {result.message}')
+                except Exception as exc:
+                    self.get_logger().error(
+                        f'Elevator call failed: {exc}')
+            if (self._elevator_initiated
+                    and now_ros - (self._floor_transition_start_ros or now_ros) > 5.0):
+                self._floor_transition_phase = 'entering'
+                self._floor_transition_start_ros = now_ros
+        if self._floor_transition_phase == 'entering':
+            if not self._elevator_floor_reached:
+                try:
+                    result = call_elevator(
+                        container, elevator_id, self._current_floor,
+                        open_doors=True, timeout_s=30.0,
+                    )
+                    self.recorder.record_elevator_call(
+                        now_ros, elevator_id, self._current_floor,
+                        'entered', result.state)
+                    if result.accepted and result.current_floor == self._current_floor:
+                        self._elevator_floor_reached = True
+                        self.get_logger().info(
+                            f'Arrived at floor {self._current_floor}')
+                        self._publish_floor_index(self._current_floor)
+                except Exception as exc:
+                    self.get_logger().error(
+                        f'Floor transition failed: {exc}')
+        if self._elevator_floor_reached or (
+                self._floor_transition_start_ros is not None
+                and now_ros - self._floor_transition_start_ros > 60.0):
+            self.get_logger().info(
+                f'Beginning exploration on floor {self._current_floor}')
+            self.current_target = None
+            self.current_path = []
+            self._visited_frontiers.clear()
+            self._unreachable_frontiers.clear()
+            self._detour_deferred_frontiers.clear()
+            self._reset_frontier_progress_watchdog()
+            if self.grid is not None:
+                h, w = self.grid.shape
+                self._coverage = CoverageGrid(h, w)
+            self._floor_transition_phase = ''
+            self._transition('EXPLORING')
+        return cmd
+
+    def _next_floor(self) -> Optional[int]:
+        """返回下一个待探索楼层，若全部完成则返回 None。"""
+        if not self._target_floors:
+            return None
+        try:
+            idx = self._target_floors.index(self._current_floor)
+        except ValueError:
+            return None
+        if idx + 1 >= len(self._target_floors):
+            return None
+        return self._target_floors[idx + 1]
+
+    def _publish_floor_index(self, index: int):
+        """发布 /hazardwalker/navigation/floor_index，触发 SLAM 地图重置。"""
+        msg = Int32()
+        msg.data = index
+        self.floor_index_pub.publish(msg)
+        self.get_logger().info(
+            f'Published floor_index={index} → SLAM map will reset.')
 
     # ---- 辅助方法 ----
 
@@ -1921,6 +2163,10 @@ class FrontierExplorerNode(Node):
         self.recorder.record_state_transition(
             self._ros_time_sec(), self.prev_state, new_state,
         )
+        # 多楼层：退避跨层状态下的卡死检测
+        if new_state in ('FLOOR_COMPLETE', 'FLOOR_TRANSITION'):
+            self._stuck_since = None
+            self._pose_history.clear()
         if new_state == 'EXPLORING' and self.prev_state == 'INIT':
             # 保留探索阶段起点供诊断；正式总预算已从 /clock 首个有效值计时，
             # 不会在 INIT 完成后重新起表。

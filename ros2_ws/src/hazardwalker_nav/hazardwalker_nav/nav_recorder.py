@@ -12,6 +12,8 @@
 - state_transitions.jsonl: 时间戳、状态变迁 (from → to)、触发原因
 - failures.jsonl: 时间戳、失败类型、位姿、详情
 - reobservations.jsonl: 时间戳、感知复查请求、执行结果
+- floor_changes.jsonl: 时间戳、楼层切换事件
+- elevator_calls.jsonl: 时间戳、电梯调用事件
 - map.pgm + map.yaml: 最终 SLAM 地图（FINISHED 时保存）
 
 验证方式：
@@ -95,6 +97,10 @@ class NavRecorder:
             os.path.join(self._dir, 'failures.jsonl'), 'w', encoding='utf-8')
         self._reobservations_fp = open(
             os.path.join(self._dir, 'reobservations.jsonl'), 'w', encoding='utf-8')
+        self._floor_changes_fp = open(
+            os.path.join(self._dir, 'floor_changes.jsonl'), 'w', encoding='utf-8')
+        self._elevator_calls_fp = open(
+            os.path.join(self._dir, 'elevator_calls.jsonl'), 'w', encoding='utf-8')
 
         # 降采样计时
         self._last_trajectory_time: float = 0.0
@@ -235,6 +241,48 @@ class NavRecorder:
             record['bearing_change_deg'] = round(bearing_change_deg, 2)
         self._write_jsonl(self._reobservations_fp, record)
 
+    def record_floor_change(
+        self,
+        ros_sec: float,
+        from_floor: int,
+        to_floor: int,
+        trigger: str = '',  # 'elevator' | 'stairs' | 'initial'
+    ):
+        """记录楼层切换事件。"""
+        if not self._enabled:
+            return
+        record = {
+            'time': _ros_time_str(ros_sec),
+            'ros_sec': round(ros_sec, 4),
+            'from_floor': from_floor,
+            'to_floor': to_floor,
+        }
+        if trigger:
+            record['trigger'] = trigger
+        self._write_jsonl(self._floor_changes_fp, record)
+
+    def record_elevator_call(
+        self,
+        ros_sec: float,
+        elevator_id: str,
+        target_floor: int,
+        phase: str,  # 'called' | 'arrived' | 'entered' | 'exited'
+        result: str = '',
+    ):
+        """记录电梯调用交互。"""
+        if not self._enabled:
+            return
+        record = {
+            'time': _ros_time_str(ros_sec),
+            'ros_sec': round(ros_sec, 4),
+            'elevator_id': elevator_id,
+            'target_floor': target_floor,
+            'phase': phase,
+        }
+        if result:
+            record['result'] = result
+        self._write_jsonl(self._elevator_calls_fp, record)
+
     def save_map(
         self,
         grid: np.ndarray,
@@ -305,6 +353,8 @@ class NavRecorder:
             self._transitions_fp,
             self._failures_fp,
             self._reobservations_fp,
+            self._floor_changes_fp,
+            self._elevator_calls_fp,
         ):
             try:
                 fp.close()
