@@ -336,14 +336,6 @@ def generate_launch_description():
                     'goal_tolerance_m': 0.25,
                     'linear_speed': 0.35,
                     'angular_speed': 1.5,
-                    # 多楼层探索（默认空列表=单层模式）
-                    'target_floors': [],  # 显式传入 [0, 1, 2] 启用跨层
-                    'current_floor_index': 0,
-                    'floor_coverage_threshold': 0.90,
-                    'elevator_id': 'elevator_main',
-                    'elevator_entry_floor': 0,
-                    'stair_detection_enabled': False,
-                    'simenv_container': 'simenv_ros1_hazard_platform',
                     # 导航数据记录
                     'nav_record_enabled': True,
                     'nav_record_dir': '',
