@@ -153,9 +153,9 @@ class FrontierExplorerNode(Node):
         self.declare_parameter('return_time_safety_factor', 2.0)
         self.declare_parameter('return_fixed_overhead_s', 30.0)
         self.declare_parameter('replan_interval_s', 3.0)
-        self.declare_parameter('return_progress_timeout_s', 12.0)
+        self.declare_parameter('return_progress_timeout_s', 8.0)
         self.declare_parameter('return_progress_distance_m', 0.10)
-        self.declare_parameter('return_net_progress_timeout_s', 45.0)
+        self.declare_parameter('return_net_progress_timeout_s', 20.0)
         self.declare_parameter('return_net_progress_distance_m', 0.25)
         # 正常路径跟随的小角速度不全局抬高；只有返航静止看门狗触发时，
         # 才发送短时 0.8 rad/s 交替转向脉冲改变物理接触状态。
@@ -945,6 +945,18 @@ class FrontierExplorerNode(Node):
         force_replan = self._return_progress_watchdog_expired(
             now, dist_home,
         )
+        # 即使 watchdog 未触发，也要检测是否在持续远离起点。
+        # 门未开或路径规划异常时，A* 可能生成先远离再折返的路径，
+        # 导致机器人在 RETURNING 中越走越远。
+        if (self._return_best_distance_home is not None
+                and dist_home > self._return_best_distance_home + 2.0):
+            self.get_logger().warn(
+                f'Returning but drifting away from home: '
+                f'current={dist_home:.2f}m, best='
+                f'{self._return_best_distance_home:.2f}m; '
+                'force clearing path and replanning.'
+            )
+            force_replan = True
         recovery_cmd = self._return_recovery_command_for_now(now)
         if recovery_cmd is not None:
             return recovery_cmd
