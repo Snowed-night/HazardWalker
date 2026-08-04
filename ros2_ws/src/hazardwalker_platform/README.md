@@ -68,6 +68,8 @@ headless-RL 配置后解除物理暂停，等待状态机实际进入 RL，并�
 验收必须独占 ROS master，避免遗留 `/cmd_vel` 发布者污染结果。
 容器健康后，`auto_docker.sh up` 还会在 ROS2 主机自动启动并去重官方适配器；`status` 同时显示容器和
 适配器状态，`down` 先停止适配器再停止容器。业务栈只能复用该实例，不再自行维护第二份适配器。
+正式容器默认设置 32 GiB 内存硬上限并关闭 OOM 后自动重启，避免长时间 `gzserver` 膨胀影响整机；
+实验结束仍须统一执行 `auto_docker.sh down`。
 修改 `src/unitree_guide/` 后必须先执行 `./auto_docker.sh build force`；若源码比
 `devel/lib/unitree_guide/junior_ctrl` 新，`auto_docker.sh up` 会拒绝复用旧二进制并给出重编提示。
 完整接口见 [算法接入接口](docs/algorithm-interfaces.md)。

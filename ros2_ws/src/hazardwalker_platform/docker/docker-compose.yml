@@ -12,6 +12,11 @@ services:
     image: simenv_ros1:noetic-focal
     container_name: simenv_ros1_${DOCKER_SIMENV_USER:-default}
     network_mode: host
+    # gzserver 曾在长时间仿真中持续膨胀并触发宿主机全局 OOM。正式容器默认将
+    # 内存和内存+交换区同时限制为 32 GiB；达到上限时只结束本容器，不自动
+    # 重启泄漏进程。平台管理员可按主机容量显式覆盖，但不得取消上限。
+    mem_limit: ${SIMENV_MEMORY_LIMIT:-32g}
+    memswap_limit: ${SIMENV_MEMORY_SWAP_LIMIT:-32g}
     working_dir: /home/ros/simenv_ws
     volumes:
       # Compose 文件位于 docker/；默认必须挂载其父目录（完整 SimEnv 工作区），
@@ -70,4 +75,4 @@ services:
       timeout: 5s
       retries: 3
       start_period: 90s
-    restart: unless-stopped
+    restart: "${SIMENV_RESTART_POLICY:-no}"

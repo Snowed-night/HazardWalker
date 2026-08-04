@@ -116,6 +116,7 @@ cd ../../..
 `./auto_docker.sh up` 会先自动重建该目录，再启动正式容器。构建结束会自动将目录所有权归还给当前宿主账号，
 不得使用 `sudo` 或 `git clean` 清理它。
 默认 `START_CONTROLLER=1`、`SIMENV_AUTO_RL=1`、`SIMENV_HEADLESS_MODE=move_base`、`START_ROSBRIDGE=1`、`START_ODOM_RELAY=1`。正式共享 profile 还在 `up` 前设置 `OFFICIAL_SIMENV_ENABLE_CONTROL=1`，使唯一适配器具备 `/hw/cmd_vel` 转发能力；这不会自行发送运动命令。启动后 A1 先保持固定站立，收到本轮授权发布者的合法非零速度才切换到 RL 行走。真实运动测试必须在独占时段执行。默认控制周期为 `UNITREE_CTRL_DT=0.004`（250 Hz），该值为当前平台稳定 profile，不要自行修改。
+正式容器默认限制为 32 GiB 内存且不在 OOM 后自动重启，防止长时间运行的 `gzserver` 拖垮整台主机。日常不要取消上限；确需调整时由平台管理员在 `up` 前同时设置 `SIMENV_MEMORY_LIMIT` 和 `SIMENV_MEMORY_SWAP_LIMIT`，并保证二者相等。实验结束后仍须执行 `auto_docker.sh down`，内存上限不能替代正常收尾。
 适配器默认以 200 ms 周期转发原始 RGB-D（上限 5 Hz），用于实时检测和辅助对准；第一人称页面使用独立 ROS1 压缩视频流。正式录包会拒绝超过 250 ms 的图像桥接周期，性能排障如需降频只能作为诊断运行。
 只要修改或同步过 `src/unitree_guide/`，就必须先执行 `build force`；`up` 会拒绝复用时间戳早于控制源码的
 `junior_ctrl`。ROS 图中的控制节点名是 `/unitree_gazebo_servo`，不能以未出现 `/junior_ctrl` 节点名判断订阅失败。
@@ -429,6 +430,7 @@ bash scripts/verify_official_simenv_ros1_direct_control.sh --run
 | 有 `/clock` 但业务不运行 | 连续采样两帧确认时间递增；单帧旧消息无效 |
 | `setTau ... Nan` | 立即停止控制，由平台管理员独占重启并检查关节状态 |
 | 机器人翻倒 | 立即发送零速度并结束键盘节点；不要在 Gazebo 拖动模型。由容器所有者停止 sidecar、适配器和主容器后重新启动本轮仿真 |
+| 宿主机内存持续上涨或容器因 OOM 退出 | `docker stats --no-stream simenv_ros1_hazard_platform` 检查占用；保存日志后执行统一 `down`，不要依靠自动重启继续运行。默认 32 GiB 上限用于保护宿主机，不代表允许长期无人值守运行 |
 | `cuda::is_available():0` | 表示 CPU 回退；继续以周期、无 NaN 和真实运动验收 |
 | 平台可用但 SLAM 失败 | 检查时间同步、TF、激光/IMU、合法位姿来源和 SLAM 参数；属于导航侧验收 |
 

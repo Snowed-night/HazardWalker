@@ -132,6 +132,21 @@ def test_official_headless_startup_reuses_display_and_cleans_only_stale_lock():
         assert '&>/dev/null' not in source
 
 
+def test_official_container_has_bounded_memory_and_no_oom_restart_loop():
+    """长时间 gzserver 异常膨胀只能影响本容器，不能拖垮共享主机。"""
+
+    compose = (
+        PLATFORM_SRC / 'docker' / 'docker-compose.yml'
+    ).read_text(encoding='utf-8')
+    wrapper = (
+        PLATFORM_SRC / 'docker' / 'auto_noetic.sh'
+    ).read_text(encoding='utf-8')
+    assert 'mem_limit: ${SIMENV_MEMORY_LIMIT:-32g}' in compose
+    assert 'memswap_limit: ${SIMENV_MEMORY_SWAP_LIMIT:-32g}' in compose
+    assert 'restart: "${SIMENV_RESTART_POLICY:-no}"' in compose
+    assert 'SIMENV_MEMORY_LIMIT=32g' in wrapper
+
+
 def test_control_and_tf_contract_do_not_hide_platform_difference():
     assert HW_CMD_VEL == '/hw/cmd_vel'
     assert OFFICIAL_CMD_VEL == '/cmd_vel'
