@@ -19,6 +19,7 @@ from urllib.parse import urlparse
 
 import rospy
 from sensor_msgs.msg import CompressedImage
+from std_msgs.msg import String
 
 
 PAGE_HTML = """<!doctype html>
@@ -32,8 +33,9 @@ PAGE_HTML = """<!doctype html>
     html, body { width: 100%; height: 100%; overflow: hidden; }
     body { margin: 0; background: #111827; color: #e5e7eb; font-family: system-ui, sans-serif; }
     header { height: 44px; display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 0 18px; background: #1f2937; }
-    main { height: calc(100vh - 44px); width: 100vw; display: grid; place-items: center; padding: 0; }
-    #stream { display: block; width: 100%; height: 100%; object-fit: contain; background: #000; image-rendering: auto; }
+    main { position: relative; height: calc(100vh - 44px); width: 100vw; padding: 0; background: #000; }
+    #stream { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+    #overlay { display: block; width: 100%; height: 100%; background: #000; }
     .status { color: #93c5fd; font-size: 14px; }
     a { color: #93c5fd; text-decoration: none; }
     button { border: 1px solid #475569; border-radius: 4px; background: #334155; color: #e5e7eb; padding: 5px 9px; cursor: pointer; }
@@ -43,18 +45,143 @@ PAGE_HTML = """<!doctype html>
   <header>
     <strong>HazardWalker · 第一人称 RGB 视角</strong>
     <span class="status" id="status">正在等待相机帧…</span>
-    <span><a href="http://127.0.0.1:6081/hazardwalker.html">打开上帝视角</a> <button id="fullscreen" type="button">全屏</button></span>
+    <span><button id="assistStart" type="button">辅助对准</button> <button id="assistCancel" type="button">取消辅助</button> <a href="http://127.0.0.1:6081/hazardwalker.html">打开上帝视角</a> <button id="fullscreen" type="button">全屏</button></span>
   </header>
-  <main><img id="stream" src="/mjpeg" alt="官方 RealSense RGB 相机画面"></main>
+  <main><img id="stream" src="/mjpeg" alt="官方 RealSense RGB 相机画面"><canvas id="overlay"></canvas></main>
   <script>
     const status = document.getElementById('status');
     const stream = document.getElementById('stream');
+    const canvas = document.getElementById('overlay');
+    const context = canvas.getContext('2d');
+    const frameBuffer = document.createElement('canvas');
+    const frameContext = frameBuffer.getContext('2d');
+    let frameReady = false;
+    let overlayState = { perception: {}, control: {}, assist: {}, state_age_sec: {} };
+    const actionLabels = {
+      continue_exploring: '继续巡检', turn_left: '左转复查', turn_right: '右转复查',
+      move_left: '向左横移', move_right: '向右横移', move_forward: '靠近目标',
+      hold_observation: '停稳观察', unknown: '无'
+    };
+    const assistReasonLabels = {
+      waiting_for_user_confirmation: '等待人工确认', assist_not_running: '未运行',
+      waiting_for_control_takeover: '等待控制权接管',
+      control_takeover_confirmed: '控制权已接管',
+      control_takeover_timeout: '控制权接管超时',
+      target_centered: '目标已居中', target_not_visible: '目标已离开画面',
+      missing_image_width: '缺少画面尺寸', missing_detections: '无候选目标',
+      missing_bbox: '候选框无效', invalid_bbox: '候选框无效',
+      perception_timeout: '感知超时', alignment_timeout: '对准超时',
+      cancelled_by_user: '用户取消', turn_left: '正在左转', turn_right: '正在右转'
+    };
     document.getElementById('fullscreen').addEventListener('click', async () => {
       if (document.fullscreenElement) await document.exitFullscreen();
       else await document.documentElement.requestFullscreen();
     });
+    async function requestAssist(action) {
+      if (action === 'start' && !window.confirm('确认让机器狗原地转向并对准当前候选红球？')) return;
+      try {
+        const response = await fetch(`/assist/${action}`, {
+          method: 'POST', cache: 'no-store',
+          headers: { 'X-HazardWalker-Confirm': '1' }
+        });
+        const result = await response.json();
+        status.textContent = result.message || (response.ok ? '辅助请求已发送' : '辅助请求失败');
+      } catch (_) {
+        status.textContent = '辅助请求发送失败';
+      }
+    }
+    document.getElementById('assistStart').addEventListener('click', () => requestAssist('start'));
+    document.getElementById('assistCancel').addEventListener('click', () => requestAssist('cancel'));
     stream.addEventListener('load', () => { status.textContent = '相机流连接正常'; });
     stream.addEventListener('error', () => { status.textContent = '相机流断开，正在重连…'; });
+    function resizeCanvas() {
+      const ratio = Math.min(2, window.devicePixelRatio || 1);
+      canvas.width = Math.max(1, Math.round(canvas.clientWidth * ratio));
+      canvas.height = Math.max(1, Math.round(canvas.clientHeight * ratio));
+    }
+    window.addEventListener('resize', resizeCanvas);
+    resizeCanvas();
+    async function refreshState() {
+      try {
+        const response = await fetch('/state', { cache: 'no-store' });
+        overlayState = await response.json();
+      } catch (_) {
+        status.textContent = '状态流暂时不可用';
+      }
+    }
+    setInterval(refreshState, 200);
+    refreshState();
+    function render() {
+      const width = canvas.width;
+      const height = canvas.height;
+      context.clearRect(0, 0, width, height);
+      context.fillStyle = '#000';
+      context.fillRect(0, 0, width, height);
+      const sourceWidth = stream.naturalWidth || overlayState.perception.image_width || 0;
+      const sourceHeight = stream.naturalHeight || overlayState.perception.image_height || 0;
+      if (sourceWidth > 0 && sourceHeight > 0) {
+        if (frameBuffer.width !== sourceWidth || frameBuffer.height !== sourceHeight) {
+          frameBuffer.width = sourceWidth;
+          frameBuffer.height = sourceHeight;
+          frameReady = false;
+        }
+        // MJPEG 切换帧时 drawImage 偶尔暂时不可用。先更新离屏缓存，失败时
+        // 继续使用上一张完整帧，避免主画布因清空后无图而周期性黑闪。
+        try {
+          frameContext.drawImage(stream, 0, 0, sourceWidth, sourceHeight);
+          frameReady = true;
+        } catch (_) {}
+        const scale = Math.min(width / sourceWidth, height / sourceHeight);
+        const drawWidth = sourceWidth * scale;
+        const drawHeight = sourceHeight * scale;
+        const offsetX = (width - drawWidth) * 0.5;
+        const offsetY = (height - drawHeight) * 0.5;
+        if (frameReady) {
+          context.drawImage(frameBuffer, offsetX, offsetY, drawWidth, drawHeight);
+        }
+        const age = overlayState.state_age_sec || {};
+        const perceptionFresh = age.perception != null && Number(age.perception) <= 1.0;
+        const frameStamp = Number((overlayState.frame || {}).ros_stamp_sec);
+        const detectionStamp = Number((overlayState.perception || {}).stamp_sec);
+        const perceptionSynchronized = Number.isFinite(frameStamp) && Number.isFinite(detectionStamp) && Math.abs(frameStamp - detectionStamp) <= 0.25;
+        const perception = perceptionFresh && perceptionSynchronized ? (overlayState.perception || {}) : {};
+        const detections = perception.detections_2d || [];
+        context.lineWidth = Math.max(2, 2 * (window.devicePixelRatio || 1));
+        context.font = `${Math.max(14, 14 * (window.devicePixelRatio || 1))}px sans-serif`;
+        for (const detection of detections) {
+          const box = detection.bbox || {};
+          const x = offsetX + Number(box.x_min || 0) * scale;
+          const y = offsetY + Number(box.y_min || 0) * scale;
+          const w = (Number(box.x_max || 0) - Number(box.x_min || 0)) * scale;
+          const h = (Number(box.y_max || 0) - Number(box.y_min || 0)) * scale;
+          const confirmed = detection.track_status === 'confirmed';
+          const color = confirmed ? '#22c55e' : (detection.requires_reobservation ? '#f59e0b' : '#ef4444');
+          context.strokeStyle = color;
+          context.fillStyle = color;
+          context.strokeRect(x, y, w, h);
+          const label = confirmed ? '已确认红球' : (detection.requires_reobservation ? '需复查' : '红球候选');
+          context.fillText(`${label} ${Number(detection.confidence || 0).toFixed(2)}`, x, Math.max(18, y - 6));
+        }
+      }
+      const ages = overlayState.state_age_sec || {};
+      const perceptionFresh = ages.perception != null && Number(ages.perception) <= 1.0;
+      const controlFresh = ages.control != null && Number(ages.control) <= 2.5;
+      const assistFresh = ages.assist != null && Number(ages.assist) <= 2.5;
+      const frameStamp = Number((overlayState.frame || {}).ros_stamp_sec);
+      const detectionStamp = Number((overlayState.perception || {}).stamp_sec);
+      const perceptionSynchronized = Number.isFinite(frameStamp) && Number.isFinite(detectionStamp) && Math.abs(frameStamp - detectionStamp) <= 0.25;
+      const perception = perceptionFresh && perceptionSynchronized ? (overlayState.perception || {}) : {};
+      const recommendation = perception.view_recommendation || {};
+      const control = controlFresh ? (overlayState.control || {}) : {};
+      const assist = assistFresh ? (overlayState.assist || {}) : {};
+      const perceptionFallback = !perceptionFresh ? '感知状态超时' : (!perceptionSynchronized ? '画面与检测未同步' : '无');
+      const action = actionLabels[recommendation.action] || recommendation.action || perceptionFallback;
+      const assistState = assist.state || (assistFresh ? '空闲' : '状态超时');
+      const assistReason = assistReasonLabels[assist.reason] || assist.reason || '';
+      status.textContent = `建议: ${action} | 控制: ${control.mode || (controlFresh ? '未知' : '状态超时')} | 辅助: ${assistState}${assistReason ? `（${assistReason}）` : ''}`;
+      setTimeout(render, 50);
+    }
+    render();
   </script>
 </body>
 </html>
@@ -69,6 +196,7 @@ class LatestFrame:
         self._jpeg: Optional[bytes] = None
         self._sequence = 0
         self._received_at = 0.0
+        self._ros_stamp_sec: Optional[float] = None
 
     def update(self, message: CompressedImage) -> None:
         if not message.data:
@@ -77,6 +205,10 @@ class LatestFrame:
             self._jpeg = bytes(message.data)
             self._sequence += 1
             self._received_at = time.monotonic()
+            try:
+                self._ros_stamp_sec = float(message.header.stamp.to_sec())
+            except (AttributeError, TypeError, ValueError):
+                self._ros_stamp_sec = None
             self._condition.notify_all()
 
     def wait_for_newer(
@@ -94,6 +226,7 @@ class LatestFrame:
             return {
                 "ready": self._jpeg is not None,
                 "frame_sequence": self._sequence,
+                "ros_stamp_sec": self._ros_stamp_sec,
                 "frame_age_sec": (
                     round(time.monotonic() - self._received_at, 3)
                     if self._received_at else None
@@ -101,8 +234,40 @@ class LatestFrame:
             }
 
 
+class OverlayState:
+    """缓存来自 ROS2 转发的感知、控制和辅助对准 JSON。"""
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._values = {"perception": {}, "control": {}, "assist": {}}
+        self._received_at = {"perception": 0.0, "control": 0.0, "assist": 0.0}
+
+    def update(self, name: str, message: String) -> None:
+        try:
+            value = json.loads(message.data)
+        except (TypeError, json.JSONDecodeError):
+            return
+        if not isinstance(value, dict):
+            return
+        with self._lock:
+            self._values[name] = value
+            self._received_at[name] = time.monotonic()
+
+    def snapshot(self) -> dict[str, object]:
+        with self._lock:
+            now = time.monotonic()
+            snapshot = {
+                name: dict(value) for name, value in self._values.items()
+            }
+            snapshot['state_age_sec'] = {
+                name: round(now - received_at, 3) if received_at else None
+                for name, received_at in self._received_at.items()
+            }
+            return snapshot
+
+
 class FirstPersonRequestHandler(BaseHTTPRequestHandler):
-    """只暴露页面、MJPEG 和健康检查，避免将 ROS 接口暴露到浏览器。"""
+    """暴露只读画面及受限辅助请求，不提供任意 ROS 或速度接口。"""
 
     server: "FirstPersonHttpServer"
 
@@ -120,8 +285,20 @@ class FirstPersonRequestHandler(BaseHTTPRequestHandler):
             self._send_bytes(PAGE_HTML.encode("utf-8"), "text/html; charset=utf-8")
             return
         if path == "/healthz":
+            health = {
+                'frame': self.server.frames.state(),
+                'overlay': self.server.overlays.snapshot(),
+            }
             self._send_bytes(
-                json.dumps(self.server.frames.state()).encode("utf-8"),
+                json.dumps(health, ensure_ascii=False).encode("utf-8"),
+                "application/json; charset=utf-8",
+            )
+            return
+        if path == "/state":
+            state = self.server.overlays.snapshot()
+            state['frame'] = self.server.frames.state()
+            self._send_bytes(
+                json.dumps(state, ensure_ascii=False).encode("utf-8"),
                 "application/json; charset=utf-8",
             )
             return
@@ -130,8 +307,43 @@ class FirstPersonRequestHandler(BaseHTTPRequestHandler):
             return
         self.send_error(HTTPStatus.NOT_FOUND)
 
-    def _send_bytes(self, payload: bytes, content_type: str) -> None:
-        self.send_response(HTTPStatus.OK)
+    def do_POST(self) -> None:  # noqa: N802 - BaseHTTPRequestHandler API
+        """只接受用户确认的辅助开始/取消，不接收速度或任意话题。"""
+
+        path = urlparse(self.path).path
+        actions = {'/assist/start': 'start', '/assist/cancel': 'cancel'}
+        action = actions.get(path)
+        if action is None:
+            self.send_error(HTTPStatus.NOT_FOUND)
+            return
+        # 自定义同源确认头会使跨站脚本先触发 CORS 预检；本服务不开放
+        # OPTIONS/CORS，从而避免其他网页在后台向本机控制隧道伪造请求。
+        if self.headers.get('X-HazardWalker-Confirm') != '1':
+            self._send_bytes(
+                json.dumps({
+                    'accepted': False,
+                    'message': '缺少本地人工确认标记',
+                }, ensure_ascii=False).encode('utf-8'),
+                'application/json; charset=utf-8',
+                status=HTTPStatus.FORBIDDEN,
+            )
+            return
+        self.server.assist_request_pub.publish(String(data=action))
+        self._send_bytes(
+            json.dumps({
+                'accepted': True,
+                'action': action,
+                'message': '辅助请求已发送，等待控制状态更新',
+            }, ensure_ascii=False).encode('utf-8'),
+            'application/json; charset=utf-8',
+            status=HTTPStatus.ACCEPTED,
+        )
+
+    def _send_bytes(
+        self, payload: bytes, content_type: str,
+        status: HTTPStatus = HTTPStatus.OK,
+    ) -> None:
+        self.send_response(status)
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(payload)))
         self.send_header("Cache-Control", "no-store")
@@ -172,10 +384,15 @@ class FirstPersonHttpServer(ThreadingHTTPServer):
 
     daemon_threads = True
 
-    def __init__(self, address, handler, frames: LatestFrame, max_fps: float) -> None:
+    def __init__(
+        self, address, handler, frames: LatestFrame,
+        overlays: OverlayState, max_fps: float, assist_request_pub,
+    ) -> None:
         super().__init__(address, handler)
         self.frames = frames
+        self.overlays = overlays
         self.max_fps = max_fps
+        self.assist_request_pub = assist_request_pub
 
 
 def parse_args() -> argparse.Namespace:
@@ -199,13 +416,27 @@ def main() -> int:
 
     rospy.init_node("hazardwalker_first_person_web", disable_signals=True)
     frames = LatestFrame()
+    overlays = OverlayState()
+    assist_request_pub = rospy.Publisher(
+        '/hazardwalker/gui/assist_request', String, queue_size=1)
     rospy.Subscriber(args.topic, CompressedImage, frames.update, queue_size=1, buff_size=2**24)
+    rospy.Subscriber(
+        '/hazardwalker/gui/perception', String,
+        lambda message: overlays.update('perception', message), queue_size=1)
+    rospy.Subscriber(
+        '/hazardwalker/gui/control_status', String,
+        lambda message: overlays.update('control', message), queue_size=1)
+    rospy.Subscriber(
+        '/hazardwalker/gui/assist_status', String,
+        lambda message: overlays.update('assist', message), queue_size=1)
     # 页面直接输出官方压缩话题，不进行第二次 JPEG 编码。提高原话题质量可消除
     # 浏览器放大后明显的压缩块；该参数只影响有人订阅时的编码负载。
     rospy.set_param(f"{args.topic}/jpeg_quality", args.jpeg_quality)
     rospy.set_param(f"{args.topic}/jpeg_progressive", False)
     rospy.set_param(f"{args.topic}/jpeg_optimize", True)
-    server = FirstPersonHttpServer((args.host, args.port), FirstPersonRequestHandler, frames, args.max_fps)
+    server = FirstPersonHttpServer(
+        (args.host, args.port), FirstPersonRequestHandler,
+        frames, overlays, args.max_fps, assist_request_pub)
     rospy.loginfo(
         "第一人称视频服务已启动：topic=%s, url=http://%s:%s/first_person, max_fps=%.1f, jpeg_quality=%d",
         args.topic,

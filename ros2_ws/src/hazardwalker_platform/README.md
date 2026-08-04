@@ -66,6 +66,8 @@ headless-RL 配置后解除物理暂停，等待状态机实际进入 RL，并�
 产生有限真实位移且没有倒地，再启动
 `/hazardwalker/odom` 中继和 rosbridge。手工启动 `junior_ctrl` 只允许诊断，不能作为控制就绪证据。每轮控制
 验收必须独占 ROS master，避免遗留 `/cmd_vel` 发布者污染结果。
+容器健康后，`auto_docker.sh up` 还会在 ROS2 主机自动启动并去重官方适配器；`status` 同时显示容器和
+适配器状态，`down` 先停止适配器再停止容器。业务栈只能复用该实例，不再自行维护第二份适配器。
 修改 `src/unitree_guide/` 后必须先执行 `./auto_docker.sh build force`；若源码比
 `devel/lib/unitree_guide/junior_ctrl` 新，`auto_docker.sh up` 会拒绝复用旧二进制并给出重编提示。
 完整接口见 [算法接入接口](docs/algorithm-interfaces.md)。

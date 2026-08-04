@@ -5,7 +5,7 @@
 订阅统一的 ``/hw/*`` 图像和感知结果，记录连续帧候选、多帧确认状态、
 可选的合法 SLAM 位姿与主动重观察建议，并在结束时输出 summary 和测试记录。
 当前实现边界：
-只记录和发布建议到 ``/hw/perception/view_recommendation``，不直接控制机器人。
+只记录感知节点发布的建议，不直接控制机器人。
 验证方式：
 先运行离线测试；官方 SimEnv 需由平台层桥接到 ``/hw/*`` 后再实际运行。
 """
@@ -14,6 +14,7 @@ import csv
 import json
 import shutil
 import time
+from collections import deque
 from pathlib import Path
 
 import numpy as np
@@ -29,6 +30,7 @@ from hazardwalker_perception.dynamic_detection_records import (
     build_perception_evidence_contract,
     build_dynamic_summary,
     build_dynamic_testing_record,
+    select_synchronized_evidence,
 )
 
 
@@ -43,6 +45,8 @@ class DynamicDetectionRecorderNode(Node):
         self.declare_parameter('save_images', True)
         self.declare_parameter('save_depth_evidence', True)
         self.declare_parameter('min_image_save_interval_sec', 0.5)
+        self.declare_parameter('evidence_buffer_size', 20)
+        self.declare_parameter('max_detection_rgb_delta_sec', 0.12)
         self.declare_parameter('max_rgb_depth_evidence_delta_sec', 0.15)
         self.declare_parameter('trajectory_sample_interval_sec', 0.5)
         # 官方赛题禁止 /Odometry_gazebo 及其平台桥接别名参与比赛算法或正式证据。
@@ -103,6 +107,14 @@ class DynamicDetectionRecorderNode(Node):
                 'map': str(self.get_parameter('map_topic').value),
             },
             'mission_completion_required': True,
+            'evidence_synchronization': {
+                'buffer_size': int(
+                    self.get_parameter('evidence_buffer_size').value),
+                'max_detection_rgb_delta_sec': float(
+                    self.get_parameter('max_detection_rgb_delta_sec').value),
+                'max_rgb_depth_delta_sec': float(self.get_parameter(
+                    'max_rgb_depth_evidence_delta_sec').value),
+            },
             'launch_command': str(self.get_parameter('launch_command').value),
             'started_at_unix_sec': round(time.time(), 3),
         })
@@ -114,6 +126,17 @@ class DynamicDetectionRecorderNode(Node):
         self.latest_depth_image = None
         self.latest_depth_stamp = 0.0
         self.latest_depth_frame_id = ''
+        evidence_buffer_size = int(
+            self.get_parameter('evidence_buffer_size').value)
+        if evidence_buffer_size <= 0:
+            raise ValueError('evidence_buffer_size 必须为正整数')
+        if float(self.get_parameter('max_detection_rgb_delta_sec').value) < 0:
+            raise ValueError('max_detection_rgb_delta_sec 不能为负数')
+        if float(self.get_parameter(
+                'max_rgb_depth_evidence_delta_sec').value) < 0:
+            raise ValueError('max_rgb_depth_evidence_delta_sec 不能为负数')
+        self.image_buffer = deque(maxlen=evidence_buffer_size)
+        self.depth_buffer = deque(maxlen=evidence_buffer_size)
         self.latest_legal_pose = None
         self.latest_map = None
         self.last_image_save_sec = float('-inf')
@@ -156,7 +179,6 @@ class DynamicDetectionRecorderNode(Node):
             self.on_map,
             5,
         )
-        self.recommendation_pub = self.create_publisher(String, '/hw/perception/view_recommendation', 10)
         self.get_logger().info(f'动态检测记录将写入 {self.output_dir}')
 
     def on_image(self, msg):
@@ -169,6 +191,11 @@ class DynamicDetectionRecorderNode(Node):
         self.latest_image = image
         self.latest_image_stamp = _stamp_to_sec(msg.header.stamp)
         self.latest_image_frame_id = msg.header.frame_id
+        self.image_buffer.append({
+            'stamp_sec': self.latest_image_stamp,
+            'frame_id': self.latest_image_frame_id,
+            'data': image,
+        })
 
     def on_depth(self, msg):
         """缓存深度米制数组；仅在与 RGB 时间接近时才作为证据帧落盘。"""
@@ -180,6 +207,11 @@ class DynamicDetectionRecorderNode(Node):
         self.latest_depth_image = depth
         self.latest_depth_stamp = _stamp_to_sec(msg.header.stamp)
         self.latest_depth_frame_id = msg.header.frame_id
+        self.depth_buffer.append({
+            'stamp_sec': self.latest_depth_stamp,
+            'frame_id': self.latest_depth_frame_id,
+            'data': depth,
+        })
 
     def on_legal_pose(self, msg):
         """保存调用方声明的合法 SLAM 位姿，供正式证据追溯。"""
@@ -219,8 +251,6 @@ class DynamicDetectionRecorderNode(Node):
             recommendation_dict = choose_active_view_action(
                 detections, image_width, image_height,
             ).to_dict()
-        self._publish_recommendation(recommendation_dict)
-
         stamp_sec = float(payload.get(
             'stamp_sec',
             _payload_stamp_to_sec(
@@ -228,12 +258,48 @@ class DynamicDetectionRecorderNode(Node):
                 fallback=self.latest_image_stamp or time.time(),
             ),
         ))
+        synchronized = select_synchronized_evidence(
+            stamp_sec,
+            self.image_buffer,
+            self.depth_buffer,
+            float(self.get_parameter('max_detection_rgb_delta_sec').value),
+            float(self.get_parameter(
+                'max_rgb_depth_evidence_delta_sec').value),
+        )
+        synchronized_image = (
+            synchronized.get('image') if synchronized is not None else None)
+        synchronized_depth = (
+            synchronized.get('depth') if synchronized is not None else None)
         raw_image_path, image_path, depth_path = self._save_evidence_image(
-            stamp_sec, detections, list(payload.get('hazards', [])), recommendation_dict,
+            stamp_sec,
+            detections,
+            list(payload.get('hazards', [])),
+            recommendation_dict,
+            image_item=synchronized_image,
+            depth_item=synchronized_depth,
         )
         record = {
             'timestamp_sec': stamp_sec,
-            'image_frame_id': self.latest_image_frame_id,
+            'image_frame_id': (
+                str(synchronized_image.get('frame_id', ''))
+                if synchronized_image is not None else ''
+            ),
+            'evidence_rgb_stamp_sec': (
+                synchronized.get('image_stamp_sec')
+                if synchronized is not None else None
+            ),
+            'evidence_depth_stamp_sec': (
+                synchronized.get('depth_stamp_sec')
+                if synchronized is not None else None
+            ),
+            'evidence_detection_rgb_delta_sec': (
+                synchronized.get('detection_rgb_delta_sec')
+                if synchronized is not None else None
+            ),
+            'evidence_rgb_depth_delta_sec': (
+                synchronized.get('rgb_depth_delta_sec')
+                if synchronized is not None else None
+            ),
             'robot_pose': self.latest_legal_pose,
             'localization_provenance': str(
                 payload.get('localization_provenance',
@@ -243,6 +309,7 @@ class DynamicDetectionRecorderNode(Node):
             'hazards': list(payload.get('hazards', [])),
             'localization_ready': bool(payload.get('localization_ready', False)),
             'view_recommendation': recommendation_dict,
+            'processing_time_ms': payload.get('processing_time_ms'),
             'evidence_raw_image': raw_image_path,
             'evidence_image': image_path,
             'evidence_depth': depth_path,
@@ -265,6 +332,7 @@ class DynamicDetectionRecorderNode(Node):
     def close(self):
         """在节点退出时写入汇总和测试组 CSV/JSON。"""
 
+        scenario = str(self.get_parameter('scenario_name').value)
         summary = build_dynamic_summary(self.records)
         failure_reasons = _derive_failure_reasons(
             self.records,
@@ -278,7 +346,7 @@ class DynamicDetectionRecorderNode(Node):
             'note': '只记录本次采集可直接观察到的失败信号；不根据真值推测漏检或虚警。',
         })
         summary.update({
-            'scenario': str(self.get_parameter('scenario_name').value),
+            'scenario': scenario,
             'generated_at_unix_sec': round(time.time(), 3),
             'record_file': 'frames.jsonl',
             'trajectory_file': 'trajectory.jsonl' if self.trajectory_sample_count else '',
@@ -304,11 +372,50 @@ class DynamicDetectionRecorderNode(Node):
 
         testing_record = build_dynamic_testing_record(
             summary,
-            scenario=str(self.get_parameter('scenario_name').value),
+            scenario=scenario,
         )
-        _write_json(self.test_record_dir / 'testing_record_perception.json', testing_record)
-        _write_single_row_csv(self.test_record_dir / 'testing_record_perception.csv', testing_record)
+        # 每轮成果目录必须自包含规范测试记录。调用方若另外提供测试组镜像目录，
+        # 再复制同一份结果；推荐两者均指向按 SEED/run_id 隔离的本轮目录。
+        _write_json(
+            self.output_dir / 'testing_record_perception.json', testing_record)
+        _write_single_row_csv(
+            self.output_dir / 'testing_record_perception.csv', testing_record)
+        if self.test_record_dir != self.output_dir:
+            _write_json(
+                self.test_record_dir / 'testing_record_perception.json',
+                testing_record,
+            )
+            _write_single_row_csv(
+                self.test_record_dir / 'testing_record_perception.csv',
+                testing_record,
+            )
+        (self.output_dir / 'README.md').write_text(
+            _build_experiment_readme(summary, failure_reasons),
+            encoding='utf-8',
+        )
+        self._close_run_manifest(failure_reasons)
         self.get_logger().info(f'动态检测汇总已写入 {self.output_dir / "summary.json"}')
+
+    def _close_run_manifest(self, failure_reasons):
+        """补齐记录结束状态，但不把人工巡检误标为正式任务完成。"""
+
+        path = self.output_dir / 'run_manifest.json'
+        try:
+            manifest = json.loads(path.read_text(encoding='utf-8'))
+        except (OSError, json.JSONDecodeError):
+            manifest = {}
+        manifest.update({
+            'finished_at_unix_sec': round(time.time(), 3),
+            'capture_status': 'closed',
+            'mission_completed': self.mission_completed,
+            'formal_task_evidence_eligible': bool(
+                self.evidence_contract.get('formal_evidence_eligible')
+                and self.mission_completed
+                and not failure_reasons
+            ),
+            'observed_failure_reasons': list(failure_reasons),
+        })
+        _write_json(path, manifest)
 
     def _save_map_snapshot(self):
         """用 ROS map_server 兼容格式保存最后一帧地图，不依赖 GUI 或额外服务。"""
@@ -383,7 +490,9 @@ class DynamicDetectionRecorderNode(Node):
             return 0, 0
         return int(self.latest_image.shape[0]), int(self.latest_image.shape[1])
 
-    def _save_evidence_image(self, stamp_sec, detections, hazards, recommendation):
+    def _save_evidence_image(
+            self, stamp_sec, detections, hazards, recommendation,
+            image_item=None, depth_item=None):
         """保存叠加检测框和当前重观察建议的展示帧。"""
 
         has_confirmed_hazard = any(item.get('status') == 'confirmed' for item in hazards)
@@ -397,7 +506,10 @@ class DynamicDetectionRecorderNode(Node):
             )
             if stamp_sec - self.last_context_save_sec < context_interval:
                 return '', '', ''
-        if not bool(self.get_parameter('save_images').value) or self.latest_image is None:
+        if not bool(self.get_parameter('save_images').value) or image_item is None:
+            return '', '', ''
+        image = image_item.get('data')
+        if image is None:
             return '', '', ''
         interval = (
             0.0 if is_context_frame
@@ -414,7 +526,7 @@ class DynamicDetectionRecorderNode(Node):
         stem = f'{prefix}_{len(self.records) + 1:06d}_{stamp_sec:.3f}'
         raw_path = self.raw_image_dir / f'{stem}_raw.png'
         path = self.annotated_image_dir / f'{stem}_annotated.png'
-        annotated = self.latest_image.copy()
+        annotated = image.copy()
         for detection in detections:
             bbox = detection.get('bbox', {})
             x_min = int(bbox.get('x_min', 0))
@@ -445,14 +557,15 @@ class DynamicDetectionRecorderNode(Node):
                 (255, 255, 255),
                 1,
             )
-        if not cv2.imwrite(str(raw_path), self.latest_image):
+        if not cv2.imwrite(str(raw_path), image):
             self.get_logger().warn(f'原始 RGB 证据写入失败：{raw_path}')
             return '', '', ''
         if not cv2.imwrite(str(path), annotated):
             self.get_logger().warn(f'标注 RGB 证据写入失败：{path}')
             raw_path.unlink(missing_ok=True)
             return '', '', ''
-        depth_path = self._save_depth_evidence(f'{stem}.png')
+        depth_path = self._save_depth_evidence(
+            f'{stem}.png', image_item=image_item, depth_item=depth_item)
         if is_context_frame:
             self.last_context_save_sec = stamp_sec
             self.context_evidence_count += 1
@@ -464,23 +577,25 @@ class DynamicDetectionRecorderNode(Node):
             depth_path,
         )
 
-    def _save_depth_evidence(self, image_filename):
+    def _save_depth_evidence(
+            self, image_filename, image_item=None, depth_item=None):
         """保存与 RGB 时间严格配对的米制深度，供赛后独立复核。"""
 
         if (not bool(self.get_parameter('save_depth_evidence').value)
-                or self.latest_depth_image is None):
+                or image_item is None or depth_item is None):
             return ''
         max_delta = float(self.get_parameter('max_rgb_depth_evidence_delta_sec').value)
-        if abs(self.latest_depth_stamp - self.latest_image_stamp) > max_delta:
+        image_stamp = float(image_item.get('stamp_sec', float('nan')))
+        depth_stamp = float(depth_item.get('stamp_sec', float('nan')))
+        if (not np.isfinite(image_stamp) or not np.isfinite(depth_stamp)
+                or abs(depth_stamp - image_stamp) > max_delta):
+            return ''
+        depth_image = depth_item.get('data')
+        if depth_image is None:
             return ''
         path = self.depth_dir / (Path(image_filename).stem + '.npy')
-        np.save(str(path), self.latest_depth_image)
+        np.save(str(path), depth_image)
         return str(path.relative_to(self.output_dir).as_posix())
-
-    def _publish_recommendation(self, recommendation):
-        out = String()
-        out.data = json.dumps(recommendation, ensure_ascii=False)
-        self.recommendation_pub.publish(out)
 
 
 def _image_message_to_array(msg):
@@ -551,6 +666,60 @@ def _payload_stamp_to_sec(detections, fallback):
 
 def _write_json(path, value):
     path.write_text(json.dumps(value, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
+
+
+def _build_experiment_readme(summary, failure_reasons):
+    """生成每轮成果目录的简洁、自包含实验说明。"""
+
+    contract = summary.get('evidence_contract', {})
+    latency = summary.get('candidate_to_confirmation_latency_sec', {})
+    processing = summary.get('processing_time_ms', {})
+    failures = list(failure_reasons)
+    failure_text = '\n'.join(f'- `{item}`' for item in failures) or '- 无自动观察到的失败信号'
+    conclusion = (
+        '已形成正式整场任务证据。'
+        if (
+            contract.get('formal_evidence_eligible')
+            and summary.get('mission_completed')
+            and not failures
+        )
+        else '本轮仅作为动态回归/诊断材料，不宣称完成正式整场任务。'
+    )
+    return '\n'.join([
+        f"# {summary.get('scenario', '动态感知实验')}",
+        '',
+        '## 实验环境',
+        '',
+        f"- 模式：`{contract.get('run_mode', '')}`",
+        f"- 固定 SEED：`{contract.get('scenario_seed', '')}`",
+        f"- Git 版本：`{contract.get('code_version', '')}`",
+        f"- 合法定位来源：`{contract.get('localization_provenance', '')}`",
+        '',
+        '## 目的与方法',
+        '',
+        '连续记录公开 RGB-D、合法定位、红球候选、多帧确认和主动复查建议；候选目标不直接计为已确认危险源。',
+        '',
+        '## 结果',
+        '',
+        f"- 记录帧数：{summary.get('frame_count', 0)}",
+        f"- 有候选帧数：{summary.get('frames_with_candidates', 0)}",
+        f"- 已确认目标数：{summary.get('confirmed_hazard_count', 0)}",
+        f"- 已定位候选数：{summary.get('localized_candidate_count', 0)}",
+        f"- 平均处理耗时：{processing.get('mean')} ms",
+        f"- P95 处理耗时：{processing.get('p95')} ms",
+        f"- 平均候选到确认耗时：{latency.get('mean')} s",
+        f"- 任务完成状态：{bool(summary.get('mission_completed'))}",
+        '',
+        '## 失败与限制',
+        '',
+        failure_text,
+        '- 未提供人工逐帧真值时，不计算检出率、虚警率和定位误差。',
+        '',
+        '## 结论',
+        '',
+        conclusion,
+        '',
+    ])
 
 
 def _write_single_row_csv(path, value):

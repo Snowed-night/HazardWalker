@@ -66,13 +66,18 @@ export OFFICIAL_SIMENV_ENABLE_CONTROL=1
 export OFFICIAL_SIMENV_EXCLUSIVE_SESSION=1
 ```
 
-终端 A 启动唯一 ROS2 适配器：
+平台管理员在启动正式容器前设置控制转发；`up` 会在容器健康后自动启动唯一适配器：
 
 ```bash
-bash scripts/run_official_simenv_rosbridge_adapter.sh
+cd ~/桌面/HazardWalker/ros2_ws/src/hazardwalker_platform
+export DOCKER_SIMENV_USER=hazard_platform
+export ROS_DOMAIN_ID=42
+export OFFICIAL_SIMENV_ENABLE_CONTROL=1
+./auto_docker.sh up
+./auto_docker.sh status
 ```
 
-终端 B 确认适配器已启用控制：
+导航组只需确认适配器已启用控制，不得再手工启动第二份：
 
 ```bash
 ros2 node list

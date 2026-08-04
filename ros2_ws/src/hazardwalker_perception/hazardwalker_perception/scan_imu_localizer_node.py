@@ -38,6 +38,9 @@ class ScanImuLocalizerNode(Node):
         self.declare_parameter('floor_index_topic', '/hazardwalker/navigation/floor_index')
         self.declare_parameter('cmd_vel_topic', '/hw/cmd_vel')
         self.declare_parameter('output_topic', '/hazardwalker/slam/odometry')
+        # 运行时发布同一份来源声明，供预检与 rosbag 交叉验证。该节点只能
+        # 声明自身实际实现的 scan/IMU 两种来源，不能冒充视觉定位。
+        self.declare_parameter('localization_provenance', 'lidar_imu_slam')
         self.declare_parameter('odom_frame', 'odom')
         self.declare_parameter('base_frame', 'base')
         # 作为 SLAM Toolbox 前端时需直接发布 odom→base；作为 Cartographer
@@ -95,13 +98,23 @@ class ScanImuLocalizerNode(Node):
         self.odom_pub = self.create_publisher(
             Odometry, str(self.get_parameter('output_topic').value), 10,
         )
+        self.localization_provenance = str(
+            self.get_parameter('localization_provenance').value).strip()
+        allowed_provenance = {
+            'lidar_imu_slam',
+            'lidar_imu_slam+public_floor_action',
+        }
+        if self.localization_provenance not in allowed_provenance:
+            raise ValueError(
+                'scan/IMU 定位来源不合法：'
+                f'{self.localization_provenance!r}')
         provenance_qos = QoSProfile(depth=1)
         provenance_qos.durability = DurabilityPolicy.TRANSIENT_LOCAL
         self.provenance_pub = self.create_publisher(
             String, '/hazardwalker/slam/localization_provenance', provenance_qos,
         )
         self.provenance_pub.publish(
-            String(data='lidar_imu_slam+public_floor_action')
+            String(data=self.localization_provenance)
         )
         self.create_subscription(
             Imu,

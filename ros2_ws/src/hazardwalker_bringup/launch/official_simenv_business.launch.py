@@ -15,6 +15,8 @@ import os
 import shutil
 import tempfile
 
+import yaml
+
 from ament_index_python.packages import (
     PackageNotFoundError,
     get_package_share_directory,
@@ -31,6 +33,8 @@ from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration, PythonExpression
 from launch_ros.actions import Node
 from launch_ros.parameter_descriptions import ParameterValue
+
+from hazardwalker_perception.perception_config import flatten_perception_config
 
 
 def _as_bool(value):
@@ -147,6 +151,44 @@ def _launch_cartographer(context, nav_pkg):
     ]
 
 
+def _launch_perception(context):
+    """加载实际参与运行的感知配置并创建检测节点。
+
+    配置文件沿用仓库的分组可读格式，先严格展开为 ROS 参数；未知键直接
+    中止启动，避免评估报告记录了某个配置、节点却静默忽略它。
+    """
+
+    if not _as_bool(LaunchConfiguration('start_perception').perform(context)):
+        return []
+    parameter_file = LaunchConfiguration(
+        'perception_parameter_file').perform(context).strip()
+    parameters = {}
+    if parameter_file:
+        if not os.path.isfile(parameter_file):
+            raise RuntimeError(
+                f'perception parameter file does not exist: {parameter_file}')
+        with open(parameter_file, encoding='utf-8') as handle:
+            parameters.update(flatten_perception_config(yaml.safe_load(handle)))
+
+    # 合法坐标来源和仿真时间属于本轮运行合同，必须覆盖配置文件中的通用值。
+    parameters.update({
+        'camera_axis_convention': 'gazebo_link_x_forward',
+        'output_frame': LaunchConfiguration(
+            'perception_output_frame').perform(context),
+        'localization_provenance': LaunchConfiguration(
+            'localization_provenance').perform(context),
+        'use_sim_time': _as_bool(
+            LaunchConfiguration('use_sim_time').perform(context)),
+    })
+    return [Node(
+        package='hazardwalker_perception',
+        executable='hsv_detector_node',
+        name='hsv_detector_node',
+        output='screen',
+        parameters=[parameters],
+    )]
+
+
 def generate_launch_description():
     """按显式开关组合业务节点，官方 profile 不引入任何模拟平台节点。"""
 
@@ -159,6 +201,8 @@ def generate_launch_description():
     start_evidence_recorder = LaunchConfiguration('start_evidence_recorder')
     use_sim_time = LaunchConfiguration('use_sim_time')
     nav_mode = LaunchConfiguration('nav_mode')
+    navigation_cmd_vel_topic = LaunchConfiguration(
+        'navigation_cmd_vel_topic')
     perception_output_frame = LaunchConfiguration('perception_output_frame')
     localization_provenance = LaunchConfiguration('localization_provenance')
     exploration_timeout_s = LaunchConfiguration('exploration_timeout_s')
@@ -206,7 +250,14 @@ def generate_launch_description():
         DeclareLaunchArgument('use_sim_time', default_value='true'),
         # nav_mode: 'frontier' (自主探索，默认) 或 'waypoint' (固定航点诊断)
         DeclareLaunchArgument('nav_mode', default_value='frontier'),
+        # 默认兼容既有直接控制；统一控制入口会显式传入
+        # /hw/control/navigation_cmd_vel，再由 command_mux_node 唯一输出。
+        DeclareLaunchArgument(
+            'navigation_cmd_vel_topic', default_value='/hw/cmd_vel'),
         DeclareLaunchArgument('perception_output_frame', default_value='map'),
+        # 留空时使用节点内安全默认值；受控回放和正式验收必须显式传入仓库
+        # config/perception.yaml，使结果目录记录的哈希对应真实运行参数。
+        DeclareLaunchArgument('perception_parameter_file', default_value=''),
         # 只有调用方确认合法 SLAM 已实际运行后才能声明来源；默认值必须
         # fail-closed，避免把缺失/错误 TF 下的候选导出为 world 危险源。
         DeclareLaunchArgument('localization_provenance', default_value='unverified'),
@@ -233,6 +284,7 @@ def generate_launch_description():
                 'imu_topic': '/hw/trunk_imu',
                 'odom_frame': 'odom',
                 'base_frame': 'base',
+                'localization_provenance': localization_provenance,
                 'publish_tf': publish_legal_tf_parameter,
                 'command_motion_scale': 1.0,
                 'min_effective_linear_speed_mps': 0.30,
@@ -257,15 +309,19 @@ def generate_launch_description():
         ),
 
         # ---- 感知: HSV 红色危险源检测 ----
+        OpaqueFunction(function=_launch_perception),
+
+        # ---- 人工/导航巡检覆盖心跳 ----
+        # 只观察合法 SLAM 里程计，不读取 Gazebo 真值；键盘和导航模式复用
+        # 同一话题，使正式录包可以拒绝“原地录够时长”的无效回归数据。
         Node(
             package='hazardwalker_perception',
-            executable='hsv_detector_node',
-            name='hsv_detector_node',
+            executable='patrol_coverage_node',
+            name='hazardwalker_patrol_coverage',
             output='screen',
             parameters=[{
-                'camera_axis_convention': 'gazebo_link_x_forward',
-                'output_frame': perception_output_frame,
-                'localization_provenance': localization_provenance,
+                'odometry_topic': '/hazardwalker/slam/odometry',
+                'coverage_topic': '/hw/perception/patrol_coverage',
                 'use_sim_time': sim_time_parameter,
             }],
             condition=IfCondition(start_perception),
@@ -336,6 +392,7 @@ def generate_launch_description():
                     'goal_tolerance_m': 0.25,
                     'linear_speed': 0.35,
                     'angular_speed': 1.5,
+                    'cmd_vel_topic': navigation_cmd_vel_topic,
                     'use_sim_time': sim_time_parameter,
                 }],
                 condition=LaunchConfigurationEquals(
@@ -353,6 +410,7 @@ def generate_launch_description():
                 output='screen',
                 parameters=[{
                     'minimum_turn_speed': 0.45,
+                    'cmd_vel_topic': navigation_cmd_vel_topic,
                     'use_sim_time': sim_time_parameter,
                 }],
                 condition=LaunchConfigurationEquals(

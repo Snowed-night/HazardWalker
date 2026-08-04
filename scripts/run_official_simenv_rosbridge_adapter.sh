@@ -2,18 +2,23 @@
 # 在 ROS2 主机启动官方 ROS1 rosbridge 双向适配器；官方 Docker 只需运行 rosbridge_websocket。
 set -euo pipefail
 
-# 负责人：姜晨。默认适配实际官方容器 simenv_run；可用环境变量覆盖地址和容器名。
+# 负责人：姜晨。容器命名与 auto_docker.sh 保持一致；共享账号或自定义容器
+# 可继续用 SIMENV_CONTAINER 显式覆盖。控制转发仍默认关闭。
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-CONTAINER="${SIMENV_CONTAINER:-simenv_run}"
+CONTAINER="${SIMENV_CONTAINER:-simenv_ros1_${DOCKER_SIMENV_USER:-${USER:-default}}}"
 ROSBRIDGE_URL="${OFFICIAL_SIMENV_ROSBRIDGE_URL:-ws://127.0.0.1:9090}"
 ROSBRIDGE_HOST_HEADER="${OFFICIAL_SIMENV_ROSBRIDGE_HOST_HEADER:-}"
 ENABLE_CONTROL="${OFFICIAL_SIMENV_ENABLE_CONTROL:-0}"
+MANAGED_LIFECYCLE="${OFFICIAL_SIMENV_MANAGED_LIFECYCLE:-0}"
+LIFECYCLE_CONTAINER="${OFFICIAL_SIMENV_LIFECYCLE_CONTAINER:-$CONTAINER}"
 RGB_TOPIC="${OFFICIAL_SIMENV_RGB_TOPIC:-/real_sense/rgb/image_raw}"
 DEPTH_TOPIC="${OFFICIAL_SIMENV_DEPTH_TOPIC:-/real_sense/depth/image_raw}"
 RGB_INFO_TOPIC="${OFFICIAL_SIMENV_RGB_CAMERA_INFO_TOPIC:-/real_sense/rgb/camera_info}"
 DEPTH_INFO_TOPIC="${OFFICIAL_SIMENV_DEPTH_CAMERA_INFO_TOPIC:-/real_sense/depth/camera_info}"
 ENABLE_IMAGE_RELAY="${OFFICIAL_SIMENV_ENABLE_IMAGE_RELAY:-1}"
-IMAGE_THROTTLE_RATE_MS="${OFFICIAL_SIMENV_IMAGE_THROTTLE_RATE_MS:-500}"
+# 实时辅助对准至少需要稳定的多帧检测。200 ms 对应桥接上限 5 Hz；相比
+# 第一人称直接 ROS1 视频仍显著降采样，避免 rosbridge 原始 RGB-D JSON 压垮主机。
+IMAGE_THROTTLE_RATE_MS="${OFFICIAL_SIMENV_IMAGE_THROTTLE_RATE_MS:-200}"
 CLOCK_THROTTLE_RATE_MS="${OFFICIAL_SIMENV_CLOCK_THROTTLE_RATE_MS:-20}"
 TF_THROTTLE_RATE_MS="${OFFICIAL_SIMENV_TF_THROTTLE_RATE_MS:-20}"
 ODOM_THROTTLE_RATE_MS="${OFFICIAL_SIMENV_ODOM_THROTTLE_RATE_MS:-20}"
@@ -33,7 +38,8 @@ PUBLIC_START_Z="${OFFICIAL_PUBLIC_START_Z:-0.6}"
 PUBLIC_START_YAW="${OFFICIAL_PUBLIC_START_YAW:-1.5708}"
 ROS2_SETUP="${OFFICIAL_SIMENV_ROS2_SETUP:-/opt/ros/jazzy/setup.bash}"
 PYTHON_BIN="${OFFICIAL_SIMENV_PYTHON_BIN:-python3}"
-RUNTIME_VENV="${OFFICIAL_SIMENV_RUNTIME_VENV:-$HOME/.local/share/hazardwalker/ros2_bridge_venv}"
+RUNTIME_VENV="${OFFICIAL_SIMENV_RUNTIME_VENV:-$HOME/.local/share/hazardwalker-ros2-venv}"
+LEGACY_RUNTIME_VENV="$HOME/.local/share/hazardwalker/ros2_bridge_venv"
 
 as_ros_bool() {
   case "${1,,}" in
@@ -42,6 +48,7 @@ as_ros_bool() {
   esac
 }
 ENABLE_CONTROL="$(as_ros_bool "$ENABLE_CONTROL")"
+MANAGED_LIFECYCLE="$(as_ros_bool "$MANAGED_LIFECYCLE")"
 ENABLE_IMAGE_RELAY="$(as_ros_bool "$ENABLE_IMAGE_RELAY")"
 ENABLE_ODOM_RELAY="$(as_ros_bool "$ENABLE_ODOM_RELAY")"
 ENABLE_POINTCLOUD_RELAY="$(as_ros_bool "$ENABLE_POINTCLOUD_RELAY")"
@@ -67,8 +74,12 @@ export PYTHONPATH="$ROOT/ros2_ws/src/hazardwalker_platform:${PYTHONPATH:-}"
 # 系统 Python 未安装 websocket-client 时，优先使用平台运行时 venv。该 venv 使用
 # --system-site-packages 创建，仍可访问 ROS2 的 rclpy，避免改动系统 Python。
 if ! "$PYTHON_BIN" -c 'import rclpy, websocket' 2>/dev/null \
-  && [[ "$PYTHON_BIN" == "python3" && -x "$RUNTIME_VENV/bin/python" ]]; then
-  PYTHON_BIN="$RUNTIME_VENV/bin/python"
+  && [[ "$PYTHON_BIN" == "python3" ]]; then
+  if [[ -x "$RUNTIME_VENV/bin/python" ]]; then
+    PYTHON_BIN="$RUNTIME_VENV/bin/python"
+  elif [[ -x "$LEGACY_RUNTIME_VENV/bin/python" ]]; then
+    PYTHON_BIN="$LEGACY_RUNTIME_VENV/bin/python"
+  fi
 fi
 if ! command -v ros2 >/dev/null || ! "$PYTHON_BIN" -c 'import rclpy, websocket' 2>/dev/null; then
   echo '[rosbridge-adapter] ROS2 主机缺少 ros2/rclpy 或 websocket-client；未启动适配器。' >&2
@@ -91,6 +102,8 @@ if [[ -n "$ROSBRIDGE_HOST_HEADER" ]]; then
 fi
 exec "$PYTHON_BIN" "$ROOT/scripts/official_simenv_rosbridge_ros2_adapter_node.py" "${ARGS[@]}" \
   -p use_sim_time:=false \
+  -p managed_lifecycle:="$MANAGED_LIFECYCLE" \
+  -p lifecycle_container:="$LIFECYCLE_CONTAINER" \
   -p enable_clock_relay:=true \
   -p clock_throttle_rate_ms:="$CLOCK_THROTTLE_RATE_MS" \
   -p enable_cmd_vel_relay:="$ENABLE_CONTROL" \

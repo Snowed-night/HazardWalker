@@ -22,7 +22,9 @@ perception:
     min_confidence: 0.5
 
   localization:
-    use_point_cloud: true
+    # 当前节点使用与 RGB 同步的深度图 ROI；点云后端尚未接入，禁止在配置中
+    # 把路线计划写成已启用能力。
+    use_point_cloud: false
     max_detection_range_m: 20.0
     # 球面必须同时具有横向和纵向凸曲率；单轴曲面（圆柱侧面、弧形板）只复查。
     min_sphere_depth_curvature_m: 0.008
@@ -39,7 +41,7 @@ perception:
     allow_latest_tf_fallback: true
     roi_padding_px: 8
     min_points_in_roi: 5
-    output_frame: start
+    output_frame: map
 
   tracking:
     confirm_observation_count: 3

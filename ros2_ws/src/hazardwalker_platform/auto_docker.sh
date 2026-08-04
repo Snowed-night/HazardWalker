@@ -5,6 +5,11 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$ROOT"
 CATKIN_WORKSPACE="$ROOT/.ros1_catkin_ws"
+HAZARDWALKER_ROOT="${HAZARDWALKER_ROOT:-$(cd "$ROOT/../../.." && pwd)}"
+ADAPTER_MANAGER="$HAZARDWALKER_ROOT/scripts/manage_official_simenv_rosbridge_adapter.sh"
+export HAZARDWALKER_ROOT
+export SIMENV_CONTAINER="${SIMENV_CONTAINER:-simenv_ros1_${DOCKER_SIMENV_USER:-${USER:-default}}}"
+export ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-${OFFICIAL_SIMENV_ROS_DOMAIN_ID:-42}}"
 
 if ! command -v docker >/dev/null 2>&1; then
   echo "ERROR: docker not found. Ask hazard_admin to run setup_hxbl_docker_group.sh" >&2
@@ -25,7 +30,8 @@ fi
 
 chmod +x "$ROOT/auto.sh" "$ROOT/scripts/rosbridge_odom_relay.py" \
   "$ROOT/docker/auto_noetic.sh" "$ROOT/docker/build_catkin.sh" \
-  "$ROOT/docker/gui_client.sh" 2>/dev/null || true
+  "$ROOT/docker/gui_client.sh" "$ROOT/docker/first_person_client.sh" \
+  2>/dev/null || true
 
 # `.ros1_catkin_ws` 是 Docker 内 Catkin 的独立构建工作区，而不是源码目录。
 # 若它被清理、首次克隆尚未构建，`up` 必须先恢复产物；否则容器入口加载
@@ -46,6 +52,42 @@ ensure_runtime() {
     echo "       Run './auto_docker.sh build' and inspect its complete output." >&2
     exit 1
   fi
+}
+
+adapter_enabled() {
+  case "${OFFICIAL_SIMENV_AUTO_ADAPTER:-1}" in
+    0|false|False|FALSE|no|NO|off|OFF) return 1 ;;
+    *) return 0 ;;
+  esac
+}
+
+manage_adapter() {
+  local action="$1"
+  if [[ ! -f "$ADAPTER_MANAGER" ]]; then
+    echo "ERROR: ROS2 adapter manager missing: $ADAPTER_MANAGER" >&2
+    return 1
+  fi
+  bash "$ADAPTER_MANAGER" "$action"
+}
+
+wait_for_container_ready() {
+  local timeout_sec="${OFFICIAL_SIMENV_CONTAINER_READY_TIMEOUT_SEC:-180}"
+  local deadline=$((SECONDS + timeout_sec)) running health
+  while (( SECONDS < deadline )); do
+    running="$(docker inspect -f '{{.State.Running}}' "$SIMENV_CONTAINER" 2>/dev/null || true)"
+    health="$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' \
+      "$SIMENV_CONTAINER" 2>/dev/null || true)"
+    if [[ "$running" == true && ( "$health" == healthy || "$health" == none ) ]]; then
+      return 0
+    fi
+    if [[ "$running" == false || "$health" == unhealthy ]]; then
+      echo "ERROR: container failed before adapter startup: running=$running health=$health" >&2
+      return 1
+    fi
+    sleep 1
+  done
+  echo "ERROR: container was not ready within ${timeout_sec}s: $SIMENV_CONTAINER" >&2
+  return 1
 }
 
 case "${1:-up}" in
@@ -70,13 +112,25 @@ case "${1:-up}" in
        find "$controller_source_root" -type f \
          \( -name '*.cpp' -o -name '*.h' -o -name 'CMakeLists.txt' -o -name 'package.xml' \) \
          -newer "$controller_binary" -print -quit | grep -q .; then
-      echo "ERROR: unitree_guide source is newer than .ros1_catkin_ws/devel/lib/unitree_guide/junior_ctrl." >&2
+      echo "ERROR: unitree_guide source is newer than devel/lib/unitree_guide/junior_ctrl." >&2
       echo "Run './auto_docker.sh build force' before './auto_docker.sh up'." >&2
       exit 1
     fi
-    exec "$ROOT/docker/auto_noetic.sh" up
+    container_was_running="$(docker inspect -f '{{.State.Running}}' "$SIMENV_CONTAINER" 2>/dev/null || true)"
+    "$ROOT/docker/auto_noetic.sh" up
+    if ! wait_for_container_ready; then
+      [[ "$container_was_running" == true ]] || "$ROOT/docker/auto_noetic.sh" down
+      exit 1
+    fi
+    if adapter_enabled && ! manage_adapter start; then
+      echo 'ERROR: container is ready but the ROS2 adapter failed to start.' >&2
+      [[ "$container_was_running" == true ]] || "$ROOT/docker/auto_noetic.sh" down
+      exit 1
+    fi
     ;;
   down|stop)
+    # 先回收宿主侧适配器，避免容器重启后残留旧 /hw/* 发布者。
+    manage_adapter stop
     exec "$ROOT/docker/auto_noetic.sh" down
     ;;
   logs)
@@ -86,18 +140,23 @@ case "${1:-up}" in
     exec "$ROOT/docker/auto_noetic.sh" shell
     ;;
   status)
-    exec "$ROOT/docker/auto_noetic.sh" status
+    "$ROOT/docker/auto_noetic.sh" status
+    manage_adapter status || true
     ;;
   gui)
     # GUI sidecar 只连接现有 Master，不会重启或重建正式仿真容器。
     exec "$ROOT/docker/gui_client.sh" "${@:2}"
+    ;;
+  first_person)
+    # 第一人称 sidecar 只读相机和 GUI 状态，不发布控制指令。
+    exec "$ROOT/docker/first_person_client.sh" "${@:2}"
     ;;
   image)
     # 仅重建镜像；`--no-cache` 等参数原样转交，供平台管理员执行干净验收。
     exec "$ROOT/docker/auto_noetic.sh" image "${@:2}"
     ;;
   *)
-    echo "Usage: $0 {build|image|up|down|logs|shell|status|gui}" >&2
+    echo "Usage: $0 {build|image|up|down|logs|shell|status|gui|first_person}" >&2
     exit 1
     ;;
 esac

@@ -73,6 +73,9 @@ class FrontierExplorerNode(Node):
         # ---- 参数 ----
         self.declare_parameter('start_x', 0.0)
         self.declare_parameter('start_y', 0.0)
+        # 默认保持历史接口；启用统一控制仲裁时由 launch 改到
+        # /hw/control/navigation_cmd_vel，不改变导航算法本身。
+        self.declare_parameter('cmd_vel_topic', '/hw/cmd_vel')
         self.declare_parameter('map_frame', 'map')
         self.declare_parameter('base_frame', 'base')
         self.declare_parameter('min_frontier_size', 10)
@@ -272,7 +275,8 @@ class FrontierExplorerNode(Node):
             LaserScan, '/hw/scan', self.on_scan, 10)
         self.hazard_sub = self.create_subscription(
             String, '/hw/perception/hazard_detections', self.on_hazard, 10)
-        self.cmd_pub = self.create_publisher(Twist, '/hw/cmd_vel', 10)
+        self.cmd_pub = self.create_publisher(
+            Twist, str(self.get_parameter('cmd_vel_topic').value), 10)
         self.state_pub = self.create_publisher(String, '/hw/nav/state', 10)
 
         # 控制心跳必须使用 steady clock。仿真低于实时速率时，仿真时钟 10 Hz

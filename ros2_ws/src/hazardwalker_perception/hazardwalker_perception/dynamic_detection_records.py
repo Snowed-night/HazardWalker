@@ -10,6 +10,7 @@
 """
 
 from collections import Counter
+import math
 
 
 _ALLOWED_LOCALIZATION_PROVENANCE = {
@@ -76,6 +77,18 @@ def build_dynamic_summary(records):
     }
     confidences = [float(item.get('confidence', 0.0)) for item in detections]
     action_counts = Counter(item.get('action', 'unknown') for item in recommendations)
+    processing_times_ms = [
+        float(record['processing_time_ms'])
+        for record in records
+        if _valid_nonnegative(record.get('processing_time_ms'))
+    ]
+    record_stamps = [_optional_record_stamp_sec(record) for record in records]
+    complete_timing = bool(records) and all(
+        stamp is not None for stamp in record_stamps)
+    observed_duration_sec = (
+        max(record_stamps) - min(record_stamps)
+        if complete_timing and len(record_stamps) >= 2 else 0.0
+    )
 
     episode_metrics = build_reobservation_episode_metrics(records)
     return {
@@ -100,12 +113,79 @@ def build_dynamic_summary(records):
         'candidate_to_confirmation_latency_sec': episode_metrics[
             'candidate_to_confirmation_latency_sec'
         ],
+        'processing_time_ms': _timing_summary(processing_times_ms),
+        'observed_output_rate_hz': round(
+            (len(records) - 1) / observed_duration_sec, 4,
+        ) if observed_duration_sec > 0.0 else None,
         'reobservation_episodes': episode_metrics['episodes'],
         'ground_truth_available': False,
         'limitations': [
             '未提供逐帧真值时，不计算识别率、虚警率、定位误差。',
             '三维定位结果需在相机内参、对齐深度和 TF 坐标链均可用时再作结论。',
         ],
+    }
+
+
+def select_synchronized_evidence(
+        detection_stamp_sec, image_items, depth_items,
+        max_detection_rgb_delta_sec, max_rgb_depth_delta_sec):
+    """按时间戳选择检测对应 RGB 和深度，禁止用到达顺序冒充同步。"""
+
+    try:
+        detection_stamp = float(detection_stamp_sec)
+        max_detection_delta = float(max_detection_rgb_delta_sec)
+        max_depth_delta = float(max_rgb_depth_delta_sec)
+    except (TypeError, ValueError):
+        return None
+    if (not math.isfinite(detection_stamp)
+            or max_detection_delta < 0.0 or max_depth_delta < 0.0):
+        return None
+
+    def valid_items(items):
+        result = []
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            try:
+                stamp = float(item.get('stamp_sec'))
+            except (TypeError, ValueError):
+                continue
+            if math.isfinite(stamp):
+                result.append((stamp, item))
+        return result
+
+    images = valid_items(image_items)
+    if not images:
+        return None
+    image_stamp, image = min(
+        images,
+        key=lambda pair: (abs(pair[0] - detection_stamp), -pair[0]),
+    )
+    detection_rgb_delta = abs(image_stamp - detection_stamp)
+    if detection_rgb_delta > max_detection_delta:
+        return None
+
+    depth = None
+    depth_stamp = None
+    rgb_depth_delta = None
+    depths = valid_items(depth_items)
+    if depths:
+        candidate_stamp, candidate = min(
+            depths,
+            key=lambda pair: (abs(pair[0] - image_stamp), -pair[0]),
+        )
+        candidate_delta = abs(candidate_stamp - image_stamp)
+        if candidate_delta <= max_depth_delta:
+            depth = candidate
+            depth_stamp = candidate_stamp
+            rgb_depth_delta = candidate_delta
+    return {
+        'image': image,
+        'image_stamp_sec': image_stamp,
+        'depth': depth,
+        'depth_stamp_sec': depth_stamp,
+        'detection_rgb_delta_sec': detection_rgb_delta,
+        'rgb_depth_delta_sec': rgb_depth_delta,
     }
 
 
@@ -120,7 +200,11 @@ def build_reobservation_episode_metrics(records):
     episodes = []
     active = None
     for frame_index, record in enumerate(records):
-        stamp_sec = _record_stamp_sec(record, frame_index)
+        measured_stamp_sec = _optional_record_stamp_sec(record)
+        stamp_sec = (
+            measured_stamp_sec
+            if measured_stamp_sec is not None else float(frame_index)
+        )
         recommendation = record.get('view_recommendation', {})
         action = str(recommendation.get('action', '')).strip()
         target_id = _canonical_target_id(recommendation.get('target_id'))
@@ -145,6 +229,7 @@ def build_reobservation_episode_metrics(records):
                 'outcome': 'incomplete',
                 'resolution_stamp_sec': None,
                 'candidate_to_resolution_latency_sec': None,
+                'timing_valid': measured_stamp_sec is not None,
             }
         if active is not None:
             active['end_stamp_sec'] = stamp_sec
@@ -155,9 +240,14 @@ def build_reobservation_episode_metrics(records):
             if outcome:
                 active['outcome'] = outcome
                 active['resolution_stamp_sec'] = stamp_sec
-                active['candidate_to_resolution_latency_sec'] = round(
-                    max(0.0, stamp_sec - active['start_stamp_sec']), 4,
+                active['timing_valid'] = bool(
+                    active['timing_valid']
+                    and measured_stamp_sec is not None
                 )
+                if active['timing_valid']:
+                    active['candidate_to_resolution_latency_sec'] = round(
+                        max(0.0, stamp_sec - active['start_stamp_sec']), 4,
+                    )
                 episodes.append(active)
                 active = None
 
@@ -214,6 +304,15 @@ def build_dynamic_testing_record(summary, scenario, notes=''):
         'frames_with_candidates': int(summary.get('frames_with_candidates', 0)),
         'total_candidate_count': int(summary.get('total_candidate_count', 0)),
         'localized_candidate_count': int(summary.get('localized_candidate_count', 0)),
+        'processing_time_mean_ms': summary.get(
+            'processing_time_ms', {}).get('mean'),
+        'processing_time_p95_ms': summary.get(
+            'processing_time_ms', {}).get('p95'),
+        'observed_output_rate_hz': summary.get('observed_output_rate_hz'),
+        'confirmation_latency_mean_sec': summary.get(
+            'candidate_to_confirmation_latency_sec', {}).get('mean'),
+        'confirmation_latency_max_sec': summary.get(
+            'candidate_to_confirmation_latency_sec', {}).get('max'),
         'view_action_counts': summary.get('view_action_counts', {}),
         'reobservation_episode_count': int(
             summary.get('reobservation_episode_count', 0)
@@ -228,14 +327,37 @@ def build_dynamic_testing_record(summary, scenario, notes=''):
     }
 
 
-def _record_stamp_sec(record, fallback):
-    """读取记录时间；损坏或缺失时使用单调帧序号，保证汇总可生成。"""
+def _optional_record_stamp_sec(record):
+    """读取真实记录时间；缺失时返回 ``None``，耗时指标不得用帧号冒充秒。"""
 
     try:
         value = float(record.get('timestamp_sec'))
     except (TypeError, ValueError):
-        value = float(fallback)
-    return value
+        return None
+    return value if math.isfinite(value) and value >= 0.0 else None
+
+
+def _valid_nonnegative(value):
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return False
+    return math.isfinite(number) and number >= 0.0
+
+
+def _timing_summary(values):
+    """汇总检测处理耗时；缺失时保留 ``None``，不能伪造为 0 ms。"""
+
+    ordered = sorted(float(value) for value in values)
+    if not ordered:
+        return {'count': 0, 'mean': None, 'p95': None, 'max': None}
+    p95_index = max(0, math.ceil(len(ordered) * 0.95) - 1)
+    return {
+        'count': len(ordered),
+        'mean': round(sum(ordered) / len(ordered), 4),
+        'p95': round(ordered[p95_index], 4),
+        'max': round(ordered[-1], 4),
+    }
 
 
 def _canonical_target_id(value):

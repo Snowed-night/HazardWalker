@@ -69,6 +69,14 @@ class HsvDetectorNode(Node):
         self.declare_parameter('max_detections', 20)
         self.declare_parameter('detector_backend', 'hsv_opencv')
         self.declare_parameter('split_touching_red_balls', True)
+        # HSV 阈值必须能由同一份受版本控制的配置文件覆盖，回放评估记录的
+        # 参数哈希才与节点实际运行值一致。
+        self.declare_parameter('red_hue_min_1', 0)
+        self.declare_parameter('red_hue_max_1', 10)
+        self.declare_parameter('red_hue_min_2', 170)
+        self.declare_parameter('red_hue_max_2', 180)
+        self.declare_parameter('red_min_saturation', 80)
+        self.declare_parameter('red_min_value', 80)
         self.declare_parameter('roi_padding_px', 8)
         self.declare_parameter('min_depth_points_in_roi', 5)
         self.declare_parameter('max_detection_range_m', 20.0)
@@ -270,6 +278,10 @@ class HsvDetectorNode(Node):
         self.depth_sub = self.create_subscription(Image, '/hw/camera/depth_image', self.on_depth_image, 10)
         # 第一阶段用 String(JSON) 快速打通链路；稳定后迁移到 hazardwalker_msgs/HazardArray。
         self.pub = self.create_publisher(String, '/hw/perception/hazard_detections', 10)
+        # 复查建议由感知节点直接发布，不能依赖“是否启动证据记录器”；导航、
+        # 控制、GUI 和 rosbag 因而消费同一份只读建议。
+        self.recommendation_pub = self.create_publisher(
+            String, '/hw/perception/view_recommendation', 10)
         self.get_logger().info('HSV detector subscribed to camera image, camera info and depth image.')
 
     def on_camera_info(self, msg: CameraInfo):
@@ -302,6 +314,8 @@ class HsvDetectorNode(Node):
             self.get_logger().warn(f'Unsupported image encoding: {msg.encoding}', throttle_duration_sec=5.0)
             return
 
+        processing_started = time.perf_counter()
+
         self._image_callback_count += 1
         if self._image_callback_count <= 2:
             self.get_logger().info('Received RGB frame %d: %dx%d %s.' % (
@@ -326,6 +340,12 @@ class HsvDetectorNode(Node):
             partial_min_circularity=float(self.get_parameter('partial_min_circularity').value),
             partial_min_aspect_ratio=float(self.get_parameter('partial_min_aspect_ratio').value),
             partial_min_value=int(self.get_parameter('partial_min_value').value),
+            red_hue_min_1=int(self.get_parameter('red_hue_min_1').value),
+            red_hue_max_1=int(self.get_parameter('red_hue_max_1').value),
+            red_hue_min_2=int(self.get_parameter('red_hue_min_2').value),
+            red_hue_max_2=int(self.get_parameter('red_hue_max_2').value),
+            red_min_saturation=int(self.get_parameter('red_min_saturation').value),
+            red_min_value=int(self.get_parameter('red_min_value').value),
         )
         stamp_sec = _stamp_to_float(msg.header.stamp)
         depth_stamp_delta_sec = _stamp_delta_sec(
@@ -367,6 +387,9 @@ class HsvDetectorNode(Node):
                 image_width=msg.width,
                 image_height=msg.height,
                 stamp_sec=stamp_sec,
+                processing_time_ms=(
+                    time.perf_counter() - processing_started
+                ) * 1000.0,
             )
             return
 
@@ -677,6 +700,9 @@ class HsvDetectorNode(Node):
             image_width=msg.width,
             image_height=msg.height,
             stamp_sec=stamp_sec,
+            processing_time_ms=(
+                time.perf_counter() - processing_started
+            ) * 1000.0,
         )
 
     def _tracks_to_hazards(self, tracks, output_frame):
@@ -746,7 +772,8 @@ class HsvDetectorNode(Node):
 
     def _publish_detection_payload(
             self, hazards, detections_2d, camera_stable=False,
-            image_width=0, image_height=0, stamp_sec=None):
+            image_width=0, image_height=0, stamp_sec=None,
+            processing_time_ms=None):
         # 已确认或已由多视角拒绝的轨迹不再请求机动。其余当前帧候选由感知侧
         # 统一计算明确动作，导航只执行契约，避免两组各自重写一套判据。
         recommendation_candidates = [
@@ -777,8 +804,7 @@ class HsvDetectorNode(Node):
             and self._last_tf_synchronized
             and localization_provenance not in ('', 'unverified')
         )
-        out = String()
-        out.data = json.dumps({
+        payload = {
             'hazards': hazards,
             'detections_2d': detections_2d,
             'view_recommendation': recommendation,
@@ -795,8 +821,18 @@ class HsvDetectorNode(Node):
             'localization_provenance': localization_provenance,
             'camera_stable': bool(camera_stable),
             'stable_view_frame_count': self._stable_view_frame_count,
-        }, ensure_ascii=False)
+            'processing_time_ms': (
+                round(float(processing_time_ms), 3)
+                if processing_time_ms is not None else None
+            ),
+        }
+        out = String()
+        out.data = json.dumps(payload, ensure_ascii=False)
         self.pub.publish(out)
+        recommendation_out = String()
+        recommendation_out.data = json.dumps(
+            recommendation, ensure_ascii=False)
+        self.recommendation_pub.publish(recommendation_out)
         if self._image_callback_count <= 2:
             self.get_logger().info('Published perception payload for RGB frame %d.' % self._image_callback_count)
 

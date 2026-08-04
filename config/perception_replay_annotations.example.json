@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "annotation_provenance": "manual_image_annotation",
+  "frames": [
+    {
+      "record_index": 0,
+      "objects": [
+        {
+          "id": "red-ball-01",
+          "bbox": [120, 80, 210, 170],
+          "world_position": [1.2, 3.4, 0.3],
+          "position_frame_id": "start"
+        }
+      ]
+    },
+    {
+      "record_index": 1,
+      "objects": []
+    }
+  ]
+}

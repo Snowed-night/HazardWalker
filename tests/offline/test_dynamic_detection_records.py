@@ -16,12 +16,47 @@ from hazardwalker_perception.dynamic_detection_records import (
     build_reobservation_episode_metrics,
     build_dynamic_summary,
     build_dynamic_testing_record,
+    select_synchronized_evidence,
 )
+
+
+def test_evidence_pairing_uses_nearest_timestamps_not_latest_arrival():
+    images = [
+        {'stamp_sec': 10.00, 'data': 'matching-rgb'},
+        {'stamp_sec': 10.20, 'data': 'newer-but-wrong-rgb'},
+    ]
+    depths = [
+        {'stamp_sec': 10.01, 'data': 'matching-depth'},
+        {'stamp_sec': 10.22, 'data': 'newer-depth'},
+    ]
+    result = select_synchronized_evidence(
+        10.02, images, depths, 0.12, 0.05)
+    assert result['image']['data'] == 'matching-rgb'
+    assert result['depth']['data'] == 'matching-depth'
+    assert abs(result['detection_rgb_delta_sec'] - 0.02) < 1e-9
+    assert abs(result['rgb_depth_delta_sec'] - 0.01) < 1e-9
+
+
+def test_evidence_pairing_fails_closed_for_stale_rgb_and_drops_stale_depth():
+    assert select_synchronized_evidence(
+        2.0, [{'stamp_sec': 1.0}], [], 0.1, 0.1) is None
+    result = select_synchronized_evidence(
+        2.0,
+        [{'stamp_sec': 2.0, 'data': 'rgb'}],
+        [{'stamp_sec': 1.7, 'data': 'stale-depth'}],
+        0.1,
+        0.1,
+    )
+    assert result['image']['data'] == 'rgb'
+    assert result['depth'] is None
+    assert result['rgb_depth_delta_sec'] is None
 
 
 def test_summary_counts_candidates_localization_and_confirmed_tracks():
     records = [
         {
+            'timestamp_sec': 1.0,
+            'processing_time_ms': 12.0,
             'detections_2d': [
                 {'confidence': 0.8, 'localization_status': 'localized'},
                 {'confidence': 0.6, 'localization_status': 'unlocalized'},
@@ -30,6 +65,8 @@ def test_summary_counts_candidates_localization_and_confirmed_tracks():
             'view_recommendation': {'action': 'turn_left'},
         },
         {
+            'timestamp_sec': 1.1,
+            'processing_time_ms': 20.0,
             'detections_2d': [{'confidence': 1.0, 'localization_status': 'localized'}],
             'hazards': [{'id': 3, 'status': 'confirmed'}],
             'view_recommendation': {'action': 'hold_observation'},
@@ -45,6 +82,10 @@ def test_summary_counts_candidates_localization_and_confirmed_tracks():
     assert summary['average_confidence'] == 0.8
     assert summary['view_action_counts'] == {'hold_observation': 1, 'turn_left': 1}
     assert summary['ground_truth_available'] is False
+    assert summary['processing_time_ms'] == {
+        'count': 2, 'mean': 16.0, 'p95': 20.0, 'max': 20.0,
+    }
+    assert summary['observed_output_rate_hz'] == 10.0
 
 
 def test_testing_record_leaves_truth_dependent_metrics_empty():
@@ -56,6 +97,7 @@ def test_testing_record_leaves_truth_dependent_metrics_empty():
     assert row['truth_count'] == ''
     assert row['missed_count'] == ''
     assert row['false_positive_count'] == ''
+    assert summary['observed_output_rate_hz'] is None
 
 
 def test_reobservation_episode_records_partial_approach_lateral_and_confirmation():
@@ -126,6 +168,10 @@ def test_reobservation_episode_records_partial_approach_lateral_and_confirmation
         'mean': 4.5,
         'max': 4.5,
     }
+    row = build_dynamic_testing_record(
+        build_dynamic_summary(records), scenario='partial_confirmed')
+    assert row['confirmation_latency_mean_sec'] == 4.5
+    assert row['confirmation_latency_max_sec'] == 4.5
 
 
 def test_reobservation_episode_stays_incomplete_without_track_resolution():
@@ -208,6 +254,11 @@ def test_dynamic_recorder_module_has_direct_execution_entrypoint():
     assert "self.annotated_image_dir" in source
     assert "declare_parameter('run_mode', 'internal_regression')" in source
     assert "declare_parameter('depth_topic', '/hw/camera/depth_image')" in source
+    assert "declare_parameter('evidence_buffer_size', 20)" in source
+    assert "declare_parameter('max_detection_rgb_delta_sec', 0.12)" in source
+    assert 'select_synchronized_evidence(' in source
+    assert "'evidence_detection_rgb_delta_sec'" in source
+    assert "'evidence_rgb_depth_delta_sec'" in source
     assert "declare_parameter('detection_topic', '/hw/perception/hazard_detections')" in source
     assert "declare_parameter('mission_state_topic', '/hw/mission/state')" in source
     assert "'mission_completion_required': True" in source
@@ -215,5 +266,22 @@ def test_dynamic_recorder_module_has_direct_execution_entrypoint():
     assert "'mission_completed': self.mission_completed" in source
     assert "'forbidden_pose_topic' in self.evidence_contract.get('contract_violations', [])" in source
     assert 'result_path.resolve() != result_copy_path.resolve()' in source
-    assert "self.test_record_dir / 'testing_record_perception.json'" in source
+    assert "self.output_dir / 'testing_record_perception.json'" in source
+    assert "self.output_dir / 'testing_record_perception.csv'" in source
+    assert "self.output_dir / 'README.md'" in source
+    assert "'formal_task_evidence_eligible'" in source
     assert 'trajectory.jsonl' in source
+
+
+def test_detector_is_the_single_owner_of_the_view_recommendation_topic():
+    perception_package = Path(REPO_ROOT) / 'ros2_ws' / 'src' / (
+        'hazardwalker_perception/hazardwalker_perception'
+    )
+    detector = (perception_package / 'hsv_detector_node.py').read_text(
+        encoding='utf-8')
+    recorder = (
+        perception_package / 'dynamic_detection_recorder_node.py'
+    ).read_text(encoding='utf-8')
+    assert "'/hw/perception/view_recommendation'" in detector
+    assert 'self.recommendation_pub.publish(recommendation_out)' in detector
+    assert 'create_publisher(String, \'/hw/perception/view_recommendation\'' not in recorder

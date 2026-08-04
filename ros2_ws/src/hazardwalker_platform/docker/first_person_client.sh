@@ -11,6 +11,23 @@ FPV_TOPIC="${SIMENV_FIRST_PERSON_TOPIC:-/real_sense/rgb/image_raw/compressed}"
 FPV_MAX_FPS="${SIMENV_FIRST_PERSON_MAX_FPS:-15}"
 FPV_JPEG_QUALITY="${SIMENV_FIRST_PERSON_JPEG_QUALITY:-92}"
 ACTION="${1:-up}"
+HEALTH_URL="http://127.0.0.1:${FPV_PORT}/healthz"
+
+wait_for_health() {
+  local attempt
+  for attempt in $(seq 1 40); do
+    if curl --fail --silent --show-error --max-time 1 "$HEALTH_URL" \
+        | grep -q '"frame"'; then
+      return 0
+    fi
+    if ! docker inspect -f '{{.State.Running}}' "$FPV_CONTAINER" \
+        2>/dev/null | grep -qx true; then
+      break
+    fi
+    sleep 0.5
+  done
+  return 1
+}
 
 case "$ACTION" in
   up|start)
@@ -19,8 +36,11 @@ case "$ACTION" in
       exit 1
     fi
     if docker inspect -f '{{.State.Running}}' "$FPV_CONTAINER" 2>/dev/null | grep -qx true; then
-      echo "第一人称服务已在运行：http://127.0.0.1:${FPV_PORT}/first_person"
-      exit 0
+      if wait_for_health; then
+        echo "第一人称服务已在运行：http://127.0.0.1:${FPV_PORT}/first_person"
+        exit 0
+      fi
+      echo "已有第一人称 sidecar 无健康响应，正在重建：$FPV_CONTAINER" >&2
     fi
     docker rm -f "$FPV_CONTAINER" >/dev/null 2>&1 || true
     # 主容器和 sidecar 均使用 host 网络，ROS_MASTER_URI 指向主机即可连接 ROS1 Master。
@@ -34,6 +54,12 @@ case "$ACTION" in
       -e FIRST_PERSON_MAX_FPS="$FPV_MAX_FPS" \
       -e FIRST_PERSON_JPEG_QUALITY="$FPV_JPEG_QUALITY" \
       "$FPV_IMAGE" -lc 'source /opt/ros/noetic/setup.bash && exec python3 /usr/local/bin/hazardwalker_first_person_server.py --topic "$FIRST_PERSON_TOPIC" --port "$FIRST_PERSON_PORT" --max-fps "$FIRST_PERSON_MAX_FPS" --jpeg-quality "$FIRST_PERSON_JPEG_QUALITY"' >/dev/null
+    if ! wait_for_health; then
+      echo "第一人称服务未能就绪：$FPV_CONTAINER" >&2
+      docker logs --tail 80 "$FPV_CONTAINER" >&2 || true
+      docker rm -f "$FPV_CONTAINER" >/dev/null 2>&1 || true
+      exit 1
+    fi
     echo "第一人称服务已启动：http://127.0.0.1:${FPV_PORT}/first_person"
     ;;
   down|stop)

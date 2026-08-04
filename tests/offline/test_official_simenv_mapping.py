@@ -156,6 +156,25 @@ def test_rosbridge_control_relay_defaults_to_safe_and_uses_wall_clock_watchdog()
     assert "declare_parameter('ros1_odom_topic', '/hazardwalker/odom')" in source
     assert "'forwarded_cmd_count'" in source
     assert "rosbridge_host_header" in source
+
+
+def test_gui_assist_request_can_only_call_bounded_ros2_services():
+    """浏览器请求必须转成辅助服务调用，不能绕过控制仲裁发布速度。"""
+
+    source = (
+        REPO_ROOT / 'scripts' /
+        'official_simenv_rosbridge_ros2_adapter_node.py'
+    ).read_text(encoding='utf-8')
+    assert "'/hazardwalker/gui/assist_request'" in source
+    assert "Trigger, '/hw/control/assist_align/start'" in source
+    assert "Trigger, '/hw/control/assist_align/cancel'" in source
+    assert "action not in ('start', 'cancel')" in source
+    assert 'self._pending_gui_assist_action = action' in source
+    dispatch = source.split(
+        'def _dispatch_gui_assist_request', 1)[1].split(
+            'def _on_gui_assist_result', 1)[0]
+    assert 'call_async(Trigger.Request())' in dispatch
+    assert "'/cmd_vel'" not in dispatch
     assert 'ExternalShutdownException' in source
     assert "declare_parameter('enable_clock_relay', True)" in source
     assert "subscriptions.append((self.clock_topic, 'rosgraph_msgs/Clock'))" in source
@@ -253,6 +272,7 @@ def test_official_business_launch_never_starts_fake_platform_by_default():
     assert "'minimum_return_reserve_s': 120.0" in source
     assert "'entry_ingress_depth_m': 6.0" in source
     assert "executable='scan_imu_localizer_node'" in source
+    assert "'localization_provenance': localization_provenance" in source
     assert "package='hazardwalker_platform'" not in source
     assert "'online_async_launch.py'" in source
     assert "'autostart': 'true'" in source
@@ -289,7 +309,10 @@ def test_official_business_launch_never_starts_fake_platform_by_default():
     assert "ParameterValue(scenario_seed, value_type=str)" in source
     assert "ParameterValue(code_version, value_type=str)" in source
     assert "DeclareLaunchArgument('use_sim_time', default_value='true')" in source
-    assert source.count("'use_sim_time': sim_time_parameter") >= 6
+    assert "'navigation_cmd_vel_topic', default_value='/hw/cmd_vel'" in source
+    assert source.count("'cmd_vel_topic': navigation_cmd_vel_topic") == 2
+    assert source.count("'use_sim_time': sim_time_parameter") >= 5
+    assert "LaunchConfiguration('use_sim_time').perform(context)" in source
     assert "'use_sim_time': use_sim_time" in source
     assert source.count('condition=IfCondition(start_navigation)') == 2
 
@@ -311,6 +334,22 @@ def test_official_business_launch_never_starts_fake_platform_by_default():
     assert 'POSE_GRAPH.constraint_builder.min_score = 0.72' in cartographer_config
     assert 'POSE_GRAPH.constraint_builder.global_localization_min_score = 0.90' in cartographer_config
     compile(source, 'official_simenv_business.launch.py', 'exec')
+
+
+def test_unified_control_launch_keeps_navigation_behind_command_mux():
+    """键盘、导航和辅助对准必须共享唯一底盘输出，且默认不启动导航。"""
+
+    source = (
+        REPO_ROOT / 'ros2_ws' / 'src' / 'hazardwalker_bringup' / 'launch' /
+        'official_simenv_control_interface.launch.py'
+    ).read_text(encoding='utf-8')
+    assert "executable='command_mux_node'" in source
+    assert "executable='assist_alignment_node'" in source
+    assert "DeclareLaunchArgument('start_navigation', default_value='false')" in source
+    assert "'navigation_cmd_vel_topic': (" in source
+    assert "'/hw/control/navigation_cmd_vel'" in source
+    assert "'fallback_mode': LaunchConfiguration('control_mode')" in source
+    compile(source, 'official_simenv_control_interface.launch.py', 'exec')
 
 
 def test_legacy_simenv_demo_is_a_safe_official_business_wrapper():
@@ -368,8 +407,23 @@ def test_official_perception_world_export_requires_explicit_legal_slam_contract(
     assert "'exploration_timeout_s': exploration_timeout_parameter" in source
     assert "ParameterValue(\n        exploration_timeout_s, value_type=float" in source
     assert "'exploration_timeout_s': 540.0" not in source
-    assert "'output_frame': perception_output_frame" in source
-    assert "'localization_provenance': localization_provenance" in source
+    assert "DeclareLaunchArgument('perception_parameter_file', default_value='')" in source
+    assert "'perception_output_frame').perform(context)" in source
+    assert "'localization_provenance').perform(context)" in source
+    assert 'flatten_perception_config' in source
+
+
+def test_scan_imu_localizer_publishes_configured_runtime_provenance():
+    source = (
+        REPO_ROOT / 'ros2_ws' / 'src' / 'hazardwalker_perception' /
+        'hazardwalker_perception' / 'scan_imu_localizer_node.py'
+    ).read_text(encoding='utf-8')
+    assert (
+        "declare_parameter('localization_provenance', 'lidar_imu_slam')"
+        in source
+    )
+    assert 'String(data=self.localization_provenance)' in source
+    assert "'visual_inertial_slam'" not in source
 
 
 def test_official_minimal_navigation_consumes_stable_hw_odom():
@@ -381,15 +435,15 @@ def test_official_minimal_navigation_consumes_stable_hw_odom():
     assert "'/hw/nav/state'" not in source
 
 
-def test_stack_keeps_adapter_alive_while_business_launch_runs():
+def test_container_owns_adapter_lifecycle_and_stack_reuses_it():
     source = (REPO_ROOT / 'scripts' / 'run_official_simenv_ros1_ros2_stack.sh').read_text(
         encoding='utf-8')
-    assert 'ADAPTER_PID=$!' in source
-    assert 'bash "$ROOT/scripts/run_official_simenv_rosbridge_adapter.sh" &' in source
-    assert 'trap cleanup_adapter EXIT INT TERM' in source
+    assert '由 auto_docker.sh up 管理的官方适配器' in source
+    assert 'bash "$ROOT/scripts/run_official_simenv_rosbridge_adapter.sh" &' not in source
+    assert 'trap cleanup_business EXIT INT TERM' in source
     # 业务 launch 会派生多个节点；必须拥有独立进程组并在退出时整体回收，
     # 否则下一次联调会残留多个 /hw/cmd_vel 发布者。
-    assert 'setsid ros2 launch hazardwalker_bringup official_simenv_business.launch.py' in source
+    assert 'setsid ros2 launch hazardwalker_bringup official_simenv_control_interface.launch.py' in source
     assert 'kill -TERM -- "-$BUSINESS_PID"' in source
     assert 'set +u\nsource /opt/ros/jazzy/setup.bash' in source
     assert 'OFFICIAL_SIMENV_CARTOGRAPHER_PREFIX' in source
@@ -405,8 +459,10 @@ def test_stack_keeps_adapter_alive_while_business_launch_runs():
     assert 'RESULT_MTIME >= RUN_START_EPOCH' in source
     assert 'kill -KILL -- "-$BUSINESS_PID"' in source
     assert 'for _ in {1..150}; do' in source
-    assert 'wait "$ADAPTER_PID"' in source
-    assert 'ros2 launch hazardwalker_bringup official_simenv_business.launch.py' in source
+    assert 'ADAPTER_PID=' not in source
+    assert 'ros2 launch hazardwalker_bringup official_simenv_control_interface.launch.py' in source
+    assert 'LAUNCH_ARGS+=("control_mode:=navigation")' in source
+    assert '统一控制模式必须为 navigation' in source
     assert 'ros2 topic echo /clock --once' in source
     assert 'CLOCK_NSEC=' in source
     assert 'CLOCK_NS > LAST_CLOCK_NS' in source
@@ -415,6 +471,7 @@ def test_stack_keeps_adapter_alive_while_business_launch_runs():
     assert "grep -qx '/hazardwalker_official_rosbridge_adapter'" in source
     assert 'start_navigation=true 但控制适配未显式开启' in source
     assert '"enable_cmd_vel_relay": true' in source
+    assert '"managed_lifecycle": true' in source
     assert 'NAV_MODE=frontier' in source
     assert 'PERCEPTION_OUTPUT_FRAME=map' in source
     assert 'LOCALIZATION_PROVENANCE=unverified' in source
@@ -428,6 +485,8 @@ def test_stack_keeps_adapter_alive_while_business_launch_runs():
     ).read_text(encoding='utf-8')
     assert '-p use_sim_time:=false' in adapter_runner
     assert '-p enable_clock_relay:=true' in adapter_runner
+    assert '-p managed_lifecycle:="$MANAGED_LIFECYCLE"' in adapter_runner
+    assert '-p lifecycle_container:="$LIFECYCLE_CONTAINER"' in adapter_runner
 
     slam_config = (
         REPO_ROOT / 'ros2_ws' / 'src' / 'hazardwalker_nav' / 'config' /
@@ -498,6 +557,45 @@ def test_compose_starts_the_complete_official_ros1_entry():
     assert 'auto_noetic.sh" image' in docker_wrapper
     assert 'source is newer than devel/lib/unitree_guide/junior_ctrl' in docker_wrapper
     assert "./auto_docker.sh build force" in docker_wrapper
+    assert 'manage_adapter start' in docker_wrapper
+    assert 'manage_adapter stop' in docker_wrapper
+    assert docker_wrapper.index('manage_adapter stop') < docker_wrapper.index(
+        'exec "$ROOT/docker/auto_noetic.sh" down')
+    assert 'wait_for_container_ready' in docker_wrapper
+
+    adapter_runner = (
+        REPO_ROOT / 'scripts' /
+        'run_official_simenv_rosbridge_adapter.sh'
+    ).read_text(encoding='utf-8')
+    assert 'OFFICIAL_SIMENV_IMAGE_THROTTLE_RATE_MS:-200' in adapter_runner
+
+    adapter_manager = (
+        REPO_ROOT / 'scripts' / 'manage_official_simenv_rosbridge_adapter.sh'
+    ).read_text(encoding='utf-8')
+    assert 'PID_FILE=' in adapter_manager
+    assert 'SIGNATURE_FILE=' in adapter_manager
+    assert 'adapter_signature()' in adapter_manager
+    assert 'flock -x 9' in adapter_manager
+    assert 'setsid bash "$RUNNER"' in adapter_manager
+    assert 'stop_adapter' in adapter_manager
+    assert 'node_visible' in adapter_manager
+    assert 'single_node_visible' in adapter_manager
+    assert "grep -cx '/hazardwalker_official_rosbridge_adapter'" in adapter_manager
+    assert 'ROS2 node: duplicate count=' in adapter_manager
+    assert 'kill -TERM "$pid"' in adapter_manager
+    assert 'kill -KILL "$pid"' in adapter_manager
+    assert '同一 ROS 域仍有其他会话的适配器' in adapter_manager
+    assert 'external-node domain=' in adapter_manager
+
+    lifecycle_test = (
+        REPO_ROOT / 'tests' / 'runtime' /
+        'verify_official_simenv_adapter_lifecycle.sh'
+    ).read_text(encoding='utf-8')
+    assert 'adapter lifecycle start/idempotent/status/stop' in lifecycle_test
+    assert 'duplicate ROS2 node did not block adapter startup' in lifecycle_test
+    assert 'external same-domain adapter fails closed' in lifecycle_test
+    assert 'auto_docker up/down ordering and startup rollback' in lifecycle_test
+    assert 'container-up,adapter-start,adapter-stop,container-down' in lifecycle_test
 
     relay = (
         REPO_ROOT / 'ros2_ws' / 'src' / 'hazardwalker_platform' / 'scripts' /

@@ -93,6 +93,23 @@ def test_rgb_to_hsv_pixel_detects_red_hue():
     assert s > 80.0
     assert v > 80.0
 
+
+def test_runtime_hue_parameters_actually_change_segmentation():
+    """回放切换 HSV 参数必须改变实际掩膜，不能只改变报告中的哈希。"""
+
+    if not require_opencv():
+        return
+    image = draw_circle_image()
+    detections = detect_red_balls_rgb_bytes(
+        image, 80, 80,
+        min_area_px=100,
+        red_hue_min_1=45,
+        red_hue_max_1=55,
+        red_hue_min_2=95,
+        red_hue_max_2=105,
+    )
+    assert detections == []
+
 """验证大面积红色圆形目标能输出合理 2D 包围框。"""
 def test_detect_red_ball_rgb_bytes_returns_bbox():
     if not require_opencv():

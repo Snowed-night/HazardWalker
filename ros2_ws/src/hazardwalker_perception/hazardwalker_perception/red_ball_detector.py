@@ -145,7 +145,10 @@ def detect_red_balls_rgb_bytes(data, width, height, step=None, encoding='rgb8',
                                min_extent=0.35, max_extent=0.92, max_detections=None,
                                split_touching=True, include_partial_candidates=False,
                                partial_min_area_px=20, partial_min_circularity=0.30,
-                               partial_min_aspect_ratio=0.30, partial_min_value=50):
+                               partial_min_aspect_ratio=0.30, partial_min_value=50,
+                               red_hue_min_1=0, red_hue_max_1=10,
+                               red_hue_min_2=170, red_hue_max_2=180,
+                               red_min_saturation=80, red_min_value=80):
     """
     Args:
         data: 图像原始 bytes/bytearray。
@@ -197,6 +200,12 @@ def detect_red_balls_rgb_bytes(data, width, height, step=None, encoding='rgb8',
             partial_min_circularity=partial_min_circularity,
             partial_min_aspect_ratio=partial_min_aspect_ratio,
             partial_min_value=partial_min_value,
+            red_hue_min_1=red_hue_min_1,
+            red_hue_max_1=red_hue_max_1,
+            red_hue_min_2=red_hue_min_2,
+            red_hue_max_2=red_hue_max_2,
+            red_min_saturation=red_min_saturation,
+            red_min_value=red_min_value,
         )
         if max_detections is not None:
             return detections[:max_detections]
@@ -210,6 +219,12 @@ def detect_red_balls_rgb_bytes(data, width, height, step=None, encoding='rgb8',
         encoding=normalized_encoding,
         min_area_px=min_area_px,
         min_confidence=min_confidence,
+        red_hue_min_1=red_hue_min_1,
+        red_hue_max_1=red_hue_max_1,
+        red_hue_min_2=red_hue_min_2,
+        red_hue_max_2=red_hue_max_2,
+        red_min_saturation=red_min_saturation,
+        red_min_value=red_min_value,
     )
     return [] if detection is None else [detection]
 
@@ -236,7 +251,11 @@ def detect_red_ball_rgb_bytes(data, width, height, step=None, encoding='rgb8',
     return detections[0] if detections else None
 
 """OpenCV 不可用时的保底像素扫描，只验证颜色，不做形状筛选。"""
-def _detect_red_region_by_pixel_scan(data, width, height, step, encoding, min_area_px, min_confidence):
+def _detect_red_region_by_pixel_scan(
+        data, width, height, step, encoding, min_area_px, min_confidence,
+        red_hue_min_1=0, red_hue_max_1=10,
+        red_hue_min_2=170, red_hue_max_2=180,
+        red_min_saturation=80, red_min_value=80):
 
     red_pixels = []
     is_bgr = encoding == 'bgr8'
@@ -251,7 +270,14 @@ def _detect_red_region_by_pixel_scan(data, width, height, step, encoding, min_ar
             c2 = data[index + 2]
             r, g, b = (c2, c1, c0) if is_bgr else (c0, c1, c2)
             h, s, v = rgb_to_hsv_pixel(r, g, b)
-            if is_red_hsv(h, s, v):
+            if is_red_hsv(
+                    h, s, v,
+                    lower_h_1=red_hue_min_1,
+                    upper_h_1=red_hue_max_1,
+                    lower_h_2=red_hue_min_2,
+                    upper_h_2=red_hue_max_2,
+                    min_s=red_min_saturation,
+                    min_v=red_min_value):
                 red_pixels.append((x, y))
 
     if len(red_pixels) < min_area_px:
@@ -288,14 +314,25 @@ def _detect_red_balls_with_opencv(data, width, height, step, encoding, min_area_
                                   min_circularity, min_aspect_ratio, min_extent, max_extent,
                                   split_touching, include_partial_candidates,
                                   partial_min_area_px, partial_min_circularity,
-                                  partial_min_aspect_ratio, partial_min_value):
+                                  partial_min_aspect_ratio, partial_min_value,
+                                  red_hue_min_1, red_hue_max_1,
+                                  red_hue_min_2, red_hue_max_2,
+                                  red_min_saturation, red_min_value):
 
 
     image = _image_bytes_to_array(data, width, height, step)
     color_code = cv2.COLOR_BGR2HSV if encoding == 'bgr8' else cv2.COLOR_RGB2HSV
     hsv = cv2.cvtColor(image, color_code)
 
-    mask = _red_mask_from_hsv(hsv, min_value=80)
+    mask = _red_mask_from_hsv(
+        hsv,
+        hue_min_1=red_hue_min_1,
+        hue_max_1=red_hue_max_1,
+        hue_min_2=red_hue_min_2,
+        hue_max_2=red_hue_max_2,
+        min_saturation=red_min_saturation,
+        min_value=red_min_value,
+    )
 
     contours, _hierarchy = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     detections = []
@@ -337,7 +374,15 @@ def _detect_red_balls_with_opencv(data, width, height, step, encoding, min_area_
     # 前者存在而静默漏检。这里始终生成宽松候选，再仅剔除和已有严格框明显重叠的
     # 同一物体，确保候选不会与完整球重复计数。
     if include_partial_candidates:
-        relaxed_mask = _red_mask_from_hsv(hsv, min_value=partial_min_value)
+        relaxed_mask = _red_mask_from_hsv(
+            hsv,
+            hue_min_1=red_hue_min_1,
+            hue_max_1=red_hue_max_1,
+            hue_min_2=red_hue_min_2,
+            hue_max_2=red_hue_max_2,
+            min_saturation=red_min_saturation,
+            min_value=partial_min_value,
+        )
         partial_contours, _hierarchy = cv2.findContours(
             relaxed_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE,
         )
@@ -355,13 +400,17 @@ def _detect_red_balls_with_opencv(data, width, height, step, encoding, min_area_
     return detections
 
 
-def _red_mask_from_hsv(hsv, min_value):
+def _red_mask_from_hsv(
+        hsv, min_value, min_saturation=80,
+        hue_min_1=0, hue_max_1=10, hue_min_2=170, hue_max_2=180):
     """生成红色掩膜；局部候选可使用较低亮度阈值但不会放宽最终确认。"""
 
-    lower_red_1 = np.array([0, 80, int(min_value)], dtype=np.uint8)
-    upper_red_1 = np.array([10, 255, 255], dtype=np.uint8)
-    lower_red_2 = np.array([170, 80, int(min_value)], dtype=np.uint8)
-    upper_red_2 = np.array([180, 255, 255], dtype=np.uint8)
+    lower_red_1 = np.array(
+        [int(hue_min_1), int(min_saturation), int(min_value)], dtype=np.uint8)
+    upper_red_1 = np.array([int(hue_max_1), 255, 255], dtype=np.uint8)
+    lower_red_2 = np.array(
+        [int(hue_min_2), int(min_saturation), int(min_value)], dtype=np.uint8)
+    upper_red_2 = np.array([int(hue_max_2), 255, 255], dtype=np.uint8)
     mask = cv2.bitwise_or(
         cv2.inRange(hsv, lower_red_1, upper_red_1),
         cv2.inRange(hsv, lower_red_2, upper_red_2),
