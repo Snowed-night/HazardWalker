@@ -287,7 +287,7 @@ def generate_launch_description():
                 'localization_provenance': localization_provenance,
                 'publish_tf': publish_legal_tf_parameter,
                 'command_motion_scale': 1.0,
-                'min_effective_linear_speed_mps': 0.30,
+                'min_effective_linear_speed_mps': 0.05,
                 'use_sim_time': sim_time_parameter,
             }],
             condition=IfCondition(start_legal_localization),

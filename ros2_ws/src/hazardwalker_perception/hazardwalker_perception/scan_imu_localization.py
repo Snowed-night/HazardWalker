@@ -87,25 +87,36 @@ class ScanImuLocalizer:
 
     def update_scan(
             self, ranges, angle_min, angle_increment, imu_yaw_rad,
-            motion_prior_base=(0.0, 0.0)):
+            motion_prior_base=(0.0, 0.0), allow_translation_update=True):
         """用一帧 LaserScan 与最新 IMU 朝向更新 start→base 位姿。"""
 
         points = scan_ranges_to_points(
             ranges, angle_min, angle_increment,
             self.config.min_range_m, self.config.max_range_m, self.config.endpoint_stride,
         )
-        return self.update_points(points, imu_yaw_rad, motion_prior_base)
+        return self.update_points(
+            points,
+            imu_yaw_rad,
+            motion_prior_base,
+            allow_translation_update=allow_translation_update,
+        )
 
     def update_points(
-            self, laser_points, imu_yaw_rad, motion_prior_base=(0.0, 0.0)):
+            self, laser_points, imu_yaw_rad, motion_prior_base=(0.0, 0.0),
+            allow_translation_update=True):
         """允许测试或点云前端直接输入 laser_link 坐标系二维端点。"""
 
         base_points = _laser_to_base_points(laser_points, self.config)
         return self.update_base_points(
-            base_points, imu_yaw_rad, motion_prior_base)
+            base_points,
+            imu_yaw_rad,
+            motion_prior_base,
+            allow_translation_update=allow_translation_update,
+        )
 
     def update_base_points(
-            self, base_points, imu_yaw_rad, motion_prior_base=(0.0, 0.0)):
+            self, base_points, imu_yaw_rad, motion_prior_base=(0.0, 0.0),
+            allow_translation_update=True):
         """使用已经按公开外参转换到 base 坐标系的二维端点。"""
 
         if self._initial_imu_yaw is None:
@@ -137,6 +148,21 @@ class ScanImuLocalizer:
             + math.cos(yaw) * prior_left,
             yaw,
         )
+
+        if not bool(allow_translation_update):
+            # 四足机体在固定站立时仍有激光振动和姿态微摆。没有新鲜线速度请求时
+            # 这些变化不能解释为平移；只更新公开 IMU 给出的 yaw，并用当前扫描
+            # 刷新相邻帧参考，避免停车越久里程越远。
+            self.pose = Pose2D(self.pose.x, self.pose.y, yaw)
+            self._integrate_points(base_points, self.pose)
+            self._previous_world_points = _transform_planar_points(
+                base_points, self.pose)
+            return ScanMatchResult(
+                self.pose,
+                'stationary_command_hold',
+                len(base_points),
+                1.0,
+            )
 
         best_pose, best_count = self._match_translation_icp(
             base_points, yaw, predicted_pose)

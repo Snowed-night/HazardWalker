@@ -58,11 +58,10 @@ class ScanImuLocalizerNode(Node):
         self.declare_parameter('min_match_count', 12)
         self.declare_parameter('laser_offset_x_m', 0.20)
         self.declare_parameter('laser_offset_y_m', 0.0)
-        # 官方 A1 控制器在低速区存在明显死区：0.20 m/s 基本不推进，而
-        # 0.35 m/s 的实测位移与命令积分接近。低于阈值不积分，超过阈值按
-        # 可配置比例推进；scan matching 只做毫米级校正，避免走廊退化反向。
+        # 该阈值只判断本轮是否允许扫描更新平移，不把命令当作位移真值。
+        # 站立修复后 0.25 m/s 已有可测真实运动，因此仅滤除接近零的数值噪声。
         self.declare_parameter('command_motion_scale', 1.0)
-        self.declare_parameter('min_effective_linear_speed_mps', 0.30)
+        self.declare_parameter('min_effective_linear_speed_mps', 0.05)
         self.declare_parameter('command_fresh_timeout_s', 0.5)
         self.declare_parameter('max_scan_dt_s', 0.25)
         # 与官方控制器安全检查一致：机体倾斜超过 60° 时冻结平移，避免倒地后
@@ -238,6 +237,7 @@ class ScanImuLocalizerNode(Node):
         )
         scale = float(self.get_parameter('command_motion_scale').value)
         motion_prior = (0.0, 0.0)
+        translation_expected = False
         if command_fresh and dt_sec > 0.0:
             command_x = float(self.latest_command.linear.x)
             command_y = float(self.latest_command.linear.y)
@@ -248,6 +248,7 @@ class ScanImuLocalizerNode(Node):
                 command_x = 0.0
             if abs(command_y) < min_effective_speed:
                 command_y = 0.0
+            translation_expected = bool(command_x or command_y)
             motion_prior = (
                 command_x * dt_sec * scale,
                 command_y * dt_sec * scale,
@@ -258,6 +259,7 @@ class ScanImuLocalizerNode(Node):
             message.angle_increment,
             self.latest_imu_yaw,
             motion_prior_base=motion_prior,
+            allow_translation_update=translation_expected,
         )
         self.publish_pose(result, message.header.stamp)
 
@@ -288,7 +290,9 @@ class ScanImuLocalizerNode(Node):
         message.pose.pose.position.z = self.floor_elevation_m
         message.pose.pose.orientation.z = quaternion_z
         message.pose.pose.orientation.w = quaternion_w
-        variance = 0.04 if result.status in ('initialized', 'tracking') else 1.0
+        variance = 0.04 if result.status in (
+            'initialized', 'tracking', 'stationary_command_hold',
+        ) else 1.0
         message.pose.covariance[0] = variance
         message.pose.covariance[7] = variance
         message.pose.covariance[14] = 0.04

@@ -58,7 +58,8 @@ def test_online_localizer_can_publish_odometry_without_competing_tf():
     assert "declare_parameter('publish_tf', True)" in source
     assert 'if self.tf_broadcaster is not None:' in source
     assert "declare_parameter('command_motion_scale', 1.0)" in source
-    assert "declare_parameter('min_effective_linear_speed_mps', 0.30)" in source
+    assert "declare_parameter('min_effective_linear_speed_mps', 0.05)" in source
+    assert 'allow_translation_update=translation_expected' in source
     assert 'if abs(command_x) < min_effective_speed:' in source
 
 
@@ -155,6 +156,27 @@ def test_scan_imu_localizer_does_not_drift_when_stationary_scores_tie():
     assert result.status == 'tracking'
     assert abs(result.pose.x) < 1e-9
     assert abs(result.pose.y) < 1e-9
+
+
+def test_stationary_command_gate_holds_translation_despite_changed_scan():
+    """无平移命令时，传感器摆动不能累计成巡检里程。"""
+    localizer = ScanImuLocalizer(ScanImuLocalizerConfig(
+        laser_offset_x_m=0.0,
+        laser_offset_y_m=0.0,
+        min_match_count=1,
+    ))
+    localizer.update_points([(2.0, -1.0), (2.0, 0.0), (2.0, 1.0)], 0.0)
+    result = localizer.update_points(
+        [(1.7, -1.2), (1.8, 0.2), (2.1, 1.3)],
+        0.1,
+        motion_prior_base=(0.0, 0.0),
+        allow_translation_update=False,
+    )
+
+    assert result.status == 'stationary_command_hold'
+    assert result.pose.x == 0.0
+    assert result.pose.y == 0.0
+    assert math.isclose(result.pose.yaw, 0.1)
 
 
 def test_command_motion_prior_cannot_create_motion_without_scan_evidence():
