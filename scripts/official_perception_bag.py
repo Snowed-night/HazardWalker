@@ -330,6 +330,11 @@ def read_runtime_localization_provenance(timeout_sec: float) -> str:
             'std_msgs/msg/String',
             '--field', 'data', '--once',
             '--qos-durability', 'transient_local',
+            # Jazzy/FastDDS 下仅指定 durability 时，CLI 可能使用与发布者
+            # 不完全匹配的默认策略，导致已有缓存样本仍等待至超时。
+            '--qos-reliability', 'reliable',
+            '--qos-history', 'keep_last',
+            '--qos-depth', '1',
         ], cwd=REPO_ROOT, text=True, stderr=subprocess.STDOUT,
            timeout=timeout_sec)
     except (OSError, subprocess.CalledProcessError,

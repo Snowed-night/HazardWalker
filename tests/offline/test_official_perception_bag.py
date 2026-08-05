@@ -95,6 +95,26 @@ def test_runtime_localization_provenance_echo_parser_handles_field_and_yaml():
     ) == 'lidar_imu_slam+public_floor_action'
 
 
+def test_runtime_localization_provenance_cli_uses_exact_transient_qos(monkeypatch):
+    """当前 Jazzy/FastDDS 需要完整 QoS 才能取得 transient-local 缓存。"""
+    captured = {}
+
+    def fake_check_output(command, **kwargs):
+        captured['command'] = command
+        captured['kwargs'] = kwargs
+        return 'lidar_imu_slam\n---\n'
+
+    monkeypatch.setattr(MODULE.subprocess, 'check_output', fake_check_output)
+
+    assert MODULE.read_runtime_localization_provenance(3.0) == 'lidar_imu_slam'
+    command = captured['command']
+    assert command[command.index('--qos-durability') + 1] == 'transient_local'
+    assert command[command.index('--qos-reliability') + 1] == 'reliable'
+    assert command[command.index('--qos-history') + 1] == 'keep_last'
+    assert command[command.index('--qos-depth') + 1] == '1'
+    assert captured['kwargs']['timeout'] == 3.0
+
+
 def test_patrol_coverage_echo_parser_ignores_diagnostics():
     payload = MODULE.parse_patrol_coverage_echo(
         'warning: daemon restarted\n'

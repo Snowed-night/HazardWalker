@@ -36,3 +36,12 @@ def test_unitree_controller_registration_is_idempotent():
     assert "factory_map.find(class_name)" in source
     assert "existing->second->addOwningClassLoader" in source
     assert "PLUGINLIB_EXPORT_CLASS(" not in source
+
+
+def test_building_service_helper_sources_actual_catkin_workspace():
+    """门和电梯控制必须加载 auto_docker.sh 构建出的隐藏 Catkin 工作区。"""
+    helper = (PLATFORM_ROOT / "scripts" / "hw_service_call.sh").read_text(
+        encoding="utf-8"
+    )
+    assert helper.count("source .ros1_catkin_ws/devel/setup.bash") == 2
+    assert "source devel/setup.bash" not in helper
