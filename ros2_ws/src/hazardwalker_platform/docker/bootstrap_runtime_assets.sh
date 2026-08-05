@@ -6,7 +6,8 @@ PLATFORM_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DEST_SRC="$PLATFORM_ROOT/src"
 
 runtime_assets_ready() {
-  [[ -f "$DEST_SRC/unitree_guide/logs/policy_act_inference_stair.pt" && \
+  [[ -f "$DEST_SRC/unitree_guide/logs/policy_act_inference_plane.pt" && \
+     -f "$DEST_SRC/unitree_guide/logs/policy_act_inference_stair.pt" && \
      -f "$DEST_SRC/unitree_guide/unitree_guide/unitree_guide/library/unitree_legged_sdk-3.8.0/lib/cpp/amd64/libunitree_legged_sdk.a" && \
      -f "$DEST_SRC/unitree_guide/unitree_guide/unitree_actuator_sdk/unitree_motor_ctrl/lib/libUnitree_motor_SDK_Linux.so" ]]
 }

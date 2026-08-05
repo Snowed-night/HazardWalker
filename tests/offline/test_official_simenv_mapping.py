@@ -165,8 +165,13 @@ def test_clean_clone_bootstraps_ignored_unitree_runtime_assets_safely():
     assert "-name '*.so'" in source
     assert "-name '*.a'" in source
     assert "-name '*.pt'" in source
+    assert 'policy_act_inference_plane.pt' in source
+    assert 'policy_act_inference_stair.pt' in source
     assert 'danger_truth' not in source
     assert 'bash "$RUNTIME_ASSET_BOOTSTRAP"' in wrapper
+    ensure_runtime = wrapper.split('ensure_runtime() {', 1)[1].split('\n}', 1)[0]
+    assert ensure_runtime.index('bash "$RUNTIME_ASSET_BOOTSTRAP"') < ensure_runtime.index(
+        'if runtime_ready')
 
 
 def test_container_health_requires_current_startup_ready_marker():

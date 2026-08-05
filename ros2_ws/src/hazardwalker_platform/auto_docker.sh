@@ -43,10 +43,12 @@ runtime_ready() {
 }
 
 ensure_runtime() {
+  # 控制策略和预编译 SDK 均被 Git 忽略；即使 junior_ctrl 已编译，也必须
+  # 在每次启动前确认这些运行资产仍然存在。
+  bash "$RUNTIME_ASSET_BOOTSTRAP"
   if runtime_ready; then
     return 0
   fi
-  bash "$RUNTIME_ASSET_BOOTSTRAP"
   echo "Catkin runtime missing; rebuilding .ros1_catkin_ws before startup..."
   "$ROOT/docker/auto_noetic.sh" build
   if ! runtime_ready; then
