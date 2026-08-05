@@ -16,8 +16,24 @@ from hazardwalker_perception.scan_imu_localization import (
     floor_index_to_elevation,
     point_cloud_xyz_to_base_points,
     quaternion_to_yaw,
+    quaternion_upright_cosine,
     scan_ranges_to_points,
 )
+
+
+def test_quaternion_upright_cosine_rejects_sideways_body():
+    assert math.isclose(
+        quaternion_upright_cosine(0.0, 0.0, 0.0, 1.0), 1.0,
+    )
+    # 绕 X 轴旋转 90°，机体 z 轴已与世界 z 轴垂直。
+    half_sqrt = math.sqrt(0.5)
+    assert math.isclose(
+        quaternion_upright_cosine(
+            half_sqrt, 0.0, 0.0, half_sqrt,
+        ),
+        0.0,
+        abs_tol=1e-9,
+    )
 
 
 def test_scan_ranges_filter_invalid_points_and_respect_stride():
@@ -141,8 +157,8 @@ def test_scan_imu_localizer_does_not_drift_when_stationary_scores_tie():
     assert abs(result.pose.y) < 1e-9
 
 
-def test_command_motion_prior_breaks_degenerate_corridor_tie_forward():
-    """走廊几何退化时，同分解应沿公开 cmd_vel 先验而非跳到反方向。"""
+def test_command_motion_prior_cannot_create_motion_without_scan_evidence():
+    """走廊证据不足时，cmd_vel 不能被当作机器人真实位移。"""
     localizer = ScanImuLocalizer(ScanImuLocalizerConfig(
         laser_offset_x_m=0.0,
         laser_offset_y_m=0.0,
@@ -159,13 +175,13 @@ def test_command_motion_prior_breaks_degenerate_corridor_tie_forward():
         motion_prior_base=(0.05, 0.0),
     )
 
-    assert result.status == 'motion_prior_only'
-    assert result.pose.x > 0.0
-    assert abs(result.pose.y) < 0.05
+    assert result.status == 'insufficient_scan_evidence'
+    assert abs(result.pose.x) < 1e-9
+    assert abs(result.pose.y) < 1e-9
 
 
-def test_tracking_match_cannot_reverse_command_prior_in_corridor():
-    """即使 ICP 达到匹配阈值，也不得用长走廊多解反转已下发动作方向。"""
+def test_stationary_scan_overrides_nonzero_command_prior():
+    """即使命令非零，重复扫描也必须判定为未发生平移。"""
     localizer = ScanImuLocalizer(ScanImuLocalizerConfig(
         laser_offset_x_m=0.0,
         laser_offset_y_m=0.0,
@@ -173,8 +189,8 @@ def test_tracking_match_cannot_reverse_command_prior_in_corridor():
         search_step_m=0.05,
         occupancy_resolution_m=0.08,
         min_match_count=1,
-        scan_correction_gain=0.02,
-        max_scan_correction_m=0.001,
+        scan_correction_gain=1.0,
+        max_scan_correction_m=0.25,
     ))
     repeated_scan = [(2.0, y * 0.08) for y in range(-10, 11)]
     localizer.update_points(repeated_scan, imu_yaw_rad=0.0)
@@ -185,17 +201,17 @@ def test_tracking_match_cannot_reverse_command_prior_in_corridor():
     )
 
     assert result.status == 'tracking'
-    assert result.pose.x >= 0.049
-    assert abs(result.pose.y) <= 0.0011
+    assert abs(result.pose.x) < 1e-6
+    assert abs(result.pose.y) < 1e-6
 
 
-def test_repeated_corridor_updates_accumulate_forward_without_lateral_runaway():
+def test_repeated_stationary_corridor_updates_do_not_accumulate_command_motion():
     localizer = ScanImuLocalizer(ScanImuLocalizerConfig(
         laser_offset_x_m=0.0,
         laser_offset_y_m=0.0,
         min_match_count=1,
-        scan_correction_gain=0.02,
-        max_scan_correction_m=0.001,
+        scan_correction_gain=1.0,
+        max_scan_correction_m=0.25,
     ))
     repeated_scan = [(2.0, y * 0.08) for y in range(-10, 11)]
     localizer.update_points(repeated_scan, imu_yaw_rad=0.0)
@@ -207,8 +223,8 @@ def test_repeated_corridor_updates_accumulate_forward_without_lateral_runaway():
             motion_prior_base=(0.01, 0.0),
         )
 
-    assert result.pose.x > 0.18
-    assert abs(result.pose.y) < 0.025
+    assert abs(result.pose.x) < 1e-6
+    assert abs(result.pose.y) < 1e-6
 
 
 def test_scan_imu_icp_keeps_translation_stable_during_in_place_rotation():

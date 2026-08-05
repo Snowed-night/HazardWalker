@@ -151,18 +151,26 @@ FSMStateName FSM::getHeadlessNextState(){
         return FSMStateName::FIXEDSTAND;
     }
     if (_currentState->_stateName == FSMStateName::FIXEDSTAND) {
-        // 无速度命令时始终固定站立；只有用户实际发出非零 /cmd_vel 才进入 RL。
-        // 这样既避免启动瞬间跌倒，也避免 RL 静止策略呈现为低趴姿态。
-        if (!_headlessAutoRl || !_stateList.fixedStand->hasFreshMotionCommand()) {
+        // 无速度命令时始终固定站立；只有用户实际发出非零 /cmd_vel 才进入
+        // 行走控制器。SIMENV_AUTO_RL=1 选择学习策略，=0 选择官方经典
+        // move_base/步态控制器，便于在低实时倍率或策略不稳定时安全回退。
+        if (!_stateList.fixedStand->hasFreshMotionCommand()) {
             return FSMStateName::FIXEDSTAND;
         }
-        return FSMStateName::RL;
+        if (_headlessAutoRl) {
+            return FSMStateName::RL;
+        }
+#ifdef COMPILE_WITH_MOVE_BASE
+        return FSMStateName::MOVE_BASE;
+#else
+        return FSMStateName::FIXEDSTAND;
+#endif
     }
-    if (_currentState->_stateName == FSMStateName::RL) {
-        // 已切入 RL 后由 RL 自身的速度看门狗完成停车。不能再读取 fixedStand
-        // 对象的时间戳：RL 状态下该对象不处理 ROS 回调，会把正常行走误判为超时，
-        // 导致每个速度指令刚生效就被切回固定站立。
-        return FSMStateName::RL;
+    if (_currentState->_stateName == FSMStateName::RL
+            || _currentState->_stateName == FSMStateName::MOVE_BASE) {
+        // 已切入行走状态后保持该状态。各控制器自行处理速度更新；不能再读取
+        // fixedStand 对象的时间戳，否则正常行走会被误切回固定站立。
+        return _currentState->_stateName;
     }
     // 其他状态保持不变。
     return _currentState->_stateName;

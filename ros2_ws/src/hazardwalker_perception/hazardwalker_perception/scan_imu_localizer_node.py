@@ -21,9 +21,11 @@ from std_msgs.msg import Int32, String
 from tf2_ros import TransformBroadcaster
 
 from hazardwalker_perception.scan_imu_localization import (
+    ScanMatchResult,
     ScanImuLocalizer,
     ScanImuLocalizerConfig,
     floor_index_to_elevation,
+    quaternion_upright_cosine,
     quaternion_to_yaw,
 )
 
@@ -63,6 +65,9 @@ class ScanImuLocalizerNode(Node):
         self.declare_parameter('min_effective_linear_speed_mps', 0.30)
         self.declare_parameter('command_fresh_timeout_s', 0.5)
         self.declare_parameter('max_scan_dt_s', 0.25)
+        # 与官方控制器安全检查一致：机体倾斜超过 60° 时冻结平移，避免倒地后
+        # 的畸变扫描和仍在发布的 cmd_vel 伪造巡检覆盖或危险源位置。
+        self.declare_parameter('min_upright_cosine', 0.5)
 
         self.odom_frame = str(self.get_parameter('odom_frame').value)
         self.base_frame = str(self.get_parameter('base_frame').value)
@@ -87,6 +92,7 @@ class ScanImuLocalizerNode(Node):
             laser_offset_y_m=float(self.get_parameter('laser_offset_y_m').value),
         ))
         self.latest_imu_yaw = None
+        self.latest_upright_cosine = None
         self.latest_command = Twist()
         self._last_command_monotonic = None
         self._last_scan_time_sec = None
@@ -155,6 +161,9 @@ class ScanImuLocalizerNode(Node):
         self.latest_imu_yaw = quaternion_to_yaw(
             orientation.x, orientation.y, orientation.z, orientation.w,
         )
+        self.latest_upright_cosine = quaternion_upright_cosine(
+            orientation.x, orientation.y, orientation.z, orientation.w,
+        )
 
     def on_cmd_vel(self, message):
         """保存本系统已下发的合法控制，作为退化走廊中的短时匹配方向先验。"""
@@ -189,6 +198,23 @@ class ScanImuLocalizerNode(Node):
             self.get_logger().warn(
                 '等待 /hw/trunk_imu 后再进行扫描匹配。',
                 throttle_duration_sec=5.0,
+            )
+            return
+        if (self.latest_upright_cosine is None
+                or self.latest_upright_cosine
+                < float(self.get_parameter('min_upright_cosine').value)):
+            self.get_logger().error(
+                '机体明显倾倒，冻结合法里程计平移；恢复站立后再继续定位。',
+                throttle_duration_sec=5.0,
+            )
+            self.publish_pose(
+                ScanMatchResult(
+                    self.localizer.pose,
+                    'robot_not_upright',
+                    0,
+                    0.0,
+                ),
+                message.header.stamp,
             )
             return
         scan_time_sec = (

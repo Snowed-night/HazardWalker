@@ -51,6 +51,7 @@ CONTROLLER_READY_TIMEOUT_SEC="${CONTROLLER_READY_TIMEOUT_SEC:-60}"
 CONTROLLER_AUTO_STAND_DELAY_SEC="${CONTROLLER_AUTO_STAND_DELAY_SEC:-5}"
 CONTROLLER_AUTO_RL_DELAY_SEC="${CONTROLLER_AUTO_RL_DELAY_SEC:-2}"
 VERIFY_CONTROLLER_MOTION="${VERIFY_CONTROLLER_MOTION:-0}"
+controller_motion_verified=0
 CONTROLLER_RL_SETTLE_SEC="${CONTROLLER_RL_SETTLE_SEC:-3.0}"
 CONTROLLER_PROBE_SPEED_MPS="${CONTROLLER_PROBE_SPEED_MPS:-0.30}"
 CONTROLLER_PROBE_DURATION_SEC="${CONTROLLER_PROBE_DURATION_SEC:-3.0}"
@@ -450,6 +451,7 @@ raise SystemExit(0 if minimum <= distance <= maximum and height >= min_height el
       exit 1
     fi
     echo "Controller physical /cmd_vel probe passed: ${probe_displacement}m, base_z=${probe_z_after}m."
+    controller_motion_verified=1
   fi
 fi
 
@@ -496,8 +498,10 @@ fi
 
 touch "$RUNTIME_READY_FILE"
 echo "Simulation startup completed; keeping Docker main process attached to Gazebo."
-if [ "$START_CONTROLLER" = "1" ] && [ "$SIMENV_AUTO_RL" = "1" ]; then
-  echo "Headless RL state and physical /cmd_vel response were verified."
+if [ "$controller_motion_verified" = "1" ]; then
+  echo "Headless walking state and physical /cmd_vel response were verified."
+elif [ "$START_CONTROLLER" = "1" ]; then
+  echo "Controller process, fixed stand, and /cmd_vel subscription are ready; physical motion probe was not requested."
 fi
 # Docker 以本脚本为 PID 1。等待 roslaunch 退出可避免“脚本结束但 Gazebo/中继被
 # Docker 回收”的脱节；容器停止时 Docker 会向同一进程组发送终止信号。
