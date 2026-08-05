@@ -58,6 +58,7 @@ CONTROLLER_PROBE_DURATION_SEC="${CONTROLLER_PROBE_DURATION_SEC:-3.0}"
 CONTROLLER_PROBE_MIN_DISPLACEMENT_M="${CONTROLLER_PROBE_MIN_DISPLACEMENT_M:-0.05}"
 CONTROLLER_PROBE_MAX_DISPLACEMENT_M="${CONTROLLER_PROBE_MAX_DISPLACEMENT_M:-1.00}"
 CONTROLLER_PROBE_MIN_BASE_HEIGHT_M="${CONTROLLER_PROBE_MIN_BASE_HEIGHT_M:-0.30}"
+CONTROLLER_STAND_SETTLE_SEC="${CONTROLLER_STAND_SETTLE_SEC:-6.0}"
 # 等仿真时钟稳定后再启动 rosbridge，避免新客户端收到启动期陈旧队列。
 ROSBRIDGE_START_AFTER_SIM_TIME_SEC="${ROSBRIDGE_START_AFTER_SIM_TIME_SEC:-1}"
 ROBOT_X="${ROBOT_X:-0.0}"
@@ -376,7 +377,23 @@ if [ "$START_CONTROLLER" = "1" ] && [ "$SIMENV_HEADLESS_MODE" = "move_base" ]; t
     fi
     sleep 0.2
   done
-  echo "junior_ctrl fixed stand state is ready; non-zero /cmd_vel will switch to RL walking."
+  # 状态切换日志不等于真的站稳。等待关节插值结束后用官方诊断里程计只做
+  # 平台健康门禁；该真值不进入感知、SLAM、导航或比赛结果。
+  sleep "$CONTROLLER_STAND_SETTLE_SEC"
+  controller_base_z="$(
+    timeout 10 rostopic echo -n 1 /Odometry_gazebo 2>/dev/null |
+      awk '/^    position:/{in_position=1; next} in_position && /^      z:/{print $2; exit}' \
+      || true
+  )"
+  if [ -z "$controller_base_z" ] || ! python3 -c '
+import math, sys
+height, minimum = map(float, sys.argv[1:])
+raise SystemExit(0 if math.isfinite(height) and height >= minimum else 1)
+' "$controller_base_z" "$CONTROLLER_PROBE_MIN_BASE_HEIGHT_M"; then
+    echo "Controller fixed-stand posture failed: base_z=${controller_base_z:-missing}m." >&2
+    exit 1
+  fi
+  echo "junior_ctrl fixed stand is physically upright: base_z=${controller_base_z}m."
 fi
 
 # 仅保留给专门的动态控制诊断，不在正常启动时自动进入 RL。

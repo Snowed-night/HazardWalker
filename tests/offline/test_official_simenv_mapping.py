@@ -613,9 +613,21 @@ def test_compose_starts_the_complete_official_ros1_entry():
     assert 'CONTROLLER_PROBE_MIN_DISPLACEMENT_M' in entry
     assert 'CONTROLLER_PROBE_MAX_DISPLACEMENT_M' in entry
     assert 'CONTROLLER_PROBE_MIN_BASE_HEIGHT_M' in entry
+    assert 'Controller fixed-stand posture failed:' in entry
+    assert 'junior_ctrl fixed stand is physically upright:' in entry
+    assert 'physical motion probe was not requested' in entry
+    assert 'Headless RL state and physical /cmd_vel response were verified.' not in entry
     assert 'CONTROLLER_RL_SETTLE_SEC' in entry
     assert 'UNITREE_CTRL_DT="${UNITREE_CTRL_DT:-0.004}"' in entry
     assert 'wait "$LAUNCH_PID"' in entry
+
+    fixed_stand = (
+        REPO_ROOT / 'ros2_ws' / 'src' / 'hazardwalker_platform' / 'src' /
+        'unitree_guide' / 'unitree_guide' / 'unitree_guide' / 'src' / 'FSM' /
+        'State_FixedStand.cpp'
+    ).read_text(encoding='utf-8')
+    assert '_percent = 0.0f;' in fixed_stand
+    assert '? 1.0f : 0.0f' not in fixed_stand
 
     docker_wrapper = (
         REPO_ROOT / 'ros2_ws' / 'src' / 'hazardwalker_platform' /
