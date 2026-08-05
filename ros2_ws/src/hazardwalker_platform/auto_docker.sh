@@ -7,6 +7,7 @@ cd "$ROOT"
 CATKIN_WORKSPACE="$ROOT/.ros1_catkin_ws"
 HAZARDWALKER_ROOT="${HAZARDWALKER_ROOT:-$(cd "$ROOT/../../.." && pwd)}"
 ADAPTER_MANAGER="$HAZARDWALKER_ROOT/scripts/manage_official_simenv_rosbridge_adapter.sh"
+RUNTIME_ASSET_BOOTSTRAP="$ROOT/docker/bootstrap_runtime_assets.sh"
 export HAZARDWALKER_ROOT
 export SIMENV_CONTAINER="${SIMENV_CONTAINER:-simenv_ros1_${DOCKER_SIMENV_USER:-${USER:-default}}}"
 export ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-${OFFICIAL_SIMENV_ROS_DOMAIN_ID:-42}}"
@@ -45,6 +46,7 @@ ensure_runtime() {
   if runtime_ready; then
     return 0
   fi
+  bash "$RUNTIME_ASSET_BOOTSTRAP"
   echo "Catkin runtime missing; rebuilding .ros1_catkin_ws before startup..."
   "$ROOT/docker/auto_noetic.sh" build
   if ! runtime_ready; then
@@ -99,6 +101,7 @@ wait_for_container_ready() {
 
 case "${1:-up}" in
   build)
+    bash "$RUNTIME_ASSET_BOOTSTRAP"
     if [[ -f "$CATKIN_WORKSPACE/devel/lib/unitree_guide/junior_ctrl" && "${2:-}" != "force" ]]; then
       echo ".ros1_catkin_ws/devel/ already contains junior_ctrl."
       echo "Use './auto_docker.sh build force' to rebuild inside container (LibTorch is in the image)."

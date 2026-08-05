@@ -65,6 +65,7 @@ services:
         - CMD-SHELL
         - >-
           bash -lc 'source /opt/ros/noetic/setup.bash &&
+          test -f /tmp/hazardwalker-simenv-runtime-ready &&
           { [ "$${START_CONTROLLER:-1}" != "1" ] ||
           { pgrep -x junior_ctrl >/dev/null &&
           rostopic info /cmd_vel 2>/dev/null |

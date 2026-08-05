@@ -8,6 +8,9 @@ WORKSPACE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CATKIN_WORKSPACE_DIR="${CATKIN_WORKSPACE_DIR:-$WORKSPACE_DIR/.ros1_catkin_ws}"
 CATKIN_DEVEL_DIR="$CATKIN_WORKSPACE_DIR/devel"
 cd "$WORKSPACE_DIR"
+RUNTIME_READY_FILE="/tmp/hazardwalker-simenv-runtime-ready"
+# 健康检查只能在本轮完整启动结束后通过；先清除同容器上轮残留标记。
+rm -f "$RUNTIME_READY_FILE"
 
 SEED="${SEED:-}"
 FLOOR_COUNT="${FLOOR_COUNT:-3}"
@@ -484,8 +487,14 @@ if [ "$START_ROSBRIDGE" = "1" ]; then
   roslaunch rosbridge_server rosbridge_websocket.launch \
     > "$WORKSPACE_DIR/logs/rosbridge.log" 2>&1 &
   echo $! > "$WORKSPACE_DIR/logs/rosbridge.pid"
+  timeout "$CONTROLLER_READY_TIMEOUT_SEC" bash -lc \
+    'until rosnode ping -c 1 /rosbridge_websocket >/dev/null 2>&1; do sleep 0.2; done' || {
+      echo "rosbridge node did not become ready." >&2
+      exit 1
+    }
 fi
 
+touch "$RUNTIME_READY_FILE"
 echo "Simulation startup completed; keeping Docker main process attached to Gazebo."
 if [ "$START_CONTROLLER" = "1" ] && [ "$SIMENV_AUTO_RL" = "1" ]; then
   echo "Headless RL state and physical /cmd_vel response were verified."

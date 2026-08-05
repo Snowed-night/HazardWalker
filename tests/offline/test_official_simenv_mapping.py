@@ -156,6 +156,31 @@ def test_adapter_waits_for_declared_container_healthcheck_to_pass():
     assert '"$health_configured" == false && "$health" == none' in source
 
 
+def test_clean_clone_bootstraps_ignored_unitree_runtime_assets_safely():
+    source = (
+        PLATFORM_SRC / 'docker' / 'bootstrap_runtime_assets.sh'
+    ).read_text(encoding='utf-8')
+    wrapper = (PLATFORM_SRC / 'auto_docker.sh').read_text(encoding='utf-8')
+    assert 'OFFICIAL_SIMENV_SOURCE_ROOT' in source
+    assert "-name '*.so'" in source
+    assert "-name '*.a'" in source
+    assert "-name '*.pt'" in source
+    assert 'danger_truth' not in source
+    assert 'bash "$RUNTIME_ASSET_BOOTSTRAP"' in wrapper
+
+
+def test_container_health_requires_current_startup_ready_marker():
+    startup = (PLATFORM_SRC / 'auto.sh').read_text(encoding='utf-8')
+    compose = (
+        PLATFORM_SRC / 'docker' / 'docker-compose.yml'
+    ).read_text(encoding='utf-8')
+    marker = '/tmp/hazardwalker-simenv-runtime-ready'
+    assert f'RUNTIME_READY_FILE="{marker}"' in startup
+    assert 'rm -f "$RUNTIME_READY_FILE"' in startup
+    assert 'touch "$RUNTIME_READY_FILE"' in startup
+    assert f'test -f {marker}' in compose
+
+
 def test_control_and_tf_contract_do_not_hide_platform_difference():
     assert HW_CMD_VEL == '/hw/cmd_vel'
     assert OFFICIAL_CMD_VEL == '/cmd_vel'
