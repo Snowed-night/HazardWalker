@@ -147,6 +147,15 @@ def test_official_container_has_bounded_memory_and_no_oom_restart_loop():
     assert 'SIMENV_MEMORY_LIMIT=32g' in wrapper
 
 
+def test_adapter_waits_for_declared_container_healthcheck_to_pass():
+    """容器刚创建时的临时 health=none 不能触发适配器抢跑。"""
+
+    source = (PLATFORM_SRC / 'auto_docker.sh').read_text(encoding='utf-8')
+    assert '.Config.Healthcheck' in source
+    assert '"$health_configured" == true && "$health" == healthy' in source
+    assert '"$health_configured" == false && "$health" == none' in source
+
+
 def test_control_and_tf_contract_do_not_hide_platform_difference():
     assert HW_CMD_VEL == '/hw/cmd_vel'
     assert OFFICIAL_CMD_VEL == '/cmd_vel'

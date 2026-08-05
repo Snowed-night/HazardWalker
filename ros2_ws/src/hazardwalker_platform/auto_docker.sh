@@ -72,12 +72,19 @@ manage_adapter() {
 
 wait_for_container_ready() {
   local timeout_sec="${OFFICIAL_SIMENV_CONTAINER_READY_TIMEOUT_SEC:-180}"
-  local deadline=$((SECONDS + timeout_sec)) running health
+  local deadline=$((SECONDS + timeout_sec)) running health health_configured
   while (( SECONDS < deadline )); do
     running="$(docker inspect -f '{{.State.Running}}' "$SIMENV_CONTAINER" 2>/dev/null || true)"
     health="$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' \
       "$SIMENV_CONTAINER" 2>/dev/null || true)"
-    if [[ "$running" == true && ( "$health" == healthy || "$health" == none ) ]]; then
+    health_configured="$(docker inspect -f \
+      '{{if .Config.Healthcheck}}true{{else}}false{{end}}' \
+      "$SIMENV_CONTAINER" 2>/dev/null || true)"
+    # Docker 创建容器后的极短窗口里，Config 已声明健康检查，但 State.Health
+    # 还可能暂时不存在。此时 health=none 不是就绪，只能等待明确的 healthy。
+    if [[ "$running" == true && \
+          ( ( "$health_configured" == true && "$health" == healthy ) || \
+            ( "$health_configured" == false && "$health" == none ) ) ]]; then
       return 0
     fi
     if [[ "$running" == false || "$health" == unhealthy ]]; then
