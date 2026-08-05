@@ -97,6 +97,15 @@ MINIMUM_LIVE_RATE_HZ = {
     '/hw/perception/patrol_coverage': 0.5,
 }
 
+# 相机和感知回调的处理预算属于比赛仿真时间，应以 /clock 的实际推进量
+# 归一化；控制看门狗与健康心跳直接影响人在墙钟下的安全响应，仍按墙钟计。
+SIM_TIME_RATE_TOPICS = {
+    '/hw/camera/image_raw',
+    '/hw/camera/depth_image',
+    '/hw/perception/hazard_detections',
+    '/hw/perception/view_recommendation',
+}
+
 REQUIRED_SERVICES = (
     '/hw/control/assist_align/start',
     '/hw/control/assist_align/cancel',
@@ -351,12 +360,18 @@ def evaluate_snapshot(
                     f'采样窗口无消息：{topic}（确认仿真已解除暂停）')
         sample_sec = float(snapshot.get('sample_sec', 0.0) or 0.0)
         if sample_sec > 0.0:
+            sim_elapsed_sec = float(
+                snapshot.get('sim_elapsed_sec', 0.0) or 0.0)
             for topic, minimum_hz in MINIMUM_LIVE_RATE_HZ.items():
-                measured_hz = float(counts.get(topic, 0)) / sample_sec
+                use_sim_timebase = (
+                    topic in SIM_TIME_RATE_TOPICS and sim_elapsed_sec > 0.0)
+                elapsed_sec = sim_elapsed_sec if use_sim_timebase else sample_sec
+                measured_hz = float(counts.get(topic, 0)) / elapsed_sec
                 if measured_hz < minimum_hz:
+                    timebase = '仿真时间' if use_sim_timebase else '墙钟'
                     failures.append(
                         f'实时频率不足：{topic}={measured_hz:.2f} Hz，'
-                        f'最低 {minimum_hz:.2f} Hz')
+                        f'最低 {minimum_hz:.2f} Hz（{timebase}基准）')
         first_person = snapshot.get('first_person_health')
         if not isinstance(first_person, dict):
             failures.append('缺少第一人称 GUI 健康状态')
@@ -418,6 +433,7 @@ def capture_snapshot(control_source: str, graph_timeout_sec: float,
     subscriptions = []
     counts = defaultdict(int)
     latest_string_payloads = {}
+    clock_bounds_sec = [None, None]
     expected_types = dict(TOPIC_TYPES)
     expected_types[CONTROL_SOURCE_TOPICS[control_source]] = (
         'geometry_msgs/msg/Twist')
@@ -439,6 +455,13 @@ def capture_snapshot(control_source: str, graph_timeout_sec: float,
 
             def on_message(message, observed_topic=topic):
                 counts[observed_topic] += 1
+                if observed_topic == '/clock' and hasattr(message, 'clock'):
+                    stamp = message.clock
+                    stamp_sec = (
+                        float(stamp.sec) + float(stamp.nanosec) * 1e-9)
+                    if clock_bounds_sec[0] is None:
+                        clock_bounds_sec[0] = stamp_sec
+                    clock_bounds_sec[1] = stamp_sec
                 if hasattr(message, 'data'):
                     latest_string_payloads[observed_topic] = str(message.data)
 
@@ -472,12 +495,17 @@ def capture_snapshot(control_source: str, graph_timeout_sec: float,
             }
         services = sorted(name for name, _types in
                           node.get_service_names_and_types())
+        sim_elapsed_sec = 0.0
+        if all(value is not None for value in clock_bounds_sec):
+            sim_elapsed_sec = max(
+                0.0, float(clock_bounds_sec[1]) - float(clock_bounds_sec[0]))
         return {
             'schema': 'hazardwalker_perception_live_chain_preflight_v1',
             'generated_at_utc': datetime.now(timezone.utc).isoformat(),
             'control_source': control_source,
             'graph_timeout_sec': graph_timeout_sec,
             'sample_sec': 0.0 if graph_only else sample_sec,
+            'sim_elapsed_sec': 0.0 if graph_only else sim_elapsed_sec,
             'traffic_checked': not graph_only,
             'topics': topics,
             'services': services,

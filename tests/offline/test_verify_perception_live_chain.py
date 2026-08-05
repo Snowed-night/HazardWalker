@@ -230,6 +230,26 @@ def test_formal_preflight_rejects_non_realtime_rgbd_and_detection_rates():
                for item in failures)
 
 
+def test_sensor_rates_use_sim_time_but_control_uses_wall_clock():
+    snapshot = _valid_snapshot()
+    snapshot['sample_sec'] = 10.0
+    snapshot['sim_elapsed_sec'] = 1.0
+    for topic in MODULE.SIM_TIME_RATE_TOPICS:
+        snapshot['message_counts'][topic] = 3
+    snapshot['message_counts']['/hw/cmd_vel'] = 60
+    snapshot['message_counts']['/hw/perception/patrol_coverage'] = 5
+    failures = MODULE.evaluate_snapshot(snapshot, 'keyboard')
+    assert not any('实时频率不足' in item for item in failures)
+
+    snapshot['message_counts']['/hw/cmd_vel'] = 20
+    snapshot['message_counts']['/hw/perception/patrol_coverage'] = 1
+    failures = MODULE.evaluate_snapshot(snapshot, 'keyboard')
+    assert any('/hw/cmd_vel' in item and '墙钟基准' in item
+               for item in failures)
+    assert any('/hw/perception/patrol_coverage' in item and '墙钟基准' in item
+               for item in failures)
+
+
 def test_duplicate_platform_adapter_and_missing_map_traffic_fail_closed():
     snapshot = _valid_snapshot()
     snapshot['topics']['/hw/scan']['publishers'].append(
