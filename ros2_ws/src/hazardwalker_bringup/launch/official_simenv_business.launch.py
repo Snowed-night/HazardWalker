@@ -322,7 +322,10 @@ def generate_launch_description():
             parameters=[{
                 'odometry_topic': '/hazardwalker/slam/odometry',
                 'coverage_topic': '/hw/perception/patrol_coverage',
-                'use_sim_time': sim_time_parameter,
+                # 覆盖心跳用于按墙钟判断正式录制链是否存活；累计路径仍只取
+                # 合法里程计消息的仿真时间戳。低实时倍率不能把 1 Hz 健康
+                # 心跳拖成 0.1 Hz，否则会把有效运行误判为话题中断。
+                'use_sim_time': False,
             }],
             condition=IfCondition(start_perception),
         ),

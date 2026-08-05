@@ -408,6 +408,18 @@ def test_unified_control_launch_keeps_navigation_behind_command_mux():
     compile(source, 'official_simenv_control_interface.launch.py', 'exec')
 
 
+def test_patrol_coverage_heartbeat_uses_wall_clock():
+    """覆盖心跳不能随 Gazebo 低实时倍率降频。"""
+
+    source = (
+        REPO_ROOT / 'ros2_ws' / 'src' / 'hazardwalker_bringup' / 'launch' /
+        'official_simenv_business.launch.py'
+    ).read_text(encoding='utf-8')
+    marker = "executable='patrol_coverage_node'"
+    block = source[source.index(marker):source.index(marker) + 900]
+    assert "'use_sim_time': False" in block
+
+
 def test_legacy_simenv_demo_is_a_safe_official_business_wrapper():
     """旧 launch 名称不能重新引入 PR #33 的 TF 合并和默认控制。"""
 
