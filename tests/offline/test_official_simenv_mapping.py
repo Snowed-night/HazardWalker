@@ -634,6 +634,9 @@ def test_compose_starts_the_complete_official_ros1_entry():
     assert 'stop_adapter' in adapter_manager
     assert 'node_visible' in adapter_manager
     assert 'single_node_visible' in adapter_manager
+    assert 'stable_single_node_visible' in adapter_manager
+    assert 'node_count > 1' in adapter_manager
+    assert 'SECONDS + DISCOVERY_SETTLE_SEC' in adapter_manager
     assert "grep -cx '/hazardwalker_official_rosbridge_adapter'" in adapter_manager
     assert 'ROS2 node: duplicate count=' in adapter_manager
     assert 'kill -TERM "$pid"' in adapter_manager

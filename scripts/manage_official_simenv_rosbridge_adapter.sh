@@ -79,6 +79,14 @@ single_node_visible() {
   (( $(visible_node_count) == 1 ))
 }
 
+stable_single_node_visible() {
+  local deadline=$((SECONDS + DISCOVERY_SETTLE_SEC))
+  while (( SECONDS < deadline )); do
+    (( $(visible_node_count) == 1 )) || return 1
+    sleep 0.2
+  done
+}
+
 stop_pid() {
   local pid="$1" deadline
   pid_matches_adapter "$pid" || return 0
@@ -104,10 +112,16 @@ stop_adapter() {
 
   if (( ${#pids[@]} == 0 )); then
     rm -f "$PID_FILE" "$SIGNATURE_FILE"
-    if node_visible; then
-      echo "[adapter-manager] 同一 ROS 域仍有其他会话的适配器；请由进程所有者停止：domain=$ROS_DOMAIN_ID" >&2
-      return 1
-    fi
+    # 每次 ros2 CLI 都创建新的 DDS 参与者，首个快照可能尚未发现其他账号的
+    # 同名节点。完整等待一个发现窗口，防止把“暂未发现”误判为环境空闲。
+    deadline=$((SECONDS + DISCOVERY_SETTLE_SEC))
+    while (( SECONDS < deadline )); do
+      if node_visible; then
+        echo "[adapter-manager] 同一 ROS 域仍有其他会话的适配器；请由进程所有者停止：domain=$ROS_DOMAIN_ID" >&2
+        return 1
+      fi
+      sleep 0.2
+    done
     echo "[adapter-manager] 适配器未运行：domain=$ROS_DOMAIN_ID"
     return 0
   fi
@@ -132,7 +146,7 @@ stop_adapter() {
 }
 
 start_adapter() {
-  local pid deadline desired_signature current_signature=''
+  local pid deadline node_count desired_signature current_signature=''
   if [[ ! -x "$RUNNER" && ! -f "$RUNNER" ]]; then
     echo "[adapter-manager] 找不到启动脚本：$RUNNER" >&2
     return 1
@@ -142,7 +156,7 @@ start_adapter() {
   [[ -f "$SIGNATURE_FILE" ]] && current_signature="$(tr -cd '0-9a-f' < "$SIGNATURE_FILE")"
   if [[ -f "$PID_FILE" ]]; then
     pid="$(tr -cd '0-9' < "$PID_FILE")"
-    if [[ -n "$pid" ]] && pid_matches_adapter "$pid" && single_node_visible &&
+    if [[ -n "$pid" ]] && pid_matches_adapter "$pid" && stable_single_node_visible &&
        [[ "$current_signature" == "$desired_signature" ]]; then
       echo "[adapter-manager] 适配器已运行：pid=$pid domain=$ROS_DOMAIN_ID"
       return 0
@@ -165,7 +179,14 @@ start_adapter() {
       rm -f "$PID_FILE" "$SIGNATURE_FILE"
       return 1
     fi
-    if single_node_visible; then
+    node_count="$(visible_node_count)"
+    if (( node_count > 1 )); then
+      echo "[adapter-manager] 发现重复适配器：count=$node_count domain=$ROS_DOMAIN_ID" >&2
+      stop_pid "$pid"
+      rm -f "$PID_FILE" "$SIGNATURE_FILE"
+      return 1
+    fi
+    if (( node_count == 1 )) && stable_single_node_visible; then
       echo "[adapter-manager] 适配器已启动：pid=$pid domain=$ROS_DOMAIN_ID log=$LOG_FILE"
       return 0
     fi
