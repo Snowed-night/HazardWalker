@@ -9,6 +9,7 @@ SCRIPTS_DIR = REPO_ROOT / 'scripts'
 if str(SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_DIR))
 
+import git_provenance  # noqa: E402
 from git_provenance import code_dirty_entries  # noqa: E402
 
 
@@ -43,3 +44,17 @@ def test_source_config_docs_and_renamed_code_are_code_changes():
         'scripts/new.py',
         'scripts/new_detector.py',
     ]
+
+
+def test_git_output_preserves_first_porcelain_status_column():
+    """通用 Git 读取不能吞掉 porcelain 第一行的前导状态空格。"""
+
+    original = git_provenance.subprocess.check_output
+    git_provenance.subprocess.check_output = lambda *args, **kwargs: (
+        ' M ros2_ws/src/hazardwalker_platform/generated_building/world.sdf\n')
+    try:
+        output = git_provenance._git_value(REPO_ROOT, 'status', '--porcelain')
+    finally:
+        git_provenance.subprocess.check_output = original
+    assert output.startswith(' M ')
+    assert code_dirty_entries(output) == []

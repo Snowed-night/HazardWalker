@@ -58,7 +58,10 @@ def _git_value(repo_root: Path, *args: str) -> str:
         return subprocess.check_output(
             ['git', *args], cwd=repo_root, text=True,
             stderr=subprocess.DEVNULL,
-        ).strip()
+        # porcelain 第一行可能以空格开头（例如工作区修改 `` M path``）；
+        # 全量 strip 会吞掉状态列，进而把首个路径误删一个字符。提交哈希和
+        # 分支名本就没有前导空格，因此统一只清理行尾。
+        ).rstrip()
     except (OSError, subprocess.CalledProcessError):
         return ''
 
