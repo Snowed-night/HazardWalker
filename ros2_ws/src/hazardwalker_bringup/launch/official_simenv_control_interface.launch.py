@@ -56,7 +56,10 @@ def generate_launch_description():
             output='screen',
             parameters=[{
                 'default_mode': LaunchConfiguration('control_mode'),
-                'use_sim_time': ParameterValue(use_sim_time, value_type=bool),
+                # 控制看门狗和 20 Hz 转发必须使用墙钟。官方 Gazebo 在复杂
+                # 楼宇中实时倍率可能低于 1；若跟随 /clock，控制频率会按同样
+                # 比例下降，造成键盘延迟、转向卡顿和超时停车不及时。
+                'use_sim_time': False,
             }],
         ),
         Node(
@@ -68,7 +71,8 @@ def generate_launch_description():
                 # 状态心跳通常可精确恢复接管前模式；若启动早期尚未收到心跳，
                 # 也必须回到本轮声明的键盘/导航/停止模式，不能硬退回键盘。
                 'fallback_mode': LaunchConfiguration('control_mode'),
-                'use_sim_time': ParameterValue(use_sim_time, value_type=bool),
+                # 辅助对准的超时同属安全控制合同，不得被仿真倍率拖慢。
+                'use_sim_time': False,
             }],
             condition=IfCondition(
                 LaunchConfiguration('start_assist_alignment')),

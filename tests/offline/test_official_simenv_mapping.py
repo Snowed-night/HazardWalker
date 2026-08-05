@@ -403,6 +403,8 @@ def test_unified_control_launch_keeps_navigation_behind_command_mux():
     assert "'navigation_cmd_vel_topic': (" in source
     assert "'/hw/control/navigation_cmd_vel'" in source
     assert "'fallback_mode': LaunchConfiguration('control_mode')" in source
+    # 控制仲裁和辅助接管使用墙钟，不能随复杂 Gazebo 的低实时倍率降频。
+    assert source.count("'use_sim_time': False") == 2
     compile(source, 'official_simenv_control_interface.launch.py', 'exec')
 
 

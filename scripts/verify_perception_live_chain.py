@@ -120,6 +120,9 @@ PLATFORM_RELAY_TOPICS = (
 )
 
 ALLOWED_MAP_PUBLISHERS = (
+    # 当前 launch 显式把 Cartographer 占据栅格节点命名为下列名称；同时
+    # 保留上游默认名，兼容直接启动官方 cartographer launch 的诊断流程。
+    'hazardwalker_cartographer_occupancy_grid',
     'cartographer_occupancy_grid_node',
     'slam_toolbox',
 )

@@ -57,7 +57,7 @@ def _valid_snapshot(control_source='keyboard'):
         topics[topic]['publishers'] = [
             _endpoint('hazardwalker_official_rosbridge_adapter')]
     topics['/map']['publishers'] = [
-        _endpoint('cartographer_occupancy_grid_node')]
+        _endpoint('hazardwalker_cartographer_occupancy_grid')]
     if control_source == 'navigation':
         topics['/hw/perception/hazard_detections']['subscribers'].append(
             _endpoint('frontier_explorer_node'))
