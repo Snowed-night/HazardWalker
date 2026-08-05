@@ -63,14 +63,16 @@ services:
           { echo 'ERROR: missing executable ./auto.sh'; exit 1; }
         exec ./auto.sh
       "
-    # 健康检查只报告状态，不重启或切换控制器。它能识别 junior_ctrl 进程仍在但
-    # /cmd_vel 订阅丢失的退化状态，平台组据此在独占时段处理，其他组不得自行重启。
+    # 健康检查只报告状态，不重启或切换控制器。除控制器和 rosbridge 外，必须
+    # 确认 gzserver 本体仍存活；否则子进程被 cgroup OOM 杀死后，残留 ROS Master
+    # 和旧 ready 文件会把已经停止仿真的容器误报为 healthy。
     healthcheck:
       test:
         - CMD-SHELL
         - >-
           bash -lc 'source /opt/ros/noetic/setup.bash &&
           test -f /tmp/hazardwalker-simenv-runtime-ready &&
+          pgrep -x gzserver >/dev/null &&
           { [ "$${START_CONTROLLER:-1}" != "1" ] ||
           { pgrep -x junior_ctrl >/dev/null &&
           rostopic info /cmd_vel 2>/dev/null |
