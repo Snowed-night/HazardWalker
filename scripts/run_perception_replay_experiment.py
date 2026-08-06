@@ -194,12 +194,17 @@ def wait_for_nodes(
 
 
 def stop_process_group(process: subprocess.Popen, timeout_sec: float = 30.0) -> int:
-    """先用 SIGINT 让记录器落盘，超时后再逐级终止整个 launch 进程组。"""
+    """先让 ROS launch 单次转发 SIGINT，超时后再终止整个进程组。
+
+    不能直接对进程组发送首次 SIGINT：ROS launch 收到该信号后还会主动
+    转发给子节点，记录器会因此收到两次中断，并可能在汇总落盘过程中被
+    第二次打断。只有正常收尾超时后，才对整个进程组执行强制升级清理。
+    """
 
     if process.poll() is not None:
         return int(process.returncode)
     try:
-        os.killpg(process.pid, signal.SIGINT)
+        process.send_signal(signal.SIGINT)
         return int(process.wait(timeout=timeout_sec))
     except subprocess.TimeoutExpired:
         os.killpg(process.pid, signal.SIGTERM)

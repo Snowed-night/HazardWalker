@@ -4,6 +4,7 @@ import hashlib
 import json
 from pathlib import Path
 import sqlite3
+import subprocess
 import sys
 import tempfile
 from unittest.mock import patch
@@ -78,6 +79,58 @@ def test_segment_preroll_replays_only_latched_legal_contract_topics():
     assert '/hw/camera/image_raw' not in command
     assert '--playback-duration' in command
     assert '--disable-keyboard-controls' in command
+
+
+def test_stop_process_group_lets_launch_forward_sigint_only_once():
+    class FakeProcess:
+        pid = 4321
+        returncode = None
+
+        def __init__(self):
+            self.signals = []
+
+        def poll(self):
+            return None
+
+        def send_signal(self, requested_signal):
+            self.signals.append(requested_signal)
+
+        def wait(self, timeout):
+            assert timeout == 30.0
+            return 130
+
+    process = FakeProcess()
+    with patch.object(module.os, 'killpg', create=True) as killpg:
+        assert module.stop_process_group(process) == 130
+    assert process.signals == [module.signal.SIGINT]
+    killpg.assert_not_called()
+
+
+def test_stop_process_group_escalates_to_process_group_after_timeout():
+    class FakeProcess:
+        pid = 4321
+        returncode = None
+
+        def __init__(self):
+            self.wait_calls = 0
+
+        def poll(self):
+            return None
+
+        def send_signal(self, requested_signal):
+            assert requested_signal == module.signal.SIGINT
+
+        def wait(self, timeout):
+            self.wait_calls += 1
+            if self.wait_calls == 1:
+                raise subprocess.TimeoutExpired('launch', timeout)
+            assert timeout == 10.0
+            return -module.signal.SIGTERM
+
+    process = FakeProcess()
+    with patch.object(module.os, 'killpg', create=True) as killpg:
+        assert module.stop_process_group(process) == -module.signal.SIGTERM
+    killpg.assert_called_once_with(process.pid, module.signal.SIGTERM)
 
 
 def test_invalid_source_session_is_rejected():
