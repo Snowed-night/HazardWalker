@@ -81,6 +81,9 @@ class HazardTrackerConfig:
 
     confirm_observation_count: int = 3
     reject_after_missed_count: int = 10
+    # 正值时按消息时间戳判断丢失，避免桥接器重复发布或帧率变化让固定帧数
+    # 在几秒内耗尽；零保留历史纯函数测试的按帧行为。
+    reject_after_missed_sec: float = 0.0
     merge_distance_m: float = 0.5
     min_distinct_views: int = 1
     max_apparent_diameter_cv: float = 0.35
@@ -155,7 +158,7 @@ class HazardTracker:
             if track.track_id not in matched_track_ids:
                 track.missed_count += 1
 
-        self._refresh_statuses()
+        self._refresh_statuses(stamp_sec)
         return self.active_tracks()
 
     def active_tracks(self):
@@ -308,16 +311,37 @@ class HazardTracker:
         self.tracks.append(track)
         return track
 
-    def _refresh_statuses(self):
+    def _refresh_statuses(self, stamp_sec=0.0):
         for track in self.tracks:
             if track.status == 'rejected_non_spherical':
                 # 两个独立稳定视角已经给出明确非球面证据后，本轮任务内永久拒绝。
                 # 后续正面圆形投影可能只是同一圆柱/圆锥的端面，绝不能用更多
                 # RGB 圆形帧把已拒绝物体“复活”为 confirmed。
                 continue
-            if track.missed_count >= self.config.reject_after_missed_count:
-                if (track.status == 'confirmed'
-                        and track.missed_count < self.config.reject_after_missed_count * 10):
+            reject_after_sec = max(
+                0.0, float(self.config.reject_after_missed_sec),
+            )
+            missed_age_sec = (
+                max(0.0, float(stamp_sec) - float(track.last_seen_sec))
+                if reject_after_sec > 0.0 and stamp_sec and track.last_seen_sec
+                else 0.0
+            )
+            lost_by_time = reject_after_sec > 0.0 and missed_age_sec >= reject_after_sec
+            lost_by_count = (
+                reject_after_sec <= 0.0
+                and track.missed_count >= self.config.reject_after_missed_count
+            )
+            if lost_by_time or lost_by_count:
+                confirmed_grace_active = (
+                    track.status == 'confirmed'
+                    and (
+                        missed_age_sec < reject_after_sec * 10.0
+                        if reject_after_sec > 0.0
+                        else track.missed_count
+                        < self.config.reject_after_missed_count * 10
+                    )
+                )
+                if confirmed_grace_active:
                     # 已确认危险源短时离开视场时保留，避免一次转向就从任务结果消失。
                     continue
                 track.status = 'rejected'

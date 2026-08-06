@@ -69,6 +69,25 @@ def test_tracker_rejects_track_after_missed_count_threshold():
     assert tracker.tracks[0].missed_count == 2
 
 
+def test_time_based_loss_is_independent_of_duplicate_frame_rate():
+    """正式链即使高频重复空帧，也只按仿真时间判定轨迹丢失。"""
+
+    tracker = HazardTracker(HazardTrackerConfig(
+        reject_after_missed_count=2,
+        reject_after_missed_sec=20.0,
+    ))
+    tracker.update([HazardObservation(
+        position=(0.0, 0.0, 0.3), confidence=0.9, stamp_sec=100.0,
+    )], stamp_sec=100.0)
+
+    for index in range(1000):
+        tracker.update([], stamp_sec=100.0 + index * 0.01)
+    assert tracker.tracks[0].status == 'tentative'
+
+    tracker.update([], stamp_sec=120.1)
+    assert tracker.tracks[0].status == 'rejected'
+
+
 """验证同一帧多个观测不会重复匹配到同一条轨迹。"""
 def test_tracker_keeps_two_same_frame_observations_as_separate_tracks():
     tracker = HazardTracker(HazardTrackerConfig(confirm_observation_count=2, merge_distance_m=0.5))

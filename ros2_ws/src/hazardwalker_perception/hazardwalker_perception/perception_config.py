@@ -25,6 +25,7 @@ _DIRECT_SECTIONS = {
     'tracking': {
         'confirm_observation_count', 'confirm_distinct_views',
         'min_view_bearing_span_deg', 'reject_after_missed_count',
+        'reject_after_missed_sec',
         'merge_distance_m', 'single_track_reacquire_distance_m',
         'single_track_reacquire_diameter_relative_error',
         'same_frame_duplicate_distance_m',

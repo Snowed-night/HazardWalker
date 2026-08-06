@@ -97,6 +97,9 @@ class HsvDetectorNode(Node):
         # 主动横移期间目标可能连续数秒离开视场；150 帧约等于 5 秒@30FPS，
         # 避免候选在抵达第二视角前被删除。
         self.declare_parameter('reject_after_missed_count', 300)
+        # 正式桥接链会重复发布图像，固定漏检帧数随发布频率变化。按仿真时间
+        # 保留 20 秒，覆盖一次横移、停稳和重新对准；纯函数仍可用按帧模式。
+        self.declare_parameter('reject_after_missed_sec', 20.0)
         self.declare_parameter('merge_distance_m', 0.5)
         self.declare_parameter('single_track_reacquire_distance_m', 1.0)
         self.declare_parameter(
@@ -176,7 +179,7 @@ class HsvDetectorNode(Node):
         self.declare_parameter(
             'active_view_max_normalized_depth_curvature', 0.30,
         )
-        self.declare_parameter('candidate_memory_ttl_s', 8.0)
+        self.declare_parameter('candidate_memory_ttl_s', 20.0)
         self.declare_parameter('active_view_direction_memory_ttl_s', 12.0)
         self.declare_parameter('candidate_memory_min_iou', 0.05)
         self.declare_parameter(
@@ -204,6 +207,9 @@ class HsvDetectorNode(Node):
             confirm_observation_count=int(self.get_parameter('confirm_observation_count').value),
             min_distinct_views=int(self.get_parameter('confirm_distinct_views').value),
             reject_after_missed_count=int(self.get_parameter('reject_after_missed_count').value),
+            reject_after_missed_sec=float(
+                self.get_parameter('reject_after_missed_sec').value
+            ),
             merge_distance_m=float(self.get_parameter('merge_distance_m').value),
             single_track_reacquire_distance_m=float(
                 self.get_parameter(
