@@ -8,6 +8,8 @@ import sqlite3
 import tempfile
 from pathlib import Path
 
+import pytest
+
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = REPO_ROOT / 'scripts' / 'official_perception_bag.py'
@@ -228,6 +230,28 @@ def test_non_positive_replay_rate_is_rejected():
         pass
     else:
         raise AssertionError('非正回放倍率必须被拒绝')
+
+
+def test_replay_segment_is_explicitly_bounded_in_command():
+    command = MODULE.build_replay_command(
+        Path('/tmp/example-bag'),
+        rate=2.0,
+        start_offset_sec=2400.0,
+        playback_duration_sec=500.0,
+    )
+    assert command[command.index('--start-offset') + 1] == '2400.0'
+    assert command[command.index('--playback-duration') + 1] == '500.0'
+
+
+def test_negative_replay_segment_bounds_are_rejected():
+    with pytest.raises(ValueError, match='起始偏移'):
+        MODULE.build_replay_command(
+            Path('/tmp/example-bag'), start_offset_sec=-1.0,
+        )
+    with pytest.raises(ValueError, match='片段时长'):
+        MODULE.build_replay_command(
+            Path('/tmp/example-bag'), playback_duration_sec=-1.0,
+        )
 
 
 def test_localization_recompute_replays_raw_sensors_without_old_pose_or_tf():

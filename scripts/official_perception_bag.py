@@ -184,6 +184,8 @@ def build_replay_command(
     bag_dir: Path,
     *,
     rate: float = 1.0,
+    start_offset_sec: float = 0.0,
+    playback_duration_sec: float = 0.0,
     include_audit_topics: bool = False,
     recompute_localization: bool = False,
 ) -> list[str]:
@@ -191,6 +193,10 @@ def build_replay_command(
 
     if rate <= 0.0:
         raise ValueError('回放倍率必须为正数')
+    if start_offset_sec < 0.0:
+        raise ValueError('回放起始偏移不能为负数')
+    if playback_duration_sec < 0.0:
+        raise ValueError('回放片段时长不能为负数')
     topics = list(REPLAY_INPUT_TOPICS)
     if recompute_localization:
         # 重跑定位/SLAM 时只回放公开原始传感器；删除历史定位、地图和 TF，
@@ -206,6 +212,10 @@ def build_replay_command(
         'ros2', 'bag', 'play', str(bag_dir),
         '--clock', '--rate', str(rate),
     ]
+    if start_offset_sec > 0.0:
+        command.extend(['--start-offset', str(start_offset_sec)])
+    if playback_duration_sec > 0.0:
+        command.extend(['--playback-duration', str(playback_duration_sec)])
     if include_audit_topics:
         topics.extend(AUDIT_REPLAY_TOPICS)
         # Jazzy 的 ``--remap`` 是单个 nargs='+' 参数；重复选项会覆盖前值，

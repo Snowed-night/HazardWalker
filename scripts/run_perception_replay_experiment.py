@@ -484,6 +484,8 @@ def run(args) -> int:
     replay_command = build_replay_command(
         bag_dir,
         rate=float(args.rate),
+        start_offset_sec=float(args.start_offset_sec),
+        playback_duration_sec=float(args.playback_duration_sec),
         recompute_localization=bool(args.recompute_localization),
     )
     experiment_manifest = {
@@ -502,6 +504,8 @@ def run(args) -> int:
         'git': git_state,
         'ros_domain_id': str(args.domain_id),
         'algorithm_label': args.algorithm_label,
+        'replay_start_offset_sec': float(args.start_offset_sec),
+        'replay_duration_sec': float(args.playback_duration_sec),
         'parameter_file': str(parameter_file),
         'parameter_snapshot': parameter_snapshot.name,
         'parameter_sha256': _sha256(parameter_snapshot),
@@ -631,6 +635,14 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument('--scenario', default='')
     parser.add_argument('--domain-id', type=int, default=142)
     parser.add_argument('--rate', type=float, default=1.0)
+    parser.add_argument(
+        '--start-offset-sec', type=float, default=0.0,
+        help='从数据集起点偏移指定秒数后开始，用于复跑已定位的困难片段',
+    )
+    parser.add_argument(
+        '--playback-duration-sec', type=float, default=0.0,
+        help='仅回放指定秒数；0 表示回放到数据集末尾',
+    )
     parser.add_argument('--startup-timeout-sec', type=float, default=30.0)
     parser.add_argument('--recompute-localization', action='store_true')
     parser.add_argument(
