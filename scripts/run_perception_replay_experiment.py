@@ -172,6 +172,25 @@ def stop_process_group(process: subprocess.Popen, timeout_sec: float = 30.0) -> 
             return int(process.wait(timeout=5.0))
 
 
+def build_segment_preroll_command(bag_dir: Path) -> list[str]:
+    """回放数据集开头的瞬态静态合同，再跳转到困难片段。
+
+    ``ros2 bag play --start-offset`` 不会补发偏移点之前的 ``/tf_static``
+    和单次定位来源声明。先在同一离线 ROS 域短暂回放这两个允许话题，依靠
+    transient-local QoS 锁存，避免为片段回放人工拼接坐标或伪造来源。
+    """
+
+    return [
+        'ros2', 'bag', 'play', str(bag_dir),
+        '--clock', '--rate', '10.0',
+        '--playback-duration', '10.0',
+        '--disable-keyboard-controls',
+        '--topics',
+        '/tf_static',
+        '/hazardwalker/slam/localization_provenance',
+    ]
+
+
 def validate_normalized_outputs(output_dir: Path) -> list[str]:
     """验证回放目录足以复核 RGB-D、合法定位和规范测试材料。"""
 
@@ -488,6 +507,10 @@ def run(args) -> int:
         playback_duration_sec=float(args.playback_duration_sec),
         recompute_localization=bool(args.recompute_localization),
     )
+    segment_preroll_command = (
+        build_segment_preroll_command(bag_dir)
+        if float(args.start_offset_sec) > 0.0 else []
+    )
     experiment_manifest = {
         'schema_version': 1,
         'status': 'starting',
@@ -517,6 +540,11 @@ def run(args) -> int:
         'recompute_localization': bool(args.recompute_localization),
         'localization_provenance': localization_provenance,
         'launch_command': shlex.join(launch_command),
+        'segment_preroll_command': (
+            shlex.join(segment_preroll_command)
+            if segment_preroll_command else ''
+        ),
+        'segment_preroll_exit_code': None,
         'replay_command': shlex.join(replay_command),
         'launch_exit_code': None,
         'replay_exit_code': None,
@@ -544,6 +572,17 @@ def run(args) -> int:
             raise RuntimeError('回放消费者未就绪：' + ', '.join(missing_nodes))
         experiment_manifest['status'] = 'replaying'
         _write_manifest(manifest_path, experiment_manifest)
+        if segment_preroll_command:
+            preroll_exit_code = subprocess.call(
+                segment_preroll_command, cwd=REPO_ROOT, env=env,
+            )
+            experiment_manifest['segment_preroll_exit_code'] = (
+                preroll_exit_code
+            )
+            if preroll_exit_code != 0:
+                raise RuntimeError(
+                    f'片段静态合同预滚失败：{preroll_exit_code}'
+                )
         replay_exit_code = subprocess.call(
             replay_command, cwd=REPO_ROOT, env=env)
         if replay_exit_code != 0:

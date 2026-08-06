@@ -70,6 +70,15 @@ def test_recompute_localization_enables_only_current_localization_stack():
         assert 'start_legal_localization:=true' in command
 
 
+def test_segment_preroll_replays_only_latched_legal_contract_topics():
+    command = module.build_segment_preroll_command(Path('/tmp/source-bag'))
+    assert '/tf_static' in command
+    assert '/hazardwalker/slam/localization_provenance' in command
+    assert '/hw/camera/image_raw' not in command
+    assert '--playback-duration' in command
+    assert '--disable-keyboard-controls' in command
+
+
 def test_invalid_source_session_is_rejected():
     with tempfile.TemporaryDirectory() as directory:
         session = Path(directory) / 'session'
