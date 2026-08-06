@@ -96,7 +96,7 @@ def test_stop_process_group_lets_launch_forward_sigint_only_once():
             self.signals.append(requested_signal)
 
         def wait(self, timeout):
-            assert timeout == 30.0
+            assert timeout == 120.0
             return 130
 
     process = FakeProcess()
@@ -303,6 +303,27 @@ def test_historical_localization_requires_explicit_legal_provenance_contract():
             source,
             recompute_localization=False,
             requested_provenance='lidar_imu_slam',
+        )
+
+
+def test_focus_diagnostic_can_replay_audited_legal_historical_localization():
+    source = {
+        'localization_provenance': 'lidar_imu_slam',
+        'historical_localization_reuse_eligible': False,
+    }
+    assert module.resolve_localization_provenance(
+        source,
+        recompute_localization=False,
+        requested_provenance='visual_inertial_slam',
+        allow_focus_diagnostic_reuse=True,
+    ) == 'lidar_imu_slam'
+    source['localization_provenance'] = 'gazebo_ground_truth'
+    with pytest.raises(ValueError, match='未证明历史'):
+        module.resolve_localization_provenance(
+            source,
+            recompute_localization=False,
+            requested_provenance='lidar_imu_slam',
+            allow_focus_diagnostic_reuse=True,
         )
 
 

@@ -124,7 +124,8 @@ def load_focus_diagnostic_session(session_dir: Path) -> tuple[dict, list[str]]:
 
 def resolve_localization_provenance(
         source_manifest: dict, *, recompute_localization: bool,
-        requested_provenance: str) -> str:
+        requested_provenance: str,
+        allow_focus_diagnostic_reuse: bool = False) -> str:
     """解析本轮合法定位来源；历史来源不明时禁止直接复用 TF。"""
 
     if recompute_localization:
@@ -133,9 +134,15 @@ def resolve_localization_provenance(
         return requested_provenance
     provenance = str(
         source_manifest.get('localization_provenance', 'unverified'))
-    if (provenance not in ALLOWED_LOCALIZATION_PROVENANCE
-            or not source_manifest.get(
-                'historical_localization_reuse_eligible', False)):
+    provenance_is_legal = provenance in ALLOWED_LOCALIZATION_PROVENANCE
+    reuse_is_eligible = bool(source_manifest.get(
+        'historical_localization_reuse_eligible', False))
+    # 专项录包可能只因巡检路程/跨度门禁而整体失效；这会连带把正式历史
+    # 定位复用标志置为 false。load_focus_diagnostic_session 已重新核验
+    # 预检、合法定位来源、真值禁用、关键话题实体和内容指纹，因此这里仅
+    # 允许该非正式模式忠实复现录制时的合法 SLAM 位姿。
+    if not provenance_is_legal or not (
+            reuse_is_eligible or allow_focus_diagnostic_reuse):
         raise ValueError(
             '数据集未证明历史 TF/里程计来自合法 SLAM；请使用 '
             '--recompute-localization，或重新录制并声明定位来源')
@@ -193,7 +200,7 @@ def wait_for_nodes(
     return available
 
 
-def stop_process_group(process: subprocess.Popen, timeout_sec: float = 30.0) -> int:
+def stop_process_group(process: subprocess.Popen, timeout_sec: float = 120.0) -> int:
     """先让 ROS launch 单次转发 SIGINT，超时后再终止整个进程组。
 
     不能直接对进程组发送首次 SIGINT：ROS launch 收到该信号后还会主动
@@ -527,6 +534,7 @@ def run(args) -> int:
             source_manifest,
             recompute_localization=bool(args.recompute_localization),
             requested_provenance=str(args.localization_provenance),
+            allow_focus_diagnostic_reuse=bool(source_contract_errors),
         )
     except ValueError as exc:
         raise SystemExit(str(exc)) from exc
