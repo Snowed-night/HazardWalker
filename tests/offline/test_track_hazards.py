@@ -678,6 +678,62 @@ def test_projected_track_hint_reacquires_same_target_across_slam_drift():
     assert tracks[0].status == 'confirmed'
 
 
+def test_candidate_track_hint_revives_lost_track_after_active_view_gap():
+    """主动横移短暂丢球后，稳定候选提示应复活原 ID 并保留历史视角。"""
+
+    tracker = HazardTracker(HazardTrackerConfig(
+        reject_after_missed_count=2,
+        merge_distance_m=0.5,
+        min_distinct_views=2,
+        confirm_observation_count=2,
+    ))
+    tracker.update([HazardObservation(
+        position=(0.0, 0.0, 0.3), confidence=0.9, view_id='first',
+    )])
+    tracker.update([])
+    tracker.update([])
+    assert tracker.tracks[0].status == 'rejected'
+
+    tracks = tracker.update([HazardObservation(
+        position=(0.8, 0.0, 0.3),
+        confidence=0.9,
+        view_id='second',
+        track_id_hint=1,
+    )])
+
+    assert len(tracker.tracks) == 1
+    assert tracks[0].track_id == 1
+    assert tracks[0].status == 'confirmed'
+    assert tracks[0].view_ids == ['first', 'second']
+
+
+def test_candidate_track_hint_cannot_revive_non_spherical_rejection():
+    """明确候选提示也不能复活已有多视角非球体反证的轨迹。"""
+
+    tracker = HazardTracker(HazardTrackerConfig(
+        merge_distance_m=0.5,
+        min_non_spherical_views_to_reject=1,
+    ))
+    tracker.update([HazardObservation(
+        position=(0.0, 0.0, 0.3),
+        confidence=0.9,
+        view_id='flat',
+        depth_shape_status='flat',
+    )])
+    assert tracker.tracks[0].status == 'rejected_non_spherical'
+
+    tracker.update([HazardObservation(
+        position=(0.8, 0.0, 0.3),
+        confidence=0.9,
+        view_id='round',
+        track_id_hint=1,
+    )])
+
+    assert len(tracker.tracks) == 2
+    assert tracker.tracks[0].status == 'rejected_non_spherical'
+    assert tracker.tracks[1].track_id == 2
+
+
 def test_single_compatible_spherical_track_can_reacquire_across_slam_drift():
     tracker = HazardTracker(HazardTrackerConfig(
         merge_distance_m=0.5,

@@ -189,7 +189,11 @@ class HazardTracker:
                 if (
                     track.track_id == int(hinted_track_id)
                     and track.track_id not in already_matched
-                    and track.status != 'rejected'
+                    # 二维候选记忆给出的明确提示允许复活普通 lost_track：
+                    # 主动横移时红球可能短暂出画，候选别名仍连续，不能因此
+                    # 创建新 track 并丢失已经累计的视角。多视角证明为非球体
+                    # 的轨迹保持永久拒绝，绝不因正面圆形投影复活。
+                    and track.status != 'rejected_non_spherical'
                 ):
                     return track
         best_track = None
