@@ -439,6 +439,35 @@ def test_lost_rejected_duplicates_do_not_hide_current_confirmed_track():
     assert annotated[0]['track_status'] == 'confirmed'
 
 
+def test_candidate_memory_hint_preserves_track_label_across_slam_drift():
+    """快速换视角时，候选别名不得因三维瞬时漂移退回 untracked。"""
+
+    tracks = [
+        SimpleNamespace(
+            track_id=4,
+            position=(1.0, 0.0, 0.3),
+            status='needs_reobservation',
+        ),
+    ]
+    detections = [{
+        'id': 'candidate-1',
+        'candidate_id': 'candidate-1',
+        '_candidate_track_id_hint': '4',
+        # 超出普通世界距离门槛，且本帧没有可用的旧轨迹投影。
+        'localized_position': [1.8, 0.5, 0.3],
+        'bbox': {'x_min': 130, 'y_min': 90, 'x_max': 210, 'y_max': 170},
+    }]
+
+    annotated = annotate_detections_with_tracks(
+        detections, tracks, merge_distance_m=0.5,
+    )
+
+    assert annotated[0]['id'] == '4'
+    assert annotated[0]['track_id'] == '4'
+    assert annotated[0]['track_status'] == 'needs_reobservation'
+    assert annotated[0]['track_association'] == 'candidate_memory'
+
+
 def test_partial_bbox_inherits_track_id_from_world_projection_without_3d_update():
     """完整框变成遮挡窄弧后，仍用旧世界轨迹保持同一复查 ID。"""
 

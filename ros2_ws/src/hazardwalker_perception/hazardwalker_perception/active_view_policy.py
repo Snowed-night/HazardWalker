@@ -439,6 +439,21 @@ def annotate_detections_with_tracks(
 
     assignments = {}
     used_track_ids = set()
+    # 候选记忆已由逐帧一对一图像关联维护；当机器人快速横移导致合法 SLAM
+    # 坐标短时漂移、旧轨迹投影也落后时，应继续把二维框标成同一 track。
+    # 普通 rejected 已从 track_by_id 排除，明确非球体轨迹则保留永久反证语义。
+    for detection_index, item in enumerate(result):
+        hinted_track_id = str(
+            item.get('_candidate_track_id_hint') or ''
+        ).strip()
+        if (
+            hinted_track_id in track_by_id
+            and hinted_track_id not in used_track_ids
+        ):
+            assignments[detection_index] = (
+                hinted_track_id, 'candidate_memory',
+            )
+            used_track_ids.add(hinted_track_id)
     all_pairs = sorted(
         (
             (cost, detection_index, track_id, association)
