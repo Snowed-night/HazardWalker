@@ -7,6 +7,7 @@ import json
 import sqlite3
 import tempfile
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
@@ -97,7 +98,7 @@ def test_runtime_localization_provenance_echo_parser_handles_field_and_yaml():
     ) == 'lidar_imu_slam+public_floor_action'
 
 
-def test_runtime_localization_provenance_cli_uses_exact_transient_qos(monkeypatch):
+def test_runtime_localization_provenance_cli_uses_exact_transient_qos():
     """当前 Jazzy/FastDDS 需要完整 QoS 才能取得 transient-local 缓存。"""
     captured = {}
 
@@ -106,9 +107,8 @@ def test_runtime_localization_provenance_cli_uses_exact_transient_qos(monkeypatc
         captured['kwargs'] = kwargs
         return 'lidar_imu_slam\n---\n'
 
-    monkeypatch.setattr(MODULE.subprocess, 'check_output', fake_check_output)
-
-    assert MODULE.read_runtime_localization_provenance(3.0) == 'lidar_imu_slam'
+    with patch.object(MODULE.subprocess, 'check_output', fake_check_output):
+        assert MODULE.read_runtime_localization_provenance(3.0) == 'lidar_imu_slam'
     command = captured['command']
     assert command[command.index('--qos-durability') + 1] == 'transient_local'
     assert command[command.index('--qos-reliability') + 1] == 'reliable'

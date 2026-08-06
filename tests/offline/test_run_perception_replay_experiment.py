@@ -6,6 +6,7 @@ from pathlib import Path
 import sqlite3
 import sys
 import tempfile
+from unittest.mock import patch
 
 import pytest
 
@@ -91,6 +92,48 @@ def test_invalid_source_session_is_rejected():
         }), encoding='utf-8')
         with pytest.raises(ValueError, match='合同无效'):
             module.load_valid_session(session)
+
+
+def test_focus_diagnostic_source_rejects_non_coverage_contract_errors():
+    with tempfile.TemporaryDirectory() as directory:
+        session = Path(directory) / 'session'
+        (session / 'bag').mkdir(parents=True)
+        (session / 'run_manifest.json').write_text(json.dumps({
+            'status': 'invalid',
+            'truth_inputs_used': True,
+            'bag_validation': {'status': 'failed'},
+            'bag_relative_path': 'bag',
+        }), encoding='utf-8')
+        with pytest.raises(ValueError, match='非覆盖类合同错误'):
+            module.load_focus_diagnostic_session(session)
+
+
+def test_focus_diagnostic_source_preserves_coverage_errors():
+    with tempfile.TemporaryDirectory() as directory:
+        session = Path(directory) / 'session'
+        (session / 'bag').mkdir(parents=True)
+        manifest = {
+            'status': 'invalid',
+            'bag_relative_path': 'bag',
+            'scenario_seed': '20260805',
+        }
+        (session / 'run_manifest.json').write_text(
+            json.dumps(manifest), encoding='utf-8')
+        expected_errors = [
+            "status='invalid'",
+            'bag_validation.status 不是 passed',
+            '巡检运动覆盖门禁未通过',
+            '平面路程 2.8 小于最低 8',
+            '平面覆盖跨度 1.6 小于最低 3',
+        ]
+        with patch.object(
+                module, 'validate_completed_session_manifest',
+                lambda _manifest: expected_errors), patch.object(
+                    module, 'validate_session_bag_payload',
+                    lambda _bag, _manifest: []):
+            observed, errors = module.load_focus_diagnostic_session(session)
+        assert observed == manifest
+        assert errors == expected_errors
 
 
 def test_complete_validated_source_session_is_accepted():

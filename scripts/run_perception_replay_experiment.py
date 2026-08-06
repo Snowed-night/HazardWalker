@@ -84,6 +84,44 @@ def load_valid_session(session_dir: Path) -> dict:
     return manifest
 
 
+def load_focus_diagnostic_session(session_dir: Path) -> tuple[dict, list[str]]:
+    """允许只因巡检覆盖不足而失效的录包用于非正式专项复盘。
+
+    该入口仍逐项校验话题、时长、预检副本和 rosbag 指纹，只放行完整巡检
+    的路程/跨度门禁。调用方必须把输出写到正式成果目录之外，并在实验清单
+    中保留全部合同错误，避免专项片段被误称为官方有效巡检。
+    """
+
+    manifest_path = session_dir / 'run_manifest.json'
+    if not manifest_path.is_file():
+        raise ValueError(f'缺少数据集清单：{manifest_path}')
+    manifest = json.loads(manifest_path.read_text(encoding='utf-8'))
+    contract_errors = validate_completed_session_manifest(manifest)
+    allowed_prefixes = (
+        "status='invalid'",
+        'bag_validation.status 不是 passed',
+        '巡检运动覆盖门禁未通过',
+        '平面路程 ',
+        '平面覆盖跨度 ',
+    )
+    unexpected_errors = [
+        error for error in contract_errors
+        if not any(error.startswith(prefix) for prefix in allowed_prefixes)
+    ]
+    if unexpected_errors:
+        raise ValueError(
+            '专项诊断源仍有非覆盖类合同错误：' + '；'.join(unexpected_errors))
+    if not contract_errors:
+        return manifest, []
+    bag_dir = session_dir / str(manifest.get('bag_relative_path', 'bag'))
+    if not bag_dir.is_dir():
+        raise ValueError(f'缺少 rosbag 目录：{bag_dir}')
+    payload_errors = validate_session_bag_payload(bag_dir, manifest)
+    if payload_errors:
+        raise ValueError('rosbag 实体校验失败：' + '；'.join(payload_errors))
+    return manifest, contract_errors
+
+
 def resolve_localization_provenance(
         source_manifest: dict, *, recompute_localization: bool,
         requested_provenance: str) -> str:
@@ -456,6 +494,9 @@ def run(args) -> int:
         raise SystemExit(str(exc)) from exc
     if output_dir.exists():
         raise SystemExit(f'输出目录已存在，拒绝覆盖：{output_dir}')
+    if args.allow_invalid_source and not args.allow_external_output:
+        raise SystemExit(
+            '--allow-invalid-source 只允许与 --allow-external-output 同时使用')
     if not parameter_file.is_file():
         raise SystemExit(f'感知参数文件不存在：{parameter_file}')
     annotation_file = None
@@ -464,7 +505,12 @@ def run(args) -> int:
         if not annotation_file.is_file():
             raise SystemExit(f'人工标注文件不存在：{annotation_file}')
     try:
-        source_manifest = load_valid_session(session_dir)
+        if args.allow_invalid_source:
+            source_manifest, source_contract_errors = (
+                load_focus_diagnostic_session(session_dir))
+        else:
+            source_manifest = load_valid_session(session_dir)
+            source_contract_errors = []
     except (ValueError, json.JSONDecodeError) as exc:
         raise SystemExit(str(exc)) from exc
 
@@ -523,6 +569,12 @@ def run(args) -> int:
         'source_bag_fingerprint_sha256': str(
             source_manifest.get('bag_validation', {}).get(
                 'content_fingerprint_sha256', '')),
+        'source_contract_mode': (
+            'focus_diagnostic_override'
+            if source_contract_errors else 'formal_validated'
+        ),
+        'source_contract_errors': source_contract_errors,
+        'formal_evidence_eligible': not source_contract_errors,
         'scenario_seed': seed,
         'git': git_state,
         'ros_domain_id': str(args.domain_id),
@@ -639,13 +691,18 @@ def run(args) -> int:
     experiment_manifest['finished_at_utc'] = datetime.now(timezone.utc).isoformat()
     if experiment_manifest['failure_reason']:
         experiment_manifest['status'] = 'failed'
+    elif source_contract_errors and args.annotations:
+        experiment_manifest['status'] = 'diagnostic_complete'
+    elif source_contract_errors:
+        experiment_manifest['status'] = 'diagnostic_captured_unlabeled'
     elif args.annotations:
         experiment_manifest['status'] = 'complete'
     else:
         experiment_manifest['status'] = 'captured_unlabeled'
     _write_manifest(manifest_path, experiment_manifest)
     return 0 if experiment_manifest['status'] in (
-        'complete', 'captured_unlabeled') else 2
+        'complete', 'captured_unlabeled', 'diagnostic_complete',
+        'diagnostic_captured_unlabeled') else 2
 
 
 def _write_manifest(path: Path, payload: dict) -> None:
@@ -667,6 +724,12 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument(
         '--allow-dirty-worktree', action='store_true',
         help='仅与 --allow-external-output 同用：允许未提交代码做临时诊断',
+    )
+    parser.add_argument(
+        '--allow-invalid-source', action='store_true',
+        help=(
+            '仅与 --allow-external-output 同用：允许只因巡检路程/跨度不足而'
+            '失效的完整录包做专项诊断回放；输出永远标记为非正式证据'),
     )
     parser.add_argument('--parameter-file', default='config/perception.yaml')
     parser.add_argument('--algorithm-label', default='hsv_depth_tf')
