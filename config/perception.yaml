@@ -52,7 +52,9 @@ perception:
     min_view_bearing_span_deg: 25.0
     reject_after_missed_count: 300
     # 正式链按仿真时间判丢失；重复帧和运行帧率变化不会提前耗尽轨迹寿命。
-    reject_after_missed_sec: 20.0
+    # 官方 A1 在低实时倍率下完成一次侧移、回转和重新对准可能超过 20 秒仿真时间。
+    # 60 秒仅保留“待复查”轨迹；被深度几何明确判为非球体的目标仍立即拒绝。
+    reject_after_missed_sec: 60.0
     merge_distance_m: 0.5
     single_track_reacquire_distance_m: 1.0
     single_track_reacquire_diameter_relative_error: 0.25
@@ -95,7 +97,7 @@ perception:
     min_normalized_depth_curvature: 0.10
     max_normalized_depth_curvature: 0.30
     # 覆盖一次横移、停稳与重新对准；按仿真时间计，避免短暂出画更换候选 ID。
-    candidate_memory_ttl_s: 20.0
+    candidate_memory_ttl_s: 60.0
     # 同一候选的侧移方向短时保持，避免目标跨过画面中心后左右振荡。
     active_view_direction_memory_ttl_s: 12.0
     candidate_memory_min_iou: 0.05

@@ -98,8 +98,9 @@ class HsvDetectorNode(Node):
         # 避免候选在抵达第二视角前被删除。
         self.declare_parameter('reject_after_missed_count', 300)
         # 正式桥接链会重复发布图像，固定漏检帧数随发布频率变化。按仿真时间
-        # 保留 20 秒，覆盖一次横移、停稳和重新对准；纯函数仍可用按帧模式。
-        self.declare_parameter('reject_after_missed_sec', 20.0)
+        # 保留 60 秒，覆盖一次完整侧移、回转和重新对准；纯函数仍可用按帧模式。
+        # 主动复查需覆盖 A1 在低实时倍率下的一次完整侧移和回转。
+        self.declare_parameter('reject_after_missed_sec', 60.0)
         self.declare_parameter('merge_distance_m', 0.5)
         self.declare_parameter('single_track_reacquire_distance_m', 1.0)
         self.declare_parameter(
@@ -179,7 +180,7 @@ class HsvDetectorNode(Node):
         self.declare_parameter(
             'active_view_max_normalized_depth_curvature', 0.30,
         )
-        self.declare_parameter('candidate_memory_ttl_s', 20.0)
+        self.declare_parameter('candidate_memory_ttl_s', 60.0)
         self.declare_parameter('active_view_direction_memory_ttl_s', 12.0)
         self.declare_parameter('candidate_memory_min_iou', 0.05)
         self.declare_parameter(
