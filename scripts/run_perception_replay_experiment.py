@@ -200,18 +200,51 @@ def wait_for_nodes(
     return available
 
 
-def stop_process_group(process: subprocess.Popen, timeout_sec: float = 120.0) -> int:
-    """先让 ROS launch 单次转发 SIGINT，超时后再终止整个进程组。
+def _process_group_member_pids(process_group_id: int) -> list[int]:
+    """从 Linux procfs 枚举指定进程组成员，避免通过 shell 解析进程表。"""
 
-    不能直接对进程组发送首次 SIGINT：ROS launch 收到该信号后还会主动
-    转发给子节点，记录器会因此收到两次中断，并可能在汇总落盘过程中被
-    第二次打断。只有正常收尾超时后，才对整个进程组执行强制升级清理。
+    proc_root = Path('/proc')
+    if os.name != 'posix' or not proc_root.is_dir():
+        return []
+    members = []
+    for entry in proc_root.iterdir():
+        if not entry.name.isdigit():
+            continue
+        try:
+            stat_text = (entry / 'stat').read_text(encoding='utf-8')
+            # comm 字段可能含空格或括号，必须从最后一个右括号后解析：
+            # state、ppid、pgrp 分别位于余下字段的 0、1、2 位。
+            stat_fields = stat_text[stat_text.rfind(')') + 2:].split()
+            if int(stat_fields[2]) == process_group_id:
+                members.append(int(entry.name))
+        except (IndexError, OSError, ValueError):
+            continue
+    return sorted(members)
+
+
+def stop_process_group(process: subprocess.Popen, timeout_sec: float = 120.0) -> int:
+    """先单次中断 launch 子节点，超时后再终止整个进程组。
+
+    不能直接对进程组发送首次 SIGINT：launch 也会向子节点转发，记录器
+    会收到两次中断。也不能只通知 launch 父进程：后台非交互运行时部分
+    launch 版本不会及时转发。这里枚举独立会话中的业务子进程并各通知
+    一次，launch 留在上层等待其完成落盘；超时后才强制清理整个进程组。
     """
 
     if process.poll() is not None:
         return int(process.returncode)
     try:
-        process.send_signal(signal.SIGINT)
+        member_pids = _process_group_member_pids(process.pid)
+        child_pids = [pid for pid in member_pids if pid != process.pid]
+        if child_pids:
+            for pid in child_pids:
+                try:
+                    os.kill(pid, signal.SIGINT)
+                except ProcessLookupError:
+                    pass
+        else:
+            # 非 Linux 测试环境或子进程尚未登记时保留安全退路。
+            process.send_signal(signal.SIGINT)
         return int(process.wait(timeout=timeout_sec))
     except subprocess.TimeoutExpired:
         os.killpg(process.pid, signal.SIGTERM)

@@ -7,7 +7,7 @@ import sqlite3
 import subprocess
 import sys
 import tempfile
-from unittest.mock import patch
+from unittest.mock import call, patch
 
 import pytest
 
@@ -100,9 +100,18 @@ def test_stop_process_group_lets_launch_forward_sigint_only_once():
             return 130
 
     process = FakeProcess()
-    with patch.object(module.os, 'killpg', create=True) as killpg:
+    with (
+        patch.object(module, '_process_group_member_pids',
+                     return_value=[process.pid, 4322, 4323]),
+        patch.object(module.os, 'kill') as kill,
+        patch.object(module.os, 'killpg', create=True) as killpg,
+    ):
         assert module.stop_process_group(process) == 130
-    assert process.signals == [module.signal.SIGINT]
+    assert process.signals == []
+    assert kill.call_args_list == [
+        call(4322, module.signal.SIGINT),
+        call(4323, module.signal.SIGINT),
+    ]
     killpg.assert_not_called()
 
 
@@ -128,7 +137,12 @@ def test_stop_process_group_escalates_to_process_group_after_timeout():
             return -module.signal.SIGTERM
 
     process = FakeProcess()
-    with patch.object(module.os, 'killpg', create=True) as killpg:
+    with (
+        patch.object(module, '_process_group_member_pids',
+                     return_value=[process.pid, 4322]),
+        patch.object(module.os, 'kill'),
+        patch.object(module.os, 'killpg', create=True) as killpg,
+    ):
         assert module.stop_process_group(process) == -module.signal.SIGTERM
     killpg.assert_called_once_with(process.pid, module.signal.SIGTERM)
 
