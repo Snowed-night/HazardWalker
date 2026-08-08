@@ -2,12 +2,14 @@
 # 在 ROS2 主机启动官方 ROS1 rosbridge 双向适配器；官方 Docker 只需运行 rosbridge_websocket。
 set -euo pipefail
 
-# 负责人：姜晨。默认适配实际官方容器 simenv_run；可用环境变量覆盖地址和容器名。
+# 负责人：姜晨。共享平台默认适配正式容器；可用环境变量覆盖地址和容器名。
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-CONTAINER="${SIMENV_CONTAINER:-simenv_run}"
+# 正式共享环境采用这个容器名。个人临时容器必须显式设置 SIMENV_CONTAINER，避免误连。
+CONTAINER="${SIMENV_CONTAINER:-simenv_ros1_hazard_platform}"
 ROSBRIDGE_URL="${OFFICIAL_SIMENV_ROSBRIDGE_URL:-ws://127.0.0.1:9090}"
 ROSBRIDGE_HOST_HEADER="${OFFICIAL_SIMENV_ROSBRIDGE_HOST_HEADER:-}"
-ENABLE_CONTROL="${OFFICIAL_SIMENV_ENABLE_CONTROL:-0}"
+# 共享平台默认允许 /hw/cmd_vel 转发到官方 /cmd_vel；仅观测/调试时才显式设为 0。
+ENABLE_CONTROL="${OFFICIAL_SIMENV_ENABLE_CONTROL:-1}"
 RGB_TOPIC="${OFFICIAL_SIMENV_RGB_TOPIC:-/real_sense/rgb/image_raw}"
 DEPTH_TOPIC="${OFFICIAL_SIMENV_DEPTH_TOPIC:-/real_sense/depth/image_raw}"
 RGB_INFO_TOPIC="${OFFICIAL_SIMENV_RGB_CAMERA_INFO_TOPIC:-/real_sense/rgb/camera_info}"

@@ -1,0 +1,30 @@
+digraph G {
+"FL_hip" -> "FL_thigh_shoulder"[label="Broadcaster: /robot_state_publisher\nAverage rate: 10000.000 Hz\nMost recent transform: 0.000 ( 717.242 sec old)\nBuffer length: 0.000 sec\n"];
+"trunk" -> "FL_hip"[label="Broadcaster: /robot_state_publisher\nAverage rate: 51.429 Hz\nMost recent transform: 717.224 ( 0.018 sec old)\nBuffer length: 0.700 sec\n"];
+"FR_hip" -> "FR_thigh_shoulder"[label="Broadcaster: /robot_state_publisher\nAverage rate: 10000.000 Hz\nMost recent transform: 0.000 ( 717.242 sec old)\nBuffer length: 0.000 sec\n"];
+"trunk" -> "FR_hip"[label="Broadcaster: /robot_state_publisher\nAverage rate: 51.429 Hz\nMost recent transform: 717.224 ( 0.018 sec old)\nBuffer length: 0.700 sec\n"];
+"RL_hip" -> "RL_thigh_shoulder"[label="Broadcaster: /robot_state_publisher\nAverage rate: 10000.000 Hz\nMost recent transform: 0.000 ( 717.242 sec old)\nBuffer length: 0.000 sec\n"];
+"trunk" -> "RL_hip"[label="Broadcaster: /robot_state_publisher\nAverage rate: 51.429 Hz\nMost recent transform: 717.224 ( 0.018 sec old)\nBuffer length: 0.700 sec\n"];
+"RR_hip" -> "RR_thigh_shoulder"[label="Broadcaster: /robot_state_publisher\nAverage rate: 10000.000 Hz\nMost recent transform: 0.000 ( 717.242 sec old)\nBuffer length: 0.000 sec\n"];
+"trunk" -> "RR_hip"[label="Broadcaster: /robot_state_publisher\nAverage rate: 51.429 Hz\nMost recent transform: 717.224 ( 0.018 sec old)\nBuffer length: 0.700 sec\n"];
+"base" -> "trunk"[label="Broadcaster: /robot_state_publisher\nAverage rate: 10000.000 Hz\nMost recent transform: 0.000 ( 717.242 sec old)\nBuffer length: 0.000 sec\n"];
+"odom" -> "base"[label="Broadcaster: /state_from_gazebo\nAverage rate: 540.872 Hz\nMost recent transform: 717.241 ( 0.001 sec old)\nBuffer length: 0.734 sec\n"];
+"trunk" -> "imu_link"[label="Broadcaster: /robot_state_publisher\nAverage rate: 10000.000 Hz\nMost recent transform: 0.000 ( 717.242 sec old)\nBuffer length: 0.000 sec\n"];
+"base" -> "laser_livox"[label="Broadcaster: /robot_state_publisher\nAverage rate: 10000.000 Hz\nMost recent transform: 0.000 ( 717.242 sec old)\nBuffer length: 0.000 sec\n"];
+"base" -> "laser_scan"[label="Broadcaster: /robot_state_publisher\nAverage rate: 10000.000 Hz\nMost recent transform: 0.000 ( 717.242 sec old)\nBuffer length: 0.000 sec\n"];
+"laser_livox" -> "livox_imu_link"[label="Broadcaster: /robot_state_publisher\nAverage rate: 10000.000 Hz\nMost recent transform: 0.000 ( 717.242 sec old)\nBuffer length: 0.000 sec\n"];
+"base" -> "real_sense"[label="Broadcaster: /robot_state_publisher\nAverage rate: 10000.000 Hz\nMost recent transform: 0.000 ( 717.242 sec old)\nBuffer length: 0.000 sec\n"];
+"map" -> "odom"[label="Broadcaster: /state_from_gazebo\nAverage rate: 501.362 Hz\nMost recent transform: 717.241 ( 0.001 sec old)\nBuffer length: 0.734 sec\n"];
+"FL_thigh" -> "FL_calf"[label="Broadcaster: /robot_state_publisher\nAverage rate: 51.429 Hz\nMost recent transform: 717.224 ( 0.018 sec old)\nBuffer length: 0.700 sec\n"];
+"FL_hip" -> "FL_thigh"[label="Broadcaster: /robot_state_publisher\nAverage rate: 51.429 Hz\nMost recent transform: 717.224 ( 0.018 sec old)\nBuffer length: 0.700 sec\n"];
+"FR_thigh" -> "FR_calf"[label="Broadcaster: /robot_state_publisher\nAverage rate: 51.429 Hz\nMost recent transform: 717.224 ( 0.018 sec old)\nBuffer length: 0.700 sec\n"];
+"FR_hip" -> "FR_thigh"[label="Broadcaster: /robot_state_publisher\nAverage rate: 51.429 Hz\nMost recent transform: 717.224 ( 0.018 sec old)\nBuffer length: 0.700 sec\n"];
+"RL_thigh" -> "RL_calf"[label="Broadcaster: /robot_state_publisher\nAverage rate: 51.429 Hz\nMost recent transform: 717.224 ( 0.018 sec old)\nBuffer length: 0.700 sec\n"];
+"RL_hip" -> "RL_thigh"[label="Broadcaster: /robot_state_publisher\nAverage rate: 51.429 Hz\nMost recent transform: 717.224 ( 0.018 sec old)\nBuffer length: 0.700 sec\n"];
+"RR_thigh" -> "RR_calf"[label="Broadcaster: /robot_state_publisher\nAverage rate: 51.429 Hz\nMost recent transform: 717.224 ( 0.018 sec old)\nBuffer length: 0.700 sec\n"];
+"RR_hip" -> "RR_thigh"[label="Broadcaster: /robot_state_publisher\nAverage rate: 51.429 Hz\nMost recent transform: 717.224 ( 0.018 sec old)\nBuffer length: 0.700 sec\n"];
+edge [style=invis];
+ subgraph cluster_legend { style=bold; color=black; label ="view_frames Result";
+"Recorded at time: 717.242"[ shape=plaintext ] ;
+ }->"map";
+}

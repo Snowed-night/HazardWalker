@@ -31,9 +31,9 @@ class KeyboardControlNode(Node):
     def __init__(self) -> None:
         super().__init__('hazardwalker_keyboard_control')
         self.declare_parameter('cmd_vel_topic', '/hw/cmd_vel')
-        # 以稳定优先：相较最初 0.30/0.60 提高响应，但不把 RL 步态推到
-        # 急转易翻倒的区间。更高速度须先在独占场景中按 ROS 参数逐步验收。
-        self.declare_parameter('linear_speed', 0.45)
+        # 负责人确定的默认前进速度为 0.65 m/s。转向与命令保持时间仍单独限幅，
+        # 避免把“提高直线速度”误改为同时提高急转和持续运动时间。
+        self.declare_parameter('linear_speed', 0.65)
         self.declare_parameter('angular_speed', 0.80)
         self.declare_parameter('command_hold_sec', 0.8)
         self.declare_parameter('publish_rate_hz', 20.0)

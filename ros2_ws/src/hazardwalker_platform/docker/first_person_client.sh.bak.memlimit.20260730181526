@@ -25,9 +25,6 @@ case "$ACTION" in
     docker rm -f "$FPV_CONTAINER" >/dev/null 2>&1 || true
     # 主容器和 sidecar 均使用 host 网络，ROS_MASTER_URI 指向主机即可连接 ROS1 Master。
     docker run -d --name "$FPV_CONTAINER" --network host \
-      --memory="${SIMENV_FIRST_PERSON_MEM_LIMIT:-2g}" \
-      --memory-swap="${SIMENV_FIRST_PERSON_MEMSWAP_LIMIT:-2g}" \
-      --pids-limit="${SIMENV_FIRST_PERSON_PIDS_LIMIT:-64}" \
       --entrypoint bash \
       --mount "type=bind,src=$SCRIPT_DIR/first_person_server.py,dst=/usr/local/bin/hazardwalker_first_person_server.py,readonly" \
       -e ROS_MASTER_URI="${ROS_MASTER_URI:-http://127.0.0.1:11311}" \

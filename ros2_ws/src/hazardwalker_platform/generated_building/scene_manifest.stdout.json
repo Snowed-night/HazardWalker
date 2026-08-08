@@ -6,8 +6,8 @@
     "truth_file_for_referee": "/home/ros/simenv_ws/results/danger_truth.json",
     "velocity_command_topic": "/cmd_vel"
   },
-  "danger_count": 6,
-  "distractor_count": 7,
+  "danger_count": 3,
+  "distractor_count": 4,
   "door_config": "/home/ros/simenv_ws/generated_building/door_config.yaml",
   "elevator_config": "/home/ros/simenv_ws/generated_building/elevator_config.yaml",
   "layout_metadata": "/home/ros/simenv_ws/generated_building/layout_metadata.json",
@@ -19,8 +19,8 @@
     "z": 0.6
   },
   "schema": "competition_scene_manifest_v1",
-  "seed": 77,
-  "source_count": 13,
+  "seed": 413651555,
+  "source_count": 7,
   "truth_file": "/home/ros/simenv_ws/results/danger_truth.json",
   "validation_report": "/home/ros/simenv_ws/generated_building/generation_checks.json",
   "world_file": "/home/ros/simenv_ws/generated_building/competition_scene.world"

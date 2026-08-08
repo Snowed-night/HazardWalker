@@ -41,11 +41,6 @@ services:
       ENABLE_LIDAR: ${ENABLE_LIDAR:-false}
       CAMERA_IMAGER_RATE_HZ: ${CAMERA_IMAGER_RATE_HZ:-10}
       CAMERA_JPEG_QUALITY: ${CAMERA_JPEG_QUALITY:-92}
-      RESET_MODEL_AFTER_CONTROLLER_READY: ${RESET_MODEL_AFTER_CONTROLLER_READY:-1}
-      CONTROLLER_STAND_CHECK: ${CONTROLLER_STAND_CHECK:-1}
-      CONTROLLER_STAND_CHECK_DURATION_SEC: ${CONTROLLER_STAND_CHECK_DURATION_SEC:-8}
-      CONTROLLER_STAND_MIN_BASE_HEIGHT_M: ${CONTROLLER_STAND_MIN_BASE_HEIGHT_M:-0.30}
-      CONTROLLER_STAND_MIN_UPRIGHT_COS: ${CONTROLLER_STAND_MIN_UPRIGHT_COS:-0.85}
       START_ROSBRIDGE: ${START_ROSBRIDGE:-1}
       START_ODOM_RELAY: ${START_ODOM_RELAY:-1}
       START_BUILDING_CONTROL: ${START_BUILDING_CONTROL:-1}
@@ -67,8 +62,6 @@ services:
           bash -lc 'source /opt/ros/noetic/setup.bash &&
           { [ "$${START_CONTROLLER:-1}" != "1" ] ||
           { pgrep -x junior_ctrl >/dev/null &&
-          { [ "$${CONTROLLER_STAND_CHECK:-1}" != "1" ] ||
-          [ -f /home/ros/simenv_ws/logs/controller_stand.ready ]; } &&
           rostopic info /cmd_vel 2>/dev/null |
           grep -Eq "^[[:space:]]*\*[[:space:]]+/unitree_gazebo_servo[[:space:]]"; }; } &&
           { [ "$${START_ROSBRIDGE:-1}" != "1" ] ||
@@ -78,8 +71,3 @@ services:
       retries: 3
       start_period: 90s
     restart: unless-stopped
-    # Host has ~94Gi; gzserver previously reached ~80Gi and OOMed the machine.
-    # Override with SIMENV_MEM_LIMIT / SIMENV_MEMSWAP_LIMIT / SIMENV_PIDS_LIMIT.
-    mem_limit: ${SIMENV_MEM_LIMIT:-64g}
-    memswap_limit: ${SIMENV_MEMSWAP_LIMIT:-72g}
-    pids_limit: ${SIMENV_PIDS_LIMIT:-512}

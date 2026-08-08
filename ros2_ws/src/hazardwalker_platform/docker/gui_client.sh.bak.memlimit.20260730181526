@@ -60,9 +60,6 @@ case "$ACTION" in
     # 默认 540p，降低 llvmpipe 软件渲染占用；noVNC 会继续缩放到浏览器视口。
     # 全屏页面作为只读配置挂载，旧 Docker 构建器异常时也不会回退到旧页面。
     docker run -d --name "$GUI_CONTAINER" --network host "${GPU_ARGS[@]}" \
-      --memory="${SIMENV_GUI_MEM_LIMIT:-8g}" \
-      --memory-swap="${SIMENV_GUI_MEMSWAP_LIMIT:-10g}" \
-      --pids-limit="${SIMENV_GUI_PIDS_LIMIT:-256}" \
       --entrypoint bash \
       --mount "type=bind,src=$MAIN_WORKSPACE_HOST,dst=/home/ros/simenv_ws,readonly" \
       --mount "type=bind,src=$SCRIPT_DIR/gui_entrypoint.sh,dst=/usr/local/bin/hazardwalker_gui_entrypoint.sh,readonly" \
