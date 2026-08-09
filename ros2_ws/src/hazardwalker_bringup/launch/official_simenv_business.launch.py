@@ -107,7 +107,7 @@ def _launch_cartographer(context, nav_pkg):
         )
     runtime_dir = os.path.join(
         tempfile.gettempdir(),
-        'hazardwalker_cartographer_configuration_files',
+        f'hazardwalker_cartographer_configuration_files_{os.getenv("USER", "unknown")}',
     )
     shutil.copytree(builtin_dir, runtime_dir, dirs_exist_ok=True)
     shutil.copy2(
@@ -336,6 +336,9 @@ def generate_launch_description():
                     'goal_tolerance_m': 0.25,
                     'linear_speed': 0.35,
                     'angular_speed': 1.5,
+                    # 导航数据记录
+                    'nav_record_enabled': True,
+                    'nav_record_dir': '',
                     'use_sim_time': sim_time_parameter,
                 }],
                 condition=LaunchConfigurationEquals(
