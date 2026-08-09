@@ -94,6 +94,31 @@ def test_matrix_rejects_duplicate_parameter_snapshot_under_new_label():
                 _catalog(root), plan, output_root=root / 'outputs')
 
 
+def test_relative_annotations_resolve_next_to_campaign_plan():
+    """数据盘方案中的相对标注路径不得错误地按仓库根目录解析。"""
+
+    with tempfile.TemporaryDirectory() as temporary:
+        root = Path(temporary)
+        plan_dir = root / 'campaign'
+        annotation_dir = plan_dir / 'annotations'
+        annotation_dir.mkdir(parents=True)
+        plan = _plan(root)
+        for seed in ('101', '102', '103'):
+            annotation = annotation_dir / f'seed_{seed}.json'
+            annotation.write_text('{"frames": []}\n', encoding='utf-8')
+            plan['annotations_by_seed'][seed] = (
+                f'annotations/seed_{seed}.json')
+
+        matrix = MODULE.build_execution_matrix(
+            _catalog(root), plan, output_root=root / 'outputs',
+            plan_dir=plan_dir)
+
+    assert {Path(row['annotation_file']) for row in matrix} == {
+        (annotation_dir / f'seed_{seed}.json').resolve()
+        for seed in ('101', '102', '103')
+    }
+
+
 def test_execution_stops_at_first_failed_matrix_item():
     with tempfile.TemporaryDirectory() as temporary:
         root = Path(temporary)

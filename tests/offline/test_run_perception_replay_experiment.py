@@ -32,9 +32,23 @@ def _preflight_bytes():
         'traffic_checked': True,
         'control_source': 'keyboard',
         'expected_localization_provenance': 'lidar_imu_slam',
+        'expected_scenario_seed': '20260803',
         'generated_at_utc': '2026-08-03T00:00:00+00:00',
         'git': {'commit': 'abc', 'dirty': False},
     }, sort_keys=True).encode('utf-8')
+
+
+def _adapter_status(seed='20260803'):
+    return {
+        'managed_lifecycle': True,
+        'lifecycle_container': 'simenv_ros1_hazard_platform',
+        'scenario_seed': seed,
+        'enable_cmd_vel_relay': True,
+        'enable_gui_overlay_relay': True,
+        'gui_assist_request_topic': '/hazardwalker/gui/assist_request',
+        'gui_control_status_topic': '/hazardwalker/gui/control_status',
+        'image_throttle_rate_ms': 200,
+    }
 
 
 def test_launch_command_applies_the_same_parameter_file_that_is_audited():
@@ -203,6 +217,49 @@ def test_focus_diagnostic_source_preserves_coverage_errors():
         assert errors == expected_errors
 
 
+def test_legacy_seed_diagnostic_only_allows_missing_runtime_seed_proof():
+    with tempfile.TemporaryDirectory() as directory:
+        session = Path(directory) / 'session'
+        (session / 'bag').mkdir(parents=True)
+        manifest = {
+            'status': 'complete',
+            'bag_relative_path': 'bag',
+            'scenario_seed': '20260805',
+        }
+        (session / 'run_manifest.json').write_text(
+            json.dumps(manifest), encoding='utf-8')
+        expected_errors = [
+            '实时预检固定 SEED 与清单声明不一致',
+            '平台适配器 start 固定 SEED 与清单不一致',
+            '平台适配器 end 固定 SEED 与清单不一致',
+        ]
+        with patch.object(
+                module, 'validate_completed_session_manifest',
+                lambda _manifest: expected_errors), patch.object(
+                    module, 'validate_session_bag_payload',
+                    lambda _bag, _manifest: []):
+            observed, errors = module.load_legacy_seed_diagnostic_session(
+                session)
+        assert observed == manifest
+        assert errors == expected_errors
+
+
+def test_legacy_seed_diagnostic_rejects_any_other_contract_error():
+    with tempfile.TemporaryDirectory() as directory:
+        session = Path(directory) / 'session'
+        (session / 'bag').mkdir(parents=True)
+        (session / 'run_manifest.json').write_text(json.dumps({
+            'status': 'complete',
+            'bag_relative_path': 'bag',
+            'scenario_seed': '20260805',
+        }), encoding='utf-8')
+        with patch.object(
+                module, 'validate_completed_session_manifest',
+                lambda _manifest: ['真值输入声明不是 false']):
+            with pytest.raises(ValueError, match='非 SEED 类合同错误'):
+                module.load_legacy_seed_diagnostic_session(session)
+
+
 def test_complete_validated_source_session_is_accepted():
     with tempfile.TemporaryDirectory() as directory:
         session = Path(directory) / 'session'
@@ -252,8 +309,14 @@ def test_complete_validated_source_session_is_accepted():
                 'relative_path': 'live_chain_preflight.json',
                 'control_source': 'keyboard',
                 'expected_localization_provenance': 'lidar_imu_slam',
+                'expected_scenario_seed': '20260803',
                 'generated_at_utc': '2026-08-03T00:00:00+00:00',
                 'git': {'commit': 'abc', 'dirty': False},
+            },
+            'adapter_status': {
+                'start': _adapter_status(),
+                'end': _adapter_status(),
+                'contract_consistent': True,
             },
             'patrol_coverage': {
                 'status': 'passed',

@@ -62,6 +62,12 @@ NAVIGATION_TOPIC_TYPES = {
     '/map': 'nav_msgs/msg/OccupancyGrid',
 }
 
+
+def _captures_string_payload(type_name: str) -> bool:
+    """仅缓存轻量字符串状态，避免把地图等数组消息写入预检报告。"""
+
+    return type_name == 'std_msgs/msg/String'
+
 # 静态 TF 可能在预检订阅建立前已发布，不以短时计数判失败；其他项目必须在
 # 仿真解除暂停后持续产生，才能证明本轮将录到可回放数据。
 REQUIRED_LIVE_TOPICS = (
@@ -174,7 +180,8 @@ def _node_path(endpoint: dict) -> str:
 
 def evaluate_snapshot(
         snapshot: dict, control_source: str,
-        expected_localization_provenance: str = '') -> list[str]:
+        expected_localization_provenance: str = '',
+        expected_scenario_seed: str = '') -> list[str]:
     """对可序列化的 ROS 图快照做确定性门禁，便于离线回归。"""
 
     if control_source not in CONTROL_SOURCE_TOPICS:
@@ -310,6 +317,13 @@ def evaluate_snapshot(
                 failures.append('平台适配器不是由 auto_docker.sh 统一管理的实例')
             if not adapter_status.get('lifecycle_container'):
                 failures.append('平台适配器未声明其生命周期所属容器')
+            runtime_seed = str(
+                adapter_status.get('scenario_seed') or '').strip()
+            if expected_scenario_seed and runtime_seed != str(
+                    expected_scenario_seed).strip():
+                failures.append(
+                    '平台适配器固定 SEED 与本轮预检声明不一致：'
+                    f'{runtime_seed or "<empty>"} != {expected_scenario_seed}')
             if adapter_status.get('enable_cmd_vel_relay') is not True:
                 failures.append('平台适配器未启用 /hw/cmd_vel→ROS1 /cmd_vel 控制转发')
             if adapter_status.get('enable_gui_overlay_relay') is not True:
@@ -453,7 +467,8 @@ def capture_snapshot(control_source: str, graph_timeout_sec: float,
                 continue
             message_type = get_message(type_name)
 
-            def on_message(message, observed_topic=topic):
+            def on_message(message, observed_topic=topic,
+                           observed_type=type_name):
                 counts[observed_topic] += 1
                 if observed_topic == '/clock' and hasattr(message, 'clock'):
                     stamp = message.clock
@@ -462,7 +477,10 @@ def capture_snapshot(control_source: str, graph_timeout_sec: float,
                     if clock_bounds_sec[0] is None:
                         clock_bounds_sec[0] = stamp_sec
                     clock_bounds_sec[1] = stamp_sec
-                if hasattr(message, 'data'):
+                # OccupancyGrid 等消息同样带有 ``data`` 字段，但可能包含数十万
+                # 个元素。正式证据只需要 String 状态载荷，其他话题仅记计数。
+                if (_captures_string_payload(observed_type)
+                        and hasattr(message, 'data')):
                     latest_string_payloads[observed_topic] = str(message.data)
 
             qos = qos_profile_sensor_data
@@ -537,18 +555,24 @@ def main() -> int:
         '--localization-provenance',
         choices=sorted(PROVENANCE_PUBLISHERS), default='',
         help='本轮合法定位来源；正式预检必须显式填写并与运行时声明一致')
+    parser.add_argument(
+        '--scenario-seed', default='',
+        help='当前官方容器固定 SEED；正式预检必须显式填写并与受管适配器一致')
     parser.add_argument('--output', default='')
     args = parser.parse_args()
     if args.graph_timeout_sec <= 0 or args.sample_sec <= 0:
         raise SystemExit('graph-timeout-sec 和 sample-sec 必须为正数')
     if not args.graph_only and not args.localization_provenance:
         raise SystemExit('正式预检必须显式指定 --localization-provenance')
+    if not args.graph_only and not str(args.scenario_seed).strip():
+        raise SystemExit('正式预检必须显式指定 --scenario-seed')
     snapshot = capture_snapshot(
         args.control_source, args.graph_timeout_sec,
         args.sample_sec, args.graph_only)
     snapshot['git'] = read_git_state(REPO_ROOT)
     snapshot['expected_localization_provenance'] = (
         args.localization_provenance)
+    snapshot['expected_scenario_seed'] = str(args.scenario_seed).strip()
     if not args.graph_only:
         try:
             snapshot['first_person_health'] = fetch_first_person_health(
@@ -556,7 +580,8 @@ def main() -> int:
         except ValueError as exc:
             snapshot['first_person_health_error'] = str(exc)
     failures = evaluate_snapshot(
-        snapshot, args.control_source, args.localization_provenance)
+        snapshot, args.control_source, args.localization_provenance,
+        str(args.scenario_seed).strip())
     failures.extend(evaluate_git_state(
         snapshot['git'], graph_only=bool(args.graph_only)))
     snapshot['passed'] = not failures

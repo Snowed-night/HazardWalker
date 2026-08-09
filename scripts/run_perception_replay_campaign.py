@@ -55,6 +55,18 @@ def _resolve_repo_path(value: str, *, field: str) -> Path:
     return path
 
 
+def _resolve_plan_path(value: str, *, plan_dir: Path, field: str) -> Path:
+    """解析随活动方案保存在数据盘上的标注文件。"""
+
+    path = Path(str(value)).expanduser()
+    if not path.is_absolute():
+        path = plan_dir / path
+    path = path.resolve()
+    if not path.is_file():
+        raise ValueError(f'{field} 文件不存在：{path}')
+    return path
+
+
 def _sha256(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open('rb') as handle:
@@ -73,7 +85,8 @@ def _safe_name(value: object, *, field: str) -> str:
 
 def build_execution_matrix(
         catalog: dict, plan: dict, *, output_root: Path,
-        domain_id_start: int = 142) -> list[dict]:
+        domain_id_start: int = 142,
+        plan_dir: Path | None = None) -> list[dict]:
     """验证预注册合同，并生成确定性的 SEED×算法回放矩阵。"""
 
     if catalog.get('schema') != CATALOG_SCHEMA:
@@ -137,6 +150,9 @@ def build_execution_matrix(
         })
 
     matrix = []
+    # 参数文件属于受版本控制的算法合同，继续以仓库根目录为基准；人工标注
+    # 与活动方案一起保存在数据盘，允许相对于 campaign_plan.json 所在目录。
+    annotation_base = (plan_dir or REPO_ROOT).expanduser().resolve()
     # ROS 2 默认 DDS domain id 的可移植范围为 0..232；每个组合使用独立域，
     # 防止上一轮尚在退出的节点污染下一轮。
     domain_count = 233
@@ -144,8 +160,9 @@ def build_execution_matrix(
             normalized_variants) >= domain_count:
         raise ValueError('domain_id_start 无法为完整矩阵分配有效 ROS_DOMAIN_ID')
     for seed in sorted(seeds):
-        annotation_file = _resolve_repo_path(
-            annotations[seed], field=f'annotations_by_seed[{seed}]')
+        annotation_file = _resolve_plan_path(
+            annotations[seed], plan_dir=annotation_base,
+            field=f'annotations_by_seed[{seed}]')
         for variant in normalized_variants:
             index = len(matrix)
             run_dir = output_root / f'seed_{seed}' / variant['algorithm_label']
@@ -327,7 +344,8 @@ def main() -> int:
         campaign_id = _safe_name(plan.get('campaign_id'), field='campaign_id')
         matrix = build_execution_matrix(
             catalog, plan, output_root=output_root,
-            domain_id_start=args.domain_id_start)
+            domain_id_start=args.domain_id_start,
+            plan_dir=plan_path.parent)
     except (ValueError, json.JSONDecodeError) as exc:
         raise SystemExit(str(exc)) from exc
     if args.dry_run:

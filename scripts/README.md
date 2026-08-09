@@ -46,6 +46,7 @@
   `evaluation_result.json`，再输出活动 JSON/CSV 及召回率、虚警率、耗时的最差值。漏跑 SEED、
   使用未提交代码、参数快照变化、过期校验报告或只挑成功结果都会使活动失败。
 - `official_perception_bag.py`：录制固定 SEED 人工巡检 rosbag；正式录制绑定五分钟内通过且来自同一干净 Git 提交的实时预检报告，开包前清零合法 SLAM 覆盖计数，并校验 RGB-D、雷达、IMU、定位来源、地图、控制、检测、至少 60 秒时间跨度、8 m 路程和 3 m 平面跨度；也可在独立 ROS 域安全回放公开传感器输入。
+- `run_official_perception_patrol.py`：正式人工巡检统一入口；用同一份 SEED、控制源和合法定位来源依次完成只读实时预检与录包，报告固定进入 `reports/perception/official_random/`，rosbag 强制保存在仓库外，避免分步命令参数漂移或误提交大文件。
 - `verify_perception_live_chain.py`：正式人工巡检录包前的只读门禁；短时检查时钟、RGB-D、内参、激光、TF、地图、合法 SLAM 及来源发布者、感知与控制状态、第一人称实时画面和叠加状态，并要求平台输入、地图及 `/hw/cmd_vel` 均满足唯一发布者合同，同时绑定干净 Git 提交。脚本不发送速度命令。
 - `build_perception_bag_regression_catalog.py`：重新核验并汇总不同 SEED 的唯一有效人工巡检，正式索引默认至少覆盖 3 个不同 SEED，输出含时长和关键话题计数的动态回归集 JSON/CSV 并拒绝重复 SEED。
 - `run_perception_replay_experiment.py`：在独立 ROS 域加载真实感知参数、回放一份有效 rosbag、安全收尾证据记录器，并可接续人工标注评估；正式输出只允许写入 `reports/perception/` 子目录，并拒绝未提交代码。脚本固化实际参数和标注快照并验证哈希。缺代表图、配对深度、合法轨迹、地图或测试表时失败，无标注只记为 `captured_unlabeled`。

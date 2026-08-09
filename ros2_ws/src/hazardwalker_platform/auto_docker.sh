@@ -75,6 +75,11 @@ manage_adapter() {
   bash "$ADAPTER_MANAGER" "$action"
 }
 
+read_container_scenario_seed() {
+  docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' "$SIMENV_CONTAINER" \
+    2>/dev/null | sed -n 's/^SEED=//p' | tail -n 1
+}
+
 wait_for_container_ready() {
   local timeout_sec="${OFFICIAL_SIMENV_CONTAINER_READY_TIMEOUT_SEC:-180}"
   local deadline=$((SECONDS + timeout_sec)) running health health_configured
@@ -135,6 +140,9 @@ case "${1:-up}" in
       [[ "$container_was_running" == true ]] || "$ROOT/docker/auto_noetic.sh" down
       exit 1
     fi
+    # 适配器签名和运行时状态必须绑定当前容器真正使用的 SEED。即使容器被
+    # 外部替换但名称不变，管理器也会因签名变化而重启适配器。
+    export OFFICIAL_SIMENV_SCENARIO_SEED="$(read_container_scenario_seed)"
     if adapter_enabled && ! manage_adapter start; then
       echo 'ERROR: container is ready but the ROS2 adapter failed to start.' >&2
       [[ "$container_was_running" == true ]] || "$ROOT/docker/auto_noetic.sh" down

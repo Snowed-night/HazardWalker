@@ -11,6 +11,7 @@ ROSBRIDGE_HOST_HEADER="${OFFICIAL_SIMENV_ROSBRIDGE_HOST_HEADER:-}"
 ENABLE_CONTROL="${OFFICIAL_SIMENV_ENABLE_CONTROL:-0}"
 MANAGED_LIFECYCLE="${OFFICIAL_SIMENV_MANAGED_LIFECYCLE:-0}"
 LIFECYCLE_CONTAINER="${OFFICIAL_SIMENV_LIFECYCLE_CONTAINER:-$CONTAINER}"
+SCENARIO_SEED="${OFFICIAL_SIMENV_SCENARIO_SEED:-}"
 RGB_TOPIC="${OFFICIAL_SIMENV_RGB_TOPIC:-/real_sense/rgb/image_raw}"
 DEPTH_TOPIC="${OFFICIAL_SIMENV_DEPTH_TOPIC:-/real_sense/depth/image_raw}"
 RGB_INFO_TOPIC="${OFFICIAL_SIMENV_RGB_CAMERA_INFO_TOPIC:-/real_sense/rgb/camera_info}"
@@ -89,6 +90,16 @@ fi
 if ! docker inspect -f '{{.State.Running}}' "$CONTAINER" 2>/dev/null | grep -qx true; then
   echo "[rosbridge-adapter] 官方容器未运行：$CONTAINER" >&2; exit 1
 fi
+# 以容器实际环境为准；宿主 shell 中后来修改的 SEED 不能冒充本轮场景。
+CONTAINER_SCENARIO_SEED="$(
+  docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' "$CONTAINER" |
+    sed -n 's/^SEED=//p' | tail -n 1
+)"
+if [[ -n "$SCENARIO_SEED" && "$SCENARIO_SEED" != "$CONTAINER_SCENARIO_SEED" ]]; then
+  echo "[rosbridge-adapter] 受管 SEED 与容器实际 SEED 不一致：$SCENARIO_SEED != $CONTAINER_SCENARIO_SEED" >&2
+  exit 1
+fi
+SCENARIO_SEED="$CONTAINER_SCENARIO_SEED"
 if ! docker exec "$CONTAINER" bash -lc 'source /opt/ros/noetic/setup.bash; rosnode list | grep -qx /rosbridge_websocket'; then
   echo '[rosbridge-adapter] 容器内没有 /rosbridge_websocket；请先由官方 auto.sh 启动 ROS1 rosbridge。' >&2; exit 1
 fi
@@ -100,10 +111,12 @@ ARGS=(--ros-args -p rosbridge_url:="$ROSBRIDGE_URL")
 if [[ -n "$ROSBRIDGE_HOST_HEADER" ]]; then
   ARGS+=(-p rosbridge_host_header:="$ROSBRIDGE_HOST_HEADER")
 fi
+# SEED 只作为实验标识字符串；额外 YAML 引号避免纯数字被 ROS2 CLI 推断为整数。
 exec "$PYTHON_BIN" "$ROOT/scripts/official_simenv_rosbridge_ros2_adapter_node.py" "${ARGS[@]}" \
   -p use_sim_time:=false \
   -p managed_lifecycle:="$MANAGED_LIFECYCLE" \
   -p lifecycle_container:="$LIFECYCLE_CONTAINER" \
+  -p "scenario_seed:='$SCENARIO_SEED'" \
   -p enable_clock_relay:=true \
   -p clock_throttle_rate_ms:="$CLOCK_THROTTLE_RATE_MS" \
   -p enable_cmd_vel_relay:="$ENABLE_CONTROL" \
