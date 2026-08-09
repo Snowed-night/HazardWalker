@@ -13,14 +13,17 @@
 - `evaluate_real_red_ball_images.py`：读取本地实物红球图片，统一编号并生成多目标检测标注图和参数图。
 - `run_official_simenv_rosbridge_adapter.sh`：唯一官方 ROS1↔ROS2 适配入口；由 ROS2 主机通过
   容器 `rosbridge_websocket` 双向传输 `/hw/*` 与 `/cmd_vel`，官方 Docker 不需要也不具备 `dynamic_bridge`。
+- `manage_official_simenv_rosbridge_adapter.sh`：适配器宿主侧生命周期管理器；由
+  `auto_docker.sh up/down/status` 调用，按容器名和 ROS 域维护 PID、日志、去重及安全停止，普通成员不应手工运行。
+- `tests/runtime/verify_official_simenv_adapter_lifecycle.sh`：不连接共享容器的 Linux 进程级自检，验证适配器管理器
+  重复启动不增殖、DDS 图中同名节点唯一、状态可见和停止无残留；正式验收仍需在独占官方容器中执行。
 - `verify_official_simenv_ros1_adapter.sh`：检查 ROS1 原话题、ROS2 `/hw/*` 与控制器订阅；仅显式
   `--control` 才发送低速速度命令，仍需以视频和里程计证明真实运动。
 - `verify_official_simenv_ros1_direct_control.sh`：绕过适配层直接验收官方 ROS1 `/cmd_vel`，要求平台组
   设置 `OFFICIAL_SIMENV_EXCLUSIVE_SESSION=1` 才会运行，并自动保存直行≥1m、转向、停止的里程计与测试表。
-- `run_official_simenv_ros1_ros2_stack.sh`：在官方容器已启动后启动 ROS2 业务层，不启动 fake 平台或
-  Gazebo Harmonic。
-- `run_official_simenv_rosbridge_adapter.sh`：实际官方 profile 使用的 ROS2 主机入口；经容器内
-  `rosbridge_websocket` 双向传输 `/hw/*` 与 `/cmd_vel`，需要安装轻量 `websocket-client`。
+- `run_official_simenv_ros1_ros2_stack.sh`：复用 `auto_docker.sh up` 已启动的唯一适配器，再通过
+  `official_simenv_control_interface.launch.py` 启动统一控制与 ROS2 业务层；正式导航自动选择
+  `navigation` 输入，仍由唯一仲裁器发布 `/hw/cmd_vel`，不启动 fake 平台、第二份适配器或 Gazebo Harmonic。
 - `official_simenv_cmd_vel_relay_node.py`：正式完整适配器已失活时的**临时控制备用中继**；只将
   `/hw/cmd_vel` 发送到官方 ROS1 `/cmd_vel`，带 WebSocket 重连与超时零速度。仅限独占时段使用，
   正式适配器恢复后必须停止，禁止长期并行桥接。
@@ -42,6 +45,13 @@
   运行后使用当前独立校验器重新检查主动复查证据，再检查非空正式结果、测试表和赛后
   `evaluation_result.json`，再输出活动 JSON/CSV 及召回率、虚警率、耗时的最差值。漏跑 SEED、
   使用未提交代码、参数快照变化、过期校验报告或只挑成功结果都会使活动失败。
+- `official_perception_bag.py`：录制固定 SEED 人工巡检 rosbag；正式录制绑定五分钟内通过且来自同一干净 Git 提交的实时预检报告，开包前清零合法 SLAM 覆盖计数，并校验 RGB-D、雷达、IMU、定位来源、地图、控制、检测、至少 60 秒时间跨度、8 m 路程和 3 m 平面跨度；也可在独立 ROS 域安全回放公开传感器输入。
+- `verify_perception_live_chain.py`：正式人工巡检录包前的只读门禁；短时检查时钟、RGB-D、内参、激光、TF、地图、合法 SLAM 及来源发布者、感知与控制状态、第一人称实时画面和叠加状态，并要求平台输入、地图及 `/hw/cmd_vel` 均满足唯一发布者合同，同时绑定干净 Git 提交。脚本不发送速度命令。
+- `build_perception_bag_regression_catalog.py`：重新核验并汇总不同 SEED 的唯一有效人工巡检，正式索引默认至少覆盖 3 个不同 SEED，输出含时长和关键话题计数的动态回归集 JSON/CSV 并拒绝重复 SEED。
+- `run_perception_replay_experiment.py`：在独立 ROS 域加载真实感知参数、回放一份有效 rosbag、安全收尾证据记录器，并可接续人工标注评估；正式输出只允许写入 `reports/perception/` 子目录，并拒绝未提交代码。脚本固化实际参数和标注快照并验证哈希。缺代表图、配对深度、合法轨迹、地图或测试表时失败，无标注只记为 `captured_unlabeled`。
+- `compare_perception_replay_runs.py`：横向汇总 rosbag 内容指纹、SEED、人工标注和 Git 来源完全受控的多轮回放；校验实际启动参数哈希后输出 JSON/CSV，拒绝脏代码、路径相同但内容已变、跨数据集或重复参数组合。
+- `compare_perception_replay_campaign.py`：将至少 3 个 SEED 下完全相同的算法/参数/Git 版本组成完整回放矩阵，输出跨场景微平均、最差场景、定位、时延及频率指标；漏跑任一算法或 SEED、版本漂移和事后挑选结果都会失败。
+- `run_perception_replay_campaign.py`：读取已校验的多 SEED rosbag 目录和预注册算法方案，顺序执行完整的 `SEED × 参数` 回放矩阵，失败即停止并保存可审计执行清单；续跑只复用合同完全一致的完成项，全部通过后自动生成跨场景比较表。
 - `run_official_simenv_perception_evidence.sh`：感知侧正式随机场景编排器。要求显式独占标志、
   固定 SEED、代码版本、证据目录和测试表目录；启动自建激光—IMU定位、RGB-D感知及 ROS1
   记录器，默认**不**切换控制器或发布 `/cmd_vel`。它只等待导航在任务状态话题发布 `FINISHED`，

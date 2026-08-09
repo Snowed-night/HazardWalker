@@ -8,6 +8,9 @@ WORKSPACE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CATKIN_WORKSPACE_DIR="${CATKIN_WORKSPACE_DIR:-$WORKSPACE_DIR/.ros1_catkin_ws}"
 CATKIN_DEVEL_DIR="$CATKIN_WORKSPACE_DIR/devel"
 cd "$WORKSPACE_DIR"
+RUNTIME_READY_FILE="/tmp/hazardwalker-simenv-runtime-ready"
+# 健康检查只能在本轮完整启动结束后通过；先清除同容器上轮残留标记。
+rm -f "$RUNTIME_READY_FILE"
 
 SEED="${SEED:-}"
 FLOOR_COUNT="${FLOOR_COUNT:-3}"
@@ -48,12 +51,14 @@ CONTROLLER_READY_TIMEOUT_SEC="${CONTROLLER_READY_TIMEOUT_SEC:-60}"
 CONTROLLER_AUTO_STAND_DELAY_SEC="${CONTROLLER_AUTO_STAND_DELAY_SEC:-5}"
 CONTROLLER_AUTO_RL_DELAY_SEC="${CONTROLLER_AUTO_RL_DELAY_SEC:-2}"
 VERIFY_CONTROLLER_MOTION="${VERIFY_CONTROLLER_MOTION:-0}"
+controller_motion_verified=0
 CONTROLLER_RL_SETTLE_SEC="${CONTROLLER_RL_SETTLE_SEC:-3.0}"
 CONTROLLER_PROBE_SPEED_MPS="${CONTROLLER_PROBE_SPEED_MPS:-0.30}"
 CONTROLLER_PROBE_DURATION_SEC="${CONTROLLER_PROBE_DURATION_SEC:-3.0}"
 CONTROLLER_PROBE_MIN_DISPLACEMENT_M="${CONTROLLER_PROBE_MIN_DISPLACEMENT_M:-0.05}"
 CONTROLLER_PROBE_MAX_DISPLACEMENT_M="${CONTROLLER_PROBE_MAX_DISPLACEMENT_M:-1.00}"
 CONTROLLER_PROBE_MIN_BASE_HEIGHT_M="${CONTROLLER_PROBE_MIN_BASE_HEIGHT_M:-0.30}"
+CONTROLLER_STAND_SETTLE_SEC="${CONTROLLER_STAND_SETTLE_SEC:-6.0}"
 # 等仿真时钟稳定后再启动 rosbridge，避免新客户端收到启动期陈旧队列。
 ROSBRIDGE_START_AFTER_SIM_TIME_SEC="${ROSBRIDGE_START_AFTER_SIM_TIME_SEC:-1}"
 ROBOT_X="${ROBOT_X:-0.0}"
@@ -372,7 +377,23 @@ if [ "$START_CONTROLLER" = "1" ] && [ "$SIMENV_HEADLESS_MODE" = "move_base" ]; t
     fi
     sleep 0.2
   done
-  echo "junior_ctrl fixed stand state is ready; non-zero /cmd_vel will switch to RL walking."
+  # 状态切换日志不等于真的站稳。等待关节插值结束后用官方诊断里程计只做
+  # 平台健康门禁；该真值不进入感知、SLAM、导航或比赛结果。
+  sleep "$CONTROLLER_STAND_SETTLE_SEC"
+  controller_base_z="$(
+    timeout 10 rostopic echo -n 1 /Odometry_gazebo 2>/dev/null |
+      awk '/^    position:/{in_position=1; next} in_position && /^      z:/{print $2; exit}' \
+      || true
+  )"
+  if [ -z "$controller_base_z" ] || ! python3 -c '
+import math, sys
+height, minimum = map(float, sys.argv[1:])
+raise SystemExit(0 if math.isfinite(height) and height >= minimum else 1)
+' "$controller_base_z" "$CONTROLLER_PROBE_MIN_BASE_HEIGHT_M"; then
+    echo "Controller fixed-stand posture failed: base_z=${controller_base_z:-missing}m." >&2
+    exit 1
+  fi
+  echo "junior_ctrl fixed stand is physically upright: base_z=${controller_base_z}m."
 fi
 
 # 仅保留给专门的动态控制诊断，不在正常启动时自动进入 RL。
@@ -447,6 +468,7 @@ raise SystemExit(0 if minimum <= distance <= maximum and height >= min_height el
       exit 1
     fi
     echo "Controller physical /cmd_vel probe passed: ${probe_displacement}m, base_z=${probe_z_after}m."
+    controller_motion_verified=1
   fi
 fi
 
@@ -484,11 +506,19 @@ if [ "$START_ROSBRIDGE" = "1" ]; then
   roslaunch rosbridge_server rosbridge_websocket.launch \
     > "$WORKSPACE_DIR/logs/rosbridge.log" 2>&1 &
   echo $! > "$WORKSPACE_DIR/logs/rosbridge.pid"
+  timeout "$CONTROLLER_READY_TIMEOUT_SEC" bash -lc \
+    'until rosnode ping -c 1 /rosbridge_websocket >/dev/null 2>&1; do sleep 0.2; done' || {
+      echo "rosbridge node did not become ready." >&2
+      exit 1
+    }
 fi
 
+touch "$RUNTIME_READY_FILE"
 echo "Simulation startup completed; keeping Docker main process attached to Gazebo."
-if [ "$START_CONTROLLER" = "1" ] && [ "$SIMENV_AUTO_RL" = "1" ]; then
-  echo "Headless RL state and physical /cmd_vel response were verified."
+if [ "$controller_motion_verified" = "1" ]; then
+  echo "Headless walking state and physical /cmd_vel response were verified."
+elif [ "$START_CONTROLLER" = "1" ]; then
+  echo "Controller process, fixed stand, and /cmd_vel subscription are ready; physical motion probe was not requested."
 fi
 # Docker 以本脚本为 PID 1。等待 roslaunch 退出可避免“脚本结束但 Gazebo/中继被
 # Docker 回收”的脱节；容器停止时 Docker 会向同一进程组发送终止信号。

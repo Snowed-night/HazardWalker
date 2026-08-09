@@ -81,6 +81,9 @@ class HazardTrackerConfig:
 
     confirm_observation_count: int = 3
     reject_after_missed_count: int = 10
+    # 正值时按消息时间戳判断丢失，避免桥接器重复发布或帧率变化让固定帧数
+    # 在几秒内耗尽；零保留历史纯函数测试的按帧行为。
+    reject_after_missed_sec: float = 0.0
     merge_distance_m: float = 0.5
     min_distinct_views: int = 1
     max_apparent_diameter_cv: float = 0.35
@@ -101,6 +104,11 @@ class HazardTrackerConfig:
     max_median_normalized_depth_curvature: float = 0.30
     # 为零表示兼容旧链路，不强制方位视差；正式 RGB-D 运行应设置约 20--30 度。
     min_view_bearing_span_deg: float = 0.0
+    # 强球面几何备用确认路径。只有配置了官方球直径、每个独立视角都有
+    # spherical 深度正证据且尺寸/曲率/轮廓全部一致时，才允许用两个侧移
+    # 视角和较小方位差确认；纯 RGB、未知深度和任一非球面反证均不能走此路。
+    strong_depth_min_distinct_views: int = 0
+    strong_depth_min_view_bearing_span_deg: float = 0.0
     # ``view_median`` 适合低漂移定位；``earliest_view_anchor`` 适合官方当前
     # scan-matching 位姿在长距离侧移中单向漂移的情况。后者仅锚定首个完整、
     # 可确认 RGB-D 视角，不会使用测试真值。
@@ -155,7 +163,7 @@ class HazardTracker:
             if track.track_id not in matched_track_ids:
                 track.missed_count += 1
 
-        self._refresh_statuses()
+        self._refresh_statuses(stamp_sec)
         return self.active_tracks()
 
     def active_tracks(self):
@@ -189,7 +197,11 @@ class HazardTracker:
                 if (
                     track.track_id == int(hinted_track_id)
                     and track.track_id not in already_matched
-                    and track.status != 'rejected'
+                    # 二维候选记忆给出的明确提示允许复活普通 lost_track：
+                    # 主动横移时红球可能短暂出画，候选别名仍连续，不能因此
+                    # 创建新 track 并丢失已经累计的视角。多视角证明为非球体
+                    # 的轨迹保持永久拒绝，绝不因正面圆形投影复活。
+                    and track.status != 'rejected_non_spherical'
                 ):
                     return track
         best_track = None
@@ -304,16 +316,37 @@ class HazardTracker:
         self.tracks.append(track)
         return track
 
-    def _refresh_statuses(self):
+    def _refresh_statuses(self, stamp_sec=0.0):
         for track in self.tracks:
             if track.status == 'rejected_non_spherical':
                 # 两个独立稳定视角已经给出明确非球面证据后，本轮任务内永久拒绝。
                 # 后续正面圆形投影可能只是同一圆柱/圆锥的端面，绝不能用更多
                 # RGB 圆形帧把已拒绝物体“复活”为 confirmed。
                 continue
-            if track.missed_count >= self.config.reject_after_missed_count:
-                if (track.status == 'confirmed'
-                        and track.missed_count < self.config.reject_after_missed_count * 10):
+            reject_after_sec = max(
+                0.0, float(self.config.reject_after_missed_sec),
+            )
+            missed_age_sec = (
+                max(0.0, float(stamp_sec) - float(track.last_seen_sec))
+                if reject_after_sec > 0.0 and stamp_sec and track.last_seen_sec
+                else 0.0
+            )
+            lost_by_time = reject_after_sec > 0.0 and missed_age_sec >= reject_after_sec
+            lost_by_count = (
+                reject_after_sec <= 0.0
+                and track.missed_count >= self.config.reject_after_missed_count
+            )
+            if lost_by_time or lost_by_count:
+                confirmed_grace_active = (
+                    track.status == 'confirmed'
+                    and (
+                        missed_age_sec < reject_after_sec * 10.0
+                        if reject_after_sec > 0.0
+                        else track.missed_count
+                        < self.config.reject_after_missed_count * 10
+                    )
+                )
+                if confirmed_grace_active:
                     # 已确认危险源短时离开视场时保留，避免一次转向就从任务结果消失。
                     continue
                 track.status = 'rejected'
@@ -348,6 +381,31 @@ class HazardTracker:
                     and normalized_curvature <= self.config.max_median_normalized_depth_curvature
                 )
             )
+            strong_depth_min_views = max(
+                0, int(self.config.strong_depth_min_distinct_views),
+            )
+            strong_depth_geometry_ok = (
+                strong_depth_min_views >= 2
+                and self.config.expected_sphere_diameter_m > 0.0
+                and eligible_views >= strong_depth_min_views
+                and spherical_views >= max(
+                    strong_depth_min_views,
+                    self.config.min_spherical_views_for_confirm,
+                )
+                and len(normalized_curvatures) >= strong_depth_min_views
+                and view_bearing_span_deg >= max(
+                    0.0,
+                    self.config.strong_depth_min_view_bearing_span_deg,
+                )
+                and flat_views == 0
+            )
+            regular_multiview_ok = (
+                eligible_views >= self.config.min_distinct_views
+                and lateral_parallax_ok
+            )
+            confirmation_view_geometry_ok = (
+                regular_multiview_ok or strong_depth_geometry_ok
+            )
             if (flat_views >= self.config.min_non_spherical_views_to_reject
                     and flat_views >= eligible_views):
                 track.status = 'rejected_non_spherical'
@@ -358,18 +416,26 @@ class HazardTracker:
                 track.status = 'needs_reobservation'
                 track.evidence_status = 'single_view_flat_or_non_spherical'
             elif (track.eligible_observation_count >= self.config.confirm_observation_count
-                  and eligible_views >= self.config.min_distinct_views
+                  and confirmation_view_geometry_ok
                   and diameter_cv <= self.config.max_apparent_diameter_cv
                   and diameter_prior_ok
                   and representative_aspect_ratio >= self.config.min_multiview_aspect_ratio
                   and curvature_cv <= self.config.max_depth_curvature_cv
                   and normalized_curvature_ok
-                  and lateral_parallax_ok
                   and spherical_views >= self.config.min_spherical_views_for_confirm
                   and (flat_views == 0 or eligible_views >= flat_views + 2)):
                 track.status = 'confirmed'
-                track.evidence_status = 'multi_view_sphere_consistent'
-            elif (eligible_views >= self.config.min_distinct_views
+                track.evidence_status = (
+                    'strong_rgbd_sphere_geometry_consistent'
+                    if strong_depth_geometry_ok and not regular_multiview_ok
+                    else 'multi_view_sphere_consistent'
+                )
+            elif (eligible_views >= min(
+                      self.config.min_distinct_views,
+                      strong_depth_min_views
+                      if strong_depth_min_views >= 2
+                      else self.config.min_distinct_views,
+                  )
                   and (diameter_cv > self.config.max_apparent_diameter_cv
                        or not diameter_prior_ok
                        or representative_aspect_ratio < self.config.min_multiview_aspect_ratio
@@ -417,6 +483,15 @@ def distance_m(a, b):
 
 """将 HazardTrack 转为后续 JSON/结果文件可直接使用的 dict。"""
 def track_to_hazard_dict(track):
+    # 长时运行若每帧重复序列化从任务开始累积的全部 source_id，记录体积会
+    # 二次增长。轨迹内部仍保留完整统计；公开载荷只保留首条和最近证据，
+    # 并用 source_observation_count 明确原始总数，足以完成结果链路追溯。
+    source_ids = list(track.source_ids)
+    maximum_serialized_source_ids = 32
+    if len(source_ids) > maximum_serialized_source_ids:
+        serialized_source_ids = [source_ids[0], *source_ids[-31:]]
+    else:
+        serialized_source_ids = source_ids
     return {
         'id': track.track_id,
         'position': [round(float(v), 4) for v in track.position],
@@ -427,7 +502,8 @@ def track_to_hazard_dict(track):
         'missed_count': track.missed_count,
         'first_seen_sec': track.first_seen_sec,
         'last_seen_sec': track.last_seen_sec,
-        'source_ids': list(track.source_ids),
+        'source_ids': serialized_source_ids,
+        'source_observation_count': len(source_ids),
         'distinct_view_count': _eligible_distinct_view_count(track),
         'view_ids': list(track.view_ids),
         'eligible_observation_count': track.eligible_observation_count,

@@ -46,6 +46,8 @@ Usage: $0 {build|up|down|logs|shell|status|image}
 Environment (passed into container):
   GUI=false  PAUSED=true  START_CONTROLLER=0|1  SIMENV_AUTO_RL=0|1
   START_ROSBRIDGE=0|1  START_ODOM_RELAY=0|1  SEED=...
+  SIMENV_MEMORY_LIMIT=32g  SIMENV_MEMORY_SWAP_LIMIT=32g
+  SIMENV_RESTART_POLICY=no
   Container name: ${CONTAINER_NAME}
 
 Note: Docker image includes LibTorch CUDA (cu118) + CUDA 11.8 toolkit (for cmake compile).

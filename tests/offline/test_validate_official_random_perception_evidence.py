@@ -444,3 +444,77 @@ def test_validator_rebuilds_multiview_gate_from_raw_frame_observations():
         assert 'insufficient_frame_spherical_views_0' in report['errors']
         assert 'insufficient_frame_bearing_span_0' in report['errors']
         assert 'track_views_not_found_in_frames_0' in report['errors']
+
+
+def _convert_fixture_to_strong_rgbd_path(root):
+    """把基础夹具改成低方位差但具有完整强 RGB-D 几何的合法证据。"""
+
+    frames = [
+        json.loads(line)
+        for line in (root / 'frames.jsonl').read_text(encoding='utf-8').splitlines()
+    ]
+    views = (('left', 0.0), ('center', 2.5), ('right', 7.5))
+    for frame, (view_id, bearing) in zip(frames, views):
+        detection = frame['detections_2d'][0]
+        detection['view_id'] = view_id
+        detection['view_bearing_deg'] = bearing
+        detection['apparent_diameter_m'] = 0.295
+        detection['shape'] = {'aspect_ratio': 0.99}
+        detection['depth_shape'] = {
+            'status': 'spherical',
+            'curvature_m': 0.046,
+        }
+        hazard = frame['hazards'][0]
+        hazard.update({
+            'confirmation_path': 'strong_rgbd_geometry',
+            'evidence_status': 'strong_rgbd_sphere_geometry_consistent',
+            'eligible_view_ids': ['left', 'center', 'right'],
+            'spherical_view_ids': ['left', 'center', 'right'],
+            'distinct_view_count': 3,
+            'eligible_observation_count': 3,
+            'view_bearing_span_deg': 7.5,
+            'required_min_distinct_views': 2,
+            'required_min_view_bearing_span_deg': 5.0,
+        })
+    (root / 'frames.jsonl').write_text(
+        ''.join(json.dumps(frame) + '\n' for frame in frames),
+        encoding='utf-8',
+    )
+    return frames
+
+
+def test_validator_accepts_rebuilt_strong_rgbd_geometry_path():
+    """5° 备用路径必须由逐帧直径、轮廓、曲率和球面状态共同支撑。"""
+
+    with tempfile.TemporaryDirectory() as temporary:
+        root = Path(temporary)
+        result_path = _make_valid_evidence(root)
+        _convert_fixture_to_strong_rgbd_path(root)
+
+        report = validate(root, result_path)
+
+        assert report['structural_evidence_complete'] is True
+        assert report['errors'] == []
+
+
+def test_validator_rejects_forged_strong_rgbd_geometry_label():
+    """累计标签写成 strong 也不能掩盖逐帧平面或缺失曲率证据。"""
+
+    with tempfile.TemporaryDirectory() as temporary:
+        root = Path(temporary)
+        result_path = _make_valid_evidence(root)
+        frames = _convert_fixture_to_strong_rgbd_path(root)
+        frames[1]['detections_2d'][0]['depth_shape'] = {
+            'status': 'flat',
+            'curvature_m': 0.0,
+        }
+        (root / 'frames.jsonl').write_text(
+            ''.join(json.dumps(frame) + '\n' for frame in frames),
+            encoding='utf-8',
+        )
+
+        report = validate(root, result_path)
+
+        assert report['structural_evidence_complete'] is False
+        assert 'strong_rgbd_has_non_spherical_frame_0' in report['errors']
+        assert 'track_spherical_views_not_found_in_frames_0' in report['errors']

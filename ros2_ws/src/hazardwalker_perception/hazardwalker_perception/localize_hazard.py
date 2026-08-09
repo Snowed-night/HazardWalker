@@ -399,6 +399,26 @@ def evaluate_sphere_depth_shape(depth_image, bbox, max_depth_m=20.0,
     )
 
 
+def bbox_supports_depth_shape_evaluation(bbox, minimum_dimension_px=40):
+    """目标框分辨率足以可靠比较四方向深度曲率时返回真。
+
+    官方 640×480 深度图中，约 30 像素的远球只有少量离散表面深度；此时球面
+    会在不同帧随机落入 flat/anisotropic/spherical。把不足阈值的证据降级为
+    unknown，先主动靠近，再进行不会误杀真实红球的几何判形。
+    """
+
+    try:
+        x_min, y_min, x_max, y_max = _read_bbox(bbox)
+        required = float(minimum_dimension_px)
+    except (KeyError, TypeError, ValueError):
+        return False
+    values = (x_min, y_min, x_max, y_max, required)
+    if (not all(math.isfinite(value) for value in values)
+            or required <= 0.0 or x_max < x_min or y_max < y_min):
+        return False
+    return min(x_max - x_min + 1.0, y_max - y_min + 1.0) >= required
+
+
 """由完整圆形投影和已知球半径反推球心的相机 z 深度。"""
 def estimate_sphere_center_depth_from_bbox(bbox, intrinsics, image_width, image_height,
                                            sphere_radius_m, min_radius_px=3.0):

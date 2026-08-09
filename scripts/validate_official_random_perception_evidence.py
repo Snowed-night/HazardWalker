@@ -20,6 +20,15 @@ MIN_ELIGIBLE_OBSERVATIONS = 3
 MIN_DISTINCT_VIEWS = 3
 MIN_SPHERICAL_VIEWS = 2
 MIN_VIEW_BEARING_SPAN_DEG = 25.0
+STRONG_RGBD_MIN_DISTINCT_VIEWS = 2
+STRONG_RGBD_MIN_VIEW_BEARING_SPAN_DEG = 5.0
+EXPECTED_SPHERE_DIAMETER_M = 0.30
+MAX_SPHERE_DIAMETER_RELATIVE_ERROR = 0.35
+MIN_SPHERE_ASPECT_RATIO = 0.82
+MIN_NORMALIZED_DEPTH_CURVATURE = 0.10
+MAX_NORMALIZED_DEPTH_CURVATURE = 0.30
+MAX_DIAMETER_CV = 0.35
+MAX_DEPTH_CURVATURE_CV = 0.65
 MAX_RESULT_TRACK_POSITION_DELTA_M = 0.05
 MIN_REOBSERVATION_TRANSLATION_M = 0.05
 MIN_REOBSERVATION_YAW_DEG = 5.0
@@ -386,7 +395,23 @@ def _validate_official_result(result, frames, errors):
 def _validate_multiview_record(record, errors, prefix):
     """对齐 result_builder 的严格多视角球面证据门禁。"""
 
-    if str(record.get('evidence_status', '')) != 'multi_view_sphere_consistent':
+    confirmation_path = str(
+        record.get('confirmation_path', 'regular_multiview')
+    ).strip()
+    if confirmation_path == 'regular_multiview':
+        expected_status = 'multi_view_sphere_consistent'
+        minimum_views = MIN_DISTINCT_VIEWS
+        minimum_bearing_span = MIN_VIEW_BEARING_SPAN_DEG
+    elif confirmation_path == 'strong_rgbd_geometry':
+        expected_status = 'strong_rgbd_sphere_geometry_consistent'
+        minimum_views = STRONG_RGBD_MIN_DISTINCT_VIEWS
+        minimum_bearing_span = STRONG_RGBD_MIN_VIEW_BEARING_SPAN_DEG
+    else:
+        errors.append('invalid_confirmation_path_' + prefix)
+        expected_status = 'multi_view_sphere_consistent'
+        minimum_views = MIN_DISTINCT_VIEWS
+        minimum_bearing_span = MIN_VIEW_BEARING_SPAN_DEG
+    if str(record.get('evidence_status', '')) != expected_status:
         errors.append('invalid_evidence_status_' + prefix)
     if str(record.get('source', '')).strip() not in ALLOWED_DETECTION_SOURCES:
         errors.append('invalid_evidence_source_' + prefix)
@@ -424,7 +449,7 @@ def _validate_multiview_record(record, errors, prefix):
         required_spherical = MIN_SPHERICAL_VIEWS
 
     required_observations = max(required_observations, MIN_ELIGIBLE_OBSERVATIONS)
-    required_views = max(required_views, MIN_DISTINCT_VIEWS)
+    required_views = max(required_views, minimum_views)
     required_spherical = max(required_spherical, MIN_SPHERICAL_VIEWS)
     if eligible_observation_count is None or eligible_observation_count < required_observations:
         errors.append('insufficient_eligible_observations_' + prefix)
@@ -438,7 +463,7 @@ def _validate_multiview_record(record, errors, prefix):
     if required_bearing_span is None:
         errors.append('invalid_required_bearing_span_' + prefix)
         required_bearing_span = MIN_VIEW_BEARING_SPAN_DEG
-    required_bearing_span = max(required_bearing_span, MIN_VIEW_BEARING_SPAN_DEG)
+    required_bearing_span = max(required_bearing_span, minimum_bearing_span)
     if bearing_span is None or bearing_span < required_bearing_span:
         errors.append('insufficient_bearing_span_' + prefix)
 
@@ -471,9 +496,21 @@ def _validate_frame_observations(frames, track_id, linked_hazard, errors, index)
         and isinstance(item.get('depth_shape'), dict)
         and item['depth_shape'].get('status') == 'spherical'
     }
+    confirmation_path = str(
+        linked_hazard.get('confirmation_path', 'regular_multiview')
+    ).strip()
+    strong_rgbd_path = confirmation_path == 'strong_rgbd_geometry'
+    minimum_views = (
+        STRONG_RGBD_MIN_DISTINCT_VIEWS
+        if strong_rgbd_path else MIN_DISTINCT_VIEWS
+    )
+    minimum_bearing_span = (
+        STRONG_RGBD_MIN_VIEW_BEARING_SPAN_DEG
+        if strong_rgbd_path else MIN_VIEW_BEARING_SPAN_DEG
+    )
     if len(observations) < MIN_ELIGIBLE_OBSERVATIONS:
         errors.append('insufficient_frame_observations_' + str(index))
-    if len(view_ids) < MIN_DISTINCT_VIEWS:
+    if len(view_ids) < minimum_views:
         errors.append('insufficient_frame_views_' + str(index))
     if len(spherical_view_ids) < MIN_SPHERICAL_VIEWS:
         errors.append('insufficient_frame_spherical_views_' + str(index))
@@ -493,8 +530,70 @@ def _validate_frame_observations(frames, track_id, linked_hazard, errors, index)
         )
         if value is not None
     ]
-    if _bearing_span_deg(bearings) < MIN_VIEW_BEARING_SPAN_DEG:
+    if _bearing_span_deg(bearings) < minimum_bearing_span:
         errors.append('insufficient_frame_bearing_span_' + str(index))
+    if strong_rgbd_path:
+        _validate_strong_rgbd_geometry(observations, errors, index)
+
+
+def _validate_strong_rgbd_geometry(observations, errors, index):
+    """从原始逐帧字段复算强球面路径，禁止仅伪造累计标签。"""
+
+    prefix = str(index)
+    spherical_by_view = {}
+    for item in observations:
+        depth_shape = item.get('depth_shape')
+        if not isinstance(depth_shape, dict):
+            continue
+        status = str(depth_shape.get('status', 'unknown'))
+        if status in ('flat', 'anisotropic', 'non_spherical'):
+            errors.append('strong_rgbd_has_non_spherical_frame_' + prefix)
+        if status != 'spherical':
+            continue
+        diameter = _finite_number(item.get('apparent_diameter_m'))
+        shape = item.get('shape')
+        aspect = _finite_number(
+            shape.get('aspect_ratio') if isinstance(shape, dict) else None
+        )
+        curvature = _finite_number(depth_shape.get('curvature_m'))
+        if diameter is None or diameter <= 0.0:
+            errors.append('invalid_strong_rgbd_diameter_' + prefix)
+            continue
+        if abs(diameter - EXPECTED_SPHERE_DIAMETER_M) / (
+                EXPECTED_SPHERE_DIAMETER_M) > MAX_SPHERE_DIAMETER_RELATIVE_ERROR:
+            errors.append('inconsistent_strong_rgbd_diameter_' + prefix)
+        if aspect is None or aspect < MIN_SPHERE_ASPECT_RATIO:
+            errors.append('inconsistent_strong_rgbd_aspect_' + prefix)
+        normalized_curvature = (
+            curvature / diameter if curvature is not None else None
+        )
+        if (normalized_curvature is None
+                or normalized_curvature < MIN_NORMALIZED_DEPTH_CURVATURE
+                or normalized_curvature > MAX_NORMALIZED_DEPTH_CURVATURE):
+            errors.append('inconsistent_strong_rgbd_curvature_' + prefix)
+        view_id = str(item.get('view_id', '')).strip()
+        if view_id:
+            spherical_by_view.setdefault(view_id, []).append(
+                (diameter, curvature),
+            )
+
+    if len(spherical_by_view) < STRONG_RGBD_MIN_DISTINCT_VIEWS:
+        errors.append('insufficient_strong_rgbd_views_' + prefix)
+        return
+    diameter_medians = [
+        _median([sample[0] for sample in samples])
+        for samples in spherical_by_view.values()
+    ]
+    curvature_medians = [
+        _median([sample[1] for sample in samples if sample[1] is not None])
+        for samples in spherical_by_view.values()
+    ]
+    if _coefficient_of_variation(diameter_medians) > MAX_DIAMETER_CV:
+        errors.append('unstable_strong_rgbd_diameter_' + prefix)
+    if (len(curvature_medians) != len(spherical_by_view)
+            or _coefficient_of_variation(curvature_medians)
+            > MAX_DEPTH_CURVATURE_CV):
+        errors.append('unstable_strong_rgbd_curvature_' + prefix)
 
 
 def _is_eligible_detection(detection):
@@ -566,6 +665,35 @@ def _finite_number(value):
         return None
     number = float(value)
     return number if math.isfinite(number) else None
+
+
+def _median(values):
+    """返回有限数值中位数；空输入返回 ``None``。"""
+
+    finite = sorted(
+        number for number in (_finite_number(value) for value in values)
+        if number is not None
+    )
+    if not finite:
+        return None
+    middle = len(finite) // 2
+    if len(finite) % 2:
+        return finite[middle]
+    return 0.5 * (finite[middle - 1] + finite[middle])
+
+
+def _coefficient_of_variation(values):
+    """按总体标准差计算有限正数的变异系数。"""
+
+    finite = [
+        number for number in (_finite_number(value) for value in values)
+        if number is not None and number > 0.0
+    ]
+    if len(finite) <= 1:
+        return 0.0
+    mean = sum(finite) / len(finite)
+    variance = sum((value - mean) ** 2 for value in finite) / len(finite)
+    return math.sqrt(variance) / mean
 
 
 def _distance_m(first, second):

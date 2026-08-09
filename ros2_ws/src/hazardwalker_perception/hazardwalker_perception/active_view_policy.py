@@ -387,7 +387,16 @@ def annotate_detections_with_tracks(
 
     result = [dict(detection) for detection in detections]
     threshold = max(0.0, float(merge_distance_m))
-    track_by_id = {str(track.track_id): track for track in tracks}
+    # 普通 rejected 表示轨迹已因长期丢失失效，不能再参与二维关联。否则同一
+    # 目标此前产生的多个失效轨迹会与当前有效轨迹形成“近距离歧义”，导致
+    # 当前框被错误标成 untracked，已确认红球也会被反复要求复查。
+    # rejected_non_spherical 属于永久反证轨迹，仍必须参与关联，防止圆柱或
+    # 圆锥端面在下一帧重新变成新候选。
+    track_by_id = {
+        str(track.track_id): track
+        for track in tracks
+        if str(getattr(track, 'status', '')) != 'rejected'
+    }
     projection_by_id = {
         str(item.get('track_id')): item for item in (projected_tracks or [])
     }
@@ -430,6 +439,21 @@ def annotate_detections_with_tracks(
 
     assignments = {}
     used_track_ids = set()
+    # 候选记忆已由逐帧一对一图像关联维护；当机器人快速横移导致合法 SLAM
+    # 坐标短时漂移、旧轨迹投影也落后时，应继续把二维框标成同一 track。
+    # 普通 rejected 已从 track_by_id 排除，明确非球体轨迹则保留永久反证语义。
+    for detection_index, item in enumerate(result):
+        hinted_track_id = str(
+            item.get('_candidate_track_id_hint') or ''
+        ).strip()
+        if (
+            hinted_track_id in track_by_id
+            and hinted_track_id not in used_track_ids
+        ):
+            assignments[detection_index] = (
+                hinted_track_id, 'candidate_memory',
+            )
+            used_track_ids.add(hinted_track_id)
     all_pairs = sorted(
         (
             (cost, detection_index, track_id, association)

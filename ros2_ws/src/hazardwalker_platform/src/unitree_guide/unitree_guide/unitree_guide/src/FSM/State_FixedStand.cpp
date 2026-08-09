@@ -29,11 +29,10 @@ void State_FixedStand::enter(){
         _startPos[i] = _lowState->motorState[i].q;
         _startPos_real[i] = _ctrlComp->ioInterFreeDog->low_state.motorState_free_dog[i].q;
     }
-    // Headless Gazebo 的实际控制周期可能远慢于配置的 dt。若仍按 1000 个周期
-    // 插值，解除物理暂停时机器人会在站姿尚未到位前跌倒；仿真入口直接给标准站姿。
-    const char *headlessMode = std::getenv("SIMENV_HEADLESS_MODE");
-    _percent = (headlessMode != nullptr && std::string(headlessMode) == "move_base")
-        ? 1.0f : 0.0f;
+    // 必须从出生关节角平滑过渡到固定站姿。直接把 _percent 设为 1 会在解除
+    // 物理暂停后的首周期瞬间跳变 12 个关节，A1 会被冲击掀翻；控制循环使用
+    // 墙钟运行，即使 Gazebo 实时倍率较低，原有插值仍能在数秒内完成。
+    _percent = 0.0f;
     _ctrlComp->setAllStance();
 }
 

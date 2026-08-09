@@ -5,6 +5,7 @@
 验证 `track_hazards.py` 能按三维距离合并观测、确认稳定目标、拒绝长期丢失目标。
 不依赖 ROS、Gazebo 或真实相机。
 """
+import math
 import os
 import sys
 
@@ -67,6 +68,25 @@ def test_tracker_rejects_track_after_missed_count_threshold():
     assert tracks == []
     assert tracker.tracks[0].status == 'rejected'
     assert tracker.tracks[0].missed_count == 2
+
+
+def test_time_based_loss_is_independent_of_duplicate_frame_rate():
+    """正式链即使高频重复空帧，也只按仿真时间判定轨迹丢失。"""
+
+    tracker = HazardTracker(HazardTrackerConfig(
+        reject_after_missed_count=2,
+        reject_after_missed_sec=20.0,
+    ))
+    tracker.update([HazardObservation(
+        position=(0.0, 0.0, 0.3), confidence=0.9, stamp_sec=100.0,
+    )], stamp_sec=100.0)
+
+    for index in range(1000):
+        tracker.update([], stamp_sec=100.0 + index * 0.01)
+    assert tracker.tracks[0].status == 'tentative'
+
+    tracker.update([], stamp_sec=120.1)
+    assert tracker.tracks[0].status == 'rejected'
 
 
 """验证同一帧多个观测不会重复匹配到同一条轨迹。"""
@@ -228,6 +248,23 @@ def test_track_to_hazard_dict_preserves_confirmation_fields():
     assert hazard['status'] == 'confirmed'
     assert hazard['observation_count'] == 1
     assert hazard['source_ids'] == ['box_1']
+    assert hazard['source_observation_count'] == 1
+
+
+def test_track_payload_bounds_repeated_source_ids_without_losing_count():
+    tracker = HazardTracker(HazardTrackerConfig(confirm_observation_count=1))
+    track = None
+    for index in range(40):
+        track = tracker.update([HazardObservation(
+            position=(1.0, 2.0, 0.5), confidence=0.9,
+            source_id=f'frame-{index}', stamp_sec=float(index + 1),
+        )])[0]
+
+    hazard = track_to_hazard_dict(track)
+    assert hazard['source_observation_count'] == 40
+    assert len(hazard['source_ids']) == 32
+    assert hazard['source_ids'][0] == 'frame-0'
+    assert hazard['source_ids'][-1] == 'frame-39'
 
 
 def test_flat_evidence_from_two_views_rejects_non_spherical_track():
@@ -421,6 +458,71 @@ def test_forward_only_views_cannot_confirm_without_lateral_parallax():
     assert track_to_hazard_dict(tracks[0])['view_bearing_span_deg'] >= 25.0
     assert tracks[0].eligible_observation_count == 4
     assert tracks[0].evidence_status == 'multi_view_sphere_consistent'
+
+
+def test_two_strong_rgbd_sphere_views_can_use_bounded_parallax_fallback():
+    """真实球面深度和官方尺寸先验齐全时，不因遮挡前只取得 7° 而漏报。"""
+    tracker = HazardTracker(HazardTrackerConfig(
+        confirm_observation_count=3,
+        min_distinct_views=3,
+        min_view_bearing_span_deg=25.0,
+        expected_sphere_diameter_m=0.30,
+        min_spherical_views_for_confirm=2,
+        strong_depth_min_distinct_views=2,
+        strong_depth_min_view_bearing_span_deg=5.0,
+    ))
+    observations = (
+        ('left', 0.0, 0.046),
+        ('left', 0.0, 0.046),
+        ('right', math.radians(7.5), 0.045),
+    )
+    for index, (view_id, bearing, curvature) in enumerate(observations):
+        tracks = tracker.update([HazardObservation(
+            position=(2.0 + index * 0.01, 0.0, 0.30),
+            confidence=0.96,
+            view_id=view_id,
+            confirmation_eligible=True,
+            depth_shape_status='spherical',
+            apparent_diameter_m=0.295,
+            aspect_ratio=0.99,
+            depth_curvature_m=curvature,
+            view_bearing_rad=bearing,
+        )])
+
+    assert tracks[0].status == 'confirmed'
+    assert tracks[0].evidence_status == (
+        'strong_rgbd_sphere_geometry_consistent')
+
+
+def test_strong_rgbd_fallback_rejects_flat_or_unknown_second_view():
+    """备用路径不能把圆柱端面或缺深度的圆形轮廓升级为红球。"""
+    for second_status in ('flat', 'unknown'):
+        tracker = HazardTracker(HazardTrackerConfig(
+            confirm_observation_count=2,
+            min_distinct_views=3,
+            min_view_bearing_span_deg=25.0,
+            expected_sphere_diameter_m=0.30,
+            min_spherical_views_for_confirm=2,
+            strong_depth_min_distinct_views=2,
+            strong_depth_min_view_bearing_span_deg=5.0,
+        ))
+        tracker.update([HazardObservation(
+            position=(2.0, 0.0, 0.30), confidence=0.96,
+            view_id='front', confirmation_eligible=True,
+            depth_shape_status='spherical', apparent_diameter_m=0.30,
+            aspect_ratio=0.99, depth_curvature_m=0.045,
+            view_bearing_rad=0.0,
+        )])
+        tracks = tracker.update([HazardObservation(
+            position=(2.01, 0.0, 0.30), confidence=0.96,
+            view_id='side', confirmation_eligible=(second_status != 'flat'),
+            depth_shape_status=second_status, apparent_diameter_m=0.30,
+            aspect_ratio=0.99,
+            depth_curvature_m=(0.045 if second_status == 'unknown' else 0.0),
+            view_bearing_rad=math.radians(7.5),
+        )])
+
+        assert tracks[0].status != 'confirmed'
 
 
 def test_ineligible_occluded_aspect_does_not_poison_later_complete_views():
@@ -676,6 +778,62 @@ def test_projected_track_hint_reacquires_same_target_across_slam_drift():
     assert len(tracker.tracks) == 1
     assert tracks[0].track_id == 1
     assert tracks[0].status == 'confirmed'
+
+
+def test_candidate_track_hint_revives_lost_track_after_active_view_gap():
+    """主动横移短暂丢球后，稳定候选提示应复活原 ID 并保留历史视角。"""
+
+    tracker = HazardTracker(HazardTrackerConfig(
+        reject_after_missed_count=2,
+        merge_distance_m=0.5,
+        min_distinct_views=2,
+        confirm_observation_count=2,
+    ))
+    tracker.update([HazardObservation(
+        position=(0.0, 0.0, 0.3), confidence=0.9, view_id='first',
+    )])
+    tracker.update([])
+    tracker.update([])
+    assert tracker.tracks[0].status == 'rejected'
+
+    tracks = tracker.update([HazardObservation(
+        position=(0.8, 0.0, 0.3),
+        confidence=0.9,
+        view_id='second',
+        track_id_hint=1,
+    )])
+
+    assert len(tracker.tracks) == 1
+    assert tracks[0].track_id == 1
+    assert tracks[0].status == 'confirmed'
+    assert tracks[0].view_ids == ['first', 'second']
+
+
+def test_candidate_track_hint_cannot_revive_non_spherical_rejection():
+    """明确候选提示也不能复活已有多视角非球体反证的轨迹。"""
+
+    tracker = HazardTracker(HazardTrackerConfig(
+        merge_distance_m=0.5,
+        min_non_spherical_views_to_reject=1,
+    ))
+    tracker.update([HazardObservation(
+        position=(0.0, 0.0, 0.3),
+        confidence=0.9,
+        view_id='flat',
+        depth_shape_status='flat',
+    )])
+    assert tracker.tracks[0].status == 'rejected_non_spherical'
+
+    tracker.update([HazardObservation(
+        position=(0.8, 0.0, 0.3),
+        confidence=0.9,
+        view_id='round',
+        track_id_hint=1,
+    )])
+
+    assert len(tracker.tracks) == 2
+    assert tracker.tracks[0].status == 'rejected_non_spherical'
+    assert tracker.tracks[1].track_id == 2
 
 
 def test_single_compatible_spherical_track_can_reacquire_across_slam_drift():

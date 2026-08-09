@@ -155,6 +155,77 @@ def test_official_result_can_require_multiview_sphere_evidence():
     assert result['detected_danger_sources'] == [{'position': [2.0, 2.0, 0.3]}]
 
 
+def test_official_result_accepts_strong_rgbd_geometry_fallback():
+    """低于 25° 的轨迹仅在球面深度、官方尺寸和曲率摘要齐全时导出。"""
+
+    evidence = {
+        'id': 7,
+        'status': 'confirmed',
+        'position_frame_id': 'world',
+        'position': [2.0, 2.0, 0.3],
+        'confidence': 0.97,
+        'source': 'hsv_depth_tf',
+        'confirmation_path': 'strong_rgbd_geometry',
+        'evidence_status': 'strong_rgbd_sphere_geometry_consistent',
+        'distinct_view_count': 2,
+        'eligible_observation_count': 46,
+        'eligible_view_ids': ['left', 'right'],
+        'spherical_view_ids': ['left', 'right'],
+        'flat_view_ids': [],
+        'view_bearing_span_deg': 7.5,
+        'median_apparent_diameter_m': 0.295,
+        'min_multiview_aspect_ratio': 0.99,
+        'depth_curvature_cv': 0.02,
+        'median_normalized_depth_curvature': 0.155,
+        'required_min_eligible_observations': 3,
+        'required_min_distinct_views': 2,
+        'required_min_spherical_views': 2,
+        'required_min_view_bearing_span_deg': 5.0,
+    }
+
+    result = build_official_detected_danger_result(
+        [evidence],
+        exploration_time_sec=12.0,
+        require_multiview_sphere_evidence=True,
+    )
+
+    assert result['detected_danger_sources'] == [
+        {'position': [2.0, 2.0, 0.3]},
+    ]
+
+
+def test_official_result_rejects_forged_strong_rgbd_summary():
+    """仅写 strong 标签但缺尺寸/曲率摘要时必须 fail-closed。"""
+
+    forged = {
+        'id': 7,
+        'status': 'confirmed',
+        'position_frame_id': 'world',
+        'position': [2.0, 2.0, 0.3],
+        'confidence': 0.97,
+        'source': 'hsv_depth_tf',
+        'confirmation_path': 'strong_rgbd_geometry',
+        'evidence_status': 'strong_rgbd_sphere_geometry_consistent',
+        'distinct_view_count': 2,
+        'eligible_observation_count': 46,
+        'eligible_view_ids': ['left', 'right'],
+        'spherical_view_ids': ['left', 'right'],
+        'flat_view_ids': [],
+        'view_bearing_span_deg': 7.5,
+        'required_min_eligible_observations': 3,
+        'required_min_distinct_views': 2,
+        'required_min_spherical_views': 2,
+        'required_min_view_bearing_span_deg': 5.0,
+    }
+
+    result = build_official_detected_danger_result(
+        [forged], exploration_time_sec=12.0,
+        require_multiview_sphere_evidence=True,
+    )
+
+    assert result['detected_danger_sources'] == []
+
+
 def test_official_result_rejects_forged_multiview_evidence_label():
     """只有 confirmed 标签或伪造 evidence_status 不能绕过视角事实门槛。"""
 

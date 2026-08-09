@@ -7,8 +7,14 @@ topics:
   camera_depth_image: /hw/camera/depth_image
   lidar_points: /hw/lidar/points
   odom: /hw/odom
-  map: /hw/map
+  map: /map
   cmd_vel: /hw/cmd_vel
+  keyboard_cmd_vel: /hw/control/keyboard_cmd_vel
+  navigation_cmd_vel: /hw/control/navigation_cmd_vel
+  assist_cmd_vel: /hw/control/assist_cmd_vel
+  control_mode_request: /hw/control/mode_request
+  control_status: /hw/control/status
+  assist_status: /hw/control/assist_status
 
   nav_goal: /hw/nav/goal
   nav_active_goal: /hw/nav/active_goal
@@ -18,6 +24,8 @@ topics:
   hazard_detections: /hw/perception/hazard_detections
   tracked_hazards: /hw/perception/tracked_hazards
   perception_debug_image: /hw/perception/debug_image
+  view_recommendation: /hw/perception/view_recommendation
+  patrol_coverage: /hw/perception/patrol_coverage
 
   mission_state: /hw/mission/state
   mission_event: /hw/mission/event

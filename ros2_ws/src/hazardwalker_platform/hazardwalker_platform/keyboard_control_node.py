@@ -1,7 +1,8 @@
 """负责人维护的官方 SimEnv ROS2 安全键盘控制节点。
 
 文件作用：
-- 仅向可配置的业务控制话题（默认 ``/hw/cmd_vel``）发布速度。
+- 向独立键盘控制源话题（默认 ``/hw/control/keyboard_cmd_vel``）发布速度；
+- 由 ``command_mux_node`` 仲裁后再输出统一 ``/hw/cmd_vel``。
 - 支持 W/S 前后、A/D 左右转、K 立即停止。
 - 使用短时命令保持和退出零速度，避免终端失焦后机器人持续运动。
 
@@ -30,7 +31,8 @@ class KeyboardControlNode(Node):
 
     def __init__(self) -> None:
         super().__init__('hazardwalker_keyboard_control')
-        self.declare_parameter('cmd_vel_topic', '/hw/cmd_vel')
+        self.declare_parameter(
+            'cmd_vel_topic', '/hw/control/keyboard_cmd_vel')
         # 以稳定优先：相较最初 0.30/0.60 提高响应，但不把 RL 步态推到
         # 急转易翻倒的区间。更高速度须先在独占场景中按 ROS 参数逐步验收。
         self.declare_parameter('linear_speed', 0.45)

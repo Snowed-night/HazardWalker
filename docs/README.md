@@ -6,6 +6,7 @@
 
 - [使用手册总目录](guidebook/README.md)：仅放当前可执行的操作规范。
 - [官方 SimEnv 平台环境使用手册](guidebook/官方SimEnv平台环境使用手册.md)：当前确认可用的官方平台入口。
+- [官方人工巡检感知录制与回放](groups/perception/官方人工巡检感知录制与回放.md)：感知组固定 SEED 录包、隔离回放和人工标注评估入口。
 - [Git 提交手册](guidebook/git提交手册.md)：分支、提交与 PR 规则。
 
 ## 按用途归档

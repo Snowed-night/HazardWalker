@@ -14,6 +14,7 @@ import time
 
 import numpy as np
 import rclpy
+from geometry_msgs.msg import Twist
 from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
 from rclpy.time import Time
@@ -23,6 +24,7 @@ from tf2_ros import Buffer, TransformException, TransformListener
 
 from hazardwalker_perception.active_view_geometry import (
     camera_pose_signature,
+    motion_command_allows_stable_view,
     quantized_camera_view_id,
 )
 from hazardwalker_perception.active_view_policy import (
@@ -38,6 +40,7 @@ from hazardwalker_perception.localize_hazard import (
     Point3D,
     RigidTransform3D,
     camera_intrinsics_from_k,
+    bbox_supports_depth_shape_evaluation,
     estimate_depth_from_bbox,
     evaluate_sphere_depth_shape,
     localize_bbox_from_depth_image,
@@ -69,6 +72,14 @@ class HsvDetectorNode(Node):
         self.declare_parameter('max_detections', 20)
         self.declare_parameter('detector_backend', 'hsv_opencv')
         self.declare_parameter('split_touching_red_balls', True)
+        # HSV 阈值必须能由同一份受版本控制的配置文件覆盖，回放评估记录的
+        # 参数哈希才与节点实际运行值一致。
+        self.declare_parameter('red_hue_min_1', 0)
+        self.declare_parameter('red_hue_max_1', 10)
+        self.declare_parameter('red_hue_min_2', 170)
+        self.declare_parameter('red_hue_max_2', 180)
+        self.declare_parameter('red_min_saturation', 80)
+        self.declare_parameter('red_min_value', 80)
         self.declare_parameter('roi_padding_px', 8)
         self.declare_parameter('min_depth_points_in_roi', 5)
         self.declare_parameter('max_detection_range_m', 20.0)
@@ -89,6 +100,10 @@ class HsvDetectorNode(Node):
         # 主动横移期间目标可能连续数秒离开视场；150 帧约等于 5 秒@30FPS，
         # 避免候选在抵达第二视角前被删除。
         self.declare_parameter('reject_after_missed_count', 300)
+        # 正式桥接链会重复发布图像，固定漏检帧数随发布频率变化。按仿真时间
+        # 保留 60 秒，覆盖一次完整侧移、回转和重新对准；纯函数仍可用按帧模式。
+        # 主动复查需覆盖 A1 在低实时倍率下的一次完整侧移和回转。
+        self.declare_parameter('reject_after_missed_sec', 60.0)
         self.declare_parameter('merge_distance_m', 0.5)
         self.declare_parameter('single_track_reacquire_distance_m', 1.0)
         self.declare_parameter(
@@ -120,6 +135,12 @@ class HsvDetectorNode(Node):
         # 只在同一正面方向的前后移动无法排除圆柱/圆锥端面；正式确认至少需要
         # 目标相对相机的水平视线改变 25 度，促使机器人获得侧面反证。
         self.declare_parameter('min_view_bearing_span_deg', 25.0)
+        # 当两个独立视角均取得尺寸正确、曲率各向一致的球面深度正证据时，
+        # 允许用较小但真实的侧向视差确认。该路径不适用于纯 RGB 或未知深度。
+        self.declare_parameter('strong_depth_min_distinct_views', 2)
+        self.declare_parameter(
+            'strong_depth_min_view_bearing_span_deg', 5.0,
+        )
         # 当前官方 SLAM 在长距离侧移时可能产生单向漂移；用首个完整球面视角
         # 锚定静态危险源位置，后续视角只用于确认/反证，避免帧数把坐标拖走。
         self.declare_parameter(
@@ -137,6 +158,7 @@ class HsvDetectorNode(Node):
         # 深度曲率仅否决“明确平面”的候选；缺深度/遮挡一律进入重观察而非直接漏检。
         self.declare_parameter('min_sphere_depth_curvature_m', 0.008)
         self.declare_parameter('min_sphere_depth_shape_points', 8)
+        self.declare_parameter('min_sphere_depth_shape_bbox_px', 40)
         # 球面横纵两个方向都应有凸曲率；单轴弯曲通常来自圆柱侧面或弧形板。
         self.declare_parameter('min_sphere_axis_depth_points', 4)
         self.declare_parameter('min_sphere_axis_curvature_ratio', 0.35)
@@ -152,11 +174,17 @@ class HsvDetectorNode(Node):
         # 运动中继续发布候选供导航使用，但只有相机连续稳定若干帧后才向轨迹
         # 累积确认/反证，防止横移过渡帧让球体尺寸和曲率统计失真。
         self.declare_parameter('stable_view_min_frames', 3)
-        self.declare_parameter('stable_view_max_translation_m', 0.002)
-        self.declare_parameter('stable_view_max_yaw_deg', 0.3)
+        # A1 站立控制和合法 SLAM 会产生厘米/角度级小幅抖动；实际执行速度已
+        # 由 /hw/cmd_vel 单独失败关闭，位姿门只负责拒绝明显相机运动。
+        self.declare_parameter('stable_view_max_translation_m', 0.02)
+        self.declare_parameter('stable_view_max_yaw_deg', 1.0)
+        self.declare_parameter('stable_view_cmd_vel_topic', '/hw/cmd_vel')
+        self.declare_parameter('stable_view_max_cmd_age_sec', 0.5)
+        self.declare_parameter('stable_view_max_linear_speed_mps', 0.03)
+        self.declare_parameter('stable_view_max_angular_speed_rps', 0.05)
         # 主动视角策略阈值全部暴露为 ROS 参数，现场调优不修改源码。
         self.declare_parameter('active_view_edge_margin_ratio', 0.05)
-        self.declare_parameter('active_view_min_bbox_area_px', 900)
+        self.declare_parameter('active_view_min_bbox_area_px', 1600)
         self.declare_parameter('active_view_min_red_pixel_count', 300)
         self.declare_parameter('active_view_min_circularity', 0.72)
         self.declare_parameter('active_view_min_confidence', 0.70)
@@ -168,7 +196,7 @@ class HsvDetectorNode(Node):
         self.declare_parameter(
             'active_view_max_normalized_depth_curvature', 0.30,
         )
-        self.declare_parameter('candidate_memory_ttl_s', 8.0)
+        self.declare_parameter('candidate_memory_ttl_s', 60.0)
         self.declare_parameter('active_view_direction_memory_ttl_s', 12.0)
         self.declare_parameter('candidate_memory_min_iou', 0.05)
         self.declare_parameter(
@@ -182,6 +210,10 @@ class HsvDetectorNode(Node):
         self._last_camera_pose_signature = None
         self._stable_view_frame_count = 0
         self._stable_view_id = ''
+        self._last_cmd_vel_monotonic = None
+        self._last_cmd_vel = (0.0, 0.0, 0.0)
+        self._last_command_stopped_for_stability = False
+        self._last_cmd_vel_age_sec = None
         self._last_depth_synchronized = False
         self._last_tf_synchronized = False
         self._last_tf_stamp_delta_sec = None
@@ -196,6 +228,9 @@ class HsvDetectorNode(Node):
             confirm_observation_count=int(self.get_parameter('confirm_observation_count').value),
             min_distinct_views=int(self.get_parameter('confirm_distinct_views').value),
             reject_after_missed_count=int(self.get_parameter('reject_after_missed_count').value),
+            reject_after_missed_sec=float(
+                self.get_parameter('reject_after_missed_sec').value
+            ),
             merge_distance_m=float(self.get_parameter('merge_distance_m').value),
             single_track_reacquire_distance_m=float(
                 self.get_parameter(
@@ -236,6 +271,14 @@ class HsvDetectorNode(Node):
             min_view_bearing_span_deg=float(
                 self.get_parameter('min_view_bearing_span_deg').value
             ),
+            strong_depth_min_distinct_views=int(
+                self.get_parameter('strong_depth_min_distinct_views').value
+            ),
+            strong_depth_min_view_bearing_span_deg=float(
+                self.get_parameter(
+                    'strong_depth_min_view_bearing_span_deg'
+                ).value
+            ),
             position_fusion_mode=str(
                 self.get_parameter('track_position_fusion_mode').value
             ),
@@ -268,9 +311,29 @@ class HsvDetectorNode(Node):
         self.sub = self.create_subscription(Image, '/hw/camera/image_raw', self.on_image, 10)
         self.camera_info_sub = self.create_subscription(CameraInfo, '/hw/camera/camera_info', self.on_camera_info, 10)
         self.depth_sub = self.create_subscription(Image, '/hw/camera/depth_image', self.on_depth_image, 10)
+        # 观察控制仲裁后的实际平台命令，而不是感知建议或某个上游控制源。
+        # 缺失/过期命令按仍在运动处理，禁止静默累计确认视角。
+        self.cmd_vel_sub = self.create_subscription(
+            Twist,
+            str(self.get_parameter('stable_view_cmd_vel_topic').value),
+            self.on_cmd_vel,
+            20,
+        )
         # 第一阶段用 String(JSON) 快速打通链路；稳定后迁移到 hazardwalker_msgs/HazardArray。
         self.pub = self.create_publisher(String, '/hw/perception/hazard_detections', 10)
+        # 复查建议由感知节点直接发布，不能依赖“是否启动证据记录器”；导航、
+        # 控制、GUI 和 rosbag 因而消费同一份只读建议。
+        self.recommendation_pub = self.create_publisher(
+            String, '/hw/perception/view_recommendation', 10)
         self.get_logger().info('HSV detector subscribed to camera image, camera info and depth image.')
+
+    def on_cmd_vel(self, msg: Twist):
+        """缓存控制仲裁后的最新速度，作为稳定视角的运动门禁。"""
+
+        self._last_cmd_vel = (
+            float(msg.linear.x), float(msg.linear.y), float(msg.angular.z),
+        )
+        self._last_cmd_vel_monotonic = time.monotonic()
 
     def on_camera_info(self, msg: CameraInfo):
         self.camera_intrinsics = camera_intrinsics_from_k(msg.k)
@@ -302,6 +365,8 @@ class HsvDetectorNode(Node):
             self.get_logger().warn(f'Unsupported image encoding: {msg.encoding}', throttle_duration_sec=5.0)
             return
 
+        processing_started = time.perf_counter()
+
         self._image_callback_count += 1
         if self._image_callback_count <= 2:
             self.get_logger().info('Received RGB frame %d: %dx%d %s.' % (
@@ -326,6 +391,12 @@ class HsvDetectorNode(Node):
             partial_min_circularity=float(self.get_parameter('partial_min_circularity').value),
             partial_min_aspect_ratio=float(self.get_parameter('partial_min_aspect_ratio').value),
             partial_min_value=int(self.get_parameter('partial_min_value').value),
+            red_hue_min_1=int(self.get_parameter('red_hue_min_1').value),
+            red_hue_max_1=int(self.get_parameter('red_hue_max_1').value),
+            red_hue_min_2=int(self.get_parameter('red_hue_min_2').value),
+            red_hue_max_2=int(self.get_parameter('red_hue_max_2').value),
+            red_min_saturation=int(self.get_parameter('red_min_saturation').value),
+            red_min_value=int(self.get_parameter('red_min_value').value),
         )
         stamp_sec = _stamp_to_float(msg.header.stamp)
         depth_stamp_delta_sec = _stamp_delta_sec(
@@ -367,6 +438,9 @@ class HsvDetectorNode(Node):
                 image_width=msg.width,
                 image_height=msg.height,
                 stamp_sec=stamp_sec,
+                processing_time_ms=(
+                    time.perf_counter() - processing_started
+                ) * 1000.0,
             )
             return
 
@@ -395,7 +469,13 @@ class HsvDetectorNode(Node):
             localization = None
             depth_shape = None
             raw_surface_depth_m = None
-            if depth_synchronized:
+            depth_shape_resolution_ok = bbox_supports_depth_shape_evaluation(
+                bbox,
+                int(self.get_parameter(
+                    'min_sphere_depth_shape_bbox_px').value),
+            )
+            if (depth_synchronized and shape_complete_for_3d_tracking
+                    and depth_shape_resolution_ok):
                 depth_shape = evaluate_sphere_depth_shape(
                     depth_image=self.latest_depth_image,
                     bbox=bbox,
@@ -409,6 +489,7 @@ class HsvDetectorNode(Node):
                         self.get_parameter('min_sphere_axis_curvature_ratio').value
                     ),
                 )
+            if depth_synchronized:
                 raw_surface_depth_m, _ = estimate_depth_from_bbox(
                     depth_image=self.latest_depth_image,
                     bbox=bbox,
@@ -677,6 +758,9 @@ class HsvDetectorNode(Node):
             image_width=msg.width,
             image_height=msg.height,
             stamp_sec=stamp_sec,
+            processing_time_ms=(
+                time.perf_counter() - processing_started
+            ) * 1000.0,
         )
 
     def _tracks_to_hazards(self, tracks, output_frame):
@@ -703,6 +787,18 @@ class HsvDetectorNode(Node):
             item['required_min_view_bearing_span_deg'] = float(
                 self.get_parameter('min_view_bearing_span_deg').value
             )
+            item['confirmation_path'] = 'regular_multiview'
+            if item.get('evidence_status') == (
+                    'strong_rgbd_sphere_geometry_consistent'):
+                item['confirmation_path'] = 'strong_rgbd_geometry'
+                item['required_min_distinct_views'] = int(
+                    self.get_parameter(
+                        'strong_depth_min_distinct_views').value
+                )
+                item['required_min_view_bearing_span_deg'] = float(
+                    self.get_parameter(
+                        'strong_depth_min_view_bearing_span_deg').value
+                )
             item['observation_time'] = time.time()
             hazards.append(item)
         return hazards
@@ -746,7 +842,8 @@ class HsvDetectorNode(Node):
 
     def _publish_detection_payload(
             self, hazards, detections_2d, camera_stable=False,
-            image_width=0, image_height=0, stamp_sec=None):
+            image_width=0, image_height=0, stamp_sec=None,
+            processing_time_ms=None):
         # 已确认或已由多视角拒绝的轨迹不再请求机动。其余当前帧候选由感知侧
         # 统一计算明确动作，导航只执行契约，避免两组各自重写一套判据。
         recommendation_candidates = [
@@ -777,8 +874,7 @@ class HsvDetectorNode(Node):
             and self._last_tf_synchronized
             and localization_provenance not in ('', 'unverified')
         )
-        out = String()
-        out.data = json.dumps({
+        payload = {
             'hazards': hazards,
             'detections_2d': detections_2d,
             'view_recommendation': recommendation,
@@ -795,13 +891,26 @@ class HsvDetectorNode(Node):
             'localization_provenance': localization_provenance,
             'camera_stable': bool(camera_stable),
             'stable_view_frame_count': self._stable_view_frame_count,
-        }, ensure_ascii=False)
+            'stable_view_command_stopped': bool(
+                self._last_command_stopped_for_stability),
+            'stable_view_cmd_vel_age_sec': self._last_cmd_vel_age_sec,
+            'processing_time_ms': (
+                round(float(processing_time_ms), 3)
+                if processing_time_ms is not None else None
+            ),
+        }
+        out = String()
+        out.data = json.dumps(payload, ensure_ascii=False)
         self.pub.publish(out)
+        recommendation_out = String()
+        recommendation_out.data = json.dumps(
+            recommendation, ensure_ascii=False)
+        self.recommendation_pub.publish(recommendation_out)
         if self._image_callback_count <= 2:
             self.get_logger().info('Published perception payload for RGB frame %d.' % self._image_callback_count)
 
     def _update_camera_stability(self, transform):
-        """根据精确相机世界位姿判断当前帧是否属于停靠稳定视角。"""
+        """结合实际执行速度和相机世界位姿判断是否属于停靠稳定视角。"""
 
         axis_convention = str(
             self.get_parameter('camera_axis_convention').value
@@ -815,8 +924,32 @@ class HsvDetectorNode(Node):
             self._stable_view_frame_count = 0
             self._stable_view_id = ''
             return False
+        if self._last_cmd_vel_monotonic is None:
+            command_age_sec = float('inf')
+        else:
+            command_age_sec = max(
+                0.0, time.monotonic() - self._last_cmd_vel_monotonic,
+            )
+        command_stopped = motion_command_allows_stable_view(
+            *self._last_cmd_vel,
+            command_age_sec,
+            max_command_age_sec=float(
+                self.get_parameter('stable_view_max_cmd_age_sec').value),
+            max_linear_speed_mps=float(
+                self.get_parameter('stable_view_max_linear_speed_mps').value),
+            max_angular_speed_rps=float(
+                self.get_parameter('stable_view_max_angular_speed_rps').value),
+        )
+        self._last_command_stopped_for_stability = command_stopped
+        self._last_cmd_vel_age_sec = (
+            round(command_age_sec, 4) if math.isfinite(command_age_sec) else None
+        )
         previous = self._last_camera_pose_signature
         self._last_camera_pose_signature = signature
+        if not command_stopped:
+            self._stable_view_frame_count = 0
+            self._stable_view_id = ''
+            return False
         if previous is None:
             self._stable_view_frame_count = 1
             self._stable_view_id = ''

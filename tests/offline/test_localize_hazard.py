@@ -17,6 +17,7 @@ from hazardwalker_perception.localize_hazard import (
     Point3D,
     RigidTransform3D,
     camera_intrinsics_from_k,
+    bbox_supports_depth_shape_evaluation,
     camera_link_point_to_optical,
     estimate_depth_from_bbox,
     estimate_sphere_center_depth_from_bbox,
@@ -40,6 +41,15 @@ def test_camera_intrinsics_from_k_reads_expected_values():
     assert intrinsics.fy == 260.0
     assert intrinsics.cx == 160.0
     assert intrinsics.cy == 120.0
+
+
+def test_depth_shape_requires_sufficient_bbox_resolution():
+    assert not bbox_supports_depth_shape_evaluation(
+        {'x_min': 10, 'y_min': 20, 'x_max': 46, 'y_max': 56}, 40,
+    )
+    assert bbox_supports_depth_shape_evaluation(
+        {'x_min': 10, 'y_min': 20, 'x_max': 49, 'y_max': 59}, 40,
+    )
 
 
 """验证中心像素反投影时 x/y 为 0，深度沿相机 z 轴。"""

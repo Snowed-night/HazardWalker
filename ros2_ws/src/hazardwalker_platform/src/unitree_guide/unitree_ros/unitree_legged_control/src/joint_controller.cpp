@@ -3,9 +3,10 @@ Copyright (c) 2018-2019, Unitree Robotics.Co.Ltd. All rights reserved.
 Use of this source code is governed by the MPL-2.0 license, see LICENSE.
 ************************************************************************/
 
+// 文件说明：实现 A1 关节力矩控制器，并以幂等方式注册 ROS control 插件。
 // #include "unitree_legged_control/joint_controller.h"
 #include "joint_controller.h"
-#include <pluginlib/class_list_macros.h>
+#include <class_loader/class_loader_core.hpp>
 
 // #define rqtTune // use rqt or not
 
@@ -225,5 +226,49 @@ namespace unitree_legged_control
 
 } // namespace
 
-// Register controller to pluginlib
-PLUGINLIB_EXPORT_CLASS(unitree_legged_control::UnitreeJointController, controller_interface::ControllerBase);
+namespace
+{
+
+// 官方 Noetic/Gazebo 组合会在每个仿真步重复触发本共享库的静态注册入口。
+// pluginlib 的默认宏遇到同名工厂时会继续分配 MetaObject 后覆盖旧指针，造成
+// gzserver 内存和日志无界增长。这里保留相同的工厂注册语义，但已有同名工厂时
+// 只补充当前 ClassLoader 的所有权，不再分配或覆盖；控制器接口和控制算法不变。
+void registerUnitreeJointControllerOnce()
+{
+    using Base = controller_interface::ControllerBase;
+    using Derived = unitree_legged_control::UnitreeJointController;
+    const std::string class_name =
+        "unitree_legged_control::UnitreeJointController";
+    const std::string base_class_name = "controller_interface::ControllerBase";
+
+    boost::recursive_mutex::scoped_lock lock(
+        class_loader::impl::getPluginBaseToFactoryMapMapMutex());
+    class_loader::impl::FactoryMap &factory_map =
+        class_loader::impl::getFactoryMapForBaseClass<Base>();
+    const auto existing = factory_map.find(class_name);
+    if (existing != factory_map.end()) {
+        existing->second->addOwningClassLoader(
+            class_loader::impl::getCurrentlyActiveClassLoader());
+        return;
+    }
+
+    auto *factory = new class_loader::impl::MetaObject<Derived, Base>(
+        class_name, base_class_name);
+    factory->addOwningClassLoader(
+        class_loader::impl::getCurrentlyActiveClassLoader());
+    factory->setAssociatedLibraryPath(
+        class_loader::impl::getCurrentlyLoadingLibraryName());
+    factory_map[class_name] = factory;
+}
+
+struct UnitreeJointControllerRegistrar
+{
+    UnitreeJointControllerRegistrar()
+    {
+        registerUnitreeJointControllerOnce();
+    }
+};
+
+static UnitreeJointControllerRegistrar unitree_joint_controller_registrar;
+
+} // namespace

@@ -25,6 +25,7 @@ from rclpy.qos import DurabilityPolicy, QoSProfile
 from rosgraph_msgs.msg import Clock
 from sensor_msgs.msg import CameraInfo, Image, Imu, LaserScan, PointCloud2
 from std_msgs.msg import String
+from std_srvs.srv import Trigger
 from tf2_msgs.msg import TFMessage
 from geometry_msgs.msg import TransformStamped
 
@@ -47,6 +48,11 @@ class RosbridgeHwAdapter(Node):
     def __init__(self):
         super().__init__('hazardwalker_official_rosbridge_adapter')
         self.url = self.declare_parameter('rosbridge_url', 'ws://127.0.0.1:9090').value
+        # 正式实例由 auto_docker 宿主侧管理器传入，供业务门禁拒绝旧版手工残留进程。
+        self.managed_lifecycle = bool(
+            self.declare_parameter('managed_lifecycle', False).value)
+        self.lifecycle_container = str(
+            self.declare_parameter('lifecycle_container', '').value)
         # 适配器本身必须继续使用墙钟，确保首条仿真时钟到达前接收循环与零速
         # 看门狗仍可运行；这里只负责把官方 ROS1 /clock 原样转成 ROS2 /clock。
         self.enable_clock_relay = bool(
@@ -60,7 +66,10 @@ class RosbridgeHwAdapter(Node):
         self.enable_image_relay = bool(self.declare_parameter('enable_image_relay', True).value)
         # 原始 640x480 RGB-D 通过 rosbridge 时，前一帧未收全又开始下一帧会造成分片混杂。
         # 默认节流到 2 Hz；平台带宽验证充足后可按毫秒调小此参数。
-        self.image_throttle_rate_ms = int(self.declare_parameter('image_throttle_rate_ms', 500).value)
+        # 默认 5 Hz 支撑动态检测与辅助转向；第一人称视频仍走 ROS1 压缩流，
+        # 不通过本适配器搬运高帧率原始图像。
+        self.image_throttle_rate_ms = int(
+            self.declare_parameter('image_throttle_rate_ms', 200).value)
         # ---- 激光雷达与 IMU 转发 (导航组 SLAM 必需) ----
         self.enable_scan_relay = bool(self.declare_parameter('enable_scan_relay', True).value)
         # 当前 SLAM 只消费 LaserScan 与 trunk IMU。默认关闭高带宽点云和未消费
@@ -123,6 +132,20 @@ class RosbridgeHwAdapter(Node):
         self.ros1_mission_state_topic = self.declare_parameter(
             'ros1_mission_state_topic', '/hazardwalker/mission/state',
         ).value
+        # 第一人称 sidecar 运行在 ROS1 网络。这里只转发低带宽 JSON 状态，
+        # 供浏览器叠框和显示动作建议；不改变相机图像，也不新增控制入口。
+        self.enable_gui_overlay_relay = bool(
+            self.declare_parameter('enable_gui_overlay_relay', True).value
+        )
+        self.gui_overlay_topics = {
+            '/hw/perception/hazard_detections': '/hazardwalker/gui/perception',
+            '/hw/control/status': '/hazardwalker/gui/control_status',
+            '/hw/control/assist_status': '/hazardwalker/gui/assist_status',
+        }
+        self.gui_assist_request_topic = self.declare_parameter(
+            'gui_assist_request_topic',
+            '/hazardwalker/gui/assist_request',
+        ).value
         self.timeout_sec = float(self.declare_parameter('cmd_vel_timeout_sec', 0.5).value)
         # 官方版本相机命名有差异；源话题可配，但稳定的 ROS2 /hw 输出不变。
         self.rgb_topic = self.declare_parameter('rgb_topic', '/real_sense/rgb/image_raw').value
@@ -147,6 +170,7 @@ class RosbridgeHwAdapter(Node):
         # Fast DDS 可能出现“已解码计数增长、订阅者无帧”的跨线程投递异常。接收线程只保留
         # 每类最新消息，ROS2 执行器定时统一发布；图像过期帧天然被丢弃，不积压内存。
         self._pending_messages = {}
+        self._pending_gui_assist_action = ''
         self._pending_lock = threading.Lock()
         self.clock_pub = self.create_publisher(Clock, '/clock', 10)
         self.odom_pub = self.create_publisher(Odometry, '/hw/odom', 10)
@@ -176,6 +200,20 @@ class RosbridgeHwAdapter(Node):
         self.mission_state_sub = self.create_subscription(
             String, self.ros2_mission_state_topic, self._on_mission_state, 10,
         )
+        self.gui_overlay_subscriptions = []
+        self.assist_start_client = self.create_client(
+            Trigger, '/hw/control/assist_align/start')
+        self.assist_cancel_client = self.create_client(
+            Trigger, '/hw/control/assist_align/cancel')
+        if self.enable_gui_overlay_relay:
+            for ros2_topic, ros1_topic in self.gui_overlay_topics.items():
+                self.gui_overlay_subscriptions.append(self.create_subscription(
+                    String,
+                    ros2_topic,
+                    lambda message, topic=ros1_topic: self._on_gui_overlay(
+                        topic, message),
+                    10,
+                ))
         self.create_timer(0.1, self._watchdog)
         self.create_timer(0.5, self._status)
         self.create_timer(0.01, self._flush_pending_messages)
@@ -208,8 +246,43 @@ class RosbridgeHwAdapter(Node):
         with self._pending_lock:
             pending = self._pending_messages
             self._pending_messages = {}
+            assist_action = self._pending_gui_assist_action
+            self._pending_gui_assist_action = ''
         for name, message in pending.items():
             self._ros_publishers[name].publish(message)
+        if assist_action:
+            self._dispatch_gui_assist_request(assist_action)
+
+    def _dispatch_gui_assist_request(self, action):
+        """在 ROS2 执行器线程调用辅助服务，网页不能直接发布速度。"""
+
+        client = (
+            self.assist_start_client if action == 'start'
+            else self.assist_cancel_client
+        )
+        if not client.service_is_ready():
+            self.get_logger().warning('辅助对准服务未就绪，拒绝 GUI 请求：%s' % action)
+            self._counts['gui_assist_request_rejected'] = (
+                self._counts.get('gui_assist_request_rejected', 0) + 1)
+            return
+        future = client.call_async(Trigger.Request())
+        future.add_done_callback(
+            lambda result, requested=action: self._on_gui_assist_result(
+                requested, result))
+        self._counts['gui_assist_request:' + action] = (
+            self._counts.get('gui_assist_request:' + action, 0) + 1)
+
+    def _on_gui_assist_result(self, action, future):
+        try:
+            response = future.result()
+        except Exception as error:
+            self.get_logger().warning(
+                'GUI 辅助对准请求失败：%s（%s）' % (action, error))
+            return
+        if not response.success:
+            self.get_logger().warning(
+                'GUI 辅助对准请求被拒绝：%s（%s）' % (
+                    action, response.message))
 
     def _receive_loop(self):
         try:
@@ -230,8 +303,18 @@ class RosbridgeHwAdapter(Node):
                         'topic': self.ros1_mission_state_topic,
                         'type': 'std_msgs/String',
                     })
+                if self.enable_gui_overlay_relay:
+                    for topic in self.gui_overlay_topics.values():
+                        self._send({
+                            'op': 'advertise',
+                            'topic': topic,
+                            'type': 'std_msgs/String',
+                        })
                 subscriptions = [(self.rgb_info_topic, 'sensor_msgs/CameraInfo'),
                                  (self.depth_info_topic, 'sensor_msgs/CameraInfo')]
+                if self.enable_gui_overlay_relay:
+                    subscriptions.append((
+                        self.gui_assist_request_topic, 'std_msgs/String'))
                 if self.enable_clock_relay:
                     subscriptions.append((self.clock_topic, 'rosgraph_msgs/Clock'))
                 if self.enable_odom_relay:
@@ -489,6 +572,16 @@ class RosbridgeHwAdapter(Node):
             message.angular_velocity.y = float(ang.get('y', 0.0))
             message.angular_velocity.z = float(ang.get('z', 0.0))
             self._queue_message('trunk_imu', message)
+        elif self.enable_gui_overlay_relay and topic == self.gui_assist_request_topic:
+            action = str(source.get('data', '')).strip().lower()
+            if action not in ('start', 'cancel'):
+                self._counts['gui_assist_request_invalid'] = (
+                    self._counts.get('gui_assist_request_invalid', 0) + 1)
+                return
+            # WebSocket 接收线程只保存最后一次明确请求；服务调用由 ROS2 定时
+            # 回调执行，避免从网络线程直接操作 rclpy client。
+            with self._pending_lock:
+                self._pending_gui_assist_action = action
         else:
             return
         self._counts[topic] = self._counts.get(topic, 0) + 1
@@ -518,6 +611,19 @@ class RosbridgeHwAdapter(Node):
                 self._counts.get('mission_state_forwarded', 0) + 1
             )
 
+    def _on_gui_overlay(self, ros1_topic, message):
+        """把 ROS2 感知/控制状态转成 ROS1 String，供只读 GUI 使用。"""
+
+        if not self.enable_gui_overlay_relay:
+            return
+        if self._send({
+            'op': 'publish',
+            'topic': ros1_topic,
+            'msg': {'data': str(message.data)},
+        }):
+            key = 'gui_overlay:' + ros1_topic.rsplit('/', 1)[-1]
+            self._counts[key] = self._counts.get(key, 0) + 1
+
     def _watchdog(self):
         if self.enable_control and self._last_cmd and time.monotonic() - self._last_cmd > self.timeout_sec:
             self._send({'op': 'publish', 'topic': '/cmd_vel', 'msg': {'linear': {'x': 0.0, 'y': 0.0, 'z': 0.0}, 'angular': {'x': 0.0, 'y': 0.0, 'z': 0.0}}})
@@ -526,8 +632,12 @@ class RosbridgeHwAdapter(Node):
     def _status(self):
         self.status_pub.publish(String(data=json.dumps({
             'adapter': 'rosbridge_ros2', 'url': self.url,
+            'managed_lifecycle': self.managed_lifecycle,
+            'lifecycle_container': self.lifecycle_container or None,
             'rosbridge_host_header': self.host_header or None,
             'enable_cmd_vel_relay': self.enable_control, 'received': self._counts,
+            'enable_gui_overlay_relay': self.enable_gui_overlay_relay,
+            'gui_assist_request_topic': self.gui_assist_request_topic,
             'dropped_invalid_image_frames': self._dropped_image_frames,
             'forwarded_cmd_count': self._forwarded_cmd_count,
             'last_forwarded_cmd': self._last_forwarded_cmd,
