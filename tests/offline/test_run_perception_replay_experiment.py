@@ -95,6 +95,19 @@ def test_segment_preroll_replays_only_latched_legal_contract_topics():
     assert '--disable-keyboard-controls' in command
 
 
+def test_unlabeled_replay_builds_annotation_draft_in_the_same_output():
+    with tempfile.TemporaryDirectory() as directory:
+        output = Path(directory) / 'replay'
+        command = module.build_annotation_draft_command(output)
+
+    assert command[0] == sys.executable
+    assert command[1].endswith('prepare_perception_replay_annotations.py')
+    assert command[-4:] == [
+        '--frames', str(output / 'frames.jsonl'),
+        '--output', str(output / 'evaluation_annotations.draft.json'),
+    ]
+
+
 def test_wait_for_nodes_does_not_start_persistent_ros2_daemon():
     """隔离回放的节点探测不得留下占住 SSH 会话的 ROS2 daemon。"""
 

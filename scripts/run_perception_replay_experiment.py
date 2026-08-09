@@ -311,6 +311,18 @@ def build_segment_preroll_command(bag_dir: Path) -> list[str]:
     ]
 
 
+def build_annotation_draft_command(output_dir: Path) -> list[str]:
+    """构造无标注回放结束后的人工标注草稿命令。"""
+
+    output_dir = Path(output_dir)
+    return [
+        sys.executable,
+        str(SCRIPTS_DIR / 'prepare_perception_replay_annotations.py'),
+        '--frames', str(output_dir / 'frames.jsonl'),
+        '--output', str(output_dir / 'evaluation_annotations.draft.json'),
+    ]
+
+
 def validate_normalized_outputs(output_dir: Path) -> list[str]:
     """验证回放目录足以复核 RGB-D、合法定位和规范测试材料。"""
 
@@ -752,6 +764,9 @@ def run(args) -> int:
         'launch_exit_code': None,
         'replay_exit_code': None,
         'evaluation_exit_code': None,
+        'annotation_draft_command': '',
+        'annotation_draft_exit_code': None,
+        'annotation_draft_path': '',
         'failure_reason': '',
     }
     manifest_path = output_dir / 'replay_experiment_manifest.json'
@@ -815,6 +830,19 @@ def run(args) -> int:
             and not experiment_manifest['failure_reason']):
         experiment_manifest['failure_reason'] = (
             f"业务 launch 非正常退出：{experiment_manifest['launch_exit_code']}")
+
+    if not args.annotations and not experiment_manifest['failure_reason']:
+        draft_command = build_annotation_draft_command(output_dir)
+        draft_exit_code = subprocess.call(
+            draft_command, cwd=REPO_ROOT, env=env)
+        experiment_manifest['annotation_draft_command'] = shlex.join(
+            draft_command)
+        experiment_manifest['annotation_draft_exit_code'] = draft_exit_code
+        experiment_manifest['annotation_draft_path'] = (
+            'evaluation_annotations.draft.json')
+        if draft_exit_code != 0:
+            experiment_manifest['failure_reason'] = (
+                f'人工标注草稿生成失败：{draft_exit_code}')
 
     if args.annotations and not experiment_manifest['failure_reason']:
         evaluate_command = [
