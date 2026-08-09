@@ -219,7 +219,8 @@ def attach_candidate_aliases_to_hazards(hazards, detections):
     return result
 
 
-def choose_active_view_action(detections, image_width, image_height, config=None):
+def choose_active_view_action(
+        detections, image_width, image_height, config=None, hazards=None):
     """为当前帧选择优先级最高的一次重观察动作。
 
     ``detections`` 兼容 HSV 节点发布的 dict；缺失形状或深度字段时按保守值处理。
@@ -227,7 +228,14 @@ def choose_active_view_action(detections, image_width, image_height, config=None
     """
 
     policy = config or ActiveViewPolicyConfig()
-    normalized = [_normalize_detection(item, index) for index, item in enumerate(detections, start=1)]
+    # 二维框只描述当前画面，无法解释轨迹为何仍未确认。把同一 track 的公开
+    # 多视角状态合入策略输入后，已经取得多个稳定视角但横向视差不足的目标
+    # 才不会被“小框先靠近”规则永久压住。这里只读取感知自身输出，不用真值。
+    enriched = _attach_hazard_evidence(detections, hazards or [])
+    normalized = [
+        _normalize_detection(item, index)
+        for index, item in enumerate(enriched, start=1)
+    ]
     if not normalized:
         return ViewRecommendation('continue_exploring', '当前帧没有红球候选。', 0)
 
@@ -291,6 +299,18 @@ def _urgent_target_action(target, image_width, image_height, policy):
             target, image_width, 93,
             '深度曲率不在球体稳定区间，疑似圆锥端面、扁平物或深度异常；必须侧向复查。',
         )
+    if target['track_status'] == 'needs_reobservation':
+        evidence_status = target['track_evidence_status']
+        if evidence_status == 'insufficient_lateral_parallax':
+            reason = (
+                '轨迹已累计稳定观测，但横向视差不足；停止继续直线靠近，'
+                '改从侧面取得独立视角。'
+            )
+        elif evidence_status == 'insufficient_multiview_spherical_depth':
+            reason = '轨迹缺少独立球面深度正证据；从侧面补充稳定 RGB-D 视角。'
+        else:
+            reason = '跨帧轨迹证据仍不一致；改从侧面复查形状与三维尺寸。'
+        return _lateral_action(target, image_width, 97, reason)
     if target['requires_reobservation']:
         # 极小/远距离局部弧段直接横移容易立刻丢出视场，而且可用视差仍不足。
         # 先把已居中的候选放大到可稳定定位的尺度，再获取侧视；贴边候选已由
@@ -568,7 +588,37 @@ def _normalize_detection(item, index):
         'depth_shape_status': str(depth_shape.get('status', 'unknown')),
         'normalized_depth_curvature': normalized_curvature,
         'requires_reobservation': bool(item.get('requires_reobservation', False)),
+        'track_status': str(item.get('track_status', '')),
+        'track_evidence_status': str(item.get('track_evidence_status', '')),
     }
+
+
+def _attach_hazard_evidence(detections, hazards):
+    """按公开 track ID 把多视角轨迹状态附到当前二维候选。"""
+
+    by_track_id = {}
+    for hazard in hazards:
+        if not isinstance(hazard, dict):
+            continue
+        track_id = str(
+            hazard.get('track_id', hazard.get('id', '')) or ''
+        ).strip()
+        if track_id:
+            by_track_id[track_id] = hazard
+    result = []
+    for detection in detections:
+        item = dict(detection)
+        track_id = str(item.get('track_id') or '').strip()
+        hazard = by_track_id.get(track_id)
+        if hazard is not None:
+            item['track_status'] = str(
+                hazard.get('status', item.get('track_status', ''))
+            )
+            item['track_evidence_status'] = str(
+                hazard.get('evidence_status', '')
+            )
+        result.append(item)
+    return result
 
 
 def _target_score(item, policy):
