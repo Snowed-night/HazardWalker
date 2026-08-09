@@ -64,6 +64,41 @@ def test_empty_negative_frame_contributes_true_negative_without_fake_precision()
     assert result['candidate_metrics']['precision'] == 0.0
 
 
+def test_incomplete_annotation_draft_cannot_enter_formal_evaluation():
+    with pytest.raises(ValueError, match='草稿尚未完成'):
+        evaluate_labeled_replay([], {
+            'annotation_provenance': 'manual_image_annotation',
+            'draft_incomplete': True,
+            'frames': [{'record_index': 0, 'objects': []}],
+        })
+
+    with pytest.raises(ValueError, match='未审核帧'):
+        evaluate_labeled_replay([{'detections_2d': [], 'hazards': []}], {
+            'annotation_provenance': 'manual_image_annotation',
+            'draft_incomplete': False,
+            'frames': [{
+                'record_index': 0,
+                'reviewed': False,
+                'objects': [],
+            }],
+        })
+
+
+def test_annotation_timestamp_prevents_cross_run_frame_misalignment():
+    with pytest.raises(ValueError, match='时间戳不一致'):
+        evaluate_labeled_replay([{
+            'timestamp_sec': 10.0,
+            'detections_2d': [],
+            'hazards': [],
+        }], {
+            'annotation_provenance': 'manual_image_annotation',
+            'frames': [{
+                'record_index': 0,
+                'timestamp_sec': 10.1,
+                'objects': [],
+            }],
+        })
+
 def test_confirmed_start_frame_positions_produce_metric_error():
     result = evaluate_labeled_replay(
         [{'detections_2d': [], 'hazards': [{
