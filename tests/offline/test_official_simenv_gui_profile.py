@@ -70,15 +70,15 @@ def test_first_person_sidecar_waits_for_http_health_before_claiming_ready():
     assert 'docker rm -f "$FPV_CONTAINER"' in client
 
 
-def test_first_person_page_uses_confirmed_assist_api_without_velocity_control():
-    """网页只可请求既有辅助服务，不能直接发布任意速度。"""
+def test_first_person_page_displays_track_state_and_has_no_velocity_control():
+    """网页可展示各轨迹状态，但只能请求辅助服务，不能直接发布速度。"""
 
     source = (DOCKER_DIR / 'first_person_server.py').read_text(encoding='utf-8')
     assert 'class OverlayState' in source
     assert 'path == "/state"' in source
     assert "'/hazardwalker/gui/perception'" in source
     assert 'detection.requires_reobservation' in source
-    assert "detection.track_status === 'confirmed'" in source
+    assert "const confirmed = trackStatus === 'confirmed'" in source
     assert "trackStatus.startsWith('rejected')" in source
     assert "'已排除非球体'" in source
     assert 'detection.raw_surface_depth_m' in source

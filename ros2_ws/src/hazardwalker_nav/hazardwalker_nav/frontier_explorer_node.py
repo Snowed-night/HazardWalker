@@ -21,6 +21,7 @@ import json
 import math
 import time
 from collections import deque
+from concurrent.futures import Future, ThreadPoolExecutor
 from typing import List, Optional, Tuple
 
 import rclpy
@@ -350,6 +351,16 @@ class FrontierExplorerNode(Node):
         self._floor_complete_since_ros: Optional[float] = None
         self._floor_transition_phase: str = ''  # navigating | calling | waiting | entering | exiting
         self._floor_transition_start_ros: Optional[float] = None
+        # Docker/ROS1 电梯服务可能等待数十秒，不能在 10 Hz 控制定时器中
+        # 同步调用，否则会中断速度心跳。单线程执行器保证请求仍按顺序执行。
+        self._elevator_executor = ThreadPoolExecutor(
+            max_workers=1,
+            thread_name_prefix='hazardwalker-elevator',
+        )
+        self._elevator_future: Optional[Future] = None
+        self._elevator_request_stage: str = ''
+        self._elevator_request_floor: Optional[int] = None
+        self._elevator_next_retry_ros: float = 0.0
 
         # floor_index 发布器（发布 Int32，触发 scan_imu_localizer 重置匹配地图）
         self.floor_index_pub = self.create_publisher(
@@ -1406,6 +1417,7 @@ class FrontierExplorerNode(Node):
                 'All target floors explored. Preparing to return home.')
             self._transition('RETURNING')
             return cmd
+        previous_floor = self._current_floor
         self._current_floor = next_floor
         self._floor_complete_since_ros = None
         self._elevator_initiated = False
@@ -1413,12 +1425,59 @@ class FrontierExplorerNode(Node):
         self._floor_transition_phase = 'navigating'
         self._floor_transition_start_ros = now_ros
         self.recorder.record_floor_change(
-            now_ros, self._current_floor, next_floor, 'elevator')
+            now_ros, previous_floor, next_floor, 'elevator')
         self.get_logger().info(
-            f'Floor {self._current_floor} complete. '
+            f'Floor {previous_floor} complete. '
             f'Transitioning to floor {next_floor}.')
         self._transition('FLOOR_TRANSITION')
         return cmd
+
+    def _start_elevator_request(
+        self,
+        now_ros: float,
+        stage: str,
+        target_floor: int,
+        container: str,
+        elevator_id: str,
+    ) -> None:
+        """异步提交一次电梯请求，保持导航控制心跳不中断。"""
+        if self._elevator_future is not None:
+            return
+        if now_ros < self._elevator_next_retry_ros:
+            return
+        self._elevator_request_stage = stage
+        self._elevator_request_floor = target_floor
+        self._elevator_future = self._elevator_executor.submit(
+            call_elevator,
+            container,
+            elevator_id,
+            target_floor,
+            True,
+            30.0,
+        )
+
+    def _take_elevator_result(
+        self,
+        now_ros: float,
+    ) -> Optional[Tuple[str, int, ElevatorResult]]:
+        """非阻塞获取已完成请求；失败后限频重试，避免刷爆 Docker。"""
+        future = self._elevator_future
+        if future is None or not future.done():
+            return None
+        stage = self._elevator_request_stage
+        target_floor = self._elevator_request_floor
+        self._elevator_future = None
+        self._elevator_request_stage = ''
+        self._elevator_request_floor = None
+        try:
+            result = future.result()
+        except Exception as exc:
+            self._elevator_next_retry_ros = now_ros + 2.0
+            self.get_logger().error(f'Elevator {stage} request failed: {exc}')
+            return None
+        if target_floor is None:
+            return None
+        return stage, target_floor, result
 
     def _handle_floor_transition(self) -> Twist:
         """FLOOR_TRANSITION: 导航到电梯 → 呼叫电梯 → 跨层 → 新层探索。"""
@@ -1454,49 +1513,49 @@ class FrontierExplorerNode(Node):
             self.get_logger().info('Arrived at elevator. Calling...')
         if self._floor_transition_phase == 'calling':
             if not self._elevator_initiated:
-                try:
-                    entry_floor = int(
-                        self.get_parameter('elevator_entry_floor').value)
-                    result = call_elevator(
-                        container, elevator_id, entry_floor,
-                        open_doors=True, timeout_s=30.0,
-                    )
+                entry_floor = int(
+                    self.get_parameter('elevator_entry_floor').value)
+                self._start_elevator_request(
+                    now_ros, 'called', entry_floor, container, elevator_id)
+                completed = self._take_elevator_result(now_ros)
+                if completed is not None:
+                    stage, request_floor, result = completed
                     self.recorder.record_elevator_call(
-                        now_ros, elevator_id, entry_floor,
-                        'called', result.state)
-                    if result.accepted:
+                        now_ros, elevator_id, request_floor,
+                        stage, result.state)
+                    if stage == 'called' and result.accepted:
                         self._elevator_initiated = True
                         self.get_logger().info(
-                            f'Elevator called to floor {entry_floor}: '
+                            f'Elevator called to floor {request_floor}: '
                             f'{result.state}')
                     else:
                         self.get_logger().warn(
                             f'Elevator call rejected: {result.message}')
-                except Exception as exc:
-                    self.get_logger().error(
-                        f'Elevator call failed: {exc}')
             if (self._elevator_initiated
                     and now_ros - (self._floor_transition_start_ros or now_ros) > 5.0):
                 self._floor_transition_phase = 'entering'
                 self._floor_transition_start_ros = now_ros
         if self._floor_transition_phase == 'entering':
             if not self._elevator_floor_reached:
-                try:
-                    result = call_elevator(
-                        container, elevator_id, self._current_floor,
-                        open_doors=True, timeout_s=30.0,
-                    )
+                self._start_elevator_request(
+                    now_ros,
+                    'entered',
+                    self._current_floor,
+                    container,
+                    elevator_id,
+                )
+                completed = self._take_elevator_result(now_ros)
+                if completed is not None:
+                    stage, request_floor, result = completed
                     self.recorder.record_elevator_call(
-                        now_ros, elevator_id, self._current_floor,
-                        'entered', result.state)
-                    if result.accepted and result.current_floor == self._current_floor:
+                        now_ros, elevator_id, request_floor,
+                        stage, result.state)
+                    if (stage == 'entered' and result.accepted
+                            and result.current_floor == request_floor):
                         self._elevator_floor_reached = True
                         self.get_logger().info(
-                            f'Arrived at floor {self._current_floor}')
-                        self._publish_floor_index(self._current_floor)
-                except Exception as exc:
-                    self.get_logger().error(
-                        f'Floor transition failed: {exc}')
+                            f'Arrived at floor {request_floor}')
+                        self._publish_floor_index(request_floor)
         if self._elevator_floor_reached or (
                 self._floor_transition_start_ros is not None
                 and now_ros - self._floor_transition_start_ros > 60.0):
