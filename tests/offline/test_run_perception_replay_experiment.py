@@ -95,6 +95,18 @@ def test_segment_preroll_replays_only_latched_legal_contract_topics():
     assert '--disable-keyboard-controls' in command
 
 
+def test_wait_for_nodes_does_not_start_persistent_ros2_daemon():
+    """隔离回放的节点探测不得留下占住 SSH 会话的 ROS2 daemon。"""
+
+    with patch.object(
+            module.subprocess, 'check_output', return_value='/required\n') as check:
+        available = module.wait_for_nodes(
+            {'/required'}, env={'ROS_DOMAIN_ID': '153'}, timeout_sec=1.0)
+
+    assert available == {'/required'}
+    assert check.call_args.args[0] == ['ros2', 'node', 'list', '--no-daemon']
+
+
 def test_stop_process_group_lets_launch_forward_sigint_only_once():
     class FakeProcess:
         pid = 4321

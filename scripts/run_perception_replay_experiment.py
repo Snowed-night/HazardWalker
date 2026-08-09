@@ -218,8 +218,10 @@ def wait_for_nodes(
     available: set[str] = set()
     while time.monotonic() <= deadline:
         try:
+            # 回放使用独立 ROS_DOMAIN_ID；禁止为一次节点探测启动常驻 daemon。
+            # 否则 daemon 会继承远程 SSH 的标准输出，实验结束后仍占住会话。
             output = subprocess.check_output(
-                ['ros2', 'node', 'list'], cwd=REPO_ROOT, env=env,
+                ['ros2', 'node', 'list', '--no-daemon'], cwd=REPO_ROOT, env=env,
                 text=True, stderr=subprocess.STDOUT, timeout=3.0,
             )
             available = {
