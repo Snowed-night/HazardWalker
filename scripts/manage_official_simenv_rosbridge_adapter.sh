@@ -21,6 +21,7 @@ LOCK_FILE="$STATE_ROOT/${SAFE_KEY}.adapter.lock"
 START_TIMEOUT_SEC="${OFFICIAL_SIMENV_ADAPTER_START_TIMEOUT_SEC:-30}"
 STOP_TIMEOUT_SEC="${OFFICIAL_SIMENV_ADAPTER_STOP_TIMEOUT_SEC:-10}"
 DISCOVERY_SETTLE_SEC="${OFFICIAL_SIMENV_ADAPTER_DISCOVERY_SETTLE_SEC:-5}"
+DISCOVERY_STABLE_SAMPLES="${OFFICIAL_SIMENV_ADAPTER_DISCOVERY_STABLE_SAMPLES:-2}"
 
 mkdir -p "$STATE_ROOT"
 
@@ -80,11 +81,25 @@ single_node_visible() {
 }
 
 stable_single_node_visible() {
-  local deadline=$((SECONDS + DISCOVERY_SETTLE_SEC))
+  local deadline=$((SECONDS + DISCOVERY_SETTLE_SEC)) node_count stable_samples=0
   while (( SECONDS < deadline )); do
-    (( $(visible_node_count) == 1 )) || return 1
+    node_count="$(visible_node_count)"
+    if (( node_count > 1 )); then
+      return 1
+    fi
+    if (( node_count == 1 )); then
+      stable_samples=$((stable_samples + 1))
+      if (( stable_samples >= DISCOVERY_STABLE_SAMPLES )); then
+        return 0
+      fi
+    else
+      # 新建 DDS 参与者的首轮发现可能暂时为空；在截止时间内继续等待，
+      # 但任何后续空快照都会重新开始连续唯一性计数。
+      stable_samples=0
+    fi
     sleep 0.2
   done
+  return 1
 }
 
 stop_pid() {
@@ -205,11 +220,11 @@ status_adapter() {
   [[ -f "$PID_FILE" ]] && managed_pid="$(tr -cd '0-9' < "$PID_FILE")"
   if [[ -n "$managed_pid" ]] && pid_matches_adapter "$managed_pid"; then
     echo "[adapter-manager] running pid=$managed_pid domain=$ROS_DOMAIN_ID container=$CONTAINER"
-    node_count="$(visible_node_count)"
-    if [[ "$node_count" == 1 ]]; then
+    if stable_single_node_visible; then
       echo '[adapter-manager] ROS2 node: ready (unique)'
       return 0
     fi
+    node_count="$(visible_node_count)"
     if (( node_count > 1 )); then
       echo "[adapter-manager] ROS2 node: duplicate count=$node_count" >&2
       return 1

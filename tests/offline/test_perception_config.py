@@ -33,6 +33,8 @@ def test_repository_config_maps_to_runtime_parameters():
     assert params['red_hue_max_2'] == 180
     assert params['red_min_saturation'] == 80
     assert params['min_depth_points_in_roi'] == 5
+    assert params['min_sphere_depth_shape_bbox_px'] == 40
+    assert params['active_view_min_bbox_area_px'] == 1600
     assert params['active_view_min_confidence'] == 0.70
     assert params['track_projection_max_age_s'] == 180.0
 

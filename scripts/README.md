@@ -51,6 +51,7 @@
 - `run_perception_replay_experiment.py`：在独立 ROS 域加载真实感知参数、回放一份有效 rosbag、安全收尾证据记录器，并可接续人工标注评估；正式输出只允许写入 `reports/perception/` 子目录，并拒绝未提交代码。脚本固化实际参数和标注快照并验证哈希。缺代表图、配对深度、合法轨迹、地图或测试表时失败，无标注只记为 `captured_unlabeled`。
 - `compare_perception_replay_runs.py`：横向汇总 rosbag 内容指纹、SEED、人工标注和 Git 来源完全受控的多轮回放；校验实际启动参数哈希后输出 JSON/CSV，拒绝脏代码、路径相同但内容已变、跨数据集或重复参数组合。
 - `compare_perception_replay_campaign.py`：将至少 3 个 SEED 下完全相同的算法/参数/Git 版本组成完整回放矩阵，输出跨场景微平均、最差场景、定位、时延及频率指标；漏跑任一算法或 SEED、版本漂移和事后挑选结果都会失败。
+- `run_perception_replay_campaign.py`：读取已校验的多 SEED rosbag 目录和预注册算法方案，顺序执行完整的 `SEED × 参数` 回放矩阵，失败即停止并保存可审计执行清单；续跑只复用合同完全一致的完成项，全部通过后自动生成跨场景比较表。
 - `run_official_simenv_perception_evidence.sh`：感知侧正式随机场景编排器。要求显式独占标志、
   固定 SEED、代码版本、证据目录和测试表目录；启动自建激光—IMU定位、RGB-D感知及 ROS1
   记录器，默认**不**切换控制器或发布 `/cmd_vel`。它只等待导航在任务状态话题发布 `FINISHED`，

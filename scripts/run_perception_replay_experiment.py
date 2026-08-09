@@ -318,6 +318,15 @@ def validate_normalized_outputs(output_dir: Path) -> list[str]:
         failures.append('证据清单未证明运行期禁用真值')
     if contract.get('contract_violations'):
         failures.append('证据合同存在违规项')
+    experiment_eligible = experiment_manifest.get(
+        'formal_evidence_eligible')
+    if isinstance(experiment_eligible, bool):
+        if contract.get('formal_evidence_eligible') is not experiment_eligible:
+            failures.append('回放运行清单与实验清单的正式证据资格不一致')
+        summary_contract = summary.get('evidence_contract', {})
+        if summary_contract.get(
+                'formal_evidence_eligible') is not experiment_eligible:
+            failures.append('回放摘要与实验清单的正式证据资格不一致')
     if int(summary.get('trajectory_sample_count', 0)) <= 0:
         failures.append('没有合法 SLAM 轨迹样本')
     trajectory_name = str(summary.get('trajectory_file', '')).strip()
@@ -426,7 +435,45 @@ def validate_normalized_outputs(output_dir: Path) -> list[str]:
                 or len(expected_annotation_hash) != 64
                 or _sha256(annotation_snapshot) != expected_annotation_hash):
             failures.append('人工标注快照与本轮评估哈希不一致')
-    return failures
+    # 同一种逐帧缺陷可能连续出现数十次；门禁只保留一次可行动原因，
+    # 具体帧仍可由 frames.jsonl 追溯，避免终端和清单被重复文本淹没。
+    return list(dict.fromkeys(failures))
+
+
+def apply_experiment_eligibility_to_outputs(
+        output_dir: Path, *, eligible: bool,
+        exclusion_reasons: list[str]) -> None:
+    """把编排层证据资格同步到记录器生成的摘要和运行清单。
+
+    记录器只能判断传感器、坐标和真值合同，无法知道输出目录是否为临时目录、
+    工作树是否干净。编排器在回放结束后补齐这层来源信息，避免诊断输出内部
+    仍显示为正式证据。原有算法合同若已失败，绝不能被这里重新提升为合格。
+    """
+
+    normalized_reasons = [
+        str(reason).strip() for reason in exclusion_reasons
+        if str(reason).strip()
+    ]
+    for name in ('summary.json', 'run_manifest.json'):
+        path = Path(output_dir) / name
+        if not path.is_file():
+            continue
+        payload = json.loads(path.read_text(encoding='utf-8'))
+        contract = payload.get('evidence_contract')
+        if not isinstance(contract, dict):
+            continue
+        recorder_eligible = contract.get('formal_evidence_eligible') is True
+        contract['formal_evidence_eligible'] = bool(
+            eligible and recorder_eligible)
+        existing_reasons = contract.get('formal_exclusion_reasons', [])
+        if not isinstance(existing_reasons, list):
+            existing_reasons = []
+        contract['formal_exclusion_reasons'] = list(dict.fromkeys(
+            [str(item) for item in existing_reasons if str(item).strip()]
+            + normalized_reasons
+        ))
+        payload['evidence_contract'] = contract
+        _write_manifest(path, payload)
 
 
 def validate_formal_output_dir(output_dir: Path) -> None:
@@ -559,6 +606,15 @@ def run(args) -> int:
     except (ValueError, json.JSONDecodeError) as exc:
         raise SystemExit(str(exc)) from exc
 
+    diagnostic_reasons = []
+    if args.allow_external_output:
+        diagnostic_reasons.append('external_output')
+    if git_state.get('dirty') is True:
+        diagnostic_reasons.append('dirty_worktree')
+    diagnostic_reasons.extend(
+        f'source_contract:{reason}' for reason in source_contract_errors)
+    formal_evidence_eligible = not diagnostic_reasons
+
     seed = str(source_manifest.get('scenario_seed', '')).strip()
     if not seed:
         raise SystemExit('数据集清单缺少 scenario_seed')
@@ -620,7 +676,8 @@ def run(args) -> int:
             if source_contract_errors else 'formal_validated'
         ),
         'source_contract_errors': source_contract_errors,
-        'formal_evidence_eligible': not source_contract_errors,
+        'formal_evidence_eligible': formal_evidence_eligible,
+        'diagnostic_reasons': diagnostic_reasons,
         'scenario_seed': seed,
         'git': git_state,
         'ros_domain_id': str(args.domain_id),
@@ -694,6 +751,11 @@ def run(args) -> int:
         experiment_manifest['launch_exit_code'] = launch_exit_code
         experiment_manifest['replay_exit_code'] = replay_exit_code
 
+    apply_experiment_eligibility_to_outputs(
+        output_dir,
+        eligible=formal_evidence_eligible,
+        exclusion_reasons=diagnostic_reasons,
+    )
     output_failures = validate_normalized_outputs(output_dir)
     experiment_manifest['normalized_output_validation'] = {
         'passed': not output_failures,
@@ -737,9 +799,9 @@ def run(args) -> int:
     experiment_manifest['finished_at_utc'] = datetime.now(timezone.utc).isoformat()
     if experiment_manifest['failure_reason']:
         experiment_manifest['status'] = 'failed'
-    elif source_contract_errors and args.annotations:
+    elif diagnostic_reasons and args.annotations:
         experiment_manifest['status'] = 'diagnostic_complete'
-    elif source_contract_errors:
+    elif diagnostic_reasons:
         experiment_manifest['status'] = 'diagnostic_captured_unlabeled'
     elif args.annotations:
         experiment_manifest['status'] = 'complete'

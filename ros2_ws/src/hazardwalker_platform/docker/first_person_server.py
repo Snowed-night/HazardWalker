@@ -73,6 +73,12 @@ PAGE_HTML = """<!doctype html>
       perception_timeout: '感知超时', alignment_timeout: '对准超时',
       cancelled_by_user: '用户取消', turn_left: '正在左转', turn_right: '正在右转'
     };
+    function formatPosition(value) {
+      if (!Array.isArray(value) || value.length < 3) return '';
+      const numbers = value.slice(0, 3).map(Number);
+      if (!numbers.every(Number.isFinite)) return '';
+      return `[${numbers.map(number => number.toFixed(2)).join(', ')}]m`;
+    }
     document.getElementById('fullscreen').addEventListener('click', async () => {
       if (document.fullscreenElement) await document.exitFullscreen();
       else await document.documentElement.requestFullscreen();
@@ -146,6 +152,9 @@ PAGE_HTML = """<!doctype html>
         const perceptionSynchronized = Number.isFinite(frameStamp) && Number.isFinite(detectionStamp) && Math.abs(frameStamp - detectionStamp) <= 0.25;
         const perception = perceptionFresh && perceptionSynchronized ? (overlayState.perception || {}) : {};
         const detections = perception.detections_2d || [];
+        const hazardsByTrack = new Map(
+          (perception.hazards || []).map(hazard => [String(hazard.track_id ?? hazard.id ?? ''), hazard])
+        );
         context.lineWidth = Math.max(2, 2 * (window.devicePixelRatio || 1));
         context.font = `${Math.max(14, 14 * (window.devicePixelRatio || 1))}px sans-serif`;
         for (const detection of detections) {
@@ -154,13 +163,27 @@ PAGE_HTML = """<!doctype html>
           const y = offsetY + Number(box.y_min || 0) * scale;
           const w = (Number(box.x_max || 0) - Number(box.x_min || 0)) * scale;
           const h = (Number(box.y_max || 0) - Number(box.y_min || 0)) * scale;
-          const confirmed = detection.track_status === 'confirmed';
-          const color = confirmed ? '#22c55e' : (detection.requires_reobservation ? '#f59e0b' : '#ef4444');
+          const trackStatus = String(detection.track_status || '');
+          const confirmed = trackStatus === 'confirmed';
+          const rejected = trackStatus.startsWith('rejected');
+          const color = rejected ? '#a855f7' : (confirmed ? '#22c55e' : (detection.requires_reobservation ? '#f59e0b' : '#ef4444'));
           context.strokeStyle = color;
           context.fillStyle = color;
           context.strokeRect(x, y, w, h);
-          const label = confirmed ? '已确认红球' : (detection.requires_reobservation ? '需复查' : '红球候选');
-          context.fillText(`${label} ${Number(detection.confidence || 0).toFixed(2)}`, x, Math.max(18, y - 6));
+          const label = rejected ? '已排除非球体' : (confirmed ? '已确认红球' : (detection.requires_reobservation ? '需复查' : '红球候选'));
+          const trackId = String(detection.track_id ?? '');
+          const candidateId = String(detection.candidate_id ?? '');
+          const identity = trackId ? ` #${trackId}` : (candidateId ? ` ${candidateId}` : '');
+          context.fillText(`${label}${identity} ${Number(detection.confidence || 0).toFixed(2)}`, x, Math.max(18, y - 6));
+          const linkedHazard = hazardsByTrack.get(trackId) || {};
+          const position = formatPosition(linkedHazard.position || detection.localized_position);
+          const depth = Number(detection.raw_surface_depth_m);
+          const depthText = Number.isFinite(depth) && depth > 0 ? `深度 ${depth.toFixed(2)}m` : '';
+          const coordinateText = position ? `坐标 ${position}` : '';
+          const geometryText = [depthText, coordinateText].filter(Boolean).join(' | ');
+          if (geometryText) {
+            context.fillText(geometryText, x, Math.min(height - 4, y + h + 18));
+          }
         }
       }
       const ages = overlayState.state_age_sec || {};

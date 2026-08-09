@@ -58,12 +58,17 @@ from hazardwalker_nav.frontier_detector import (
 from hazardwalker_nav.reobservation_contract import (
     action_has_scan_clearance,
     bearing_change_deg,
+    bounded_planar_pose_increment,
     find_target_detection,
     find_target_status,
+    lateral_centering_angular_velocity,
+    live_reobservation_action_update_allowed,
     parse_reobservation_request,
     reobservation_actions_conflict,
     reobservation_request_is_eligible,
+    select_live_reobservation_update,
     target_centered_in_image,
+    target_horizontal_error_ratio,
 )
 from hazardwalker_nav.coverage_tracker import CoverageGrid
 from hazardwalker_nav.elevator_controller import (
@@ -136,6 +141,9 @@ class FrontierExplorerNode(Node):
         # 停稳采帧后再决定下一段，避免目标被墙柱遮挡后仍盲走 10 秒。
         self.declare_parameter('reobserve_lateral_motion_duration_s', 3.0)
         self.declare_parameter('reobserve_lateral_max_distance_m', 0.80)
+        # map->base 受 SLAM 闭环影响可能瞬时跳变。10 Hz 控制下单帧真实位移
+        # 不可能达到 0.30 m，超过该值只重置累计锚点，不作为横移距离。
+        self.declare_parameter('reobserve_pose_jump_reject_m', 0.30)
         self.declare_parameter('reobserve_target_loss_timeout_s', 0.40)
         self.declare_parameter('reobserve_center_tolerance_ratio', 0.18)
         self.declare_parameter('reobserve_settle_duration_s', 1.0)
@@ -146,7 +154,22 @@ class FrontierExplorerNode(Node):
         self.declare_parameter('reobserve_lateral_speed', 0.45)
         self.declare_parameter('reobserve_forward_speed', 0.30)
         self.declare_parameter('reobserve_turn_speed', 0.60)
+        # 侧移时同步转向把目标保持在图像中央，形成绕目标的弧线视差；否则
+        # 0.8 m 纯横移会把远球推到反侧边缘，重复复查又反向走回原视角。
+        self.declare_parameter('reobserve_lateral_centering_gain', 0.80)
+        self.declare_parameter(
+            'reobserve_lateral_centering_max_turn_speed', 0.60,
+        )
+        self.declare_parameter(
+            'reobserve_lateral_centering_deadband_ratio', 0.05,
+        )
         self.declare_parameter('reobserve_max_attempts_per_target', 4)
+        # 返航途中若目标首次从画面边缘出现，完全忽略会损失识别率；仅允许
+        # 两次受激光安全门约束的短复查，随后必须恢复 RETURNING。
+        self.declare_parameter('reobserve_during_returning', False)
+        self.declare_parameter(
+            'reobserve_returning_max_attempts_per_target', 2,
+        )
         self.declare_parameter('stuck_timeout_s', 15.0)
         # 正式任务总预算 600 秒，默认最多探索 480 秒，至少留 120 秒返航。
         # 实际返航预留还会根据距家距离和保守速度动态增加。
@@ -267,10 +290,13 @@ class FrontierExplorerNode(Node):
         self.reobserve_required_bearing_change_deg: float = 25.0
         self._reobserve_bearing_goal_met = False
         self._reobserve_motion_stop_latched = False
-        self._reobserve_start_pose: Optional[Tuple[float, float]] = None
+        self._reobserve_last_pose: Optional[Tuple[float, float]] = None
+        self._reobserve_lateral_distance_m: float = 0.0
+        self._reobserve_target_center_error_ratio: Optional[float] = None
         self._reobserve_last_target_seen_ros: Optional[float] = None
         self._reobserve_allow_untracked_upgrade = False
         self._reobserve_attempts: dict = {}
+        self._reobserve_resume_state: str = 'EXPLORING'
 
         # ---- 卡死检测 ----
         self._pose_history: deque = deque(maxlen=30)  # 3秒位置与朝向历史 (10Hz)
@@ -351,11 +377,22 @@ class FrontierExplorerNode(Node):
             self._update_reobservation_feedback(payload)
             return
         request = parse_reobservation_request(payload)
+        allow_returning = bool(
+            self.get_parameter('reobserve_during_returning').value
+        )
+        maximum_attempts = (
+            self.get_parameter(
+                'reobserve_returning_max_attempts_per_target'
+            ).value
+            if self.state == 'RETURNING'
+            else self.get_parameter('reobserve_max_attempts_per_target').value
+        )
         if not reobservation_request_is_eligible(
                 request,
                 self.state,
                 self._reobserve_attempts,
-                self.get_parameter('reobserve_max_attempts_per_target').value):
+                maximum_attempts,
+                allow_returning=allow_returning):
             return
         self._trigger_reobservation(request)
 
@@ -374,14 +411,14 @@ class FrontierExplorerNode(Node):
         """执行感知侧已经判定的明确复查动作。"""
 
         now = self._ros_time_sec()
-        action = str(request['action'])
-        duration_parameter = (
-            'reobserve_lateral_motion_duration_s'
-            if action in ('move_left', 'move_right')
-            else 'reobserve_motion_duration_s'
+        self._reobserve_resume_state = (
+            'RETURNING' if self.state == 'RETURNING' else 'EXPLORING'
         )
-        motion_duration = max(
-            0.0, float(self.get_parameter(duration_parameter).value),
+        action = str(request['action'])
+        motion_duration = self._reobservation_motion_duration(action)
+        maximum_motion_duration = max(
+            self._reobservation_motion_duration('turn_left'),
+            self._reobservation_motion_duration('move_left'),
         )
         settle_duration = max(
             0.0, float(self.get_parameter('reobserve_settle_duration_s').value),
@@ -393,7 +430,7 @@ class FrontierExplorerNode(Node):
         self.reobserve_target_id = str(request['target_id'])
         self.reobserve_motion_end_time = now + motion_duration
         self.reobserve_end_time = (
-            self.reobserve_motion_end_time + settle_duration + observe_duration
+            now + maximum_motion_duration + settle_duration + observe_duration
         )
         self.reobserve_settle_duration_s = settle_duration
         self.reobserve_observe_duration_s = observe_duration
@@ -404,7 +441,8 @@ class FrontierExplorerNode(Node):
         )
         self._reobserve_bearing_goal_met = False
         self._reobserve_motion_stop_latched = False
-        self._reobserve_start_pose = (self.robot_x, self.robot_y)
+        self._reobserve_target_center_error_ratio = None
+        self._reset_reobservation_lateral_tracking()
         self._reobserve_last_target_seen_ros = now
         self._reobserve_allow_untracked_upgrade = bool(
             request.get('target_was_untracked', False)
@@ -448,6 +486,7 @@ class FrontierExplorerNode(Node):
             allow_untracked_upgrade=self._reobserve_allow_untracked_upgrade,
         )
         if detection is None:
+            self._reobserve_target_center_error_ratio = None
             loss_timeout = max(
                 0.1,
                 float(self.get_parameter(
@@ -462,25 +501,31 @@ class FrontierExplorerNode(Node):
                 )
             return
         self._reobserve_last_target_seen_ros = now
+        self._reobserve_target_center_error_ratio = target_horizontal_error_ratio(
+            detection, payload.get('image_width'),
+        )
         detection_track_id = str(detection.get('track_id') or '').strip()
         if (detection_track_id
                 and not detection_track_id.startswith('untracked:')):
             # 首帧未跟踪候选一旦升级为正式轨迹，后续只能消费精确 track_id。
             self._reobserve_allow_untracked_upgrade = False
 
-        live_request = parse_reobservation_request(payload)
-        if (live_request is not None
-                and str(live_request.get('target_id', ''))
-                == self.reobserve_target_id
-                and reobservation_actions_conflict(
-                    self.reobserve_action,
-                    live_request.get('action'),
-                )):
-            self._stop_reobservation_motion(
-                now,
-                'live perception recommendation reversed direction',
-            )
-            return
+        live_request = select_live_reobservation_update(
+            payload, self.reobserve_target_id, self.reobserve_action,
+        )
+        if live_request is not None:
+            if reobservation_actions_conflict(
+                    self.reobserve_action, live_request.get('action')):
+                self._stop_reobservation_motion(
+                    now,
+                    'live perception recommendation reversed direction',
+                )
+                return
+            if live_reobservation_action_update_allowed(
+                    self.reobserve_action, live_request.get('action')):
+                self._update_active_reobservation_action(live_request, now)
+                if self._reobserve_motion_stop_latched:
+                    return
 
         if self.reobserve_action in ('turn_left', 'turn_right'):
             if target_centered_in_image(
@@ -523,6 +568,69 @@ class FrontierExplorerNode(Node):
             'Reobservation bearing goal reached: '
             f'{achieved:.1f}° >= {self.reobserve_required_bearing_change_deg:.1f}°; '
             'stopping for stable RGB-D evidence.'
+        )
+
+    def _reobservation_motion_duration(self, action: str) -> float:
+        """返回单段复查动作时长；总复查截止时间不会被逐帧建议延长。"""
+
+        parameter = (
+            'reobserve_lateral_motion_duration_s'
+            if action in ('move_left', 'move_right')
+            else 'reobserve_motion_duration_s'
+        )
+        return max(0.0, float(self.get_parameter(parameter).value))
+
+    def _reset_reobservation_lateral_tracking(self):
+        """从当前合法 SLAM 位姿开始累计本段横移，不跨动作复用旧基准。"""
+
+        self._reobserve_last_pose = (self.robot_x, self.robot_y)
+        self._reobserve_lateral_distance_m = 0.0
+
+    def _update_active_reobservation_action(
+            self, request: dict, now_ros: float):
+        """让同一候选跟随最新感知建议，同时保留原复查硬截止时间。"""
+
+        old_action = self.reobserve_action or 'hold_observation'
+        new_action = str(request['action'])
+        if new_action == 'hold_observation':
+            self._stop_reobservation_motion(
+                now_ros, 'live perception requested stable observation',
+            )
+            return
+
+        # 动作切换只使用本次复查尚余的机动窗口，不能通过逐帧改变建议无限续期。
+        latest_motion_end = max(
+            now_ros,
+            self.reobserve_end_time
+            - self.reobserve_settle_duration_s
+            - self.reobserve_observe_duration_s,
+        )
+        remaining_duration = min(
+            self._reobservation_motion_duration(new_action),
+            max(0.0, latest_motion_end - now_ros),
+        )
+        if remaining_duration <= 0.0:
+            self._stop_reobservation_motion(
+                now_ros, 'no bounded motion window remains for live action update',
+            )
+            return
+
+        self.reobserve_action = new_action
+        self.reobserve_motion_end_time = now_ros + remaining_duration
+        self._reset_reobservation_lateral_tracking()
+        self.reobserve_baseline_bearing_deg = request.get('view_bearing_deg')
+        self.reobserve_required_bearing_change_deg = max(
+            1.0,
+            float(request.get(
+                'required_bearing_change_deg',
+                self.reobserve_required_bearing_change_deg,
+            )),
+        )
+        self._reobserve_bearing_goal_met = False
+        self.get_logger().info(
+            f'Reobservation action updated for target={self.reobserve_target_id}: '
+            f'{old_action} -> {new_action}; '
+            f'bounded_motion={remaining_duration:.2f}s'
         )
 
     def _stop_reobservation_motion(self, now_ros: float, reason: str):
@@ -615,6 +723,10 @@ class FrontierExplorerNode(Node):
             return
 
         if (self.state in ('EXPLORING', 'REOBSERVING')
+                and not (
+                    self.state == 'REOBSERVING'
+                    and self._reobserve_resume_state == 'RETURNING'
+                )
                 and self._return_deadline_reached()):
             self.get_logger().warn(
                 'Exploration budget reached with protected return reserve; '
@@ -851,7 +963,10 @@ class FrontierExplorerNode(Node):
         now = self._ros_time_sec()
 
         if now >= self.reobserve_end_time:
-            self.get_logger().info('Reobservation complete, resuming exploration.')
+            resume_state = self._reobserve_resume_state
+            self.get_logger().info(
+                f'Reobservation complete, resuming {resume_state}.'
+            )
             self.recorder.record_reobservation(
                 now, self.reobserve_target_id or '', self.reobserve_action or '',
                 'completed',
@@ -865,13 +980,15 @@ class FrontierExplorerNode(Node):
             self.reobserve_baseline_bearing_deg = None
             self._reobserve_bearing_goal_met = False
             self._reobserve_motion_stop_latched = False
-            self._reobserve_start_pose = None
+            self._reobserve_last_pose = None
+            self._reobserve_lateral_distance_m = 0.0
+            self._reobserve_target_center_error_ratio = None
             self._reobserve_last_target_seen_ros = None
             self._reobserve_allow_untracked_upgrade = False
             # 强制重规划
             self.current_target = None
             self.current_path = []
-            self._transition('EXPLORING')
+            self._transition(resume_state)
             return cmd
 
         # 机动结束后必须停车等待机体稳定并采集确认帧；若持续运动到状态结束，
@@ -882,11 +999,29 @@ class FrontierExplorerNode(Node):
         # 根据感知建议生成短时机动 cmd_vel。
         action = self.reobserve_action or 'hold_observation'
         if (action in ('move_left', 'move_right')
-                and self._reobserve_start_pose is not None):
-            lateral_distance = math.hypot(
-                self.robot_x - self._reobserve_start_pose[0],
-                self.robot_y - self._reobserve_start_pose[1],
+                and self._reobserve_last_pose is not None):
+            current_pose = (self.robot_x, self.robot_y)
+            maximum_increment = max(
+                0.05,
+                float(self.get_parameter(
+                    'reobserve_pose_jump_reject_m').value),
             )
+            increment = bounded_planar_pose_increment(
+                self._reobserve_last_pose,
+                current_pose,
+                maximum_increment,
+            )
+            # 即使本帧是地图坐标跳变，也要把它作为新锚点；否则下一帧会继续
+            # 相对旧地图坐标产生同一个假大位移。总时长与激光门禁仍持续生效。
+            self._reobserve_last_pose = current_pose
+            if increment is None:
+                self.get_logger().warning(
+                    'Ignored implausible SLAM pose jump during reobservation; '
+                    f'threshold={maximum_increment:.2f}m.'
+                )
+            else:
+                self._reobserve_lateral_distance_m += increment
+            lateral_distance = self._reobserve_lateral_distance_m
             maximum_distance = max(
                 0.1,
                 float(self.get_parameter(
@@ -924,6 +1059,37 @@ class FrontierExplorerNode(Node):
         elif action == 'hold_observation':
             cmd.linear.x = 0.0
             cmd.angular.z = 0.0
+
+        if action in ('move_left', 'move_right'):
+            error_ratio = self._reobserve_target_center_error_ratio
+            deadband = max(
+                0.0,
+                float(self.get_parameter(
+                    'reobserve_lateral_centering_deadband_ratio').value),
+            )
+            if error_ratio is not None and abs(error_ratio) > deadband:
+                gain = max(
+                    0.0,
+                    float(self.get_parameter(
+                        'reobserve_lateral_centering_gain').value),
+                )
+                maximum_turn = max(
+                    0.0,
+                    float(self.get_parameter(
+                        'reobserve_lateral_centering_max_turn_speed').value),
+                )
+                angular = lateral_centering_angular_velocity(
+                    error_ratio,
+                    gain,
+                    maximum_turn,
+                    deadband,
+                )
+                turn_action = 'turn_left' if angular > 0.0 else 'turn_right'
+                if self._scan_allows_action(
+                        turn_action,
+                        float(self.get_parameter(
+                            'rotation_min_clearance_m').value)):
+                    cmd.angular.z = angular
 
         return cmd
 

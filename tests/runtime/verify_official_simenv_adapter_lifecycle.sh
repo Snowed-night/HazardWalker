@@ -34,9 +34,28 @@ chmod +x "$FAKE_ROOT/scripts/run_official_simenv_rosbridge_adapter.sh"
 cat > "$FAKE_BIN/ros2" <<'SH'
 #!/usr/bin/env bash
 set -euo pipefail
+same_domain_adapter_running() {
+  local pid process_domain
+  while read -r pid; do
+    [[ -r "/proc/$pid/environ" ]] || continue
+    process_domain="$(tr '\0' '\n' < "/proc/$pid/environ" |
+      sed -n 's/^ROS_DOMAIN_ID=//p' | tail -n 1)"
+    if [[ "${process_domain:-0}" == "${ROS_DOMAIN_ID:-0}" ]]; then
+      return 0
+    fi
+  done < <(pgrep -u "$(id -u)" -f official_simenv_rosbridge_ros2_adapter_node.py || true)
+  return 1
+}
 if [[ "${1:-}" == node && "${2:-}" == list ]]; then
+  if [[ -n "${FAKE_NODE_MISS_FILE:-}" && -f "$FAKE_NODE_MISS_FILE" ]]; then
+    miss_count="$(cat "$FAKE_NODE_MISS_FILE")"
+    if (( miss_count > 0 )); then
+      printf '%s\n' "$((miss_count - 1))" > "$FAKE_NODE_MISS_FILE"
+      exit 0
+    fi
+  fi
   if [[ "${FAKE_EXTERNAL_NODE:-0}" == 1 ]] ||
-     pgrep -u "$(id -u)" -f official_simenv_rosbridge_ros2_adapter_node.py >/dev/null; then
+     same_domain_adapter_running; then
     echo /hazardwalker_official_rosbridge_adapter
   fi
   if [[ "${FAKE_DUPLICATE_NODE:-0}" == 1 ]]; then
@@ -58,10 +77,23 @@ manager() {
   OFFICIAL_SIMENV_ROS2_SETUP="$TMP_ROOT/setup.bash" \
   OFFICIAL_SIMENV_ADAPTER_START_TIMEOUT_SEC=5 \
   OFFICIAL_SIMENV_ADAPTER_STOP_TIMEOUT_SEC=2 \
+  FAKE_NODE_MISS_FILE="${FAKE_NODE_MISS_FILE:-}" \
   ROS_DOMAIN_ID="$DOMAIN_ID" \
   DOCKER_SIMENV_USER=lifecycle_test \
   PATH="$FAKE_BIN:$PATH" \
     bash "$MANAGER" "$@"
+}
+
+test_domain_pids() {
+  local pid process_domain
+  while read -r pid; do
+    [[ -r "/proc/$pid/environ" ]] || continue
+    process_domain="$(tr '\0' '\n' < "/proc/$pid/environ" |
+      sed -n 's/^ROS_DOMAIN_ID=//p' | tail -n 1)"
+    if [[ "${process_domain:-0}" == "$DOMAIN_ID" ]]; then
+      printf '%s\n' "$pid"
+    fi
+  done < <(pgrep -u "$(id -u)" -f official_simenv_rosbridge_ros2_adapter_node.py || true)
 }
 
 manager start
@@ -69,12 +101,17 @@ FIRST_PID="$(find "$STATE_DIR" -name '*.adapter.pid' -type f -exec cat {} \;)"
 [[ "$FIRST_PID" =~ ^[0-9]+$ ]] && kill -0 "$FIRST_PID"
 
 # 第二次 start 必须复用同一个受管实例，而不是多启动一个发布者。
-manager start
+NODE_MISS_FILE="$TMP_ROOT/node-miss-count"
+printf '1\n' > "$NODE_MISS_FILE"
+FAKE_NODE_MISS_FILE="$NODE_MISS_FILE" manager start
 SECOND_PID="$(find "$STATE_DIR" -name '*.adapter.pid' -type f -exec cat {} \;)"
 [[ "$SECOND_PID" == "$FIRST_PID" ]]
-[[ "$(pgrep -u "$(id -u)" -f official_simenv_rosbridge_ros2_adapter_node.py | wc -l)" -eq 1 ]]
+[[ "$(test_domain_pids | wc -l)" -eq 1 ]]
 
-manager status | grep -q 'ROS2 node: ready (unique)'
+# `status` 也必须容忍首轮 DDS 发现暂时为空，不能误报健康实例不可见。
+printf '1\n' > "$NODE_MISS_FILE"
+FAKE_NODE_MISS_FILE="$NODE_MISS_FILE" manager status |
+  grep -q 'ROS2 node: ready (unique)'
 
 # 即使 PID 文件和当前进程都正常，只要 DDS 图中还有第二个同名节点，就不能
 # 把当前实例误报为唯一；start 也必须先回收本账号实例再因外部节点失败关闭。
@@ -86,7 +123,7 @@ if FAKE_DUPLICATE_NODE=1 manager start; then
   echo 'FAIL: duplicate ROS2 node did not block adapter startup' >&2
   exit 1
 fi
-if pgrep -u "$(id -u)" -f official_simenv_rosbridge_ros2_adapter_node.py >/dev/null; then
+if [[ -n "$(test_domain_pids)" ]]; then
   echo 'FAIL: local adapter remained after duplicate-node rejection' >&2
   exit 1
 fi
@@ -100,10 +137,10 @@ OFFICIAL_SIMENV_ENABLE_CONTROL=1 manager start
 RECONFIGURED_PID="$(find "$STATE_DIR" -name '*.adapter.pid' -type f -exec cat {} \;)"
 [[ "$RECONFIGURED_PID" =~ ^[0-9]+$ ]]
 [[ "$RECONFIGURED_PID" != "$SECOND_PID" ]]
-[[ "$(pgrep -u "$(id -u)" -f official_simenv_rosbridge_ros2_adapter_node.py | wc -l)" -eq 1 ]]
+[[ "$(test_domain_pids | wc -l)" -eq 1 ]]
 
 manager stop
-if pgrep -u "$(id -u)" -f official_simenv_rosbridge_ros2_adapter_node.py >/dev/null; then
+if [[ -n "$(test_domain_pids)" ]]; then
   echo 'FAIL: adapter process remained after stop' >&2
   exit 1
 fi
@@ -159,6 +196,13 @@ esac
 SH
 chmod +x "$PLATFORM_ROOT/docker/auto_noetic.sh"
 
+cat > "$PLATFORM_ROOT/docker/bootstrap_runtime_assets.sh" <<'SH'
+#!/usr/bin/env bash
+# 编排测试不需要真实控制器资产；保留空实现以覆盖正式启动调用顺序。
+exit 0
+SH
+chmod +x "$PLATFORM_ROOT/docker/bootstrap_runtime_assets.sh"
+
 cat > "$ORCH_ROOT/scripts/manage_official_simenv_rosbridge_adapter.sh" <<'SH'
 #!/usr/bin/env bash
 set -euo pipefail
@@ -180,6 +224,8 @@ case "${1:-}" in
       [[ "$state" == running ]] && echo true || echo false
     elif [[ "$format" == *State.Health* ]]; then
       [[ "$state" == running ]] && echo healthy || echo none
+    elif [[ "$format" == *Config.Healthcheck* ]]; then
+      echo true
     fi
     ;;
   *) exit 0 ;;

@@ -164,7 +164,22 @@ def _has_valid_multiview_sphere_evidence(
         hazard, allowed_detection_sources):
     """复核确认轨迹的完整多视角 RGB-D 证据，拒绝只伪造状态标签的记录。"""
 
-    if str(hazard.get('evidence_status', '')) != 'multi_view_sphere_consistent':
+    confirmation_path = str(
+        hazard.get('confirmation_path', 'regular_multiview')
+    ).strip()
+    if confirmation_path == 'regular_multiview':
+        expected_status = 'multi_view_sphere_consistent'
+        minimum_distinct_views = 3
+        minimum_bearing_span_deg = 25.0
+    elif confirmation_path == 'strong_rgbd_geometry':
+        expected_status = 'strong_rgbd_sphere_geometry_consistent'
+        minimum_distinct_views = 2
+        minimum_bearing_span_deg = 5.0
+        if not _has_valid_strong_rgbd_geometry_summary(hazard):
+            return False
+    else:
+        return False
+    if str(hazard.get('evidence_status', '')) != expected_status:
         return False
     if str(hazard.get('source', '')) not in set(allowed_detection_sources):
         return False
@@ -206,7 +221,9 @@ def _has_valid_multiview_sphere_evidence(
 
     # 官方比赛策略的安全下限不可由消息发送者自行调低；轨迹携带的门槛只能提高。
     required_observations = max(required_observations, 3)
-    required_distinct_views = max(required_distinct_views, 3)
+    required_distinct_views = max(
+        required_distinct_views, minimum_distinct_views,
+    )
     required_spherical_views = max(required_spherical_views, 2)
     if distinct_view_count != len(eligible_view_ids):
         return False
@@ -224,11 +241,39 @@ def _has_valid_multiview_sphere_evidence(
         )
     except (TypeError, ValueError):
         return False
-    required_bearing_span_deg = max(required_bearing_span_deg, 25.0)
+    required_bearing_span_deg = max(
+        required_bearing_span_deg, minimum_bearing_span_deg,
+    )
     return (
         math.isfinite(bearing_span_deg)
         and math.isfinite(required_bearing_span_deg)
         and bearing_span_deg >= required_bearing_span_deg
+    )
+
+
+def _has_valid_strong_rgbd_geometry_summary(hazard):
+    """复核强 RGB-D 路径随轨迹发布的尺寸、轮廓和曲率摘要。"""
+
+    flat_view_ids = _unique_nonempty_strings(hazard.get('flat_view_ids', []))
+    if flat_view_ids is None or flat_view_ids:
+        return False
+    try:
+        diameter = float(hazard.get('median_apparent_diameter_m'))
+        aspect = float(hazard.get('min_multiview_aspect_ratio'))
+        curvature_cv = float(hazard.get('depth_curvature_cv'))
+        normalized_curvature = float(
+            hazard.get('median_normalized_depth_curvature'),
+        )
+    except (TypeError, ValueError):
+        return False
+    values = (diameter, aspect, curvature_cv, normalized_curvature)
+    if not all(math.isfinite(value) for value in values):
+        return False
+    return (
+        abs(diameter - 0.30) / 0.30 <= 0.35
+        and aspect >= 0.82
+        and curvature_cv <= 0.65
+        and 0.10 <= normalized_curvature <= 0.30
     )
 
 

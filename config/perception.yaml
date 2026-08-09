@@ -29,6 +29,8 @@ perception:
     # 球面必须同时具有横向和纵向凸曲率；单轴曲面（圆柱侧面、弧形板）只复查。
     min_sphere_depth_curvature_m: 0.008
     min_sphere_depth_shape_points: 8
+    # 小于 40 px 的远球四方向深度曲率在官方 640×480 图像中不稳定，只靠近复查。
+    min_sphere_depth_shape_bbox_px: 40
     min_sphere_axis_depth_points: 4
     min_sphere_axis_curvature_ratio: 0.35
     # 官方标准红球半径；设为 0 可禁用球面深度到球心的几何补偿。
@@ -50,6 +52,10 @@ perception:
     # 三个停靠点还必须让“相机 -> 目标”的水平视线至少跨越 25°。
     # 只从正面前后靠近无法排除圆柱、圆锥或圆盘端面。
     min_view_bearing_span_deg: 25.0
+    # 备用路径只接受两个独立视角均为球面深度、直径约 0.30 m、曲率与轮廓
+    # 一致且没有非球面反证的目标；纯 RGB 仍必须满足上面的 3 视角/25°。
+    strong_depth_min_distinct_views: 2
+    strong_depth_min_view_bearing_span_deg: 5.0
     reject_after_missed_count: 300
     # 正式链按仿真时间判丢失；重复帧和运行帧率变化不会提前耗尽轨迹寿命。
     # 官方 A1 在低实时倍率下完成一次侧移、回转和重新对准可能超过 20 秒仿真时间。
@@ -82,13 +88,20 @@ perception:
     partial_min_aspect_ratio: 0.12
     partial_min_value: 50
     stable_view_min_frames: 3
-    stable_view_max_translation_m: 0.002
-    stable_view_max_yaw_deg: 0.3
+    # 先由控制仲裁后的 /hw/cmd_vel 明确证明停止，再用以下阈值吸收 A1
+    # 站立控制与合法 SLAM 的小幅抖动；命令缺失或过期时禁止累计确认视角。
+    stable_view_cmd_vel_topic: /hw/cmd_vel
+    stable_view_max_cmd_age_sec: 0.5
+    stable_view_max_linear_speed_mps: 0.03
+    stable_view_max_angular_speed_rps: 0.05
+    stable_view_max_translation_m: 0.02
+    stable_view_max_yaw_deg: 1.0
     # 已建立轨迹在短时机动离开视场后继续参与图像投影关联。
     track_projection_max_age_s: 180.0
     # 以下键对应 hsv_detector_node 的 active_view_* ROS 参数。
     edge_margin_ratio: 0.05
-    min_bbox_area_px: 900
+    # 约 40×40 px 后再做球面判形；更小候选先靠近，避免远球深度量化误杀。
+    min_bbox_area_px: 1600
     min_red_pixel_count: 300
     min_circularity: 0.72
     min_confidence: 0.70

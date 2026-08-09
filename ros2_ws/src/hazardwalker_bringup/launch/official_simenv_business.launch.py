@@ -208,6 +208,7 @@ def generate_launch_description():
     exploration_timeout_s = LaunchConfiguration('exploration_timeout_s')
     evidence_output_dir = LaunchConfiguration('evidence_output_dir')
     test_record_dir = LaunchConfiguration('test_record_dir')
+    evidence_run_mode = LaunchConfiguration('evidence_run_mode')
     scenario_seed = LaunchConfiguration('scenario_seed')
     code_version = LaunchConfiguration('code_version')
     # Launch 会把纯数字参数按 YAML 推断为整数；证据记录器的合同字段必须始终
@@ -267,6 +268,10 @@ def generate_launch_description():
         DeclareLaunchArgument('exploration_timeout_s', default_value='540.0'),
         DeclareLaunchArgument('evidence_output_dir', default_value=''),
         DeclareLaunchArgument('test_record_dir', default_value=''),
+        # 正式入口使用 official_random_scene；未提交代码或临时目录的调参运行
+        # 必须由外层脚本强制改成 diagnostic_official_random_scene。
+        DeclareLaunchArgument(
+            'evidence_run_mode', default_value='official_random_scene'),
         DeclareLaunchArgument('scenario_seed', default_value=''),
         DeclareLaunchArgument('code_version', default_value=''),
         DeclareLaunchArgument(
@@ -354,7 +359,7 @@ def generate_launch_description():
                 'output_dir': evidence_output_dir,
                 'test_record_dir': test_record_dir,
                 'scenario_name': scenario_seed_string,
-                'run_mode': 'official_random_scene',
+                'run_mode': evidence_run_mode,
                 'scenario_seed': scenario_seed_string,
                 'code_version': code_version_string,
                 'legal_pose_topic': '/hazardwalker/slam/odometry',
@@ -380,6 +385,10 @@ def generate_launch_description():
                     'exploration_timeout_s': exploration_timeout_parameter,
                     'mission_time_budget_s': 600.0,
                     'minimum_return_reserve_s': 120.0,
+                    # 返航途中首次看到边缘红球时，最多执行两次短复查；复查
+                    # 完成后恢复 RETURNING，避免为识别完全牺牲返航分。
+                    'reobserve_during_returning': True,
+                    'reobserve_returning_max_attempts_per_target': 2,
                     'min_frontier_size': 10,
                     # reference.md 公开起点 yaw=+pi/2(world)，而 world->map
                     # 公开别名同为 +pi/2，因此起点在 map 帧的入楼朝向为 0 rad。

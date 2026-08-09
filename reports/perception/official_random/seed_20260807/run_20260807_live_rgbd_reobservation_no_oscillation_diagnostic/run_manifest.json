@@ -1,0 +1,39 @@
+{
+  "schema": "hazardwalker_perception_official_evidence_v2",
+  "evidence_contract": {
+    "run_mode": "diagnostic_official_random_scene",
+    "scenario_seed": "20260807",
+    "code_version": "4e4a03d07123d6a40f85c9733732299a1e5100fe",
+    "legal_pose_topic": "/hazardwalker/slam/odometry",
+    "localization_provenance": "lidar_imu_slam+public_floor_action",
+    "formal_evidence_eligible": false,
+    "contract_violations": [
+      "run_mode_not_official_random_scene"
+    ],
+    "truth_inputs_used": false
+  },
+  "input_topics": {
+    "image": "/hw/camera/image_raw",
+    "depth": "/hw/camera/depth_image",
+    "detections": "/hw/perception/hazard_detections",
+    "legal_pose": "/hazardwalker/slam/odometry",
+    "mission_state": "/hw/mission/state",
+    "map": "/map"
+  },
+  "mission_completion_required": true,
+  "evidence_synchronization": {
+    "buffer_size": 20,
+    "max_detection_rgb_delta_sec": 0.12,
+    "max_rgb_depth_delta_sec": 0.15
+  },
+  "launch_command": "",
+  "started_at_unix_sec": 1786112980.659,
+  "finished_at_unix_sec": 1786116581.928,
+  "capture_status": "closed",
+  "mission_completed": false,
+  "formal_task_evidence_eligible": false,
+  "observed_failure_reasons": [
+    "mission_not_completed",
+    "run_mode_not_official_random_scene"
+  ]
+}

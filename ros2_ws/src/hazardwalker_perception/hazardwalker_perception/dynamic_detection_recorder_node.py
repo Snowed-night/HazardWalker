@@ -30,6 +30,7 @@ from hazardwalker_perception.dynamic_detection_records import (
     build_perception_evidence_contract,
     build_dynamic_summary,
     build_dynamic_testing_record,
+    evidence_detection_display_status,
     select_synchronized_evidence,
 )
 
@@ -44,7 +45,9 @@ class DynamicDetectionRecorderNode(Node):
         self.declare_parameter('scenario_name', 'official_simenv_dynamic_detection')
         self.declare_parameter('save_images', True)
         self.declare_parameter('save_depth_evidence', True)
-        self.declare_parameter('min_image_save_interval_sec', 0.5)
+        # 连续确认可持续数百秒；每 0.5 秒保存 RGB、标注和深度会产生数千张
+        # 近重复图。3 秒仍覆盖动作阶段和视角变化，同时将单轮成果控制在可审阅范围。
+        self.declare_parameter('min_image_save_interval_sec', 3.0)
         self.declare_parameter('evidence_buffer_size', 20)
         self.declare_parameter('max_detection_rgb_delta_sec', 0.12)
         self.declare_parameter('max_rgb_depth_evidence_delta_sec', 0.15)
@@ -308,6 +311,13 @@ class DynamicDetectionRecorderNode(Node):
             'detections_2d': detections,
             'hazards': list(payload.get('hazards', [])),
             'localization_ready': bool(payload.get('localization_ready', False)),
+            'camera_stable': bool(payload.get('camera_stable', False)),
+            'stable_view_frame_count': int(
+                payload.get('stable_view_frame_count', 0) or 0),
+            'stable_view_command_stopped': bool(
+                payload.get('stable_view_command_stopped', False)),
+            'stable_view_cmd_vel_age_sec': payload.get(
+                'stable_view_cmd_vel_age_sec'),
             'view_recommendation': recommendation_dict,
             'processing_time_ms': payload.get('processing_time_ms'),
             'evidence_raw_image': raw_image_path,
@@ -493,7 +503,12 @@ class DynamicDetectionRecorderNode(Node):
     def _save_evidence_image(
             self, stamp_sec, detections, hazards, recommendation,
             image_item=None, depth_item=None):
-        """保存叠加检测框和当前重观察建议的展示帧。"""
+        """仅在证据合同满足时保存 RGB-D 与标注展示帧。
+
+        开启深度证据后，RGB 与深度必须先通过时间戳配对再一起落盘。高倍速
+        回放或瞬时负载可能让深度回调晚于检测回调；此时宁可跳过该代表帧，
+        也不能留下只有 RGB 的半套证据，更不能拿旧深度冒充同步结果。
+        """
 
         has_confirmed_hazard = any(item.get('status') == 'confirmed' for item in hazards)
         is_context_frame = not detections and not has_confirmed_hazard
@@ -507,6 +522,9 @@ class DynamicDetectionRecorderNode(Node):
             if stamp_sec - self.last_context_save_sec < context_interval:
                 return '', '', ''
         if not bool(self.get_parameter('save_images').value) or image_item is None:
+            return '', '', ''
+        if (bool(self.get_parameter('save_depth_evidence').value)
+                and depth_item is None):
             return '', '', ''
         image = image_item.get('data')
         if image is None:
@@ -536,9 +554,14 @@ class DynamicDetectionRecorderNode(Node):
             # 黄色框是“仅供导航复查”的局部/粘连/非球体疑似候选，绝不能在展示图中
             # 与红色严格二维候选混为“已识别红球”。即使红框也仍需多视角确认，最终
             # 是否提交由 hazards 的 confirmed 状态决定。
-            reobserve = bool(detection.get('requires_reobservation', False))
-            color = (0, 165, 255) if reobserve else (0, 0, 255)
-            status = 'reobserve' if reobserve else '2d_candidate'
+            status = evidence_detection_display_status(detection)
+            # 绿色仅表示跨帧/多视角轨迹已经通过严格确认；黄色仍是导航复查请求，
+            # 红色是普通二维候选，紫色表示已被三维形状反证为非球体。
+            color = {
+                'confirmed': (0, 180, 0),
+                'reobserve': (0, 165, 255),
+                'rejected_non_sphere': (180, 0, 180),
+            }.get(status, (0, 0, 255))
             label = '#%s %.2f %s' % (
                 detection.get('id', '?'), float(detection.get('confidence', 0.0)), status,
             )

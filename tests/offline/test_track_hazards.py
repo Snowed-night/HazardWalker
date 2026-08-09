@@ -5,6 +5,7 @@
 验证 `track_hazards.py` 能按三维距离合并观测、确认稳定目标、拒绝长期丢失目标。
 不依赖 ROS、Gazebo 或真实相机。
 """
+import math
 import os
 import sys
 
@@ -247,6 +248,23 @@ def test_track_to_hazard_dict_preserves_confirmation_fields():
     assert hazard['status'] == 'confirmed'
     assert hazard['observation_count'] == 1
     assert hazard['source_ids'] == ['box_1']
+    assert hazard['source_observation_count'] == 1
+
+
+def test_track_payload_bounds_repeated_source_ids_without_losing_count():
+    tracker = HazardTracker(HazardTrackerConfig(confirm_observation_count=1))
+    track = None
+    for index in range(40):
+        track = tracker.update([HazardObservation(
+            position=(1.0, 2.0, 0.5), confidence=0.9,
+            source_id=f'frame-{index}', stamp_sec=float(index + 1),
+        )])[0]
+
+    hazard = track_to_hazard_dict(track)
+    assert hazard['source_observation_count'] == 40
+    assert len(hazard['source_ids']) == 32
+    assert hazard['source_ids'][0] == 'frame-0'
+    assert hazard['source_ids'][-1] == 'frame-39'
 
 
 def test_flat_evidence_from_two_views_rejects_non_spherical_track():
@@ -440,6 +458,71 @@ def test_forward_only_views_cannot_confirm_without_lateral_parallax():
     assert track_to_hazard_dict(tracks[0])['view_bearing_span_deg'] >= 25.0
     assert tracks[0].eligible_observation_count == 4
     assert tracks[0].evidence_status == 'multi_view_sphere_consistent'
+
+
+def test_two_strong_rgbd_sphere_views_can_use_bounded_parallax_fallback():
+    """真实球面深度和官方尺寸先验齐全时，不因遮挡前只取得 7° 而漏报。"""
+    tracker = HazardTracker(HazardTrackerConfig(
+        confirm_observation_count=3,
+        min_distinct_views=3,
+        min_view_bearing_span_deg=25.0,
+        expected_sphere_diameter_m=0.30,
+        min_spherical_views_for_confirm=2,
+        strong_depth_min_distinct_views=2,
+        strong_depth_min_view_bearing_span_deg=5.0,
+    ))
+    observations = (
+        ('left', 0.0, 0.046),
+        ('left', 0.0, 0.046),
+        ('right', math.radians(7.5), 0.045),
+    )
+    for index, (view_id, bearing, curvature) in enumerate(observations):
+        tracks = tracker.update([HazardObservation(
+            position=(2.0 + index * 0.01, 0.0, 0.30),
+            confidence=0.96,
+            view_id=view_id,
+            confirmation_eligible=True,
+            depth_shape_status='spherical',
+            apparent_diameter_m=0.295,
+            aspect_ratio=0.99,
+            depth_curvature_m=curvature,
+            view_bearing_rad=bearing,
+        )])
+
+    assert tracks[0].status == 'confirmed'
+    assert tracks[0].evidence_status == (
+        'strong_rgbd_sphere_geometry_consistent')
+
+
+def test_strong_rgbd_fallback_rejects_flat_or_unknown_second_view():
+    """备用路径不能把圆柱端面或缺深度的圆形轮廓升级为红球。"""
+    for second_status in ('flat', 'unknown'):
+        tracker = HazardTracker(HazardTrackerConfig(
+            confirm_observation_count=2,
+            min_distinct_views=3,
+            min_view_bearing_span_deg=25.0,
+            expected_sphere_diameter_m=0.30,
+            min_spherical_views_for_confirm=2,
+            strong_depth_min_distinct_views=2,
+            strong_depth_min_view_bearing_span_deg=5.0,
+        ))
+        tracker.update([HazardObservation(
+            position=(2.0, 0.0, 0.30), confidence=0.96,
+            view_id='front', confirmation_eligible=True,
+            depth_shape_status='spherical', apparent_diameter_m=0.30,
+            aspect_ratio=0.99, depth_curvature_m=0.045,
+            view_bearing_rad=0.0,
+        )])
+        tracks = tracker.update([HazardObservation(
+            position=(2.01, 0.0, 0.30), confidence=0.96,
+            view_id='side', confirmation_eligible=(second_status != 'flat'),
+            depth_shape_status=second_status, apparent_diameter_m=0.30,
+            aspect_ratio=0.99,
+            depth_curvature_m=(0.045 if second_status == 'unknown' else 0.0),
+            view_bearing_rad=math.radians(7.5),
+        )])
+
+        assert tracks[0].status != 'confirmed'
 
 
 def test_ineligible_occluded_aspect_does_not_poison_later_complete_views():

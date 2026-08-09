@@ -3,6 +3,7 @@
 ***********************************************************************/
 #include "FSM/FSM.h"
 #include <algorithm>
+#include <cstdio>
 #include <cstdlib>
 #include <iostream>
 
@@ -47,6 +48,10 @@ void FSM::initialize(){
     _headlessAutoRl = autoRl != nullptr && std::string(autoRl) == "1";
     const char *standDelay = std::getenv("CONTROLLER_AUTO_STAND_DELAY_SEC");
     const char *rlDelay = std::getenv("CONTROLLER_AUTO_RL_DELAY_SEC");
+    const char *recoveryRequestFile = std::getenv("SIMENV_RECOVERY_REQUEST_FILE");
+    _headlessRecoveryRequestFile = recoveryRequestFile == nullptr
+        ? "/tmp/hazardwalker-controller-recover.request"
+        : recoveryRequestFile;
     if (standDelay != nullptr) {
         _headlessStandDelaySec = std::max(0.0, std::atof(standDelay));
     }
@@ -144,6 +149,18 @@ bool FSM::checkSafty(){
 }
 
 FSMStateName FSM::getHeadlessNextState(){
+    // 倒地恢复由宿主维护脚本显式触发。读取后立即删除请求文件，确保同一请求
+    // 只消费一次；状态机先退回固定站立，再由非零 /cmd_vel 正常恢复行走。
+    if (!_headlessRecoveryRequestFile.empty()) {
+        FILE *request = std::fopen(_headlessRecoveryRequestFile.c_str(), "r");
+        if (request != nullptr) {
+            std::fclose(request);
+            std::remove(_headlessRecoveryRequestFile.c_str());
+            std::cout << "[HEADLESS_FSM] recovery requested; switching to fixed stand"
+                      << std::endl;
+            return FSMStateName::FIXEDSTAND;
+        }
+    }
     const double stateAgeSec =
         static_cast<double>(getSystemTime() - _stateEnteredTime) / 1000000.0;
     if (_currentState->_stateName == FSMStateName::PASSIVE) {

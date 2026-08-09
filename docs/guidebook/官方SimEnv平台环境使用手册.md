@@ -95,6 +95,7 @@ cd ros2_ws/src/hazardwalker_platform
 export DOCKER_SIMENV_USER=hazard_platform
 export ROS_DOMAIN_ID=42
 export OFFICIAL_SIMENV_ENABLE_CONTROL=1
+export ENABLE_LIDAR=true
 ./auto_docker.sh status
 ./auto_docker.sh down
 ./auto_docker.sh image --no-cache
@@ -115,11 +116,23 @@ cd ../../..
 `.ros1_catkin_ws` 是本地 ROS1 构建产物，不纳入 Git；日常不要删除。首次运行、误删或构建产物缺失时，
 `./auto_docker.sh up` 会先自动重建该目录，再启动正式容器。构建结束会自动将目录所有权归还给当前宿主账号，
 不得使用 `sudo` 或 `git clean` 清理它。
-默认 `START_CONTROLLER=1`、`SIMENV_AUTO_RL=1`、`SIMENV_HEADLESS_MODE=move_base`、`START_ROSBRIDGE=1`、`START_ODOM_RELAY=1`。正式共享 profile 还在 `up` 前设置 `OFFICIAL_SIMENV_ENABLE_CONTROL=1`，使唯一适配器具备 `/hw/cmd_vel` 转发能力；这不会自行发送运动命令。启动后 A1 先保持固定站立，收到本轮授权发布者的合法非零速度才切换到 RL 行走。真实运动测试必须在独占时段执行。默认控制周期为 `UNITREE_CTRL_DT=0.004`（250 Hz），该值为当前平台稳定 profile，不要自行修改。
+默认 `START_CONTROLLER=1`、`SIMENV_AUTO_RL=1`、`SIMENV_HEADLESS_MODE=move_base`、`START_ROSBRIDGE=1`、`START_ODOM_RELAY=1`。正式 SLAM/Frontier 运行必须在 `up` 前设置 `ENABLE_LIDAR=true`；仅查看 GUI、且不启动自主导航时才可用 `ENABLE_LIDAR=false` 降低负载。端点存在不代表传感器正在出帧，业务入口会在启动 SLAM 前读取 LaserScan、IMU 和 RGB-D 实际消息，缺少任一类即退出。正式共享 profile 还在 `up` 前设置 `OFFICIAL_SIMENV_ENABLE_CONTROL=1`，使唯一适配器具备 `/hw/cmd_vel` 转发能力；这不会自行发送运动命令。启动后 A1 先保持固定站立，收到本轮授权发布者的合法非零速度才切换到 RL 行走。真实运动测试必须在独占时段执行。默认控制周期为 `UNITREE_CTRL_DT=0.004`（250 Hz），该值为当前平台稳定 profile，不要自行修改。
 正式容器默认限制为 32 GiB 内存且不在 OOM 后自动重启，防止长时间运行的 `gzserver` 拖垮整台主机。日常不要取消上限；确需调整时由平台管理员在 `up` 前同时设置 `SIMENV_MEMORY_LIMIT` 和 `SIMENV_MEMORY_SWAP_LIMIT`，并保证二者相等。实验结束后仍须执行 `auto_docker.sh down`，内存上限不能替代正常收尾。
 适配器默认以 200 ms 周期转发原始 RGB-D（上限 5 Hz），用于实时检测和辅助对准；第一人称页面使用独立 ROS1 压缩视频流。正式录包会拒绝超过 250 ms 的图像桥接周期，性能排障如需降频只能作为诊断运行。
 只要修改或同步过 `src/unitree_guide/`，就必须先执行 `build force`；`up` 会拒绝复用时间戳早于控制源码的
 `junior_ctrl`。ROS 图中的控制节点名是 `/unitree_gazebo_servo`，不能以未出现 `/junior_ctrl` 节点名判断订阅失败。
+若 A1 在人工控制或联调中倒地，先停止速度发布，再执行：
+
+```bash
+cd ros2_ws/src/hazardwalker_platform
+export DOCKER_SIMENV_USER=hazard_platform
+./auto_docker.sh recover
+```
+
+`recover` 保留当前随机场景和机器人平面位置，将机体扶正、关节恢复到标准站姿，并让控制器退回
+`fixed stand`；下一次收到合法非零速度后再进入行走状态。该命令会调用 Gazebo 维护接口，只用于联调恢复，
+不得在正式计分运行中使用。首次取得包含该功能的代码后，须在无人使用容器时执行一次
+`./auto_docker.sh down && ./auto_docker.sh build force`，再按正常流程启动。
 不要使用已弃用的
 `ros2_ws/src/hazardwalker_platform/scripts/start_simenv.sh`，也不要在同一容器中重复运行启动脚本。
 
@@ -301,7 +314,7 @@ export SIMENV_CONTAINER=simenv_ros1_hazard_platform
 export ROS_DOMAIN_ID=42
 export OFFICIAL_SIMENV_ENABLE_CONTROL=1
 export OFFICIAL_SIMENV_EXCLUSIVE_SESSION=1
-export OFFICIAL_SIMENV_STACK_TIMEOUT_SEC=600
+export OFFICIAL_SIMENV_STACK_TIMEOUT_SEC=3600
 
 export SEED=2026071802
 export RUN_ID="seed_${SEED}_$(date +%Y%m%d_%H%M%S)"
@@ -327,6 +340,9 @@ bash scripts/run_official_simenv_ros1_ros2_stack.sh \
 
 启动器会自动把统一控制源设为 `navigation`。导航节点只发布
 `/hw/control/navigation_cmd_vel`，最终 `/hw/cmd_vel` 仍由 `command_mux_node` 唯一发布；禁止在该命令中传入其他 `control_mode` 绕过控制合同。
+`OFFICIAL_SIMENV_STACK_TIMEOUT_SEC` 是壁钟时间。官方场景同时运行物理、控制、SLAM 和感知时，实时倍率可能明显低于 1；600 秒不足以覆盖当前 480 秒仿真探索预算及返航，正式模板因此使用 3600 秒。提前收到 `FINISHED` 和本轮有效结果后，入口会立即结束，不会强制等待满一小时。
+
+正式入口还会检查工作树、版本和输出位置：工作树必须无未提交文件，`code_version` 必须等于当前 `HEAD`，感知成果和测试记录必须分别写入上述规范目录。算法调参如确需使用未提交代码，应显式设置 `OFFICIAL_SIMENV_ALLOW_DIRTY_DIAGNOSTIC=1`；该模式会把 `run_mode` 强制降级为 `diagnostic_official_random_scene`，只能写临时诊断目录，不得进入正式成绩汇总。
 
 只有定位链路确实满足所填来源时，才能使用相应 `localization_provenance`。启动器会拒绝：
 
@@ -336,6 +352,8 @@ bash scripts/run_official_simenv_ros1_ros2_stack.sh \
 - 非 `world` 的正式结果坐标；
 - 未验证的定位来源；
 - 缺少固定 SEED、代码版本或证据目录；
+- 代码未提交、版本号与当前 `HEAD` 不一致或成果目录不规范；
+- LaserScan、IMU、RGB、深度任一话题只有端点而没有实时消息；
 - 冻结的 `/clock`、重复适配器或非独占场景。
 
 命令进入运行仅表示门禁通过；任务完成仍须同时满足 `FINISHED` 和本轮新生成的有效

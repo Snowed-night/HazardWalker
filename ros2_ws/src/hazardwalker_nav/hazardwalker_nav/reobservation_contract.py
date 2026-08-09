@@ -92,10 +92,18 @@ def parse_reobservation_request(payload):
 
 
 def reobservation_request_is_eligible(
-        request, state, attempts_by_target, max_attempts_per_target):
-    """检查当前状态与目标预算，防止同一逐帧请求无限重置复查计时器。"""
+        request, state, attempts_by_target, max_attempts_per_target,
+        allow_returning=False):
+    """检查当前状态与目标预算，防止同一逐帧请求无限重置复查计时器。
 
-    if request is None or str(state) != 'EXPLORING':
+    默认只允许探索阶段复查。正式业务可显式允许返航途中对刚进入视场的目标
+    做少量有上限的复查；调用方必须另设更小预算并在完成后恢复返航。
+    """
+
+    allowed_states = {'EXPLORING'}
+    if bool(allow_returning):
+        allowed_states.add('RETURNING')
+    if request is None or str(state) not in allowed_states:
         return False
     target_id = _canonical_target_id(request.get('target_id'))
     if not target_id:
@@ -169,25 +177,57 @@ def target_centered_in_image(
         detection, image_width, center_tolerance_ratio=0.18):
     """目标框进入图像中央带时返回真，供转向视觉伺服提前停车。"""
 
-    if not isinstance(detection, dict):
+    error_ratio = target_horizontal_error_ratio(detection, image_width)
+    try:
+        tolerance = float(center_tolerance_ratio)
+    except (TypeError, ValueError):
         return False
+    if error_ratio is None or not math.isfinite(tolerance):
+        return False
+    # error_ratio 以半幅图像为 1.0；原参数以整幅宽度为比例，因此乘 2。
+    return abs(error_ratio) <= 2.0 * max(0.02, min(0.45, tolerance))
+
+
+def target_horizontal_error_ratio(detection, image_width):
+    """返回目标中心相对图像中心的归一化水平误差，左负右正。"""
+
+    if not isinstance(detection, dict):
+        return None
     bbox = detection.get('bbox')
     if not isinstance(bbox, dict):
-        return False
+        return None
     try:
         width = float(image_width)
         x_min = float(bbox.get('x_min'))
         x_max = float(bbox.get('x_max'))
-        tolerance = float(center_tolerance_ratio)
     except (TypeError, ValueError):
-        return False
-    if (not all(math.isfinite(value) for value in (
-            width, x_min, x_max, tolerance))
+        return None
+    if (not all(math.isfinite(value) for value in (width, x_min, x_max))
             or width <= 0.0 or x_max < x_min):
-        return False
-    center_x = 0.5 * (x_min + x_max)
-    tolerance_px = width * max(0.02, min(0.45, tolerance))
-    return abs(center_x - 0.5 * width) <= tolerance_px
+        return None
+    half_width = 0.5 * width
+    return max(-1.5, min(1.5, (0.5 * (x_min + x_max) - half_width) / half_width))
+
+
+def lateral_centering_angular_velocity(
+        error_ratio, gain, maximum_turn_speed, deadband_ratio=0.05):
+    """把目标水平误差转成横移期间的限幅转向速度。"""
+
+    try:
+        error = float(error_ratio)
+        proportional_gain = float(gain)
+        maximum = float(maximum_turn_speed)
+        deadband = float(deadband_ratio)
+    except (TypeError, ValueError):
+        return 0.0
+    values = (error, proportional_gain, maximum, deadband)
+    if (not all(math.isfinite(value) for value in values)
+            or proportional_gain < 0.0 or maximum < 0.0 or deadband < 0.0):
+        return 0.0
+    if abs(error) <= deadband:
+        return 0.0
+    # 图像右侧目标需要负角速度右转；左侧目标需要正角速度左转。
+    return max(-maximum, min(maximum, -proportional_gain * error))
 
 
 def reobservation_actions_conflict(current_action, recommended_action):
@@ -202,6 +242,103 @@ def reobservation_actions_conflict(current_action, recommended_action):
     current = str(current_action or '').strip()
     recommended = str(recommended_action or '').strip()
     return opposites.get(current) == recommended
+
+
+def live_reobservation_action_update_allowed(
+        current_action, recommended_action):
+    """限制实时建议切换，避免横移与转向在相邻帧之间来回振荡。
+
+    转向把贴边目标带回中央后，可以切换到同侧横移以制造视差。进入横移后，
+    执行器已经用连续角速度闭环保持目标居中，因此忽略新的纯转向建议；否则
+    候选每次略微离开中央就会 ``move_left -> turn_left -> move_left``，耗尽整段
+    机动窗口却没有形成独立侧视位置。相反方向仍由冲突检查负责立即停车。
+    """
+
+    current = str(current_action or '').strip()
+    recommended = str(recommended_action or '').strip()
+    if not current or not recommended or current == recommended:
+        return False
+    if current in ('move_left', 'move_right') and recommended in (
+            'turn_left', 'turn_right'):
+        return False
+    if current in ('turn_left', 'turn_right') and recommended in (
+            'move_left', 'move_right'):
+        return current.rsplit('_', 1)[-1] == recommended.rsplit('_', 1)[-1]
+    return True
+
+
+def bounded_planar_pose_increment(
+        previous_pose, current_pose, maximum_increment_m):
+    """返回可用于复查限幅的逐帧平面位移，异常跳变返回 ``None``。
+
+    SLAM 闭环或地图重定位可能让 ``map -> base`` 在单帧内整体跳变。该变化不是
+    机器人真实横移，不能直接计入主动复查的 0.8 m 运动预算。调用方应在丢弃
+    跳变后把当前位姿作为下一帧的新锚点，继续累计后续正常增量。
+    """
+
+    try:
+        previous_x, previous_y = map(float, previous_pose)
+        current_x, current_y = map(float, current_pose)
+        maximum_increment = float(maximum_increment_m)
+    except (TypeError, ValueError):
+        return None
+    values = (
+        previous_x, previous_y, current_x, current_y, maximum_increment,
+    )
+    if (not all(math.isfinite(value) for value in values)
+            or maximum_increment <= 0.0):
+        return None
+    increment = math.hypot(
+        current_x - previous_x,
+        current_y - previous_y,
+    )
+    if increment > maximum_increment:
+        return None
+    return increment
+
+
+def select_live_reobservation_update(
+        payload, active_target_id, current_action):
+    """筛出同一目标的实时动作更新，防止复查期间被其他候选劫持。
+
+    返回值沿用 :func:`parse_reobservation_request` 的结构。动作没有变化、目标
+    不一致、字段非法或感知已经要求继续探索时返回 ``None``。方向相反的建议
+    仍会返回，由执行器按安全策略停车，而不是直接反向运动。
+    """
+
+    request = parse_reobservation_request(payload)
+    if request is None:
+        return None
+    if (not _same_target_id(request.get('target_id'), active_target_id)
+            and not _payload_links_target_aliases(
+                payload, request.get('target_id'), active_target_id)):
+        return None
+    if (str(request.get('action') or '').strip()
+            == str(current_action or '').strip()):
+        return None
+    return request
+
+
+def _payload_links_target_aliases(payload, left_target_id, right_target_id):
+    """只在同一检测框显式列出轨迹与候选别名时连接两个目标 ID。"""
+
+    detections = payload.get('detections_2d') if isinstance(payload, dict) else None
+    if not isinstance(detections, list):
+        return False
+    expected = {
+        _canonical_target_id(left_target_id),
+        _canonical_target_id(right_target_id),
+    }
+    if '' in expected:
+        return False
+    for detection in detections:
+        identities = {
+            _canonical_target_id(value)
+            for value in _detection_identities(detection)
+        }
+        if expected.issubset(identities):
+            return True
+    return False
 
 
 def find_target_status(payload, target_id):

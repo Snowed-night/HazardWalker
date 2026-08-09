@@ -88,6 +88,39 @@ def camera_pose_signature(transform, axis_convention='optical_z_forward'):
     )
 
 
+def motion_command_allows_stable_view(
+        linear_x,
+        linear_y,
+        angular_z,
+        command_age_sec,
+        max_command_age_sec=0.5,
+        max_linear_speed_mps=0.03,
+        max_angular_speed_rps=0.05,
+):
+    """判断实际执行速度是否允许累计停稳视角。
+
+    位姿变化只能衡量相机是否抖动，不能可靠区分“机器人缓慢运动”和
+    “A1 站立姿态/SLAM 的小幅噪声”。因此正式确认还必须观察控制仲裁后的
+    ``/hw/cmd_vel``：消息缺失、过期或仍有非零运动时均失败关闭。
+    """
+
+    values = (
+        float(linear_x), float(linear_y), float(angular_z),
+        float(command_age_sec), float(max_command_age_sec),
+        float(max_linear_speed_mps), float(max_angular_speed_rps),
+    )
+    if not all(math.isfinite(value) for value in values):
+        return False
+    _, _, _, age, max_age, max_linear, max_angular = values
+    if age < 0.0 or max_age < 0.0 or max_linear < 0.0 or max_angular < 0.0:
+        return False
+    return (
+        age <= max_age
+        and math.hypot(values[0], values[1]) <= max_linear
+        and abs(values[2]) <= max_angular
+    )
+
+
 def quantized_camera_view_id(
         transform,
         axis_convention='optical_z_forward',

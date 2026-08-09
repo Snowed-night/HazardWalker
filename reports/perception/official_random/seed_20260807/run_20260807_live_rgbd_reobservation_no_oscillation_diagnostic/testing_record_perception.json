@@ -1,0 +1,33 @@
+{
+  "scenario": "20260807",
+  "frame_count": 5949,
+  "truth_count": "",
+  "detected_count": 1,
+  "missed_count": "",
+  "false_positive_count": "",
+  "average_confidence": 0.8836,
+  "dynamic": true,
+  "frames_with_candidates": 864,
+  "total_candidate_count": 864,
+  "localized_candidate_count": 864,
+  "stable_view_frame_count": 318,
+  "stopped_command_frame_count": 596,
+  "max_consecutive_stable_view_frames": 218,
+  "processing_time_mean_ms": 2.6616,
+  "processing_time_p95_ms": 5.155,
+  "observed_output_rate_hz": 10.005,
+  "confirmation_latency_mean_sec": 1.3,
+  "confirmation_latency_max_sec": 1.3,
+  "view_action_counts": {
+    "continue_exploring": 5304,
+    "move_forward": 250,
+    "move_left": 227,
+    "move_right": 59,
+    "turn_left": 99,
+    "turn_right": 10
+  },
+  "reobservation_episode_count": 4,
+  "resolved_confirmed_episode_count": 1,
+  "incomplete_reobservation_episode_count": 3,
+  "notes": "未提供真值，不计算识别率、漏检率、虚警率和定位误差。"
+}

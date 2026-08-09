@@ -25,6 +25,24 @@ _FORBIDDEN_POSE_TOPIC_PARTS = (
 )
 
 
+def evidence_detection_display_status(detection):
+    """返回展示图使用的检测状态，不把二维候选误写成最终确认。
+
+    ``detections_2d`` 已由检测节点关联到三维轨迹；当关联轨迹确实进入
+    ``confirmed`` 时，展示图应明确显示确认状态。其余情况仍保留候选或
+    复查语义，避免仅凭红框把单帧检出误解为已确认危险源。
+    """
+
+    track_status = str(detection.get('track_status') or '').strip().lower()
+    if track_status == 'confirmed':
+        return 'confirmed'
+    if track_status in ('rejected_non_sphere', 'rejected'):
+        return 'rejected_non_sphere'
+    if bool(detection.get('requires_reobservation', False)):
+        return 'reobserve'
+    return '2d_candidate'
+
+
 def build_perception_evidence_contract(
         run_mode, scenario_seed, code_version, legal_pose_topic, localization_provenance):
     """生成正式随机场景证据的 fail-closed 准入结论。
@@ -97,6 +115,18 @@ def build_dynamic_summary(records):
         'total_candidate_count': len(detections),
         'localized_candidate_count': sum(1 for item in detections if item.get('localization_status') == 'localized'),
         'confirmed_hazard_count': len(confirmed_ids),
+        'stable_view_frame_count': sum(
+            1 for record in records if record.get('camera_stable') is True
+        ),
+        'stopped_command_frame_count': sum(
+            1 for record in records
+            if record.get('stable_view_command_stopped') is True
+        ),
+        'max_consecutive_stable_view_frames': max(
+            (int(record.get('stable_view_frame_count', 0) or 0)
+             for record in records),
+            default=0,
+        ),
         'average_confidence': round(sum(confidences) / len(confidences), 4) if confidences else 0.0,
         'view_action_counts': dict(sorted(action_counts.items())),
         'reobservation_episode_count': episode_metrics['episode_count'],
@@ -304,6 +334,12 @@ def build_dynamic_testing_record(summary, scenario, notes=''):
         'frames_with_candidates': int(summary.get('frames_with_candidates', 0)),
         'total_candidate_count': int(summary.get('total_candidate_count', 0)),
         'localized_candidate_count': int(summary.get('localized_candidate_count', 0)),
+        'stable_view_frame_count': int(
+            summary.get('stable_view_frame_count', 0)),
+        'stopped_command_frame_count': int(
+            summary.get('stopped_command_frame_count', 0)),
+        'max_consecutive_stable_view_frames': int(
+            summary.get('max_consecutive_stable_view_frames', 0)),
         'processing_time_mean_ms': summary.get(
             'processing_time_ms', {}).get('mean'),
         'processing_time_p95_ms': summary.get(

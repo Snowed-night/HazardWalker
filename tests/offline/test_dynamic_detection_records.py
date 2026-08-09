@@ -16,8 +16,28 @@ from hazardwalker_perception.dynamic_detection_records import (
     build_reobservation_episode_metrics,
     build_dynamic_summary,
     build_dynamic_testing_record,
+    evidence_detection_display_status,
     select_synchronized_evidence,
 )
+
+
+def test_evidence_display_uses_linked_track_status_without_promoting_candidates():
+    assert evidence_detection_display_status({
+        'track_status': 'confirmed',
+        'requires_reobservation': False,
+    }) == 'confirmed'
+    assert evidence_detection_display_status({
+        'track_status': 'tentative',
+        'requires_reobservation': True,
+    }) == 'reobserve'
+    assert evidence_detection_display_status({
+        'track_status': 'tentative',
+        'requires_reobservation': False,
+    }) == '2d_candidate'
+    assert evidence_detection_display_status({
+        'track_status': 'rejected_non_sphere',
+        'requires_reobservation': True,
+    }) == 'rejected_non_sphere'
 
 
 def test_evidence_pairing_uses_nearest_timestamps_not_latest_arrival():
@@ -57,6 +77,9 @@ def test_summary_counts_candidates_localization_and_confirmed_tracks():
         {
             'timestamp_sec': 1.0,
             'processing_time_ms': 12.0,
+            'camera_stable': False,
+            'stable_view_command_stopped': True,
+            'stable_view_frame_count': 1,
             'detections_2d': [
                 {'confidence': 0.8, 'localization_status': 'localized'},
                 {'confidence': 0.6, 'localization_status': 'unlocalized'},
@@ -67,6 +90,9 @@ def test_summary_counts_candidates_localization_and_confirmed_tracks():
         {
             'timestamp_sec': 1.1,
             'processing_time_ms': 20.0,
+            'camera_stable': True,
+            'stable_view_command_stopped': True,
+            'stable_view_frame_count': 4,
             'detections_2d': [{'confidence': 1.0, 'localization_status': 'localized'}],
             'hazards': [{'id': 3, 'status': 'confirmed'}],
             'view_recommendation': {'action': 'hold_observation'},
@@ -79,6 +105,9 @@ def test_summary_counts_candidates_localization_and_confirmed_tracks():
     assert summary['total_candidate_count'] == 3
     assert summary['localized_candidate_count'] == 2
     assert summary['confirmed_hazard_count'] == 1
+    assert summary['stable_view_frame_count'] == 1
+    assert summary['stopped_command_frame_count'] == 2
+    assert summary['max_consecutive_stable_view_frames'] == 4
     assert summary['average_confidence'] == 0.8
     assert summary['view_action_counts'] == {'hold_observation': 1, 'turn_left': 1}
     assert summary['ground_truth_available'] is False
@@ -86,6 +115,10 @@ def test_summary_counts_candidates_localization_and_confirmed_tracks():
         'count': 2, 'mean': 16.0, 'p95': 20.0, 'max': 20.0,
     }
     assert summary['observed_output_rate_hz'] == 10.0
+    row = build_dynamic_testing_record(summary, scenario='dynamic_smoke')
+    assert row['stable_view_frame_count'] == 1
+    assert row['stopped_command_frame_count'] == 2
+    assert row['max_consecutive_stable_view_frames'] == 4
 
 
 def test_testing_record_leaves_truth_dependent_metrics_empty():
@@ -259,6 +292,8 @@ def test_dynamic_recorder_module_has_direct_execution_entrypoint():
     assert 'select_synchronized_evidence(' in source
     assert "'evidence_detection_rgb_delta_sec'" in source
     assert "'evidence_rgb_depth_delta_sec'" in source
+    assert "and depth_item is None" in source
+    assert '不能留下只有 RGB 的半套证据' in source
     assert "declare_parameter('detection_topic', '/hw/perception/hazard_detections')" in source
     assert "declare_parameter('mission_state_topic', '/hw/mission/state')" in source
     assert "'mission_completion_required': True" in source

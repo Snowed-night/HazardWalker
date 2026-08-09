@@ -399,6 +399,69 @@ def test_normalized_replay_outputs_require_complete_self_contained_evidence():
         assert module.validate_normalized_outputs(root) == []
 
 
+def test_diagnostic_eligibility_is_propagated_to_normalized_outputs():
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        _write_valid_normalized_outputs(root)
+        for name in ('summary.json', 'run_manifest.json'):
+            path = root / name
+            payload = json.loads(path.read_text(encoding='utf-8'))
+            payload['evidence_contract'] = {
+                **payload.get('evidence_contract', {}),
+                'formal_evidence_eligible': True,
+            }
+            path.write_text(json.dumps(payload), encoding='utf-8')
+        experiment_path = root / 'replay_experiment_manifest.json'
+        experiment = json.loads(experiment_path.read_text(encoding='utf-8'))
+        experiment['formal_evidence_eligible'] = False
+        experiment_path.write_text(json.dumps(experiment), encoding='utf-8')
+
+        module.apply_experiment_eligibility_to_outputs(
+            root,
+            eligible=False,
+            exclusion_reasons=['external_output', 'dirty_worktree'],
+        )
+
+        for name in ('summary.json', 'run_manifest.json'):
+            payload = json.loads((root / name).read_text(encoding='utf-8'))
+            contract = payload['evidence_contract']
+            assert contract['formal_evidence_eligible'] is False
+            assert contract['formal_exclusion_reasons'] == [
+                'external_output', 'dirty_worktree']
+        assert module.validate_normalized_outputs(root) == []
+
+
+def test_normalized_outputs_reject_inconsistent_formal_eligibility():
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        _write_valid_normalized_outputs(root)
+        experiment_path = root / 'replay_experiment_manifest.json'
+        experiment = json.loads(experiment_path.read_text(encoding='utf-8'))
+        experiment['formal_evidence_eligible'] = False
+        experiment_path.write_text(json.dumps(experiment), encoding='utf-8')
+        failures = module.validate_normalized_outputs(root)
+        assert any('正式证据资格不一致' in item for item in failures)
+
+
+def test_normalized_outputs_deduplicate_repeated_failures():
+    """同类逐帧缺陷只报告一次，具体帧仍由 frames.jsonl 追溯。"""
+
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        _write_valid_normalized_outputs(root)
+        frames_path = root / 'frames.jsonl'
+        record = json.loads(frames_path.read_text(encoding='utf-8'))
+        record['evidence_depth'] = ''
+        frames_path.write_text(
+            ''.join(json.dumps(record) + '\n' for _ in range(3)),
+            encoding='utf-8',
+        )
+
+        failures = module.validate_normalized_outputs(root)
+
+        assert failures.count('代表证据缺少深度链接') == 1
+
+
 def test_normalized_replay_outputs_reject_missing_pair_and_localization():
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory)

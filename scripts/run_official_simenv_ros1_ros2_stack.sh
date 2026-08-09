@@ -55,6 +55,7 @@ SCENARIO_SEED_VALUE=
 CODE_VERSION_VALUE=
 EVIDENCE_OUTPUT_DIR_VALUE=
 TEST_RECORD_DIR_VALUE=
+EVIDENCE_RUN_MODE_VALUE=official_random_scene
 OFFICIAL_RESULT_VALUE=results/detected_danger.json
 for ARG in "$@"; do
   case "$ARG" in
@@ -99,6 +100,9 @@ for ARG in "$@"; do
       ;;
     test_record_dir:=*)
       TEST_RECORD_DIR_VALUE="${ARG#test_record_dir:=}"
+      ;;
+    evidence_run_mode:=*)
+      EVIDENCE_RUN_MODE_VALUE="${ARG#evidence_run_mode:=}"
       ;;
     official_result_path:=*)
       OFFICIAL_RESULT_VALUE="${ARG#official_result_path:=}"
@@ -151,17 +155,78 @@ if [[ "$NAVIGATION_REQUESTED" == 1 ]]; then
       exit 1
       ;;
   esac
-  if [[ "$EVIDENCE_REQUESTED" != 1 || -z "$SCENARIO_SEED_VALUE" \
-        || -z "$CODE_VERSION_VALUE" || -z "$EVIDENCE_OUTPUT_DIR_VALUE" \
-        || -z "$TEST_RECORD_DIR_VALUE" ]]; then
-    echo '[stack] 正式 Frontier 任务必须开启证据记录并提供 SEED、代码版本和输出目录。' >&2
+  if [[ "$EVIDENCE_REQUESTED" != 1 ]]; then
+    echo '[stack] 正式 Frontier 任务必须开启证据记录。' >&2
     exit 1
+  fi
+fi
+
+if [[ "$EVIDENCE_REQUESTED" == 1 ]]; then
+  if [[ -z "$SCENARIO_SEED_VALUE" || -z "$CODE_VERSION_VALUE" \
+        || -z "$EVIDENCE_OUTPUT_DIR_VALUE" || -z "$TEST_RECORD_DIR_VALUE" ]]; then
+    echo '[stack] 证据记录必须提供 SEED、代码版本和输出目录。' >&2
+    exit 1
+  fi
+
+  # 正式成绩必须来自可复现的干净提交和规范目录。调参运行必须由调用方
+  # 显式降级为诊断，记录器随后把该批次标成不可用于正式成绩。
+  case "${OFFICIAL_SIMENV_ALLOW_DIRTY_DIAGNOSTIC:-0}" in
+    1|true|True|TRUE|yes|YES|on|ON) DIAGNOSTIC_RUN=1 ;;
+    *) DIAGNOSTIC_RUN=0 ;;
+  esac
+  GIT_HEAD="$(git -C "$ROOT" rev-parse HEAD)"
+  GIT_STATUS="$(git -C "$ROOT" status --porcelain --untracked-files=all)"
+  if [[ "$DIAGNOSTIC_RUN" == 1 ]]; then
+    EVIDENCE_RUN_MODE_VALUE=diagnostic_official_random_scene
+    echo '[stack] 已显式启用诊断模式：本轮结果不得作为正式成绩。'
+  else
+    if [[ "$EVIDENCE_RUN_MODE_VALUE" != official_random_scene ]]; then
+      echo '[stack] 正式运行的 evidence_run_mode 必须为 official_random_scene。' >&2
+      exit 1
+    fi
+    if [[ -n "$GIT_STATUS" ]]; then
+      echo '[stack] 工作树存在未提交改动；拒绝生成正式成绩证据。' >&2
+      echo '[stack] 调参时可显式设置 OFFICIAL_SIMENV_ALLOW_DIRTY_DIAGNOSTIC=1。' >&2
+      exit 1
+    fi
+    if [[ "$CODE_VERSION_VALUE" != "$GIT_HEAD" ]]; then
+      echo "[stack] code_version 与当前 HEAD 不一致：$CODE_VERSION_VALUE != $GIT_HEAD" >&2
+      exit 1
+    fi
+    path_is_within() {
+      python3 - "$1" "$2" <<'PY'
+import os
+import sys
+
+candidate = os.path.abspath(sys.argv[1])
+root = os.path.abspath(sys.argv[2])
+try:
+    inside = os.path.commonpath((candidate, root)) == root
+except ValueError:
+    inside = False
+raise SystemExit(0 if inside and candidate != root else 1)
+PY
+    }
+    if ! path_is_within "$EVIDENCE_OUTPUT_DIR_VALUE" \
+        "$ROOT/reports/perception/official_random"; then
+      echo '[stack] 正式感知成果必须写入 reports/perception/official_random/<批次>。' >&2
+      exit 1
+    fi
+    if ! path_is_within "$TEST_RECORD_DIR_VALUE" \
+        "$ROOT/reports/perception/test_records/official_random"; then
+      echo '[stack] 正式测试记录必须写入 reports/perception/test_records/official_random/<批次>。' >&2
+      exit 1
+    fi
   fi
 fi
 
 # 正式入口始终经过 command_mux_node。导航模式只替换控制源，不得绕过
 # 键盘巡检已经验收的感知、GUI、辅助对准和录包链路直接发布 /hw/cmd_vel。
 LAUNCH_ARGS=("$@")
+if [[ "$EVIDENCE_REQUESTED" == 1 ]]; then
+  # 追加值覆盖调用方可能携带的旧参数，确保诊断降级不可被绕过。
+  LAUNCH_ARGS+=("evidence_run_mode:=$EVIDENCE_RUN_MODE_VALUE")
+fi
 if [[ "$NAVIGATION_REQUESTED" == 1 && -z "$CONTROL_MODE_VALUE" ]]; then
   LAUNCH_ARGS+=("control_mode:=navigation")
 fi
@@ -190,7 +255,7 @@ esac
 if [[ "$NAVIGATION_REQUESTED" == 1 && "$OPEN_MAIN_ENTRANCE" == 1 ]]; then
   echo '[stack] 通过公开 /set_door_state 请求打开 main_entrance。'
   if ! docker exec -i "$CONTAINER" bash -lc \
-      'source /opt/ros/noetic/setup.bash; source /home/ros/simenv_ws/devel/setup.bash; python3 -' <<'PY'
+      'source /opt/ros/noetic/setup.bash; source /home/ros/simenv_ws/.ros1_catkin_ws/devel/setup.bash; python3 -' <<'PY'
 import sys
 
 import rospy
@@ -260,6 +325,24 @@ done
 if [[ "$CLOCK_READY" != "1" ]]; then
   echo '[stack] 20 次采样仍未收到连续递增的 /clock；拒绝启动混合时间域业务栈。' >&2
   exit 1
+fi
+
+require_live_topic() {
+  local topic="$1" label="$2"
+  if ! timeout 6 ros2 topic echo "$topic" --once >/dev/null 2>&1; then
+    echo "[stack] ${label}没有实时消息：${topic}" >&2
+    echo '[stack] 自主导航需要 LaserScan、IMU 和 RGB-D；GUI 低负载模式不能用于正式任务。' >&2
+    return 1
+  fi
+}
+
+if [[ "$NAVIGATION_REQUESTED" == 1 ]]; then
+  # 端点存在不等于传感器在出帧。特别是 ENABLE_LIDAR=false 时适配器仍可能
+  # 保留 /hw/scan 发布端点，但永远没有消息；必须在启动 SLAM 前读取真实样本。
+  require_live_topic /hw/scan 'LaserScan ' || exit 1
+  require_live_topic /hw/trunk_imu '机身 IMU ' || exit 1
+  require_live_topic /hw/camera/image_raw 'RGB 相机 ' || exit 1
+  require_live_topic /hw/camera/depth_image '深度相机 ' || exit 1
 fi
 ADAPTER_STATUS="$(
   timeout 3 ros2 topic echo /hw/platform/official_simenv_adapter_status \

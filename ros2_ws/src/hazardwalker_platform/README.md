@@ -72,6 +72,8 @@ headless-RL 配置后解除物理暂停，等待状态机实际进入 RL，并�
 实验结束仍须统一执行 `auto_docker.sh down`。
 修改 `src/unitree_guide/` 后必须先执行 `./auto_docker.sh build force`；若源码比
 `devel/lib/unitree_guide/junior_ctrl` 新，`auto_docker.sh up` 会拒绝复用旧二进制并给出重编提示。
+联调期间 A1 倒地时可在停止速度发布后执行 `./auto_docker.sh recover`。该维护命令保留当前随机场景和
+机器人平面位置，扶正机体并退回固定站立；它使用 Gazebo 维护接口，不得作为正式计分过程的一部分。
 完整接口见 [算法接入接口](docs/algorithm-interfaces.md)。
 
 ## 结果文件

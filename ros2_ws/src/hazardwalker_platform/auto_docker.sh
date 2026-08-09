@@ -30,6 +30,7 @@ if [[ ! -d "$ROOT/src" ]]; then
 fi
 
 chmod +x "$ROOT/auto.sh" "$ROOT/scripts/rosbridge_odom_relay.py" \
+  "$ROOT/scripts/recover_a1_gazebo.py" \
   "$ROOT/docker/auto_noetic.sh" "$ROOT/docker/build_catkin.sh" \
   "$ROOT/docker/gui_client.sh" "$ROOT/docker/first_person_client.sh" \
   2>/dev/null || true
@@ -155,6 +156,32 @@ case "${1:-up}" in
     "$ROOT/docker/auto_noetic.sh" status
     manage_adapter status || true
     ;;
+  recover)
+    # 仅用于仿真平台维护：保留当前随机场景和机器人平面位置，将倒地 A1
+    # 扶正并让 headless FSM 回到 fixed stand。该操作不得计入正式比赛结果。
+    if [[ "$(docker inspect -f '{{.State.Running}}' "$SIMENV_CONTAINER" 2>/dev/null || true)" != true ]]; then
+      echo "ERROR: container is not running: $SIMENV_CONTAINER" >&2
+      exit 1
+    fi
+    if ! docker exec "$SIMENV_CONTAINER" pgrep -x junior_ctrl >/dev/null; then
+      echo "ERROR: junior_ctrl is not running; use './auto_docker.sh up' first." >&2
+      exit 1
+    fi
+    controller_binary="$CATKIN_WORKSPACE/devel/lib/unitree_guide/junior_ctrl"
+    controller_source_root="$ROOT/src/unitree_guide"
+    if [[ ! -x "$controller_binary" ]] || find "$controller_source_root" -type f \
+        \( -name '*.cpp' -o -name '*.h' -o -name 'CMakeLists.txt' \) \
+        -newer "$controller_binary" -print -quit | grep -q .; then
+      echo "ERROR: recovery-capable junior_ctrl has not been built." >&2
+      echo "Run './auto_docker.sh down && ./auto_docker.sh build force', then start again." >&2
+      exit 1
+    fi
+    docker exec "$SIMENV_CONTAINER" bash -lc \
+      'source /opt/ros/noetic/setup.bash && source /home/ros/simenv_ws/.ros1_catkin_ws/devel/setup.bash &&
+       for _ in 1 2 3; do rostopic pub -1 /cmd_vel geometry_msgs/Twist -- "{}" >/dev/null; done &&
+       touch "${SIMENV_RECOVERY_REQUEST_FILE:-/tmp/hazardwalker-controller-recover.request}" &&
+       python3 /home/ros/simenv_ws/scripts/recover_a1_gazebo.py'
+    ;;
   gui)
     # GUI sidecar 只连接现有 Master，不会重启或重建正式仿真容器。
     exec "$ROOT/docker/gui_client.sh" "${@:2}"
@@ -168,7 +195,7 @@ case "${1:-up}" in
     exec "$ROOT/docker/auto_noetic.sh" image "${@:2}"
     ;;
   *)
-    echo "Usage: $0 {build|image|up|down|logs|shell|status|gui|first_person}" >&2
+    echo "Usage: $0 {build|image|up|down|logs|shell|status|recover|gui|first_person}" >&2
     exit 1
     ;;
 esac

@@ -79,6 +79,11 @@ def test_first_person_page_uses_confirmed_assist_api_without_velocity_control():
     assert "'/hazardwalker/gui/perception'" in source
     assert 'detection.requires_reobservation' in source
     assert "detection.track_status === 'confirmed'" in source
+    assert "trackStatus.startsWith('rejected')" in source
+    assert "'已排除非球体'" in source
+    assert 'detection.raw_surface_depth_m' in source
+    assert 'detection.localized_position' in source
+    assert 'linkedHazard.position' in source
     assert 'view_recommendation' in source
     assert 'state_age_sec' in source
     assert '感知状态超时' in source

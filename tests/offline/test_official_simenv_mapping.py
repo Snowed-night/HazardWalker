@@ -156,6 +156,27 @@ def test_adapter_waits_for_declared_container_healthcheck_to_pass():
     assert '"$health_configured" == false && "$health" == none' in source
 
 
+def test_formal_stack_rejects_dirty_or_misplaced_perception_evidence():
+    """正式成绩不能由脏工作树、临时目录或伪造版本号生成。"""
+
+    stack = (
+        REPO_ROOT / 'scripts' / 'run_official_simenv_ros1_ros2_stack.sh'
+    ).read_text(encoding='utf-8')
+    launch = (
+        REPO_ROOT / 'ros2_ws' / 'src' / 'hazardwalker_bringup' / 'launch' /
+        'official_simenv_business.launch.py'
+    ).read_text(encoding='utf-8')
+    assert 'OFFICIAL_SIMENV_ALLOW_DIRTY_DIAGNOSTIC' in stack
+    assert 'git -C "$ROOT" status --porcelain --untracked-files=all' in stack
+    assert 'CODE_VERSION_VALUE" != "$GIT_HEAD' in stack
+    assert 'reports/perception/official_random' in stack
+    assert 'reports/perception/test_records/official_random' in stack
+    assert 'diagnostic_official_random_scene' in stack
+    assert "DeclareLaunchArgument(\n            'evidence_run_mode'" in launch
+    assert "'run_mode': evidence_run_mode" in launch
+    assert "'run_mode': 'official_random_scene'" not in launch
+
+
 def test_clean_clone_bootstraps_ignored_unitree_runtime_assets_safely():
     source = (
         PLATFORM_SRC / 'docker' / 'bootstrap_runtime_assets.sh'
@@ -312,7 +333,20 @@ def test_official_navigation_opens_main_entrance_via_public_service_only():
     assert "'/set_door_state'" in source
     assert "'main_entrance', True" in source
     assert 'response.accepted' in source
+    assert '/home/ros/simenv_ws/.ros1_catkin_ws/devel/setup.bash' in source
     assert 'danger_truth' not in source
+
+
+def test_official_navigation_requires_live_slam_and_rgbd_inputs():
+    source = (
+        REPO_ROOT / 'scripts' / 'run_official_simenv_ros1_ros2_stack.sh'
+    ).read_text(encoding='utf-8')
+
+    assert 'require_live_topic /hw/scan' in source
+    assert 'require_live_topic /hw/trunk_imu' in source
+    assert 'require_live_topic /hw/camera/image_raw' in source
+    assert 'require_live_topic /hw/camera/depth_image' in source
+    assert 'ENABLE_LIDAR=false' in source
 
 
 def test_official_business_launch_never_starts_fake_platform_by_default():
@@ -546,7 +580,8 @@ def test_container_owns_adapter_lifecycle_and_stack_reuses_it():
     assert '正式一键任务只允许 nav_mode=frontier' in source
     assert 'perception_output_frame=world' in source
     assert '白名单内的合法 SLAM localization_provenance' in source
-    assert '必须开启证据记录并提供 SEED、代码版本和输出目录' in source
+    assert '正式 Frontier 任务必须开启证据记录' in source
+    assert '证据记录必须提供 SEED、代码版本和输出目录' in source
 
     adapter_runner = (
         REPO_ROOT / 'scripts' / 'run_official_simenv_rosbridge_adapter.sh'
@@ -733,4 +768,34 @@ def test_rl_controller_has_safe_cmd_vel_watchdog_and_thread_lifecycle():
     assert '[HEADLESS_FSM] mode=' in fsm_source
     assert 'Switched from ' in fsm_source
     assert 'hasFreshMotionCommand()' in fsm_source
+    assert 'SIMENV_RECOVERY_REQUEST_FILE' in fsm_source
+    assert 'recovery requested; switching to fixed stand' in fsm_source
     assert 'return FSMStateName::RL;' in fsm_source
+
+
+def test_platform_recover_command_is_wired_without_resetting_scene():
+    platform_root = (
+        REPO_ROOT / 'ros2_ws' / 'src' / 'hazardwalker_platform'
+    )
+    entry = (platform_root / 'auto_docker.sh').read_text(encoding='utf-8')
+    recover = (platform_root / 'scripts' / 'recover_a1_gazebo.py').read_text(
+        encoding='utf-8'
+    )
+    compose = (platform_root / 'docker' / 'docker-compose.yml').read_text(
+        encoding='utf-8'
+    )
+
+    assert '  recover)' in entry
+    assert 'recover_a1_gazebo.py' in entry
+    assert 'SIMENV_RECOVERY_REQUEST_FILE' in compose
+    assert 'GetModelState' in recover
+    assert 'SetModelConfiguration' in recover
+    assert 'SetModelState' in recover
+    assert 'current.pose.position.x' in recover
+    assert 'current.pose.position.y' in recover
+    assert '_wait_for_controller_request()' in recover
+    assert 'upright_cosine' in recover
+    assert 'height_gain' in recover
+    assert 'recovery verification failed' in recover
+    assert 'reset_world' not in recover
+    assert 'reset_simulation' not in recover

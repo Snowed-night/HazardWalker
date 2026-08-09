@@ -11,9 +11,25 @@ sys.path.insert(0, os.path.join(REPO_ROOT, 'ros2_ws', 'src', 'hazardwalker_perce
 
 from hazardwalker_perception.active_view_geometry import (
     camera_pose_signature,
+    motion_command_allows_stable_view,
     plan_lateral_reobservation,
     quantized_camera_view_id,
 )
+
+
+def test_stable_view_motion_gate_accepts_recent_zero_command():
+    assert motion_command_allows_stable_view(
+        0.01, -0.01, 0.02, 0.1,
+    ) is True
+
+
+def test_stable_view_motion_gate_rejects_motion_stale_and_invalid_commands():
+    assert motion_command_allows_stable_view(0.3, 0.0, 0.0, 0.1) is False
+    assert motion_command_allows_stable_view(0.0, 0.0, 0.2, 0.1) is False
+    assert motion_command_allows_stable_view(0.0, 0.0, 0.0, 0.6) is False
+    assert motion_command_allows_stable_view(
+        0.0, 0.0, 0.0, float('inf'),
+    ) is False
 
 
 def test_left_plan_generates_short_arc_and_faces_target():
