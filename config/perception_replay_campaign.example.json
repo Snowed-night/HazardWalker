@@ -1,0 +1,21 @@
+{
+  "schema": "hazardwalker_perception_replay_campaign_plan_v1",
+  "campaign_id": "official_random_replay_v1",
+  "rate": 1.0,
+  "recompute_localization": false,
+  "variants": [
+    {
+      "algorithm_label": "hsv_depth_tf_baseline",
+      "parameter_file": "config/perception_baseline.yaml"
+    },
+    {
+      "algorithm_label": "hsv_depth_tf_three_spherical_views",
+      "parameter_file": "config/perception_candidate.yaml"
+    }
+  ],
+  "annotations_by_seed": {
+    "REPLACE_SEED_1": "annotations/replace_seed_1.json",
+    "REPLACE_SEED_2": "annotations/replace_seed_2.json",
+    "REPLACE_SEED_3": "annotations/replace_seed_3.json"
+  }
+}

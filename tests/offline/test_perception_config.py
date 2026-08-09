@@ -5,6 +5,7 @@
 字段和未实现的点云开关不会被静默忽略。
 """
 from copy import deepcopy
+import json
 from pathlib import Path
 import sys
 
@@ -51,3 +52,40 @@ def test_unimplemented_point_cloud_switch_is_rejected():
     config['perception']['localization']['use_point_cloud'] = True
     with pytest.raises(ValueError, match='use_point_cloud=true'):
         flatten_perception_config(config)
+
+
+def test_replay_parameter_snapshots_change_only_spherical_view_count():
+    """控制变量快照必须可运行，且候选方案只能改变声明的单一参数。"""
+
+    baseline_document = yaml.safe_load(
+        (REPO_ROOT / 'config' / 'perception_baseline.yaml').read_text(
+            encoding='utf-8'))
+    candidate_document = yaml.safe_load(
+        (REPO_ROOT / 'config' / 'perception_candidate.yaml').read_text(
+            encoding='utf-8'))
+    baseline = flatten_perception_config(baseline_document)
+    candidate = flatten_perception_config(candidate_document)
+
+    differences = {
+        key: (baseline.get(key), candidate.get(key))
+        for key in set(baseline) | set(candidate)
+        if baseline.get(key) != candidate.get(key)
+    }
+    assert differences == {'min_spherical_views_for_confirm': (2, 3)}
+    assert baseline == flatten_perception_config(_repository_config())
+
+
+def test_replay_campaign_template_references_existing_distinct_snapshots():
+    plan_path = (
+        REPO_ROOT / 'config' / 'perception_replay_campaign.example.json')
+    plan = json.loads(plan_path.read_text(encoding='utf-8'))
+
+    assert plan['schema'] == (
+        'hazardwalker_perception_replay_campaign_plan_v1')
+    assert len(plan['variants']) == 2
+    parameter_files = [
+        REPO_ROOT / item['parameter_file'] for item in plan['variants']]
+    assert all(path.is_file() for path in parameter_files)
+    assert parameter_files[0].read_bytes() != parameter_files[1].read_bytes()
+    assert set(plan['annotations_by_seed']) == {
+        'REPLACE_SEED_1', 'REPLACE_SEED_2', 'REPLACE_SEED_3'}
