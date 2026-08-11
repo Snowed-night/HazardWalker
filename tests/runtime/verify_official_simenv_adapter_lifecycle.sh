@@ -171,6 +171,7 @@ ORCH_ROOT="$TMP_ROOT/orchestration-repo"
 PLATFORM_ROOT="$ORCH_ROOT/ros2_ws/src/hazardwalker_platform"
 EVENT_LOG="$TMP_ROOT/orchestration-events.log"
 CONTAINER_STATE="$TMP_ROOT/container-state"
+ADAPTER_CONTROL_STATE="$TMP_ROOT/adapter-control-state"
 mkdir -p "$PLATFORM_ROOT/docker" "$PLATFORM_ROOT/.ros1_catkin_ws/devel/lib/unitree_guide" \
   "$PLATFORM_ROOT/src/unitree_guide" "$ORCH_ROOT/scripts"
 cp "$REPO_ROOT/ros2_ws/src/hazardwalker_platform/auto_docker.sh" "$PLATFORM_ROOT/auto_docker.sh"
@@ -207,6 +208,9 @@ cat > "$ORCH_ROOT/scripts/manage_official_simenv_rosbridge_adapter.sh" <<'SH'
 #!/usr/bin/env bash
 set -euo pipefail
 echo "adapter-${1:-}" >> "$TEST_EVENT_LOG"
+if [[ "${1:-}" == start ]]; then
+  printf '%s\n' "${OFFICIAL_SIMENV_ENABLE_CONTROL:-unset}" > "$TEST_ADAPTER_CONTROL_STATE"
+fi
 if [[ "${1:-}" == start && "${TEST_ADAPTER_START_FAIL:-0}" == 1 ]]; then
   exit 1
 fi
@@ -238,6 +242,7 @@ orchestrate() {
   DOCKER_SIMENV_USER=lifecycle_test \
   TEST_EVENT_LOG="$EVENT_LOG" \
   TEST_CONTAINER_STATE="$CONTAINER_STATE" \
+  TEST_ADAPTER_CONTROL_STATE="$ADAPTER_CONTROL_STATE" \
   OFFICIAL_SIMENV_CONTAINER_READY_TIMEOUT_SEC=2 \
   PATH="$FAKE_BIN:$PATH" \
     bash "$PLATFORM_ROOT/auto_docker.sh" "$@"
@@ -247,6 +252,7 @@ orchestrate() {
 rm -f "$CONTAINER_STATE"
 orchestrate up
 [[ "$(paste -sd, "$EVENT_LOG")" == 'container-up,adapter-start' ]]
+[[ "$(cat "$ADAPTER_CONTROL_STATE")" == 1 ]]
 orchestrate down
 [[ "$(paste -sd, "$EVENT_LOG")" == \
   'container-up,adapter-start,adapter-stop,container-down' ]]
@@ -268,5 +274,11 @@ if TEST_ADAPTER_START_FAIL=1 orchestrate up; then
   exit 1
 fi
 [[ "$(paste -sd, "$EVENT_LOG")" == 'container-up,adapter-start' ]]
+
+# 用户显式关闭控制时不得被正式入口覆盖。
+: > "$EVENT_LOG"
+echo running > "$CONTAINER_STATE"
+OFFICIAL_SIMENV_ENABLE_CONTROL=0 orchestrate up
+[[ "$(cat "$ADAPTER_CONTROL_STATE")" == 0 ]]
 
 echo 'PASS: auto_docker up/down ordering and startup rollback'

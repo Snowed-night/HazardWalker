@@ -228,6 +228,17 @@ class RosbridgeHwAdapter(Node):
                 worker = threading.Thread(target=self._receive_image_loop, args=(topic,), daemon=True)
                 worker.start()
                 self._image_threads.append(worker)
+        # 受管进程的 stdout/stderr 会进入 adapter.log。启动时必须明确记录关键
+        # 开关，避免“传感器正常但控制被关闭”只能通过 ROS2 参数反向猜测。
+        self.get_logger().info(
+            'official SimEnv adapter started: control=%s image=%s odom=%s seed=%s'
+            % (
+                self.enable_control,
+                self.enable_image_relay,
+                self.enable_odom_relay,
+                self.scenario_seed or 'unset',
+            )
+        )
 
     def _send(self, packet):
         with self._send_lock:

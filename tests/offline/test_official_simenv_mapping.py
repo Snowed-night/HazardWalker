@@ -590,6 +590,13 @@ def test_container_owns_adapter_lifecycle_and_stack_reuses_it():
     assert '-p enable_clock_relay:=true' in adapter_runner
     assert '-p managed_lifecycle:="$MANAGED_LIFECYCLE"' in adapter_runner
     assert '-p lifecycle_container:="$LIFECYCLE_CONTAINER"' in adapter_runner
+    assert 'FASTDDS_BUILTIN_TRANSPORTS="${FASTDDS_BUILTIN_TRANSPORTS:-UDPv4}"' in adapter_runner
+
+    adapter_source = (
+        REPO_ROOT / 'scripts' /
+        'official_simenv_rosbridge_ros2_adapter_node.py'
+    ).read_text(encoding='utf-8')
+    assert 'official SimEnv adapter started: control=%s image=%s odom=%s seed=%s' in adapter_source
 
     slam_config = (
         REPO_ROOT / 'ros2_ws' / 'src' / 'hazardwalker_nav' / 'config' /
@@ -674,6 +681,8 @@ def test_compose_starts_the_complete_official_ros1_entry():
     assert "./auto_docker.sh build force" in docker_wrapper
     assert 'manage_adapter start' in docker_wrapper
     assert 'manage_adapter stop' in docker_wrapper
+    assert '${OFFICIAL_SIMENV_ENABLE_CONTROL+x}' in docker_wrapper
+    assert '${START_CONTROLLER:-1}' in docker_wrapper
     assert docker_wrapper.index('manage_adapter stop') < docker_wrapper.index(
         'exec "$ROOT/docker/auto_noetic.sh" down')
     assert 'wait_for_container_ready' in docker_wrapper
@@ -690,6 +699,8 @@ def test_compose_starts_the_complete_official_ros1_entry():
     assert 'PID_FILE=' in adapter_manager
     assert 'SIGNATURE_FILE=' in adapter_manager
     assert 'adapter_signature()' in adapter_manager
+    assert 'fastdds_builtin_transports=%s' in adapter_manager
+    assert 'FASTDDS_BUILTIN_TRANSPORTS="${FASTDDS_BUILTIN_TRANSPORTS:-UDPv4}"' in adapter_manager
     assert 'flock -x 9' in adapter_manager
     assert 'setsid bash "$RUNNER"' in adapter_manager
     assert 'stop_adapter' in adapter_manager
@@ -787,6 +798,12 @@ def test_platform_recover_command_is_wired_without_resetting_scene():
 
     assert '  recover)' in entry
     assert 'recover_a1_gazebo.py' in entry
+    recover_entry = entry.split('  recover)', 1)[1].split('  gui)', 1)[0]
+    assert 'manage_adapter start' in recover_entry
+    assert recover_entry.index('manage_adapter start') < recover_entry.index(
+        'recover_a1_gazebo.py'
+    )
+    assert 'managed ROS2 adapter is not control-ready' in recover_entry
     assert 'SIMENV_RECOVERY_REQUEST_FILE' in compose
     assert 'GetModelState' in recover
     assert 'SetModelConfiguration' in recover
