@@ -12,6 +12,20 @@ export HAZARDWALKER_ROOT
 export SIMENV_CONTAINER="${SIMENV_CONTAINER:-simenv_ros1_${DOCKER_SIMENV_USER:-${USER:-default}}}"
 export ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-${OFFICIAL_SIMENV_ROS_DOMAIN_ID:-42}}"
 
+# 正式平台默认会启动 junior_ctrl，因此同一入口拉起的受管适配器也必须默认
+# 开启 /hw/cmd_vel -> /cmd_vel。独立适配器脚本仍保持“控制默认关闭”的安全
+# 语义；用户显式设置 OFFICIAL_SIMENV_ENABLE_CONTROL=0 时同样不会被覆盖。
+if [[ -z "${OFFICIAL_SIMENV_ENABLE_CONTROL+x}" ]]; then
+  case "${START_CONTROLLER:-1}" in
+    0|false|False|FALSE|no|NO|off|OFF)
+      export OFFICIAL_SIMENV_ENABLE_CONTROL=0
+      ;;
+    *)
+      export OFFICIAL_SIMENV_ENABLE_CONTROL=1
+      ;;
+  esac
+fi
+
 if ! command -v docker >/dev/null 2>&1; then
   echo "ERROR: docker not found. Ask hazard_admin to run setup_hxbl_docker_group.sh" >&2
   exit 1
@@ -182,6 +196,14 @@ case "${1:-up}" in
         -newer "$controller_binary" -print -quit | grep -q .; then
       echo "ERROR: recovery-capable junior_ctrl has not been built." >&2
       echo "Run './auto_docker.sh down && ./auto_docker.sh build force', then start again." >&2
+      exit 1
+    fi
+    # recover 可能由一个全新的终端调用。先按当前正式 profile 校验受管适配器
+    # 的配置签名；若旧实例是以 control=false 启动，管理器会在扶正前替换它，
+    # 避免恢复完成后 /hw/cmd_vel 仍被适配器静默丢弃。
+    export OFFICIAL_SIMENV_SCENARIO_SEED="$(read_container_scenario_seed)"
+    if adapter_enabled && ! manage_adapter start; then
+      echo 'ERROR: A1 recovery aborted because the managed ROS2 adapter is not control-ready.' >&2
       exit 1
     fi
     docker exec "$SIMENV_CONTAINER" bash -lc \

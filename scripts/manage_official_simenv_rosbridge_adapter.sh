@@ -11,6 +11,10 @@ export SIMENV_CONTAINER="$CONTAINER"
 export ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-${OFFICIAL_SIMENV_ROS_DOMAIN_ID:-42}}"
 export OFFICIAL_SIMENV_MANAGED_LIFECYCLE=1
 export OFFICIAL_SIMENV_LIFECYCLE_CONTAINER="$CONTAINER"
+# Fast DDS 的共享内存段按 Linux 用户隔离；平台账号创建的适配器若保留 SHM，
+# 其他组账号会“看见话题但收不到数据”。受管平台默认使用本机 UDPv4，兼容
+# 多账号共享；需要专用传输时仍可显式覆盖该环境变量。
+export FASTDDS_BUILTIN_TRANSPORTS="${FASTDDS_BUILTIN_TRANSPORTS:-UDPv4}"
 
 STATE_ROOT="${OFFICIAL_SIMENV_ADAPTER_STATE_DIR:-$HOME/.local/state/hazardwalker}"
 SAFE_KEY="$(printf '%s-domain-%s' "$CONTAINER" "$ROS_DOMAIN_ID" | tr -c '[:alnum:]_.-' '_')"
@@ -28,6 +32,7 @@ mkdir -p "$STATE_ROOT"
 adapter_signature() {
   {
     printf 'container=%s\ndomain=%s\n' "$CONTAINER" "$ROS_DOMAIN_ID"
+    printf 'fastdds_builtin_transports=%s\n' "$FASTDDS_BUILTIN_TRANSPORTS"
     # 只纳入会改变适配器数据流的 OFFICIAL_SIMENV_* 参数；生命周期超时不应触发重启。
     env | LC_ALL=C sort |
       grep '^OFFICIAL_SIMENV_' |
