@@ -41,6 +41,8 @@ def evaluate_labeled_replay(
         annotation_document.get('annotation_provenance', '')).strip()
     if provenance not in ALLOWED_ANNOTATION_PROVENANCE:
         raise ValueError('标注来源必须是人工图像标注或赛后公开参考')
+    if annotation_document.get('draft_incomplete') is True:
+        raise ValueError('人工标注草稿尚未完成审核')
     if not 0.0 < float(iou_threshold) <= 1.0:
         raise ValueError('IoU 阈值必须在 0 到 1 之间')
     annotations = annotation_document.get('frames')
@@ -54,6 +56,8 @@ def evaluate_labeled_replay(
     localization_prediction_count = 0
     used_indices = set()
     for annotation in annotations:
+        if annotation.get('reviewed') is False:
+            raise ValueError('人工标注仍包含未审核帧')
         record_index = int(annotation.get('record_index', -1))
         if record_index < 0 or record_index >= len(records):
             raise ValueError(f'标注 record_index 越界：{record_index}')
@@ -61,6 +65,16 @@ def evaluate_labeled_replay(
             raise ValueError(f'重复标注 record_index：{record_index}')
         used_indices.add(record_index)
         record = records[record_index]
+        annotation_stamp = annotation.get('timestamp_sec')
+        if annotation_stamp is not None:
+            record_stamp = record.get('timestamp_sec')
+            try:
+                stamp_delta = abs(float(annotation_stamp) - float(record_stamp))
+            except (TypeError, ValueError) as exc:
+                raise ValueError('标注帧或回放帧时间戳无效') from exc
+            if not math.isfinite(stamp_delta) or stamp_delta > 0.001:
+                raise ValueError(
+                    f'标注帧与回放帧时间戳不一致：record_index={record_index}')
         objects = annotation.get('objects', [])
         if not isinstance(objects, list):
             raise ValueError('objects 必须是列表')

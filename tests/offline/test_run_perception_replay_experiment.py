@@ -32,9 +32,23 @@ def _preflight_bytes():
         'traffic_checked': True,
         'control_source': 'keyboard',
         'expected_localization_provenance': 'lidar_imu_slam',
+        'expected_scenario_seed': '20260803',
         'generated_at_utc': '2026-08-03T00:00:00+00:00',
         'git': {'commit': 'abc', 'dirty': False},
     }, sort_keys=True).encode('utf-8')
+
+
+def _adapter_status(seed='20260803'):
+    return {
+        'managed_lifecycle': True,
+        'lifecycle_container': 'simenv_ros1_hazard_platform',
+        'scenario_seed': seed,
+        'enable_cmd_vel_relay': True,
+        'enable_gui_overlay_relay': True,
+        'gui_assist_request_topic': '/hazardwalker/gui/assist_request',
+        'gui_control_status_topic': '/hazardwalker/gui/control_status',
+        'image_throttle_rate_ms': 200,
+    }
 
 
 def test_launch_command_applies_the_same_parameter_file_that_is_audited():
@@ -79,6 +93,31 @@ def test_segment_preroll_replays_only_latched_legal_contract_topics():
     assert '/hw/camera/image_raw' not in command
     assert '--playback-duration' in command
     assert '--disable-keyboard-controls' in command
+
+
+def test_unlabeled_replay_builds_annotation_draft_in_the_same_output():
+    with tempfile.TemporaryDirectory() as directory:
+        output = Path(directory) / 'replay'
+        command = module.build_annotation_draft_command(output)
+
+    assert command[0] == sys.executable
+    assert command[1].endswith('prepare_perception_replay_annotations.py')
+    assert command[-4:] == [
+        '--frames', str(output / 'frames.jsonl'),
+        '--output', str(output / 'evaluation_annotations.draft.json'),
+    ]
+
+
+def test_wait_for_nodes_does_not_start_persistent_ros2_daemon():
+    """隔离回放的节点探测不得留下占住 SSH 会话的 ROS2 daemon。"""
+
+    with patch.object(
+            module.subprocess, 'check_output', return_value='/required\n') as check:
+        available = module.wait_for_nodes(
+            {'/required'}, env={'ROS_DOMAIN_ID': '153'}, timeout_sec=1.0)
+
+    assert available == {'/required'}
+    assert check.call_args.args[0] == ['ros2', 'node', 'list', '--no-daemon']
 
 
 def test_stop_process_group_lets_launch_forward_sigint_only_once():
@@ -203,6 +242,49 @@ def test_focus_diagnostic_source_preserves_coverage_errors():
         assert errors == expected_errors
 
 
+def test_legacy_seed_diagnostic_only_allows_missing_runtime_seed_proof():
+    with tempfile.TemporaryDirectory() as directory:
+        session = Path(directory) / 'session'
+        (session / 'bag').mkdir(parents=True)
+        manifest = {
+            'status': 'complete',
+            'bag_relative_path': 'bag',
+            'scenario_seed': '20260805',
+        }
+        (session / 'run_manifest.json').write_text(
+            json.dumps(manifest), encoding='utf-8')
+        expected_errors = [
+            '实时预检固定 SEED 与清单声明不一致',
+            '平台适配器 start 固定 SEED 与清单不一致',
+            '平台适配器 end 固定 SEED 与清单不一致',
+        ]
+        with patch.object(
+                module, 'validate_completed_session_manifest',
+                lambda _manifest: expected_errors), patch.object(
+                    module, 'validate_session_bag_payload',
+                    lambda _bag, _manifest: []):
+            observed, errors = module.load_legacy_seed_diagnostic_session(
+                session)
+        assert observed == manifest
+        assert errors == expected_errors
+
+
+def test_legacy_seed_diagnostic_rejects_any_other_contract_error():
+    with tempfile.TemporaryDirectory() as directory:
+        session = Path(directory) / 'session'
+        (session / 'bag').mkdir(parents=True)
+        (session / 'run_manifest.json').write_text(json.dumps({
+            'status': 'complete',
+            'bag_relative_path': 'bag',
+            'scenario_seed': '20260805',
+        }), encoding='utf-8')
+        with patch.object(
+                module, 'validate_completed_session_manifest',
+                lambda _manifest: ['真值输入声明不是 false']):
+            with pytest.raises(ValueError, match='非 SEED 类合同错误'):
+                module.load_legacy_seed_diagnostic_session(session)
+
+
 def test_complete_validated_source_session_is_accepted():
     with tempfile.TemporaryDirectory() as directory:
         session = Path(directory) / 'session'
@@ -252,8 +334,14 @@ def test_complete_validated_source_session_is_accepted():
                 'relative_path': 'live_chain_preflight.json',
                 'control_source': 'keyboard',
                 'expected_localization_provenance': 'lidar_imu_slam',
+                'expected_scenario_seed': '20260803',
                 'generated_at_utc': '2026-08-03T00:00:00+00:00',
                 'git': {'commit': 'abc', 'dirty': False},
+            },
+            'adapter_status': {
+                'start': _adapter_status(),
+                'end': _adapter_status(),
+                'contract_consistent': True,
             },
             'patrol_coverage': {
                 'status': 'passed',

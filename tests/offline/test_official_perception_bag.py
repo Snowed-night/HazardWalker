@@ -131,6 +131,7 @@ def _managed_adapter_status():
         'adapter': 'rosbridge_ros2',
         'managed_lifecycle': True,
         'lifecycle_container': 'simenv_ros1_hazard_platform',
+        'scenario_seed': '20260803',
         'enable_cmd_vel_relay': True,
         'enable_gui_overlay_relay': True,
         'gui_assist_request_topic': '/hazardwalker/gui/assist_request',
@@ -349,8 +350,14 @@ def _complete_manifest(duration_sec=120.0):
             'relative_path': 'live_chain_preflight.json',
             'control_source': 'keyboard',
             'expected_localization_provenance': 'lidar_imu_slam',
+            'expected_scenario_seed': '20260803',
             'generated_at_utc': '2026-08-03T00:00:00+00:00',
             'git': {'commit': 'abc', 'dirty': False},
+        },
+        'adapter_status': {
+            'start': _managed_adapter_status(),
+            'end': _managed_adapter_status(),
+            'contract_consistent': True,
         },
         'bag_validation': {
             'status': 'passed',
@@ -386,6 +393,7 @@ def _preflight_bytes():
         'traffic_checked': True,
         'control_source': 'keyboard',
         'expected_localization_provenance': 'lidar_imu_slam',
+        'expected_scenario_seed': '20260803',
         'generated_at_utc': '2026-08-03T00:00:00+00:00',
         'git': {'commit': 'abc', 'dirty': False},
     }, sort_keys=True).encode('utf-8')
@@ -472,6 +480,7 @@ def test_live_preflight_report_must_be_recent_passed_and_same_provenance():
             'traffic_checked': True,
             'control_source': 'keyboard',
             'expected_localization_provenance': 'lidar_imu_slam',
+            'expected_scenario_seed': '20260803',
             'git': {'branch': 'feature/test', 'commit': 'abc', 'dirty': False},
             'generated_at_utc': (now - timedelta(seconds=5)).isoformat(),
         }
@@ -479,6 +488,7 @@ def test_live_preflight_report_must_be_recent_passed_and_same_provenance():
         result = MODULE.validate_live_preflight_report(
             path,
             expected_localization_provenance='lidar_imu_slam',
+            expected_scenario_seed='20260803',
             maximum_age_sec=30.0,
             expected_git_commit='abc',
             now_utc=now,
@@ -494,6 +504,7 @@ def test_live_preflight_report_must_be_recent_passed_and_same_provenance():
             MODULE.validate_live_preflight_report(
                 path,
                 expected_localization_provenance='lidar_imu_slam',
+                expected_scenario_seed='20260803',
                 maximum_age_sec=30.0,
                 expected_git_commit='abc',
                 now_utc=now,
@@ -510,6 +521,7 @@ def test_live_preflight_report_must_be_recent_passed_and_same_provenance():
             MODULE.validate_live_preflight_report(
                 path,
                 expected_localization_provenance='lidar_imu_slam',
+                expected_scenario_seed='20260803',
                 maximum_age_sec=30.0,
                 expected_git_commit='abc',
                 now_utc=now,
@@ -518,6 +530,42 @@ def test_live_preflight_report_must_be_recent_passed_and_same_provenance():
             assert '未提交代码' in str(exc)
         else:
             raise AssertionError('脏代码预检报告必须被拒绝')
+
+
+def test_live_preflight_and_adapter_reject_wrong_scenario_seed():
+    with tempfile.TemporaryDirectory() as temporary:
+        path = Path(temporary) / 'preflight.json'
+        now = datetime.now(timezone.utc)
+        payload = {
+            'passed': True,
+            'failures': [],
+            'traffic_checked': True,
+            'control_source': 'keyboard',
+            'expected_localization_provenance': 'lidar_imu_slam',
+            'expected_scenario_seed': '20260804',
+            'git': {'commit': 'abc', 'dirty': False},
+            'generated_at_utc': now.isoformat(),
+        }
+        path.write_text(json.dumps(payload), encoding='utf-8')
+        with pytest.raises(ValueError, match='固定 SEED'):
+            MODULE.validate_live_preflight_report(
+                path,
+                expected_localization_provenance='lidar_imu_slam',
+                expected_scenario_seed='20260803',
+                maximum_age_sec=30.0,
+                expected_git_commit='abc',
+                now_utc=now,
+            )
+
+    status = _managed_adapter_status()
+    status['scenario_seed'] = ''
+    with pytest.raises(ValueError, match='固定 SEED'):
+        MODULE.adapter_contract_snapshot(status)
+
+    manifest = _complete_manifest()
+    manifest['adapter_status']['end']['scenario_seed'] = '20260804'
+    errors = MODULE.validate_completed_session_manifest(manifest)
+    assert any('end 固定 SEED' in item for item in errors)
 
 
 def test_completed_manifest_is_revalidated_instead_of_trusting_passed_flag():

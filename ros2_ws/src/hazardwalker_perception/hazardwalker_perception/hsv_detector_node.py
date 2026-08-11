@@ -857,6 +857,7 @@ class HsvDetectorNode(Node):
             image_width=int(image_width),
             image_height=int(image_height),
             config=self._active_view_policy_config(),
+            hazards=hazards,
         )
         recommendation = self.active_view_direction_memory.stabilize(
             recommendation,

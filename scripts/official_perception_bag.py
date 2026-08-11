@@ -123,6 +123,7 @@ ALLOWED_LOCALIZATION_PROVENANCE = {
 ADAPTER_CONTRACT_KEYS = (
     'managed_lifecycle',
     'lifecycle_container',
+    'scenario_seed',
     'enable_cmd_vel_relay',
     'enable_gui_overlay_relay',
     'gui_assist_request_topic',
@@ -382,6 +383,8 @@ def adapter_contract_snapshot(status: dict) -> dict:
         raise ValueError('平台适配器不是 auto_docker.sh 统一管理的实例')
     if not str(status.get('lifecycle_container') or '').strip():
         raise ValueError('平台适配器未声明生命周期所属容器')
+    if not str(status.get('scenario_seed') or '').strip():
+        raise ValueError('平台适配器未声明当前容器固定 SEED')
     if status.get('enable_cmd_vel_relay') is not True:
         raise ValueError('平台适配器未启用控制转发')
     if status.get('enable_gui_overlay_relay') is not True:
@@ -577,6 +580,7 @@ def validate_record_contract(seed: str, localization_provenance: str) -> None:
 
 def validate_live_preflight_report(
         report_path: Path, *, expected_localization_provenance: str,
+        expected_scenario_seed: str,
         maximum_age_sec: float, expected_git_commit: str = '',
         now_utc: datetime | None = None) -> dict:
     """验证刚完成的实时门禁，拒绝失败、过期或来源不一致的报告。"""
@@ -601,6 +605,9 @@ def validate_live_preflight_report(
     if payload.get('expected_localization_provenance') != (
             expected_localization_provenance):
         raise ValueError('实时预检定位来源与录包参数不一致')
+    if str(payload.get('expected_scenario_seed', '')).strip() != str(
+            expected_scenario_seed).strip():
+        raise ValueError('实时预检固定 SEED 与录包参数不一致')
     preflight_git = payload.get('git', {})
     preflight_commit = str(preflight_git.get('commit', '')).strip()
     if not preflight_commit:
@@ -632,6 +639,7 @@ def validate_live_preflight_report(
         'control_source': payload.get('control_source'),
         'expected_localization_provenance': (
             expected_localization_provenance),
+        'expected_scenario_seed': str(expected_scenario_seed).strip(),
         'git': {
             'branch': str(preflight_git.get('branch', '')),
             'commit': preflight_commit,
@@ -674,6 +682,16 @@ def validate_completed_session_manifest(manifest: dict) -> list[str]:
         errors.append('缺少通过的实时链路预检证明')
     if live_preflight.get('expected_localization_provenance') != provenance:
         errors.append('实时预检定位来源与清单声明不一致')
+    if str(live_preflight.get('expected_scenario_seed', '')).strip() != seed:
+        errors.append('实时预检固定 SEED 与清单声明不一致')
+    adapter_status = manifest.get('adapter_status', {})
+    if not isinstance(adapter_status, dict):
+        adapter_status = {}
+    for phase in ('start', 'end'):
+        phase_status = adapter_status.get(phase, {})
+        if not isinstance(phase_status, dict) or str(
+                phase_status.get('scenario_seed', '')).strip() != seed:
+            errors.append(f'平台适配器 {phase} 固定 SEED 与清单不一致')
     preflight_git = live_preflight.get('git', {})
     if preflight_git.get('dirty') is not False:
         errors.append('实时预检使用了未提交代码')
@@ -891,6 +909,7 @@ def record(args) -> int:
                 Path(args.preflight_report),
                 expected_localization_provenance=str(
                     args.localization_provenance),
+                expected_scenario_seed=str(args.seed),
                 maximum_age_sec=float(args.preflight_max_age_sec),
                 expected_git_commit=str(current_git.get('commit', '')),
             )
@@ -920,6 +939,12 @@ def record(args) -> int:
                 float(args.topic_wait_timeout_sec))
         except (RuntimeError, ValueError) as exc:
             raise SystemExit(str(exc)) from exc
+        runtime_seed = str(
+            adapter_status_start.get('scenario_seed') or '').strip()
+        if runtime_seed != str(args.seed).strip():
+            raise SystemExit(
+                '容器实际固定 SEED 与录包参数不一致：'
+                f'{runtime_seed or "<empty>"} != {args.seed}')
         try:
             reset_runtime_patrol_coverage(
                 float(args.topic_wait_timeout_sec))
