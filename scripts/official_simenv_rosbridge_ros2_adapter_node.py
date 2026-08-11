@@ -53,6 +53,11 @@ class RosbridgeHwAdapter(Node):
             self.declare_parameter('managed_lifecycle', False).value)
         self.lifecycle_container = str(
             self.declare_parameter('lifecycle_container', '').value)
+        # 固定 SEED 是正式人工巡检的数据合同，而不是危险源真值。该值由
+        # auto_docker.sh 从当前容器 Config.Env 读取，防止录包命令把运行场景
+        # 误标成另一个 SEED。
+        self.scenario_seed = str(
+            self.declare_parameter('scenario_seed', '').value).strip()
         # 适配器本身必须继续使用墙钟，确保首条仿真时钟到达前接收循环与零速
         # 看门狗仍可运行；这里只负责把官方 ROS1 /clock 原样转成 ROS2 /clock。
         self.enable_clock_relay = bool(
@@ -645,6 +650,7 @@ class RosbridgeHwAdapter(Node):
             'adapter': 'rosbridge_ros2', 'url': self.url,
             'managed_lifecycle': self.managed_lifecycle,
             'lifecycle_container': self.lifecycle_container or None,
+            'scenario_seed': self.scenario_seed or None,
             'rosbridge_host_header': self.host_header or None,
             'enable_cmd_vel_relay': self.enable_control, 'received': self._counts,
             'enable_gui_overlay_relay': self.enable_gui_overlay_relay,

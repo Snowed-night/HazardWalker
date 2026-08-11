@@ -590,13 +590,15 @@ def test_container_owns_adapter_lifecycle_and_stack_reuses_it():
     assert '-p enable_clock_relay:=true' in adapter_runner
     assert '-p managed_lifecycle:="$MANAGED_LIFECYCLE"' in adapter_runner
     assert '-p lifecycle_container:="$LIFECYCLE_CONTAINER"' in adapter_runner
-    assert 'FASTDDS_BUILTIN_TRANSPORTS="${FASTDDS_BUILTIN_TRANSPORTS:-UDPv4}"' in adapter_runner
+    assert '-p "scenario_seed:=\'$SCENARIO_SEED\'"' in adapter_runner
+    assert 'CONTAINER_SCENARIO_SEED' in adapter_runner
 
-    adapter_source = (
-        REPO_ROOT / 'scripts' /
-        'official_simenv_rosbridge_ros2_adapter_node.py'
+    auto_docker = (
+        REPO_ROOT / 'ros2_ws' / 'src' / 'hazardwalker_platform' /
+        'auto_docker.sh'
     ).read_text(encoding='utf-8')
-    assert 'official SimEnv adapter started: control=%s image=%s odom=%s seed=%s' in adapter_source
+    assert 'OFFICIAL_SIMENV_SCENARIO_SEED' in auto_docker
+    assert 'read_container_scenario_seed' in auto_docker
 
     slam_config = (
         REPO_ROOT / 'ros2_ws' / 'src' / 'hazardwalker_nav' / 'config' /

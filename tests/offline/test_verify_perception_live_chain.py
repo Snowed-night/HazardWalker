@@ -17,6 +17,15 @@ sys.modules[SPEC.name] = MODULE
 SPEC.loader.exec_module(MODULE)
 
 
+def test_only_string_messages_are_captured_as_status_payloads():
+    """地图虽有 data 字段，也不得被整张写入预检 JSON。"""
+
+    assert MODULE._captures_string_payload('std_msgs/msg/String') is True
+    assert MODULE._captures_string_payload(
+        'nav_msgs/msg/OccupancyGrid') is False
+    assert MODULE._captures_string_payload('sensor_msgs/msg/Image') is False
+
+
 def _endpoint(name):
     return {'node_name': name, 'node_namespace': '/'}
 
@@ -95,6 +104,7 @@ def _valid_snapshot(control_source='keyboard'):
             '/hw/platform/official_simenv_adapter_status': (
                 '{"managed_lifecycle": true, '
                 '"lifecycle_container": "simenv_ros1_hazard_platform", '
+                '"scenario_seed": "20260803", '
                 '"enable_cmd_vel_relay": true, '
                 '"enable_gui_overlay_relay": true, '
                 '"image_throttle_rate_ms": 200, '
@@ -188,6 +198,16 @@ def test_runtime_localization_provenance_must_match_expected_source():
         snapshot, 'keyboard',
         'lidar_imu_slam+public_floor_action')
     assert any('定位来源与本轮预检声明不一致' in item for item in failures)
+
+
+def test_runtime_scenario_seed_must_match_expected_seed():
+    snapshot = _valid_snapshot()
+    assert MODULE.evaluate_snapshot(
+        snapshot, 'keyboard', 'lidar_imu_slam', '20260803') == []
+    failures = MODULE.evaluate_snapshot(
+        snapshot, 'keyboard', 'lidar_imu_slam', '20260804')
+    assert any('固定 SEED 与本轮预检声明不一致' in item
+               for item in failures)
 
 
 def test_legal_odometry_rejects_wrong_or_duplicate_publisher():

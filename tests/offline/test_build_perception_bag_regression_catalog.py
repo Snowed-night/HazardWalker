@@ -33,6 +33,7 @@ def _session(root, seed, run_id):
         'traffic_checked': True,
         'control_source': 'keyboard',
         'expected_localization_provenance': 'lidar_imu_slam',
+        'expected_scenario_seed': str(seed),
         'generated_at_utc': '2026-08-03T00:00:00+00:00',
         'git': {'commit': 'abc', 'dirty': False},
     }, sort_keys=True).encode('utf-8')
@@ -70,8 +71,22 @@ def _session(root, seed, run_id):
             'relative_path': 'live_chain_preflight.json',
             'control_source': 'keyboard',
             'expected_localization_provenance': 'lidar_imu_slam',
+            'expected_scenario_seed': str(seed),
             'generated_at_utc': '2026-08-03T00:00:00+00:00',
             'git': {'commit': 'abc', 'dirty': False},
+        },
+        'adapter_status': {
+            phase: {
+                'managed_lifecycle': True,
+                'lifecycle_container': 'simenv_ros1_hazard_platform',
+                'scenario_seed': str(seed),
+                'enable_cmd_vel_relay': True,
+                'enable_gui_overlay_relay': True,
+                'gui_assist_request_topic': '/hazardwalker/gui/assist_request',
+                'gui_control_status_topic': '/hazardwalker/gui/control_status',
+                'image_throttle_rate_ms': 200,
+            }
+            for phase in ('start', 'end')
         },
         'historical_localization_reuse_eligible': True,
         'git': {'commit': 'abc', 'dirty': False},

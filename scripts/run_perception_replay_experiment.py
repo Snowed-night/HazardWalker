@@ -122,6 +122,41 @@ def load_focus_diagnostic_session(session_dir: Path) -> tuple[dict, list[str]]:
     return manifest, contract_errors
 
 
+def load_legacy_seed_diagnostic_session(
+        session_dir: Path) -> tuple[dict, list[str]]:
+    """允许仅缺少新版“容器实际 SEED”证明的旧录包做非正式复盘。
+
+    旧数据仍须通过 rosbag 实体、关键话题、时长、运动覆盖和合法定位校验；
+    这里只放行录制时代码尚未写入的三项 SEED 交叉证明。调用方必须使用仓库
+    外输出，结果永远不具备正式证据资格。
+    """
+
+    manifest_path = session_dir / 'run_manifest.json'
+    if not manifest_path.is_file():
+        raise ValueError(f'缺少数据集清单：{manifest_path}')
+    manifest = json.loads(manifest_path.read_text(encoding='utf-8'))
+    contract_errors = validate_completed_session_manifest(manifest)
+    allowed_errors = {
+        '实时预检固定 SEED 与清单声明不一致',
+        '平台适配器 start 固定 SEED 与清单不一致',
+        '平台适配器 end 固定 SEED 与清单不一致',
+    }
+    unexpected_errors = [
+        error for error in contract_errors if error not in allowed_errors]
+    if unexpected_errors:
+        raise ValueError(
+            '旧数据仍有非 SEED 类合同错误：' + '；'.join(unexpected_errors))
+    if not contract_errors:
+        raise ValueError('数据集已满足正式合同，不应使用旧 SEED 诊断覆盖')
+    bag_dir = session_dir / str(manifest.get('bag_relative_path', 'bag'))
+    if not bag_dir.is_dir():
+        raise ValueError(f'缺少 rosbag 目录：{bag_dir}')
+    payload_errors = validate_session_bag_payload(bag_dir, manifest)
+    if payload_errors:
+        raise ValueError('rosbag 实体校验失败：' + '；'.join(payload_errors))
+    return manifest, contract_errors
+
+
 def resolve_localization_provenance(
         source_manifest: dict, *, recompute_localization: bool,
         requested_provenance: str,
@@ -183,8 +218,10 @@ def wait_for_nodes(
     available: set[str] = set()
     while time.monotonic() <= deadline:
         try:
+            # 回放使用独立 ROS_DOMAIN_ID；禁止为一次节点探测启动常驻 daemon。
+            # 否则 daemon 会继承远程 SSH 的标准输出，实验结束后仍占住会话。
             output = subprocess.check_output(
-                ['ros2', 'node', 'list'], cwd=REPO_ROOT, env=env,
+                ['ros2', 'node', 'list', '--no-daemon'], cwd=REPO_ROOT, env=env,
                 text=True, stderr=subprocess.STDOUT, timeout=3.0,
             )
             available = {
@@ -271,6 +308,18 @@ def build_segment_preroll_command(bag_dir: Path) -> list[str]:
         '--topics',
         '/tf_static',
         '/hazardwalker/slam/localization_provenance',
+    ]
+
+
+def build_annotation_draft_command(output_dir: Path) -> list[str]:
+    """构造无标注回放结束后的人工标注草稿命令。"""
+
+    output_dir = Path(output_dir)
+    return [
+        sys.executable,
+        str(SCRIPTS_DIR / 'prepare_perception_replay_annotations.py'),
+        '--frames', str(output_dir / 'frames.jsonl'),
+        '--output', str(output_dir / 'evaluation_annotations.draft.json'),
     ]
 
 
@@ -589,6 +638,12 @@ def run(args) -> int:
     if args.allow_invalid_source and not args.allow_external_output:
         raise SystemExit(
             '--allow-invalid-source 只允许与 --allow-external-output 同时使用')
+    if args.allow_legacy_unproven_seed and not args.allow_external_output:
+        raise SystemExit(
+            '--allow-legacy-unproven-seed 只允许与 --allow-external-output '
+            '同时使用')
+    if args.allow_invalid_source and args.allow_legacy_unproven_seed:
+        raise SystemExit('两种诊断源覆盖不能同时启用')
     if not parameter_file.is_file():
         raise SystemExit(f'感知参数文件不存在：{parameter_file}')
     annotation_file = None
@@ -597,7 +652,10 @@ def run(args) -> int:
         if not annotation_file.is_file():
             raise SystemExit(f'人工标注文件不存在：{annotation_file}')
     try:
-        if args.allow_invalid_source:
+        if args.allow_legacy_unproven_seed:
+            source_manifest, source_contract_errors = (
+                load_legacy_seed_diagnostic_session(session_dir))
+        elif args.allow_invalid_source:
             source_manifest, source_contract_errors = (
                 load_focus_diagnostic_session(session_dir))
         else:
@@ -672,8 +730,10 @@ def run(args) -> int:
             source_manifest.get('bag_validation', {}).get(
                 'content_fingerprint_sha256', '')),
         'source_contract_mode': (
-            'focus_diagnostic_override'
-            if source_contract_errors else 'formal_validated'
+            'legacy_seed_diagnostic_override'
+            if args.allow_legacy_unproven_seed
+            else ('focus_diagnostic_override'
+                  if source_contract_errors else 'formal_validated')
         ),
         'source_contract_errors': source_contract_errors,
         'formal_evidence_eligible': formal_evidence_eligible,
@@ -704,6 +764,9 @@ def run(args) -> int:
         'launch_exit_code': None,
         'replay_exit_code': None,
         'evaluation_exit_code': None,
+        'annotation_draft_command': '',
+        'annotation_draft_exit_code': None,
+        'annotation_draft_path': '',
         'failure_reason': '',
     }
     manifest_path = output_dir / 'replay_experiment_manifest.json'
@@ -767,6 +830,19 @@ def run(args) -> int:
             and not experiment_manifest['failure_reason']):
         experiment_manifest['failure_reason'] = (
             f"业务 launch 非正常退出：{experiment_manifest['launch_exit_code']}")
+
+    if not args.annotations and not experiment_manifest['failure_reason']:
+        draft_command = build_annotation_draft_command(output_dir)
+        draft_exit_code = subprocess.call(
+            draft_command, cwd=REPO_ROOT, env=env)
+        experiment_manifest['annotation_draft_command'] = shlex.join(
+            draft_command)
+        experiment_manifest['annotation_draft_exit_code'] = draft_exit_code
+        experiment_manifest['annotation_draft_path'] = (
+            'evaluation_annotations.draft.json')
+        if draft_exit_code != 0:
+            experiment_manifest['failure_reason'] = (
+                f'人工标注草稿生成失败：{draft_exit_code}')
 
     if args.annotations and not experiment_manifest['failure_reason']:
         evaluate_command = [
@@ -838,6 +914,12 @@ def _parser() -> argparse.ArgumentParser:
         help=(
             '仅与 --allow-external-output 同用：允许只因巡检路程/跨度不足而'
             '失效的完整录包做专项诊断回放；输出永远标记为非正式证据'),
+    )
+    parser.add_argument(
+        '--allow-legacy-unproven-seed', action='store_true',
+        help=(
+            '仅与 --allow-external-output 同用：允许只缺少容器实际 SEED '
+            '交叉证明的旧录包用于算法诊断；输出永远标记为非正式证据'),
     )
     parser.add_argument('--parameter-file', default='config/perception.yaml')
     parser.add_argument('--algorithm-label', default='hsv_depth_tf')

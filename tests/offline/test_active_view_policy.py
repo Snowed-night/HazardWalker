@@ -211,6 +211,39 @@ def test_small_candidate_requests_approach():
     assert action.action == 'move_forward'
 
 
+def test_track_lacking_lateral_parallax_overrides_repeated_approach():
+    """轨迹已证明缺少侧视时，小框规则不能继续无限提示直线靠近。"""
+
+    candidate = _detection(
+        identifier='candidate-2',
+        x_min=250,
+        y_min=230,
+        x_max=275,
+        y_max=255,
+        red_pixel_count=500,
+    )
+    candidate.update({
+        'candidate_id': 'candidate-2',
+        'track_id': '7',
+        'track_status': 'tentative',
+    })
+    action = choose_active_view_action(
+        [candidate],
+        640,
+        480,
+        hazards=[{
+            'id': 7,
+            'status': 'needs_reobservation',
+            'evidence_status': 'insufficient_lateral_parallax',
+        }],
+    )
+
+    assert action.action == 'move_left'
+    assert action.priority == 97
+    assert action.target_id == 'candidate-2'
+    assert '横向视差不足' in action.reason
+
+
 def test_unstable_roundness_requests_side_view():
     action = choose_active_view_action([_detection(circularity=0.65)], 640, 480)
     assert action.action == 'move_left'
