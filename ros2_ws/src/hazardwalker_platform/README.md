@@ -62,12 +62,14 @@ source ./devel/setup.bash
 | `/real_sense/depth/points` | `sensor_msgs/PointCloud2` | 深度相机点云 |
 
 正式 Docker 链路由 `auto_docker.sh up` 调用 `auto.sh`：它固定启动 `junior_ctrl`、确认官方已编译控制器的
-headless-RL 配置后解除物理暂停，等待状态机实际进入 RL，并以低速 `/cmd_vel` 探针验证 A1
-产生有限真实位移且没有倒地，再启动
+headless 配置后解除物理暂停并验证 A1 已固定站立，再启动
 `/hazardwalker/odom` 中继和 rosbridge。手工启动 `junior_ctrl` 只允许诊断，不能作为控制就绪证据。每轮控制
 验收必须独占 ROS master，避免遗留 `/cmd_vel` 发布者污染结果。
-容器健康后，`auto_docker.sh up` 还会在 ROS2 主机自动启动并去重官方适配器；`status` 同时显示容器和
-适配器状态，`down` 先停止适配器再停止容器。业务栈只能复用该实例，不再自行维护第二份适配器。
+需要启动期真实位移探针时显式设置 `VERIFY_CONTROLLER_MOTION=1`；该参数会同时启用动态行走态验收，
+不会再出现只等待 fixed stand 却误称正在验证 RL 的情况。
+容器健康后，`auto_docker.sh up` 还会在 ROS2 主机自动启动并去重官方适配器和唯一
+`command_mux_node`；`status` 同时显示三者状态，`down` 按仲裁器、适配器、容器顺序安全停止。
+键盘、导航和辅助对准分别写独立输入话题，业务栈复用平台仲裁器，不再维护第二个 `/hw/cmd_vel` 发布者。
 正式容器默认设置 32 GiB 内存硬上限并关闭 OOM 后自动重启，避免长时间 `gzserver` 膨胀影响整机；
 实验结束仍须统一执行 `auto_docker.sh down`。
 修改 `src/unitree_guide/` 后必须先执行 `./auto_docker.sh build force`；若源码比

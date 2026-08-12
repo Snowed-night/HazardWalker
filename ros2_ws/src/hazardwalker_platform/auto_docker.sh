@@ -7,6 +7,7 @@ cd "$ROOT"
 CATKIN_WORKSPACE="$ROOT/.ros1_catkin_ws"
 HAZARDWALKER_ROOT="${HAZARDWALKER_ROOT:-$(cd "$ROOT/../../.." && pwd)}"
 ADAPTER_MANAGER="$HAZARDWALKER_ROOT/scripts/manage_official_simenv_rosbridge_adapter.sh"
+CONTROL_MANAGER="$HAZARDWALKER_ROOT/scripts/manage_official_simenv_command_mux.sh"
 RUNTIME_ASSET_BOOTSTRAP="$ROOT/docker/bootstrap_runtime_assets.sh"
 export HAZARDWALKER_ROOT
 export SIMENV_CONTAINER="${SIMENV_CONTAINER:-simenv_ros1_${DOCKER_SIMENV_USER:-${USER:-default}}}"
@@ -89,6 +90,16 @@ manage_adapter() {
   bash "$ADAPTER_MANAGER" "$action"
 }
 
+manage_control() {
+  local action="$1"
+  shift || true
+  if [[ ! -f "$CONTROL_MANAGER" ]]; then
+    echo "ERROR: ROS2 control manager missing: $CONTROL_MANAGER" >&2
+    return 1
+  fi
+  bash "$CONTROL_MANAGER" "$action" "$@"
+}
+
 read_container_scenario_seed() {
   docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' "$SIMENV_CONTAINER" \
     2>/dev/null | sed -n 's/^SEED=//p' | tail -n 1
@@ -162,9 +173,20 @@ case "${1:-up}" in
       [[ "$container_was_running" == true ]] || "$ROOT/docker/auto_noetic.sh" down
       exit 1
     fi
+    # 键盘、导航和辅助对准都只写各自输入话题；平台必须同时托管唯一
+    # command_mux_node，才能把它们安全汇总到适配器订阅的 /hw/cmd_vel。
+    if ! manage_control start; then
+      echo 'ERROR: container and adapter are ready but the ROS2 command mux failed to start.' >&2
+      if [[ "$container_was_running" != true ]]; then
+        manage_adapter stop || true
+        "$ROOT/docker/auto_noetic.sh" down
+      fi
+      exit 1
+    fi
     ;;
   down|stop)
-    # 先回收宿主侧适配器，避免容器重启后残留旧 /hw/* 发布者。
+    # 仲裁器退出时先发布零速度；随后回收适配器，最后停止容器。
+    manage_control stop
     manage_adapter stop
     exec "$ROOT/docker/auto_noetic.sh" down
     ;;
@@ -177,6 +199,7 @@ case "${1:-up}" in
   status)
     "$ROOT/docker/auto_noetic.sh" status
     manage_adapter status || true
+    manage_control status || true
     ;;
   recover)
     # 仅用于仿真平台维护：保留当前随机场景和机器人平面位置，将倒地 A1
@@ -206,11 +229,18 @@ case "${1:-up}" in
       echo 'ERROR: A1 recovery aborted because the managed ROS2 adapter is not control-ready.' >&2
       exit 1
     fi
+    if ! manage_control start; then
+      echo 'ERROR: A1 recovery aborted because the ROS2 command mux is not ready.' >&2
+      exit 1
+    fi
     docker exec "$SIMENV_CONTAINER" bash -lc \
       'source /opt/ros/noetic/setup.bash && source /home/ros/simenv_ws/.ros1_catkin_ws/devel/setup.bash &&
        for _ in 1 2 3; do rostopic pub -1 /cmd_vel geometry_msgs/Twist -- "{}" >/dev/null; done &&
        touch "${SIMENV_RECOVERY_REQUEST_FILE:-/tmp/hazardwalker-controller-recover.request}" &&
        python3 /home/ros/simenv_ws/scripts/recover_a1_gazebo.py'
+    ;;
+  control-mode)
+    manage_control mode "${2:-}"
     ;;
   gui)
     # GUI sidecar 只连接现有 Master，不会重启或重建正式仿真容器。
@@ -225,7 +255,7 @@ case "${1:-up}" in
     exec "$ROOT/docker/auto_noetic.sh" image "${@:2}"
     ;;
   *)
-    echo "Usage: $0 {build|image|up|down|logs|shell|status|recover|gui|first_person}" >&2
+    echo "Usage: $0 {build|image|up|down|logs|shell|status|recover|control-mode|gui|first_person}" >&2
     exit 1
     ;;
 esac

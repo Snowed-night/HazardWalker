@@ -47,7 +47,9 @@ services:
       # 运动探针会改变机器人初始位置，默认关闭；正式验收可显式开启并由
       # auto.sh 按真实 Gazebo 位移和机体高度 fail-closed。
       VERIFY_CONTROLLER_MOTION: ${VERIFY_CONTROLLER_MOTION:-0}
-      CONTROLLER_DYNAMIC_RL_STARTUP: ${CONTROLLER_DYNAMIC_RL_STARTUP:-0}
+      # 留空时由 auto.sh 继承 VERIFY_CONTROLLER_MOTION。此前默认写死为 0，
+      # 会覆盖入口脚本的继承逻辑，导致显式开启运动验收后仍停在 fixed stand。
+      CONTROLLER_DYNAMIC_RL_STARTUP: ${CONTROLLER_DYNAMIC_RL_STARTUP:-}
       CONTROLLER_STAND_SETTLE_SEC: ${CONTROLLER_STAND_SETTLE_SEC:-6.0}
       ENABLE_LIDAR: ${ENABLE_LIDAR:-false}
       CAMERA_IMAGER_RATE_HZ: ${CAMERA_IMAGER_RATE_HZ:-10}

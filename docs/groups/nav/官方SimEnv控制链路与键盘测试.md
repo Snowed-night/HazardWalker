@@ -2,7 +2,8 @@
 
 - 修改人：负责人（姜晨）
 - 适用对象：导航组、平台组、集成测试组
-- 结论：导航和键盘测试统一发布 `/hw/cmd_vel`，不得绕过适配器直接依赖容器内 `/cmd_vel`
+- 结论：键盘、导航和辅助对准分别发布到各自的 `/hw/control/*_cmd_vel` 输入话题；平台唯一的
+  `command_mux_node` 才能发布 `/hw/cmd_vel`，不得绕过适配器直接依赖容器内 `/cmd_vel`。
 
 ## 验证状态
 
@@ -32,7 +33,8 @@ Unitree A1 仿真关节控制
 各层通过条件：
 
 1. 平台启动日志出现 `Controller physical /cmd_vel probe passed`。
-2. `junior_ctrl` 日志出现 `Switched from fixed stand to RL`，且无 NaN、模型加载失败或异常退出。
+2. 启动后日志出现 `junior_ctrl fixed stand is physically upright`；第一次合法非零速度后再出现
+   `Switched from fixed stand to RL`，且无 NaN、模型加载失败或异常退出。
 3. ROS2 适配器以 `enable_cmd_vel_relay=true` 启动。
 4. `/hw/cmd_vel` 只有本轮授权控制节点发布，ROS1 `/cmd_vel` 有实际控制器订阅。
 5. 机器人产生与命令一致的真实位姿变化；只有话题或订阅者不算运动通过。
@@ -66,7 +68,7 @@ export OFFICIAL_SIMENV_ENABLE_CONTROL=1
 export OFFICIAL_SIMENV_EXCLUSIVE_SESSION=1
 ```
 
-平台管理员在启动正式容器前设置控制转发；`up` 会在容器健康后自动启动唯一适配器：
+平台管理员在启动正式容器前设置控制转发；`up` 会在容器健康后自动启动唯一适配器和控制仲裁器：
 
 ```bash
 cd ~/桌面/HazardWalker/ros2_ws/src/hazardwalker_platform
@@ -77,7 +79,7 @@ export OFFICIAL_SIMENV_ENABLE_CONTROL=1
 ./auto_docker.sh status
 ```
 
-导航组只需确认适配器已启用控制，不得再手工启动第二份：
+导航组只需确认适配器已启用控制、`/hw/cmd_vel` 仅有仲裁器一个发布者，不得再手工启动第二份：
 
 ```bash
 ros2 node list
@@ -99,6 +101,9 @@ cd ..
 在**远程开发机**的终端 C 运行（本机终端只可作为 SSH 键盘输入窗口，节点和仿真均运行在远程）：
 
 ```bash
+cd ~/桌面/HazardWalker/ros2_ws/src/hazardwalker_platform
+export DOCKER_SIMENV_USER=hazard_platform
+./auto_docker.sh control-mode keyboard
 ros2 run hazardwalker_platform keyboard_control_node
 ```
 

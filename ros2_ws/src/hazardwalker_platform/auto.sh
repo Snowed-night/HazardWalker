@@ -51,11 +51,16 @@ CONTROLLER_READY_TIMEOUT_SEC="${CONTROLLER_READY_TIMEOUT_SEC:-60}"
 CONTROLLER_AUTO_STAND_DELAY_SEC="${CONTROLLER_AUTO_STAND_DELAY_SEC:-5}"
 CONTROLLER_AUTO_RL_DELAY_SEC="${CONTROLLER_AUTO_RL_DELAY_SEC:-2}"
 VERIFY_CONTROLLER_MOTION="${VERIFY_CONTROLLER_MOTION:-0}"
+# 请求真实位移验收时必须同时启用动态控制启动；否则脚本只会完成固定站立，
+# 即使等待很久也不会进入 RL，容易把“未执行验收”误判为控制故障。
+CONTROLLER_DYNAMIC_RL_STARTUP="${CONTROLLER_DYNAMIC_RL_STARTUP:-$VERIFY_CONTROLLER_MOTION}"
 controller_motion_verified=0
 CONTROLLER_RL_SETTLE_SEC="${CONTROLLER_RL_SETTLE_SEC:-3.0}"
 CONTROLLER_PROBE_SPEED_MPS="${CONTROLLER_PROBE_SPEED_MPS:-0.30}"
 CONTROLLER_PROBE_DURATION_SEC="${CONTROLLER_PROBE_DURATION_SEC:-3.0}"
-CONTROLLER_PROBE_MIN_DISPLACEMENT_M="${CONTROLLER_PROBE_MIN_DISPLACEMENT_M:-0.05}"
+# 无 GPU/低实时倍率的官方场景中，3 秒宿主时间通常只推进约 0.5 秒仿真时间；
+# 1 cm 已足以排除“命令未到控制器”，同时不会把正常的低 RTF 误判为失效。
+CONTROLLER_PROBE_MIN_DISPLACEMENT_M="${CONTROLLER_PROBE_MIN_DISPLACEMENT_M:-0.01}"
 CONTROLLER_PROBE_MAX_DISPLACEMENT_M="${CONTROLLER_PROBE_MAX_DISPLACEMENT_M:-1.00}"
 CONTROLLER_PROBE_MIN_BASE_HEIGHT_M="${CONTROLLER_PROBE_MIN_BASE_HEIGHT_M:-0.30}"
 CONTROLLER_STAND_SETTLE_SEC="${CONTROLLER_STAND_SETTLE_SEC:-6.0}"
@@ -396,80 +401,63 @@ raise SystemExit(0 if math.isfinite(height) and height >= minimum else 1)
   echo "junior_ctrl fixed stand is physically upright: base_z=${controller_base_z}m."
 fi
 
-# 仅保留给专门的动态控制诊断，不在正常启动时自动进入 RL。
-if [ "$START_CONTROLLER" = "1" ] && [ "${CONTROLLER_DYNAMIC_RL_STARTUP:-0}" = "1" ] \
-    && [ "$SIMENV_AUTO_RL" = "1" ]; then
-  # 初始化日志只表示 headless 参数已生效；必须等状态机实际进入 RL，订阅者存在本身
-  # 不能证明回调被处理。
+# 固定站立是本控制器的安全默认态；它会在收到第一条非零 /cmd_vel 后才切入
+# RL 或 move_base。旧实现错误地先等待状态切换，导致启动验收永远超时。
+if [ "$START_CONTROLLER" = "1" ] && [ "$VERIFY_CONTROLLER_MOTION" = "1" ]; then
+  # 先用短时、低速的真实速度命令触发状态机，再按真实 Gazebo 位移验收。
+  # 此探针只在显式 VERIFY_CONTROLLER_MOTION=1 时执行，不改变日常启动位置。
+  sleep "$CONTROLLER_RL_SETTLE_SEC"
+  read_odom_pose() {
+    timeout 10 rostopic echo -n 1 /Odometry_gazebo |
+      awk '
+        /^pose:/{in_pose=1; next}
+        in_pose && /^  pose:/{in_pose_pose=1; next}
+        in_pose_pose && /^    position:/{in_position=1; next}
+        in_position && /^      x:/{x=$2; next}
+        in_position && /^      y:/{y=$2; next}
+        in_position && /^      z:/{print x, y, $2; exit}
+      '
+  }
+  read -r probe_x_before probe_y_before probe_z_before < <(read_odom_pose)
+  python3 "$WORKSPACE_DIR/scripts/controller_motion_probe.py" \
+    --speed-mps "$CONTROLLER_PROBE_SPEED_MPS" \
+    --duration-sec "$CONTROLLER_PROBE_DURATION_SEC"
+
+  expected_walking_state='move_base'
+  if [ "$SIMENV_AUTO_RL" = "1" ]; then
+    expected_walking_state='RL'
+  fi
   controller_state_deadline=$((SECONDS + CONTROLLER_READY_TIMEOUT_SEC))
-  until grep -q 'Switched from fixed stand to RL' \
+  until grep -q "Switched from fixed stand to ${expected_walking_state}" \
       "$WORKSPACE_DIR/logs/junior_ctrl.log" 2>/dev/null; do
     if ! kill -0 "$(cat "$WORKSPACE_DIR/logs/junior_ctrl.pid")" 2>/dev/null; then
-      echo "junior_ctrl exited before entering the active RL state." >&2
+      echo "junior_ctrl exited before entering ${expected_walking_state}." >&2
       exit 1
     fi
     if [ "$SECONDS" -ge "$controller_state_deadline" ]; then
-      echo "Timed out waiting for junior_ctrl to enter the active RL state." >&2
+      echo "Controller probe sent motion but junior_ctrl did not enter ${expected_walking_state}." >&2
       exit 1
     fi
     sleep 0.2
   done
-
-elif [ "$START_CONTROLLER" = "1" ] && [ "${CONTROLLER_DYNAMIC_RL_STARTUP:-0}" = "1" ] \
-    && [ "$SIMENV_HEADLESS_MODE" = "move_base" ]; then
-  # 标准步态模式：先完成固定站立，再切到可接收 /cmd_vel 的 move_base 状态。
-  controller_state_deadline=$((SECONDS + CONTROLLER_READY_TIMEOUT_SEC))
-  until grep -q 'Switched from fixed stand to move_base' \
-      "$WORKSPACE_DIR/logs/junior_ctrl.log" 2>/dev/null; do
-    if ! kill -0 "$(cat "$WORKSPACE_DIR/logs/junior_ctrl.pid")" 2>/dev/null; then
-      echo "junior_ctrl exited before entering move_base state." >&2
-      exit 1
-    fi
-    if [ "$SECONDS" -ge "$controller_state_deadline" ]; then
-      echo "Timed out waiting for junior_ctrl to enter move_base state." >&2
-      exit 1
-    fi
-    sleep 0.2
-  done
-  echo "junior_ctrl move_base state is ready; the robot is standing and /cmd_vel is active."
-
-  if [ "$VERIFY_CONTROLLER_MOTION" = "1" ]; then
-    # RL 推理线程需完成历史观测初始化；刚切换状态就发速度会被初始化阶段吞掉。
-    sleep "$CONTROLLER_RL_SETTLE_SEC"
-    read_odom_pose() {
-      timeout 10 rostopic echo -n 1 /Odometry_gazebo |
-        awk '
-          /^pose:/{in_pose=1; next}
-          in_pose && /^  pose:/{in_pose_pose=1; next}
-          in_pose_pose && /^    position:/{in_position=1; next}
-          in_position && /^      x:/{x=$2; next}
-          in_position && /^      y:/{y=$2; next}
-          in_position && /^      z:/{print x, y, $2; exit}
-        '
-    }
-    read -r probe_x_before probe_y_before probe_z_before < <(read_odom_pose)
-    python3 "$WORKSPACE_DIR/scripts/controller_motion_probe.py" \
-      --speed-mps "$CONTROLLER_PROBE_SPEED_MPS" \
-      --duration-sec "$CONTROLLER_PROBE_DURATION_SEC"
-    sleep 1
-    read -r probe_x_after probe_y_after probe_z_after < <(read_odom_pose)
-    probe_displacement="$(
-      python3 -c 'import math,sys; print(math.hypot(float(sys.argv[3])-float(sys.argv[1]), float(sys.argv[4])-float(sys.argv[2])))' \
-        "$probe_x_before" "$probe_y_before" "$probe_x_after" "$probe_y_after"
-    )"
-    if ! python3 -c '
+  sleep 1
+  read -r probe_x_after probe_y_after probe_z_after < <(read_odom_pose)
+  probe_displacement="$(
+    python3 -c 'import math,sys; print(math.hypot(float(sys.argv[3])-float(sys.argv[1]), float(sys.argv[4])-float(sys.argv[2])))' \
+      "$probe_x_before" "$probe_y_before" "$probe_x_after" "$probe_y_after"
+  )"
+  if ! python3 -c '
 import sys
 distance, minimum, maximum, height, min_height = map(float, sys.argv[1:])
 raise SystemExit(0 if minimum <= distance <= maximum and height >= min_height else 1)
 ' "$probe_displacement" "$CONTROLLER_PROBE_MIN_DISPLACEMENT_M" \
-        "$CONTROLLER_PROBE_MAX_DISPLACEMENT_M" "$probe_z_after" \
-        "$CONTROLLER_PROBE_MIN_BASE_HEIGHT_M"; then
-      echo "Controller probe failed: displacement=${probe_displacement}m, base_z=${probe_z_after}m." >&2
-      exit 1
-    fi
-    echo "Controller physical /cmd_vel probe passed: ${probe_displacement}m, base_z=${probe_z_after}m."
-    controller_motion_verified=1
+      "$CONTROLLER_PROBE_MAX_DISPLACEMENT_M" "$probe_z_after" \
+      "$CONTROLLER_PROBE_MIN_BASE_HEIGHT_M"; then
+    echo "Controller probe failed: displacement=${probe_displacement}m, base_z=${probe_z_after}m." >&2
+    exit 1
   fi
+  echo "Controller physical /cmd_vel probe passed: ${probe_displacement}m, base_z=${probe_z_after}m."
+  controller_motion_verified=1
 fi
 
 # 正式 rosbridge 必须在控制器、当前里程计和 /clock 稳定后启动。
