@@ -216,6 +216,15 @@ if [[ "${1:-}" == start && "${TEST_ADAPTER_START_FAIL:-0}" == 1 ]]; then
 fi
 SH
 
+cat > "$ORCH_ROOT/scripts/manage_official_simenv_command_mux.sh" <<'SH'
+#!/usr/bin/env bash
+set -euo pipefail
+echo "mux-${1:-}" >> "$TEST_EVENT_LOG"
+if [[ "${1:-}" == start && "${TEST_MUX_START_FAIL:-0}" == 1 ]]; then
+  exit 1
+fi
+SH
+
 cat > "$FAKE_BIN/docker" <<'SH'
 #!/usr/bin/env bash
 set -euo pipefail
@@ -251,11 +260,11 @@ orchestrate() {
 : > "$EVENT_LOG"
 rm -f "$CONTAINER_STATE"
 orchestrate up
-[[ "$(paste -sd, "$EVENT_LOG")" == 'container-up,adapter-start' ]]
+[[ "$(paste -sd, "$EVENT_LOG")" == 'container-up,adapter-start,mux-start' ]]
 [[ "$(cat "$ADAPTER_CONTROL_STATE")" == 1 ]]
 orchestrate down
 [[ "$(paste -sd, "$EVENT_LOG")" == \
-  'container-up,adapter-start,adapter-stop,container-down' ]]
+  'container-up,adapter-start,mux-start,mux-stop,adapter-stop,container-down' ]]
 
 # 本轮新建容器遇到适配器启动失败时必须回滚。
 : > "$EVENT_LOG"
@@ -274,6 +283,16 @@ if TEST_ADAPTER_START_FAIL=1 orchestrate up; then
   exit 1
 fi
 [[ "$(paste -sd, "$EVENT_LOG")" == 'container-up,adapter-start' ]]
+
+# 本轮新建容器遇到仲裁器启动失败时，必须先回收已启动适配器再回滚容器。
+: > "$EVENT_LOG"
+rm -f "$CONTAINER_STATE"
+if TEST_MUX_START_FAIL=1 orchestrate up; then
+  echo 'FAIL: command mux startup failure was accepted' >&2
+  exit 1
+fi
+[[ "$(paste -sd, "$EVENT_LOG")" == \
+  'container-up,adapter-start,mux-start,adapter-stop,container-down' ]]
 
 # 用户显式关闭控制时不得被正式入口覆盖。
 : > "$EVENT_LOG"

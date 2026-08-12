@@ -432,6 +432,8 @@ def test_unified_control_launch_keeps_navigation_behind_command_mux():
         'official_simenv_control_interface.launch.py'
     ).read_text(encoding='utf-8')
     assert "executable='command_mux_node'" in source
+    assert "DeclareLaunchArgument('start_command_mux', default_value='true')" in source
+    assert "condition=IfCondition(LaunchConfiguration('start_command_mux'))" in source
     assert "executable='assist_alignment_node'" in source
     assert "DeclareLaunchArgument('start_navigation', default_value='false')" in source
     assert "'navigation_cmd_vel_topic': (" in source
@@ -564,6 +566,8 @@ def test_container_owns_adapter_lifecycle_and_stack_reuses_it():
     assert 'ADAPTER_PID=' not in source
     assert 'ros2 launch hazardwalker_bringup official_simenv_control_interface.launch.py' in source
     assert 'LAUNCH_ARGS+=("control_mode:=navigation")' in source
+    assert 'LAUNCH_ARGS+=("start_command_mux:=false")' in source
+    assert 'manage_official_simenv_command_mux.sh' in source
     assert '统一控制模式必须为 navigation' in source
     assert 'ros2 topic echo /clock --once' in source
     assert 'CLOCK_NSEC=' in source
@@ -651,10 +655,13 @@ def test_compose_starts_the_complete_official_ros1_entry():
     assert 'rostopic info /cmd_vel' in entry
     assert 'Timed out waiting for /gazebo/unpause_physics.' in entry
     assert 'Timed out waiting for /unitree_gazebo_servo to subscribe /cmd_vel.' in entry
-    assert 'Switched from fixed stand to RL' in entry
+    assert "expected_walking_state='RL'" in entry
+    assert 'Switched from fixed stand to ${expected_walking_state}' in entry
+    assert 'Controller probe sent motion but junior_ctrl did not enter ${expected_walking_state}.' in entry
     assert 'Controller physical /cmd_vel probe passed:' in entry
     assert 'scripts/controller_motion_probe.py' in entry
     assert 'CONTROLLER_PROBE_MIN_DISPLACEMENT_M' in entry
+    assert 'CONTROLLER_PROBE_MIN_DISPLACEMENT_M="${CONTROLLER_PROBE_MIN_DISPLACEMENT_M:-0.01}"' in entry
     assert 'CONTROLLER_PROBE_MAX_DISPLACEMENT_M' in entry
     assert 'CONTROLLER_PROBE_MIN_BASE_HEIGHT_M' in entry
     assert 'Controller fixed-stand posture failed:' in entry
@@ -662,8 +669,14 @@ def test_compose_starts_the_complete_official_ros1_entry():
     assert 'physical motion probe was not requested' in entry
     assert 'Headless RL state and physical /cmd_vel response were verified.' not in entry
     assert 'CONTROLLER_RL_SETTLE_SEC' in entry
+    assert 'CONTROLLER_DYNAMIC_RL_STARTUP="${CONTROLLER_DYNAMIC_RL_STARTUP:-$VERIFY_CONTROLLER_MOTION}"' in entry
     assert 'UNITREE_CTRL_DT="${UNITREE_CTRL_DT:-0.004}"' in entry
     assert 'wait "$LAUNCH_PID"' in entry
+
+    # Compose 不得用默认 0 覆盖 auto.sh 的“运动验收即动态进入 RL”逻辑。
+    assert 'VERIFY_CONTROLLER_MOTION: ${VERIFY_CONTROLLER_MOTION:-0}' in source
+    assert 'CONTROLLER_DYNAMIC_RL_STARTUP: ${CONTROLLER_DYNAMIC_RL_STARTUP:-}' in source
+    assert 'CONTROLLER_DYNAMIC_RL_STARTUP: ${CONTROLLER_DYNAMIC_RL_STARTUP:-0}' not in source
 
     fixed_stand = (
         REPO_ROOT / 'ros2_ws' / 'src' / 'hazardwalker_platform' / 'src' /
@@ -683,10 +696,16 @@ def test_compose_starts_the_complete_official_ros1_entry():
     assert "./auto_docker.sh build force" in docker_wrapper
     assert 'manage_adapter start' in docker_wrapper
     assert 'manage_adapter stop' in docker_wrapper
+    assert 'manage_control start' in docker_wrapper
+    assert 'manage_control stop' in docker_wrapper
     assert '${OFFICIAL_SIMENV_ENABLE_CONTROL+x}' in docker_wrapper
     assert '${START_CONTROLLER:-1}' in docker_wrapper
     assert docker_wrapper.index('manage_adapter stop') < docker_wrapper.index(
         'exec "$ROOT/docker/auto_noetic.sh" down')
+    down_entry = docker_wrapper.split('  down|stop)', 1)[1].split(
+        '  logs)', 1)[0]
+    assert down_entry.index('manage_control stop') < down_entry.index(
+        'manage_adapter stop')
     assert 'wait_for_container_ready' in docker_wrapper
 
     adapter_runner = (
@@ -718,6 +737,15 @@ def test_compose_starts_the_complete_official_ros1_entry():
     assert '同一 ROS 域仍有其他会话的适配器' in adapter_manager
     assert 'external-node domain=' in adapter_manager
 
+    control_manager = (
+        REPO_ROOT / 'scripts' / 'manage_official_simenv_command_mux.sh'
+    ).read_text(encoding='utf-8')
+    assert 'hazardwalker_platform.command_mux_node' in control_manager
+    assert "grep -cx '/hazardwalker_command_mux'" in control_manager
+    assert 'FASTDDS_BUILTIN_TRANSPORTS="${FASTDDS_BUILTIN_TRANSPORTS:-UDPv4}"' in control_manager
+    assert 'mode {keyboard|navigation|assist|stopped}' in control_manager
+    assert 'kill -TERM "$pid"' in control_manager
+
     lifecycle_test = (
         REPO_ROOT / 'tests' / 'runtime' /
         'verify_official_simenv_adapter_lifecycle.sh'
@@ -726,7 +754,7 @@ def test_compose_starts_the_complete_official_ros1_entry():
     assert 'duplicate ROS2 node did not block adapter startup' in lifecycle_test
     assert 'external same-domain adapter fails closed' in lifecycle_test
     assert 'auto_docker up/down ordering and startup rollback' in lifecycle_test
-    assert 'container-up,adapter-start,adapter-stop,container-down' in lifecycle_test
+    assert 'container-up,adapter-start,mux-start,mux-stop,adapter-stop,container-down' in lifecycle_test
 
     relay = (
         REPO_ROOT / 'ros2_ws' / 'src' / 'hazardwalker_platform' / 'scripts' /

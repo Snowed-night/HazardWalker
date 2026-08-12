@@ -108,7 +108,8 @@ cd ../../..
 主账号登录名不是正式容器名；必须保留 `DOCKER_SIMENV_USER=hazard_platform`，否则会创建错误的
 `simenv_ros1_hxbl` 平行容器。`auto_docker.sh up` 先调用容器内的 `auto.sh`，启动 Gazebo、`junior_ctrl`、
 `/Odometry_gazebo -> /hazardwalker/odom` 最新值中继和 `rosbridge_websocket`；容器健康后，再在宿主机自动
-启动并去重 ROS2 适配器。`auto_docker.sh status` 同时报告两者状态，`down` 先停止适配器再停止容器。
+启动并去重 ROS2 适配器与唯一控制仲裁器。`auto_docker.sh status` 同时报告容器、适配器和
+`hazardwalker_command_mux`，`down` 先让仲裁器发布零速度，再停止适配器和容器。
 再次执行 `up` 时，相同配置复用现有适配器；控制、话题或节流等数据流参数变化时只替换适配器实例，
 不会为了应用参数而重建已经健康的容器。
 镜像已固定包含
@@ -176,23 +177,19 @@ ssh -N -L 6081:127.0.0.1:6081 -L 6082:127.0.0.1:6082 hxbl-codex-main
 ```
 
 浏览器窗口用于观察仿真；键盘控制节点运行在**远程独占终端**，两者并排使用。不要在 noVNC 窗口中
-把 `w/s/a/d/k` 当作控制指令，它们属于 Gazebo GUI 快捷键。先启动统一控制层（纯平台控制检查可关闭感知、定位和辅助节点）：
+把 `w/s/a/d/k` 当作控制指令，它们属于 Gazebo GUI 快捷键。平台 `up` 已自动启动唯一控制仲裁器；
+键盘测试前切换到键盘模式并复核状态：
 
 ```bash
-source /opt/ros/jazzy/setup.bash
-source "$HOME/桌面/HazardWalker/ros2_ws/install/setup.bash"
+cd "$HOME/桌面/HazardWalker/ros2_ws/src/hazardwalker_platform"
+export DOCKER_SIMENV_USER=hazard_platform
 export ROS_DOMAIN_ID=42
-ros2 launch hazardwalker_bringup official_simenv_control_interface.launch.py \
-  control_mode:=keyboard \
-  start_assist_alignment:=false \
-  start_navigation:=false \
-  start_slam:=false \
-  start_perception:=false \
-  start_legal_localization:=false \
-  start_decision:=false
+./auto_docker.sh control-mode keyboard
+./auto_docker.sh status
 ```
 
-再在独立终端启动键盘节点。键盘节点只写 `/hw/control/keyboard_cmd_vel`，由 `command_mux_node` 唯一输出 `/hw/cmd_vel`：
+再在独立终端启动键盘节点。键盘节点只写 `/hw/control/keyboard_cmd_vel`，由平台托管的
+`command_mux_node` 唯一输出 `/hw/cmd_vel`：
 
 ```bash
 source /opt/ros/jazzy/setup.bash
@@ -365,7 +362,8 @@ bash scripts/run_official_simenv_ros1_ros2_stack.sh \
 
 1. 容器唯一且运行稳定。
 2. `junior_ctrl` 存活，日志确认 `HEADLESS_FSM.*mode=move_base.*auto_rl=1` 与
-   `fixed stand state is ready`，且无模型加载失败和关节力矩 NaN。
+   `junior_ctrl fixed stand is physically upright`。固定站立是安全默认态；第一次合法非零速度后才应出现
+   `Switched from fixed stand to RL`，且无模型加载失败和关节力矩 NaN。
 3. `/clock` 连续递增；RGB-D、内参、IMU 和里程计均有新消息。仅在启用
    `ENABLE_LIDAR=true` 的导航/SLAM profile 中检查激光。
 4. `/cmd_vel` 有真实 A1 控制链订阅者；独占运动测试时还必须同时看到
@@ -379,7 +377,7 @@ docker inspect --format '{{.State.Status}} / {{if .State.Health}}{{.State.Health
   "$SIMENV_CONTAINER"
 docker exec "$SIMENV_CONTAINER" pgrep -a -x junior_ctrl
 docker exec "$SIMENV_CONTAINER" bash -lc '
-  grep -E "HEADLESS_FSM.*auto_rl=1|fixed stand state is ready|Switched from fixed stand to RL|CMD_VEL_RX|RL_CMD_APPLIED|load model|setTau function meets Nan|Traceback" \
+  grep -E "HEADLESS_FSM.*auto_rl=1|fixed stand is physically upright|Switched from fixed stand to RL|CMD_VEL_RX|RL_CMD_APPLIED|load model|setTau function meets Nan|Traceback" \
     logs/junior_ctrl.log | tail -30
   source /opt/ros/noetic/setup.bash
   rostopic info /cmd_vel

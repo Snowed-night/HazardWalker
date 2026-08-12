@@ -29,6 +29,7 @@ def generate_launch_description():
     return LaunchDescription([
         DeclareLaunchArgument('use_sim_time', default_value='true'),
         DeclareLaunchArgument('control_mode', default_value='keyboard'),
+        DeclareLaunchArgument('start_command_mux', default_value='true'),
         DeclareLaunchArgument('start_assist_alignment', default_value='true'),
         DeclareLaunchArgument('start_navigation', default_value='false'),
         DeclareLaunchArgument('start_slam', default_value='false'),
@@ -61,6 +62,7 @@ def generate_launch_description():
                 # 比例下降，造成键盘延迟、转向卡顿和超时停车不及时。
                 'use_sim_time': False,
             }],
+            condition=IfCondition(LaunchConfiguration('start_command_mux')),
         ),
         Node(
             package='hazardwalker_platform',
