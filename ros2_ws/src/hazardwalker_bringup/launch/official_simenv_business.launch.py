@@ -195,52 +195,58 @@ def _launch_frontier_explorer(
     elevator_positions = _parse_yaml_dict(
         LaunchConfiguration('elevator_positions').perform(context))
 
+    parameters = {
+        'exploration_timeout_s': exploration_timeout_parameter,
+        'mission_time_budget_s': 600.0,
+        'minimum_return_reserve_s': 120.0,
+        'min_frontier_size': 10,
+        # reference.md 公开起点 yaw=+pi/2(world)，而 world->map
+        # 公开别名同为 +pi/2，因此起点在 map 帧的入楼朝向为 0 rad。
+        'entry_heading_yaw': 0.0,
+        'entry_forward_half_angle_deg': 35.0,
+        # 在公开入口轴上至少深入 6 m 后再允许全向前沿竞争，
+        # 避免刚选中入口就被楼外南北开放边界吸走。
+        'entry_ingress_depth_m': 6.0,
+        # 官方生成器公开 footprint width 上限为 20 m；多留 2 m
+        # SLAM/墙厚裕量，屏蔽横向远处楼外开放区。
+        'entry_lateral_limit_m': 12.0,
+        # 0.8 m 会让入口附近的前沿在机器人尚未运动时即被判定完成。
+        'goal_tolerance_m': 0.25,
+        'linear_speed': 0.35,
+        'angular_speed': 1.5,
+        'current_floor_index': int(
+            LaunchConfiguration('current_floor_index').perform(context)),
+        'floor_coverage_threshold': float(
+            LaunchConfiguration('floor_coverage_threshold').perform(context)),
+        'elevator_id': str(
+            LaunchConfiguration('elevator_id').perform(context)),
+        'elevator_entry_floor': int(
+            LaunchConfiguration('elevator_entry_floor').perform(context)),
+        'stair_detection_enabled': _as_bool(
+            LaunchConfiguration('stair_detection_enabled').perform(context)),
+        'simenv_container': str(
+            LaunchConfiguration('simenv_container').perform(context)),
+        'elevator_retry_interval_s': float(
+            LaunchConfiguration('elevator_retry_interval_s').perform(context)),
+        # 导航数据记录
+        'nav_record_enabled': True,
+        'nav_record_dir': '',
+        'use_sim_time': sim_time_parameter,
+    }
+    # 多楼层 list/dict 参数：空容器会被 launch_ros 解析成空 tuple 触发
+    # 参数类型校验失败，因此仅在非空时下发；空时由节点 declare_parameter
+    # 的默认值（[] / {}）兜底，等价单层模式。
+    if target_floors:
+        parameters['target_floors'] = target_floors
+    if elevator_positions:
+        parameters['elevator_positions'] = elevator_positions
+
     return [Node(
         package='hazardwalker_nav',
         executable='frontier_explorer_node',
         name='frontier_explorer_node',
         output='screen',
-        parameters=[{
-            'exploration_timeout_s': exploration_timeout_parameter,
-            'mission_time_budget_s': 600.0,
-            'minimum_return_reserve_s': 120.0,
-            'min_frontier_size': 10,
-            # reference.md 公开起点 yaw=+pi/2(world)，而 world->map
-            # 公开别名同为 +pi/2，因此起点在 map 帧的入楼朝向为 0 rad。
-            'entry_heading_yaw': 0.0,
-            'entry_forward_half_angle_deg': 35.0,
-            # 在公开入口轴上至少深入 6 m 后再允许全向前沿竞争，
-            # 避免刚选中入口就被楼外南北开放边界吸走。
-            'entry_ingress_depth_m': 6.0,
-            # 官方生成器公开 footprint width 上限为 20 m；多留 2 m
-            # SLAM/墙厚裕量，屏蔽横向远处楼外开放区。
-            'entry_lateral_limit_m': 12.0,
-            # 0.8 m 会让入口附近的前沿在机器人尚未运动时即被判定完成。
-            'goal_tolerance_m': 0.25,
-            'linear_speed': 0.35,
-            'angular_speed': 1.5,
-            # 多楼层参数（默认空列表/空 dict = 单层模式，向后兼容）
-            'target_floors': target_floors,
-            'current_floor_index': int(
-                LaunchConfiguration('current_floor_index').perform(context)),
-            'floor_coverage_threshold': float(
-                LaunchConfiguration('floor_coverage_threshold').perform(context)),
-            'elevator_id': str(
-                LaunchConfiguration('elevator_id').perform(context)),
-            'elevator_entry_floor': int(
-                LaunchConfiguration('elevator_entry_floor').perform(context)),
-            'stair_detection_enabled': _as_bool(
-                LaunchConfiguration('stair_detection_enabled').perform(context)),
-            'simenv_container': str(
-                LaunchConfiguration('simenv_container').perform(context)),
-            'elevator_positions': elevator_positions,
-            'elevator_retry_interval_s': float(
-                LaunchConfiguration('elevator_retry_interval_s').perform(context)),
-            # 导航数据记录
-            'nav_record_enabled': True,
-            'nav_record_dir': '',
-            'use_sim_time': sim_time_parameter,
-        }],
+        parameters=[parameters],
     )]
 
 
