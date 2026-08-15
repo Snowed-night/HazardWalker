@@ -25,6 +25,7 @@ from typing import List, Optional, Tuple
 
 import rclpy
 import tf2_ros
+import yaml
 from geometry_msgs.msg import Twist
 from nav_msgs.msg import OccupancyGrid
 from rclpy.clock import Clock, ClockType
@@ -194,9 +195,10 @@ class FrontierExplorerNode(Node):
         self.declare_parameter('stair_detection_enabled', False)
         self.declare_parameter('simenv_container', 'simenv_ros1_hazard_platform')
         # 每层电梯入口在 map 帧的坐标 {floor: [x, y]}。map 帧每层 SLAM 重建
-        # 后原点会变，无法用固定世界坐标推导，必须真机标定后注入；空 dict 时
-        # 跨层 navigating 阶段会告警并跳过，避免导航到地图原点。
-        self.declare_parameter('elevator_positions', {})
+        # 后原点会变，无法用固定世界坐标推导，必须真机标定后注入；空字符串时
+        # 跨层 navigating 阶段会告警并跳过，避免导航到地图原点。ROS2 参数无
+        # dict 类型，故以 YAML 字符串传递、在 _init_multi_floor 内解析。
+        self.declare_parameter('elevator_positions', '')
         # 电梯服务调用失败后的最小重试间隔，防止在 10 Hz 控制循环内高频
         # 同步阻塞 docker exec 拖死控制心跳。
         self.declare_parameter('elevator_retry_interval_s', 2.0)
@@ -1195,17 +1197,22 @@ class FrontierExplorerNode(Node):
         self._target_floors = sorted(target_floors)
         self._current_floor = int(
             self.get_parameter('current_floor_index').value)
-        # 电梯坐标注入：键为楼层 int，值为 [x, y] map 帧坐标。
+        # 电梯坐标注入：YAML dict 字符串，键为楼层 int，值为 [x, y] map 帧
+        # 坐标。ROS2 参数无 dict 类型，故字符串传递、此处解析成 dict。
         try:
             raw_positions = self.get_parameter('elevator_positions').value
-            if isinstance(raw_positions, dict):
-                self._elevator_positions = {
-                    int(k): (float(v[0]), float(v[1]))
-                    for k, v in raw_positions.items()
-                }
+            if isinstance(raw_positions, str) and raw_positions.strip():
+                parsed = yaml.safe_load(raw_positions)
+                if isinstance(parsed, dict):
+                    self._elevator_positions = {
+                        int(k): (float(v[0]), float(v[1]))
+                        for k, v in parsed.items()
+                    }
+                else:
+                    self._elevator_positions = {}
             else:
                 self._elevator_positions = {}
-        except (TypeError, ValueError, IndexError):
+        except (TypeError, ValueError, IndexError, yaml.YAMLError):
             self._elevator_positions = {}
         if self.grid is not None:
             h, w = self.grid.shape

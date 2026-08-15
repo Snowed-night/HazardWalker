@@ -364,7 +364,7 @@ def test_frontier_node_declares_multi_floor_parameters():
     ).read_text(encoding='utf-8')
 
     assert "declare_parameter('target_floors', [])" in source
-    assert "declare_parameter('elevator_positions', {})" in source
+    assert "declare_parameter('elevator_positions', '')" in source
     assert "declare_parameter('elevator_retry_interval_s', 2.0)" in source
     # from_floor 语义：跨层阶段不得提前用目标楼层覆盖当前楼层。
     assert 'from_floor = self._current_floor' in source

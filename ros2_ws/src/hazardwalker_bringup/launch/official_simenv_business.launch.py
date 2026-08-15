@@ -162,19 +162,6 @@ def _parse_yaml_list(raw_value: str):
     return list(parsed) if isinstance(parsed, list) else []
 
 
-def _parse_yaml_dict(raw_value: str):
-    """解析 YAML dict 字符串为 Python dict；空串/无效返回空 dict。"""
-
-    raw_value = str(raw_value).strip()
-    if not raw_value:
-        return {}
-    try:
-        parsed = yaml.safe_load(raw_value)
-    except yaml.YAMLError:
-        return {}
-    return parsed if isinstance(parsed, dict) else {}
-
-
 def _launch_frontier_explorer(
     context, exploration_timeout_parameter, sim_time_parameter,
 ):
@@ -192,8 +179,9 @@ def _launch_frontier_explorer(
 
     target_floors = _parse_yaml_list(
         LaunchConfiguration('target_floors').perform(context))
-    elevator_positions = _parse_yaml_dict(
-        LaunchConfiguration('elevator_positions').perform(context))
+    # elevator_positions 是 dict，ROS2 参数无 dict 类型，故原样传 YAML
+    # 字符串给节点，由节点 _init_multi_floor 用 yaml.safe_load 解析。
+    elevator_positions = LaunchConfiguration('elevator_positions').perform(context)
 
     parameters = {
         'exploration_timeout_s': exploration_timeout_parameter,
