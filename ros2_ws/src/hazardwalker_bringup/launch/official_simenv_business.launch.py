@@ -15,6 +15,8 @@ import os
 import shutil
 import tempfile
 
+import yaml
+
 from ament_index_python.packages import (
     PackageNotFoundError,
     get_package_share_directory,
@@ -147,6 +149,101 @@ def _launch_cartographer(context, nav_pkg):
     ]
 
 
+def _parse_yaml_list(raw_value: str):
+    """解析 YAML 列表字符串为 Python list；空串/无效返回空列表。"""
+
+    raw_value = str(raw_value).strip()
+    if not raw_value:
+        return []
+    try:
+        parsed = yaml.safe_load(raw_value)
+    except yaml.YAMLError:
+        return []
+    return list(parsed) if isinstance(parsed, list) else []
+
+
+def _parse_yaml_dict(raw_value: str):
+    """解析 YAML dict 字符串为 Python dict；空串/无效返回空 dict。"""
+
+    raw_value = str(raw_value).strip()
+    if not raw_value:
+        return {}
+    try:
+        parsed = yaml.safe_load(raw_value)
+    except yaml.YAMLError:
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
+
+
+def _launch_frontier_explorer(
+    context, exploration_timeout_parameter, sim_time_parameter,
+):
+    """运行时解析多楼层 list/dict 参数并返回 frontier_explorer_node。
+
+    ROS2 launch 的 CLI 只能可靠传递标量参数；`target_floors`（list）与
+    `elevator_positions`（dict）必须在这里用 yaml 解析成真正的 Python 容器，
+    再注入节点参数，否则会以字符串形式下发导致节点类型错误。
+    `exploration_timeout_s` / `use_sim_time` 复用 generate_launch_description
+    里已解析好的 ParameterValue，保证类型与其它节点一致。
+    """
+
+    if LaunchConfiguration('nav_mode').perform(context) != 'frontier':
+        return []
+
+    target_floors = _parse_yaml_list(
+        LaunchConfiguration('target_floors').perform(context))
+    elevator_positions = _parse_yaml_dict(
+        LaunchConfiguration('elevator_positions').perform(context))
+
+    return [Node(
+        package='hazardwalker_nav',
+        executable='frontier_explorer_node',
+        name='frontier_explorer_node',
+        output='screen',
+        parameters=[{
+            'exploration_timeout_s': exploration_timeout_parameter,
+            'mission_time_budget_s': 600.0,
+            'minimum_return_reserve_s': 120.0,
+            'min_frontier_size': 10,
+            # reference.md 公开起点 yaw=+pi/2(world)，而 world->map
+            # 公开别名同为 +pi/2，因此起点在 map 帧的入楼朝向为 0 rad。
+            'entry_heading_yaw': 0.0,
+            'entry_forward_half_angle_deg': 35.0,
+            # 在公开入口轴上至少深入 6 m 后再允许全向前沿竞争，
+            # 避免刚选中入口就被楼外南北开放边界吸走。
+            'entry_ingress_depth_m': 6.0,
+            # 官方生成器公开 footprint width 上限为 20 m；多留 2 m
+            # SLAM/墙厚裕量，屏蔽横向远处楼外开放区。
+            'entry_lateral_limit_m': 12.0,
+            # 0.8 m 会让入口附近的前沿在机器人尚未运动时即被判定完成。
+            'goal_tolerance_m': 0.25,
+            'linear_speed': 0.35,
+            'angular_speed': 1.5,
+            # 多楼层参数（默认空列表/空 dict = 单层模式，向后兼容）
+            'target_floors': target_floors,
+            'current_floor_index': int(
+                LaunchConfiguration('current_floor_index').perform(context)),
+            'floor_coverage_threshold': float(
+                LaunchConfiguration('floor_coverage_threshold').perform(context)),
+            'elevator_id': str(
+                LaunchConfiguration('elevator_id').perform(context)),
+            'elevator_entry_floor': int(
+                LaunchConfiguration('elevator_entry_floor').perform(context)),
+            'stair_detection_enabled': _as_bool(
+                LaunchConfiguration('stair_detection_enabled').perform(context)),
+            'simenv_container': str(
+                LaunchConfiguration('simenv_container').perform(context)),
+            'elevator_positions': elevator_positions,
+            'elevator_retry_interval_s': float(
+                LaunchConfiguration('elevator_retry_interval_s').perform(context)),
+            # 导航数据记录
+            'nav_record_enabled': True,
+            'nav_record_dir': '',
+            'use_sim_time': sim_time_parameter,
+        }],
+    )]
+
+
 def generate_launch_description():
     """按显式开关组合业务节点，官方 profile 不引入任何模拟平台节点。"""
 
@@ -214,6 +311,21 @@ def generate_launch_description():
         # 120 秒返航预留硬约束，实际探索上限仍不超过 480 秒，并会按距家
         # 距离和保守速度进一步提前返航。
         DeclareLaunchArgument('exploration_timeout_s', default_value='540.0'),
+        # ---- 多楼层探索参数（默认全部等价于单层模式，向后兼容）----
+        # target_floors 用 YAML 列表字符串，如 '[0, 1, 2]'；空串=单层。
+        DeclareLaunchArgument('target_floors', default_value=''),
+        DeclareLaunchArgument('current_floor_index', default_value='0'),
+        DeclareLaunchArgument('floor_coverage_threshold', default_value='0.90'),
+        DeclareLaunchArgument('elevator_id', default_value='elevator_main'),
+        DeclareLaunchArgument('elevator_entry_floor', default_value='0'),
+        DeclareLaunchArgument('stair_detection_enabled', default_value='False'),
+        DeclareLaunchArgument(
+            'simenv_container', default_value='simenv_ros1_hazard_platform',
+        ),
+        # 每层电梯入口在 map 帧的坐标，用 YAML dict 字符串，如
+        # '{0: [1.65, 2.6], 1: [1.65, 2.6], 2: [1.65, 2.6]}'；空串=未标定。
+        DeclareLaunchArgument('elevator_positions', default_value=''),
+        DeclareLaunchArgument('elevator_retry_interval_s', default_value='2.0'),
         DeclareLaunchArgument('evidence_output_dir', default_value=''),
         DeclareLaunchArgument('test_record_dir', default_value=''),
         DeclareLaunchArgument('scenario_seed', default_value=''),
@@ -312,37 +424,14 @@ def generate_launch_description():
             # 外层使用 ROS launch 原生布尔解析，兼容 true/True/1；内层模式
             # 精确匹配确保任何时刻最多只有一个导航节点发布 /hw/cmd_vel。
             condition=IfCondition(start_navigation),
-            actions=[Node(
-                package='hazardwalker_nav',
-                executable='frontier_explorer_node',
-                name='frontier_explorer_node',
-                output='screen',
-                parameters=[{
-                    'exploration_timeout_s': exploration_timeout_parameter,
-                    'mission_time_budget_s': 600.0,
-                    'minimum_return_reserve_s': 120.0,
-                    'min_frontier_size': 10,
-                    # reference.md 公开起点 yaw=+pi/2(world)，而 world->map
-                    # 公开别名同为 +pi/2，因此起点在 map 帧的入楼朝向为 0 rad。
-                    'entry_heading_yaw': 0.0,
-                    'entry_forward_half_angle_deg': 35.0,
-                    # 在公开入口轴上至少深入 6 m 后再允许全向前沿竞争，
-                    # 避免刚选中入口就被楼外南北开放边界吸走。
-                    'entry_ingress_depth_m': 6.0,
-                    # 官方生成器公开 footprint width 上限为 20 m；多留 2 m
-                    # SLAM/墙厚裕量，屏蔽横向远处楼外开放区。
-                    'entry_lateral_limit_m': 12.0,
-                    # 0.8 m 会让入口附近的前沿在机器人尚未运动时即被判定完成。
-                    'goal_tolerance_m': 0.25,
-                    'linear_speed': 0.35,
-                    'angular_speed': 1.5,
-                    # 导航数据记录
-                    'nav_record_enabled': True,
-                    'nav_record_dir': '',
-                    'use_sim_time': sim_time_parameter,
-                }],
-                condition=LaunchConfigurationEquals(
-                    'nav_mode', expected_value='frontier'),
+            # 多楼层 list/dict 参数需 OpaqueFunction 运行时解析，不能写成
+            # 静态参数字典（见 _launch_frontier_explorer）。
+            actions=[OpaqueFunction(
+                function=_launch_frontier_explorer,
+                kwargs={
+                    'exploration_timeout_parameter': exploration_timeout_parameter,
+                    'sim_time_parameter': sim_time_parameter,
+                },
             )],
         ),
 

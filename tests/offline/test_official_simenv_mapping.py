@@ -299,7 +299,13 @@ def test_official_business_launch_never_starts_fake_platform_by_default():
     ).read_text(encoding='utf-8')
     assert 'num_laser_scans = 1' in cartographer_config
     assert 'TRAJECTORY_BUILDER_2D.max_range = 8.0' in cartographer_config
-    assert "LaunchConfigurationEquals(\n                    'nav_mode', expected_value='frontier')" in source
+    # frontier 节点改由 OpaqueFunction 在运行时解析多楼层 list/dict 参数，
+    # 其「仅 nav_mode=frontier 启动」的互斥条件等价迁移到函数体内的 nav_mode
+    # 判断；waypoint 仍保留显式 LaunchConfigurationEquals 互斥。
+    assert (
+        "if LaunchConfiguration('nav_mode').perform(context) != 'frontier':"
+        in source
+    )
     assert "LaunchConfigurationEquals(\n                    'nav_mode', expected_value='waypoint')" in source
     assert 'PythonExpression' in source
     assert "'goal_tolerance_m': 0.25" in source
