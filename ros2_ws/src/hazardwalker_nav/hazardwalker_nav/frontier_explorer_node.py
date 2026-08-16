@@ -207,6 +207,12 @@ class FrontierExplorerNode(Node):
         # /hw/cmd_vel；直接抢占 /hw/cmd_vel 会被仲裁器输出的零速度稀释/覆盖。
         self.declare_parameter(
             'cmd_vel_topic', '/hw/control/navigation_cmd_vel')
+        # command_mux 默认 default_mode=keyboard，需显式请求 navigation 才会
+        # 转发导航命令。启动期按 1 Hz 重试 3 次覆盖 DDS 匹配窗口，之后依赖
+        # 模式一次锁存不再发；若实测中途切回 keyboard 再改为周期心跳。
+        self.declare_parameter(
+            'control_mode_request_topic', '/hw/control/mode_request')
+        self.declare_parameter('control_mode_value', 'navigation')
 
         # ---- 状态机 ----
         self.state = 'INIT'
@@ -214,6 +220,8 @@ class FrontierExplorerNode(Node):
         self.start_time = self.get_clock().now()
         self._mission_start_ros_sec: Optional[float] = None
         self._state_entry_time = time.monotonic()
+        self._mode_request_sent_count = 0
+        self._last_mode_request_time = 0.0
 
         # ---- 地图 ----
         self.latest_map: Optional[OccupancyGrid] = None
@@ -307,6 +315,11 @@ class FrontierExplorerNode(Node):
         self.cmd_pub = self.create_publisher(
             Twist, str(self.get_parameter('cmd_vel_topic').value), 10)
         self.state_pub = self.create_publisher(String, '/hw/nav/state', 10)
+        self.mode_request_pub = self.create_publisher(
+            String,
+            str(self.get_parameter('control_mode_request_topic').value),
+            10,
+        )
 
         # 控制心跳必须使用 steady clock。仿真低于实时速率时，仿真时钟 10 Hz
         # 可能对应超过 0.5 s 墙钟间隔，与平台零速看门狗冲突并造成走走停停。
@@ -601,6 +614,19 @@ class FrontierExplorerNode(Node):
 
     # ---- 控制循环 ----
 
+    def _ensure_control_mode(self):
+        """请求 command_mux 切到导航模式（启动期重试 3 次后停，依赖一次锁存）。"""
+        if self._mode_request_sent_count >= 3:
+            return
+        now = time.monotonic()
+        if now - self._last_mode_request_time < 1.0:
+            return
+        self._last_mode_request_time = now
+        self._mode_request_sent_count += 1
+        msg = String()
+        msg.data = str(self.get_parameter('control_mode_value').value)
+        self.mode_request_pub.publish(msg)
+
     def on_timer(self):
         """10Hz 主循环。"""
         now_ros = self._ros_time_sec()
@@ -614,6 +640,7 @@ class FrontierExplorerNode(Node):
         state_msg = String()
         state_msg.data = self.state
         self.state_pub.publish(state_msg)
+        self._ensure_control_mode()
 
         cmd = Twist()
         if not self._has_fresh_pose():

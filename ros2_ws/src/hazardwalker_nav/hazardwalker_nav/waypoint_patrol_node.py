@@ -20,6 +20,7 @@
 - 用离线测试先验证控制律，再检查 ROS 话题输出。
 """
 import math
+import time
 
 import rclpy
 from rclpy.executors import ExternalShutdownException
@@ -43,6 +44,12 @@ class WaypointPatrolNode(Node):
         # gazebo_minimal）诊断兼容；官方 SimEnv 有 hazardwalker_command_mux
         # 仲裁器，launch 会显式覆盖为 /hw/control/navigation_cmd_vel。
         self.declare_parameter('cmd_vel_topic', '/hw/cmd_vel')
+        # command_mux 默认 default_mode=keyboard，需显式请求 navigation 才会
+        # 转发导航命令。启动期按 1 Hz 重试 3 次覆盖 DDS 匹配窗口，之后依赖
+        # 模式一次锁存不再发；fake 平台无此节点，发布 mode_request 无害。
+        self.declare_parameter(
+            'control_mode_request_topic', '/hw/control/mode_request')
+        self.declare_parameter('control_mode_value', 'navigation')
 
         # waypoints 参数用一维数组表达，格式为 [x1, y1, x2, y2, ...]。
         # 最后一个 [0.0, 0.0] 代表回到起点，用来模拟 RETURNING。
@@ -56,6 +63,8 @@ class WaypointPatrolNode(Node):
         self.current_pose = None
         self.goal_index = 0
         self.completed = False
+        self._mode_request_sent_count = 0
+        self._last_mode_request_time = 0.0
 
         # 输出速度命令给平台层。话题由 cmd_vel_topic 参数决定：fake 平台用
         # /hw/cmd_vel，官方 SimEnv 经 launch 覆盖为仲裁器话题。
@@ -66,6 +75,11 @@ class WaypointPatrolNode(Node):
         # 把四个固定航点冒充成未知楼宇自主探索完成。
         self.state_pub = self.create_publisher(
             String, '/hw/nav/diagnostic_state', 10,
+        )
+        self.mode_request_pub = self.create_publisher(
+            String,
+            str(self.get_parameter('control_mode_request_topic').value),
+            10,
         )
         # 官方 ROS1 适配层将 /Odometry_gazebo 统一输出为 /hw/odom；不能泄漏官方原话题名，
         # 否则官方 profile 启动导航后永远收不到位姿，表面上却没有节点异常。
@@ -78,10 +92,24 @@ class WaypointPatrolNode(Node):
         # 保存最新机器人位姿。这里只使用 position 和 orientation，不处理协方差。
         self.current_pose = msg.pose.pose
 
+    def _ensure_control_mode(self):
+        """请求 command_mux 切到导航模式（启动期重试 3 次后停，依赖一次锁存）。"""
+        if self._mode_request_sent_count >= 3:
+            return
+        now = time.monotonic()
+        if now - self._last_mode_request_time < 1.0:
+            return
+        self._last_mode_request_time = now
+        self._mode_request_sent_count += 1
+        msg = String()
+        msg.data = str(self.get_parameter('control_mode_value').value)
+        self.mode_request_pub.publish(msg)
+
     def on_timer(self):
         # 每个控制周期都重新计算当前目标、状态和速度命令。
         state = String()
         cmd = Twist()
+        self._ensure_control_mode()
 
         if self.current_pose is None:
             # 还没有收到里程计时不能控制机器人，只发布 IDLE。
