@@ -202,6 +202,8 @@ def _launch_frontier_explorer(
         'goal_tolerance_m': 0.25,
         'linear_speed': 0.35,
         'angular_speed': 1.5,
+        # 控制输出走 hazardwalker_command_mux 仲裁器话题，不直接抢占 /hw/cmd_vel。
+        'cmd_vel_topic': '/hw/control/navigation_cmd_vel',
         'current_floor_index': int(
             LaunchConfiguration('current_floor_index').perform(context)),
         'floor_coverage_threshold': float(
@@ -439,6 +441,9 @@ def generate_launch_description():
                 output='screen',
                 parameters=[{
                     'minimum_turn_speed': 0.45,
+                    # 官方 SimEnv 由 hazardwalker_command_mux 仲裁导航命令；
+                    # 诊断航点同样必须发布到仲裁器话题，不能绕过直接抢占 /hw/cmd_vel。
+                    'cmd_vel_topic': '/hw/control/navigation_cmd_vel',
                     'use_sim_time': sim_time_parameter,
                 }],
                 condition=LaunchConfigurationEquals(

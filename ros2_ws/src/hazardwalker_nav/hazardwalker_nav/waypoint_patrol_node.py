@@ -39,6 +39,10 @@ class WaypointPatrolNode(Node):
         self.declare_parameter('angular_speed', 0.8)
         self.declare_parameter('heading_tolerance_rad', 0.25)
         self.declare_parameter('waypoints', [1.0, 0.0, 2.0, 0.0, 2.0, 1.0, 0.0, 0.0])
+        # 控制输出话题。默认 /hw/cmd_vel 保持 fake 平台（minimal_demo /
+        # gazebo_minimal）诊断兼容；官方 SimEnv 有 hazardwalker_command_mux
+        # 仲裁器，launch 会显式覆盖为 /hw/control/navigation_cmd_vel。
+        self.declare_parameter('cmd_vel_topic', '/hw/cmd_vel')
 
         # waypoints 参数用一维数组表达，格式为 [x1, y1, x2, y2, ...]。
         # 最后一个 [0.0, 0.0] 代表回到起点，用来模拟 RETURNING。
@@ -53,9 +57,10 @@ class WaypointPatrolNode(Node):
         self.goal_index = 0
         self.completed = False
 
-        # 输出速度命令给平台层。fake_platform_node 或后续 Gazebo/官方 adapter
-        # 都应该接收这个统一的 /hw/cmd_vel。
-        self.cmd_pub = self.create_publisher(Twist, '/hw/cmd_vel', 10)
+        # 输出速度命令给平台层。话题由 cmd_vel_topic 参数决定：fake 平台用
+        # /hw/cmd_vel，官方 SimEnv 经 launch 覆盖为仲裁器话题。
+        self.cmd_pub = self.create_publisher(
+            Twist, str(self.get_parameter('cmd_vel_topic').value), 10)
         # 固定航点只用于诊断，状态必须与正式 Frontier 任务隔离。若复用
         # /hw/nav/state，其 FINISHED 会让决策层误写 detected_danger.json，
         # 把四个固定航点冒充成未知楼宇自主探索完成。

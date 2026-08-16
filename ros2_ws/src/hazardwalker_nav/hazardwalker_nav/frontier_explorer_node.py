@@ -202,6 +202,11 @@ class FrontierExplorerNode(Node):
         # 电梯服务调用失败后的最小重试间隔，防止在 10 Hz 控制循环内高频
         # 同步阻塞 docker exec 拖死控制心跳。
         self.declare_parameter('elevator_retry_interval_s', 2.0)
+        # 控制输出话题。平台组引入 hazardwalker_command_mux 仲裁器后，导航命令
+        # 必须发布到 /hw/control/navigation_cmd_vel，由仲裁器统一裁决后转发到
+        # /hw/cmd_vel；直接抢占 /hw/cmd_vel 会被仲裁器输出的零速度稀释/覆盖。
+        self.declare_parameter(
+            'cmd_vel_topic', '/hw/control/navigation_cmd_vel')
 
         # ---- 状态机 ----
         self.state = 'INIT'
@@ -299,7 +304,8 @@ class FrontierExplorerNode(Node):
             LaserScan, '/hw/scan', self.on_scan, 10)
         self.hazard_sub = self.create_subscription(
             String, '/hw/perception/hazard_detections', self.on_hazard, 10)
-        self.cmd_pub = self.create_publisher(Twist, '/hw/cmd_vel', 10)
+        self.cmd_pub = self.create_publisher(
+            Twist, str(self.get_parameter('cmd_vel_topic').value), 10)
         self.state_pub = self.create_publisher(String, '/hw/nav/state', 10)
 
         # 控制心跳必须使用 steady clock。仿真低于实时速率时，仿真时钟 10 Hz
