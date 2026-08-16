@@ -1028,9 +1028,13 @@ class FrontierExplorerNode(Node):
                 self.robot_x, self.robot_y,
                 self.start_x, self.start_y,
                 start_search_radius_m=0.50,
-                # 返航终点必须是包含真实 home 的原始自由栅格，不能先吸附
-                # 0.25 m 再叠加 0.25 m 路径容差，造成距 home 0.5 m 假完成。
-                goal_search_radius_m=0.0,
+                # home 栅格会被机身近场回波或门口门板标成占用；若吸附半径为
+                # 0，_nearest_traversable_cell 会直接返回 None，A* 空路径导致
+                # 返航永久卡死。给一个 goal_tol 量级的小吸附半径（0.30 m）让
+                # 端点吸附到 home 附近最近自由格，再由 append_exact_goal 追加
+                # 真实 home 坐标、FINISHED 仍用真实 dist_home ≤ goal_tol 判定，
+                # 既不会卡死也不会假完成。
+                goal_search_radius_m=0.30,
                 append_exact_goal=True,
             )
             self.path_index = 0

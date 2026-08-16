@@ -298,7 +298,9 @@ def test_returning_replans_on_sim_time_and_recovers_without_nonzero_cmd():
     assert 'time.monotonic()' not in handler
     assert 'now - self._last_return_plan_time >= replan_interval' not in handler
     assert 'or len(self.current_path) == 0' in handler
-    assert 'goal_search_radius_m=0.0' in handler
+    # home 栅格被近场回波/门板标占用时，精确 0 吸附会让 A* 空路径卡死；
+    # 用小吸附半径 + append_exact_goal + 真实 dist_home 判定，既不卡死也不假完成。
+    assert 'goal_search_radius_m=0.30' in handler
     assert 'append_exact_goal=True' in handler
     assert 'start_search_radius_m=0.50' in handler
     assert 'Return progress watchdog expired' in watchdog
