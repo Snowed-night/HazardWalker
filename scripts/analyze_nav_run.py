@@ -85,7 +85,7 @@ def analyze(run_dir):
             if st != seg['state']:
                 durations[seg['state']] += max(0.0, ts - seg['t0'])
                 seg = {'state': st, 't0': ts}
-        durations[seg['state']] += max(0.0, total - seg['t0'])
+        durations[seg['state']] += max(0.0, t1 - seg['t0'])
         for state, dur in durations.most_common():
             print(f'  {state:15s}: {dur:8.1f}s ({dur / total * 100:4.1f}%)')
 
@@ -99,8 +99,15 @@ def analyze(run_dir):
             and abs(r.get('angular_z', 0)) > 0.05
         )
         still = sum(1 for r in cmd if not r.get('moving'))
-        dt = 0.1
-        print('\n速度指令分布（10Hz，每帧≈0.1s）:')
+        # cmd_vel 记录频率不是固定 10Hz（实测约 38Hz），不能用 0.1s/帧估算；
+        # 用 ros_sec 首尾跨度除以间隔数得到真实帧间隔，秒数才可信。
+        if n >= 2:
+            t0 = cmd[0].get('ros_sec', 0.0)
+            t1 = cmd[-1].get('ros_sec', 0.0)
+            dt = (t1 - t0) / max(1, n - 1)
+        else:
+            dt = 0.1
+        print(f'\n速度指令分布（实际≈{1.0 / dt:.1f}Hz，每帧≈{dt:.3f}s）:')
         print(f'  前进:     {forward * dt:7.1f}s '
               f'({forward / n * 100:4.1f}%)')
         print(f'  原地转向: {turn_only * dt:7.1f}s '
@@ -112,11 +119,19 @@ def analyze(run_dir):
     if traj and len(traj) > 1:
         path_len = 0.0
         backtrack = 0
+        skipped = 0
         prev_dx = prev_dy = None
+        # 轨迹 10Hz 降采样、前进 0.35m/s 时单步 ≈0.035m；SLAM 返航漂移会制造
+        # 几米级的定位跳变，把路径总长虚高到物理不可能。超过 1m 的单步按跳变
+        # 跳过，并断开回头路检测的前后衔接。
         for i in range(1, len(traj)):
             dx = traj[i].get('x', 0.0) - traj[i - 1].get('x', 0.0)
             dy = traj[i].get('y', 0.0) - traj[i - 1].get('y', 0.0)
             seg = math.hypot(dx, dy)
+            if seg > 1.0:
+                skipped += 1
+                prev_dx = prev_dy = None
+                continue
             path_len += seg
             if prev_dx is not None and seg > 0.02:
                 prev_len = math.hypot(prev_dx, prev_dy)
@@ -134,6 +149,8 @@ def analyze(run_dir):
         print(f'  路径总长: {path_len:.1f}m')
         print(f'  起点→终点直线: {start_end:.1f}m')
         print(f'  回头路(>120°折返)次数: {backtrack}')
+        if skipped:
+            print(f'  跳过的定位跳变帧(>1m): {skipped}')
 
     if transitions:
         print(f'\n状态变迁次数: {len(transitions)}')

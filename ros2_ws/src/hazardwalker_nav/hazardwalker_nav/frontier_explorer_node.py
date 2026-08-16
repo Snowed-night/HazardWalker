@@ -152,6 +152,11 @@ class FrontierExplorerNode(Node):
         self.declare_parameter('return_progress_distance_m', 0.10)
         self.declare_parameter('return_net_progress_timeout_s', 20.0)
         self.declare_parameter('return_net_progress_distance_m', 0.25)
+        # 返航进入 home 附近（起点大厅）后，A* 的起点吸附会被近场回波/
+        # SLAM 漂移标占用而引向身后幽灵栅格，造成在 home 旁原地绕圈。
+        # dist_home 小于该距离时改为直接对准 home 直线前进（仍受 scan
+        # 门禁），静止看门狗兜底回退 A* 绕行，避免绕圈几十轮不 FINISHED。
+        self.declare_parameter('return_straight_distance_m', 3.0)
         # 正常路径跟随的小角速度不全局抬高；只有返航静止看门狗触发时，
         # 才发送短时 0.8 rad/s 交替转向脉冲改变物理接触状态。
         self.declare_parameter('return_recovery_turn_speed', 0.80)
@@ -1013,6 +1018,18 @@ class FrontierExplorerNode(Node):
         if self.grid is None:
             # 无地图时直线盲返在复杂楼宇中不可接受；等待地图恢复。
             return cmd
+
+        # 近距离直线返航：home 附近（起点大厅）空旷，A* 的起点吸附会被
+        # 近场回波/SLAM 漂移引向身后幽灵栅格，机器人在 home 旁绕圈却迟迟
+        # 不 FINISHED。dist_home 小于阈值时直接对准 home 直线前进（复用
+        # _follow_path 的朝向 + scan 门禁）；若直线方向被真实障碍挡住，
+        # 静止看门狗超时会把 force_replan 置位，自然回退到下方 A* 绕行。
+        straight_dist = float(
+            self.get_parameter('return_straight_distance_m').value)
+        if not force_replan and dist_home <= straight_dist:
+            self.current_path = [(self.start_x, self.start_y)]
+            self.path_index = 0
+            return self._follow_path()
 
         # 有效路径存在时保持路线承诺；第 22 轮实测每 3 秒重算会让动态地图
         # 两条近似等价路线反复翻转。新障碍仍由 scan 门禁停车，再由看门狗重算。

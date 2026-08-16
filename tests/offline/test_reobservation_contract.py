@@ -303,6 +303,11 @@ def test_returning_replans_on_sim_time_and_recovers_without_nonzero_cmd():
     assert 'goal_search_radius_m=0.30' in handler
     assert 'append_exact_goal=True' in handler
     assert 'start_search_radius_m=0.50' in handler
+    # 近距离直线返航：home 附近起点吸附会被近场回波/漂移引向身后幽灵栅格，
+    # 造成原地绕圈；dist_home 小于阈值时直接对准 home，watchdog 兜底回退 A*。
+    assert "declare_parameter('return_straight_distance_m', 3.0)" in source
+    assert 'return_straight_distance_m' in handler
+    assert 'self.current_path = [(self.start_x, self.start_y)]' in handler
     assert 'Return progress watchdog expired' in watchdog
     assert 'self.current_path = []' in watchdog
     assert 'return_pose_has_progress(' in watchdog
