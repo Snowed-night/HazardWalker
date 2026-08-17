@@ -46,16 +46,18 @@ TRAJECTORY_BUILDER_2D.min_range = 0.40
 TRAJECTORY_BUILDER_2D.max_range = 8.0
 TRAJECTORY_BUILDER_2D.missing_data_ray_length = 8.0
 TRAJECTORY_BUILDER_2D.num_accumulated_range_data = 1
-TRAJECTORY_BUILDER_2D.submaps.num_range_data = 60
+-- 子图大小 60→90：实测跳变每 5~8 秒一次，正对应 60 帧子图切换频率（每次新子图
+-- 创建时位姿重新匹配、可能错配）。更大子图切换更少、上下文更多，抗错配震荡。
+TRAJECTORY_BUILDER_2D.submaps.num_range_data = 90
 TRAJECTORY_BUILDER_2D.motion_filter.max_time_seconds = 0.25
 TRAJECTORY_BUILDER_2D.motion_filter.max_distance_meters = 0.04
 TRAJECTORY_BUILDER_2D.motion_filter.max_angle_radians = math.rad(0.5)
--- 官方走廊/单墙视角的 scan translation 存在侧向多解，需要一定控制先验权重
--- 抗沿墙滑移；但权重过高（100）会把漂移的 odometry 先验钉死，退化对称走廊下
--- ceres 在「漂移先验解」和「scan 匹配真值解」之间 43~49m 震荡（run_20260816_235644
--- 实测 map→base 8 次大跳）。降到 50 给 scan matching 更多纠正空间，真机验证。
-TRAJECTORY_BUILDER_2D.ceres_scan_matcher.translation_weight = 50.0
-TRAJECTORY_BUILDER_2D.ceres_scan_matcher.rotation_weight = 50.0
+-- 官方走廊/单墙视角的 scan translation 存在侧向多解，提高控制先验权重抗沿墙滑移。
+-- 2026-08-17 试过降到 50（a3521d7）：返航 36.4→4.9min 但 occupied 1.22%→0.11%，
+-- scan matching 沿墙滑移把墙擦成 free，地图一片白，不可接受。回调 100 恢复抗滑移，
+-- 震荡改走「增大子图 num_range_data」方向。
+TRAJECTORY_BUILDER_2D.ceres_scan_matcher.translation_weight = 100.0
+TRAJECTORY_BUILDER_2D.ceres_scan_matcher.rotation_weight = 100.0
 POSE_GRAPH.optimize_every_n_nodes = 60
 -- 官方随机楼宇包含大量外观几乎相同的长直墙。默认 15 m 搜索半径会把相隔
 -- 3~7 m 的重复走廊误连成闭环，实测导致地图折叠、Frontier 在不足 1 m 处
