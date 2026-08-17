@@ -50,10 +50,12 @@ TRAJECTORY_BUILDER_2D.submaps.num_range_data = 60
 TRAJECTORY_BUILDER_2D.motion_filter.max_time_seconds = 0.25
 TRAJECTORY_BUILDER_2D.motion_filter.max_distance_meters = 0.04
 TRAJECTORY_BUILDER_2D.motion_filter.max_angle_radians = math.rad(0.5)
--- 官方走廊/单墙视角的 scan translation 存在侧向多解；提高控制先验权重，
--- 仍保留占据栅格残差用于小范围修正和闭环。
-TRAJECTORY_BUILDER_2D.ceres_scan_matcher.translation_weight = 100.0
-TRAJECTORY_BUILDER_2D.ceres_scan_matcher.rotation_weight = 100.0
+-- 官方走廊/单墙视角的 scan translation 存在侧向多解，需要一定控制先验权重
+-- 抗沿墙滑移；但权重过高（100）会把漂移的 odometry 先验钉死，退化对称走廊下
+-- ceres 在「漂移先验解」和「scan 匹配真值解」之间 43~49m 震荡（run_20260816_235644
+-- 实测 map→base 8 次大跳）。降到 50 给 scan matching 更多纠正空间，真机验证。
+TRAJECTORY_BUILDER_2D.ceres_scan_matcher.translation_weight = 50.0
+TRAJECTORY_BUILDER_2D.ceres_scan_matcher.rotation_weight = 50.0
 POSE_GRAPH.optimize_every_n_nodes = 60
 -- 官方随机楼宇包含大量外观几乎相同的长直墙。默认 15 m 搜索半径会把相隔
 -- 3~7 m 的重复走廊误连成闭环，实测导致地图折叠、Frontier 在不足 1 m 处
