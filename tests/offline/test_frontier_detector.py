@@ -25,6 +25,7 @@ from hazardwalker_nav.frontier_detector import (  # noqa: E402
     entry_ingress_constraint_active,
     entry_ingress_half_angles_deg,
     find_frontiers,
+    is_pose_jump,
     Frontier,
     frontier_route_is_excessive_detour,
     nearest_frontier_basin_key,
@@ -285,6 +286,30 @@ def test_return_watchdog_counts_real_motion_even_when_it_moves_away_from_home():
         current_y=0.02,
         minimum_distance_m=0.10,
     ) is False
+
+
+def test_pose_jump_rejects_instantaneous_teleport_but_keeps_normal_motion():
+    # 正常底盘 0.35 m/s，一帧 0.1s 位移约 0.035m，远小于 1.0*0.1+0.5。
+    assert not is_pose_jump(0.035, 0.1, 1.0, 0.5)
+    # 实测 Cartographer 相似走廊多解瞬移 7.5m 与 31m。
+    assert is_pose_jump(7.5, 0.1, 1.0, 0.5)
+    assert is_pose_jump(31.0, 0.1, 1.0, 0.5)
+
+
+def test_pose_jump_allows_recovery_after_tf_gap_without_false_positive():
+    # TF 短暂丢失后恢复，1s 内正常位移 0.35m 不应误判为跳变。
+    assert not is_pose_jump(0.35, 1.0, 1.0, 0.5)
+    # 但同样 1s 内瞬移 5m 仍是跳变。
+    assert is_pose_jump(5.0, 1.0, 1.0, 0.5)
+
+
+def test_pose_jump_handles_invalid_inputs_and_negative_elapsed():
+    assert not is_pose_jump(float('nan'), 0.1)
+    assert not is_pose_jump(1.0, float('nan'))
+    assert not is_pose_jump('bad', 0.1)
+    # 负 elapsed 按 0 处理：位移超过固定容差仍判跳变，低于容差则放行。
+    assert is_pose_jump(1.0, -0.5)
+    assert not is_pose_jump(0.3, -0.5)
 
 
 def test_concave_frontier_uses_an_actual_free_frontier_cell_as_goal():

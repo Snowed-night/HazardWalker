@@ -44,6 +44,7 @@ from hazardwalker_nav.frontier_detector import (
     entry_ingress_constraint_active,
     entry_ingress_half_angles_deg,
     find_frontiers,
+    is_pose_jump,
     frontier_route_is_excessive_detour,
     grid_to_world,
     nearest_frontier_basin_key,
@@ -163,6 +164,12 @@ class FrontierExplorerNode(Node):
         self.declare_parameter('return_recovery_turn_duration_s', 2.0)
         self.declare_parameter('pose_fresh_timeout_s', 1.0)
         self.declare_parameter('scan_fresh_timeout_s', 1.0)
+        # 定位跳变防御：Cartographer 在对称/重复走廊存在 scan matching 多解，
+        # map→base 会在相似位置之间瞬移（实测 7.5~31 m）。相邻合法帧位移若
+        # 超过「最大允许速度 × 时间 + 固定容差」，判定为跳变并丢弃该帧位姿，
+        # 保持上一次有效位姿，避免返航 A* 被错误坐标反复打断。
+        self.declare_parameter('pose_jump_max_speed_m_s', 1.0)
+        self.declare_parameter('pose_jump_min_distance_m', 0.50)
         self.declare_parameter('navigation_min_clearance_m', 0.45)
         # 安全门禁把期望运动归零时，普通卡死检测看不到“已请求但被拦截”的
         # 动作。超过该仿真时间后退避当前前沿，避免在门口永久静止。
@@ -241,6 +248,10 @@ class FrontierExplorerNode(Node):
         self._initial_heading_yaw: Optional[float] = None
         self._last_pose_stamp: Optional[Tuple[int, int]] = None
         self._last_pose_monotonic: Optional[float] = None
+        # 定位跳变防御：上一次被接受的位姿单调时间与累计跳变计数。
+        self._last_valid_pose_monotonic: Optional[float] = None
+        self._pose_jump_count = 0
+        self._pose_jump_last_log_monotonic = 0.0
         self.tf_buffer = tf2_ros.Buffer()
         self.tf_listener = tf2_ros.TransformListener(self.tf_buffer, self)
 
@@ -1505,8 +1516,31 @@ class FrontierExplorerNode(Node):
                 rclpy.time.Time(),
                 rclpy.duration.Duration(seconds=0.5),
             )
-            self.robot_x = transform.transform.translation.x
-            self.robot_y = transform.transform.translation.y
+            new_x = transform.transform.translation.x
+            new_y = transform.transform.translation.y
+            now_mono = time.monotonic()
+            # 定位跳变防御：超过物理上限的位移帧被丢弃，保留上一次位姿，
+            # 避免返航 A* 用错误坐标反复重规划。
+            if self._last_valid_pose_monotonic is not None:
+                displacement = math.hypot(
+                    new_x - self.robot_x, new_y - self.robot_y)
+                if is_pose_jump(
+                        displacement,
+                        now_mono - self._last_valid_pose_monotonic,
+                        float(self.get_parameter(
+                            'pose_jump_max_speed_m_s').value),
+                        float(self.get_parameter(
+                            'pose_jump_min_distance_m').value)):
+                    self._pose_jump_count += 1
+                    if now_mono - self._pose_jump_last_log_monotonic > 1.0:
+                        self._pose_jump_last_log_monotonic = now_mono
+                        self.get_logger().warn(
+                            f'pose jump rejected: {displacement:.2f}m '
+                            f'(total={self._pose_jump_count})')
+                    return
+            self.robot_x = new_x
+            self.robot_y = new_y
+            self._last_valid_pose_monotonic = now_mono
             q = transform.transform.rotation
             siny_cosp = 2.0 * (q.w * q.z + q.x * q.y)
             cosy_cosp = 1.0 - 2.0 * (q.y * q.y + q.z * q.z)
