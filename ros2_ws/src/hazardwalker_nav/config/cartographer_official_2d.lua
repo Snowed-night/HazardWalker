@@ -56,6 +56,9 @@ TRAJECTORY_BUILDER_2D.motion_filter.max_angle_radians = math.rad(0.5)
 -- 2026-08-17 试过降到 50（a3521d7）：返航 36.4→4.9min 但 occupied 1.22%→0.11%，
 -- scan matching 沿墙滑移把墙擦成 free，地图一片白，不可接受。回调 100 恢复抗滑移，
 -- 震荡改走「增大子图 num_range_data」方向。
+-- 2026-08-18 治根尝试：对称无特征走廊里 ceres 从外推位姿出发会收敛到对称错误解（跳变）。
+-- 开启实时相关性粗匹配，先全局搜出大致位置再交 ceres 精化，减少陷入局部最优。
+TRAJECTORY_BUILDER_2D.use_online_correlative_scan_matching = true
 TRAJECTORY_BUILDER_2D.ceres_scan_matcher.translation_weight = 100.0
 TRAJECTORY_BUILDER_2D.ceres_scan_matcher.rotation_weight = 100.0
 POSE_GRAPH.optimize_every_n_nodes = 60
