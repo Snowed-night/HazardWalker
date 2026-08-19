@@ -639,41 +639,6 @@ def return_pose_has_progress(
     ) >= threshold
 
 
-def is_pose_jump(
-        displacement_m: float,
-        elapsed_s: float,
-        max_speed_m_s: float = 1.0,
-        min_distance_m: float = 0.5) -> bool:
-    """判断一帧位姿位移是否超过按最大允许速度推算的物理上限。
-
-    Cartographer 在对称/重复走廊存在 scan matching 多解，map→base 会在
-    相似位置之间瞬移（实测 7.5~31 m）。正常底盘速度约 0.35 m/s，任意一帧
-    位移都远小于 ``max_speed_m_s * elapsed_s + min_distance_m``；而定位瞬移
-    会显著超过该上限。用「速度 × 时间 + 固定容差」而非固定距离阈值，可避免
-    TF 短暂丢失后恢复（elapsed 变大）时误伤正常运动。异常输入返回 False，
-    保持正常行为而不是中断控制。
-    """
-
-    try:
-        displacement = float(displacement_m)
-        elapsed = float(elapsed_s)
-        max_speed = float(max_speed_m_s)
-        min_distance = float(min_distance_m)
-    except (TypeError, ValueError):
-        return False
-    if not all(math.isfinite(value) for value in (
-            displacement,
-            elapsed,
-            max_speed,
-            min_distance,
-    )):
-        return False
-    elapsed = max(0.0, elapsed)
-    max_speed = max(0.0, max_speed)
-    min_distance = max(0.0, min_distance)
-    return displacement > max_speed * elapsed + min_distance
-
-
 def frontier_route_is_excessive_detour(
         path_distance_m: float,
         straight_distance_m: float,
