@@ -35,6 +35,7 @@ setup(
         'console_scripts': [
             'waypoint_patrol_node = hazardwalker_nav.waypoint_patrol_node:main',
             'frontier_explorer_node = hazardwalker_nav.frontier_explorer_node:main',
+            'slam_monitor = hazardwalker_nav.slam_monitor_node:main',
         ],
     },
 )
