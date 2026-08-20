@@ -193,6 +193,10 @@ def select_best_frontier(frontiers: List[Frontier], robot_wx: float, robot_wy: f
                          entry_lateral_limit_m: Optional[float] = None,
                          room_boost: float = 1.0,
                          corridor_penalty: float = 1.0,
+                         coverage_grid: Optional[np.ndarray] = None,
+                         coverage_grid_msg: Optional[object] = None,
+                         coverage_penalty_strength: float = 0.0,
+                         coverage_penalty_radius_m: float = 1.2,
                          ) -> Optional[Frontier]:
     """选择最优前沿：综合距离、信息增益、大小。
 
@@ -288,6 +292,48 @@ def select_best_frontier(frontiers: List[Frontier], robot_wx: float, robot_wy: f
     if not valid:
         return None
 
+    # 已探索区域覆盖惩罚：把候选前沿质心投影到 coverage 网格（与 map 同
+    # 原点/分辨率），统计周边半径圆内 visited 格占比，占比越高越可能是
+    # 已反复扫过的区域（房间二空转来源），评分降权。仅使用合法 SLAM 轨迹
+    # 记录的已访问格，不读取场景真值/房间布局。
+    coverage_enabled = (
+        coverage_grid is not None
+        and coverage_grid_msg is not None
+        and float(coverage_penalty_strength) > 0.0
+    )
+    coverage_radius_cells = max(
+        0,
+        int(math.ceil(float(coverage_penalty_radius_m)
+                      / float(coverage_grid_msg.info.resolution)))
+        if coverage_enabled else 0,
+    )
+
+    def _coverage_penalty(frontier) -> float:
+        """返回 [0,1] 的降权系数：1.0 不降权，越接近 0 越被抑制。"""
+        if not coverage_enabled or coverage_radius_cells <= 0:
+            return 1.0
+        info = coverage_grid_msg.info
+        res = float(info.resolution)
+        gx = int((frontier.centroid[0] - info.origin.position.x) / res)
+        gy = int((frontier.centroid[1] - info.origin.position.y) / res)
+        hh, ww = coverage_grid.shape
+        if not (0 <= gx < ww and 0 <= gy < hh):
+            return 1.0
+        x0 = max(0, gx - coverage_radius_cells)
+        x1 = min(ww, gx + coverage_radius_cells + 1)
+        y0 = max(0, gy - coverage_radius_cells)
+        y1 = min(hh, gy + coverage_radius_cells + 1)
+        sub = coverage_grid[y0:y1, x0:x1]
+        if sub.size == 0:
+            return 1.0
+        covered = float(np.count_nonzero(sub)) / float(sub.size)
+        if covered <= 0.5:
+            return 1.0
+        # covered 从 0.5 线性映射到 1.0 → 系数从 1 降到 max(0, 1-strength)
+        strength = max(0.0, float(coverage_penalty_strength))
+        ratio = (covered - 0.5) * 2.0
+        return max(0.0, 1.0 - strength * min(1.0, ratio))
+
     best = None
     best_score = -float('inf')
 
@@ -301,6 +347,7 @@ def select_best_frontier(frontiers: List[Frontier], robot_wx: float, robot_wy: f
             score *= room_boost
         elif getattr(f, 'frontier_type', '') == 'corridor':
             score *= corridor_penalty
+        score *= _coverage_penalty(f)
 
         # 上一个目标加成（减小频繁切换）
         if last_target is not None:
@@ -613,6 +660,34 @@ def _nearest_traversable_cell(traversable: np.ndarray, x: int, y: int,
         return None
     best_y, best_x = candidates[best_index]
     return int(best_x), int(best_y)
+
+
+def snap_frontier_goal_to_reachable(
+        grid: np.ndarray, grid_msg,
+        goal_wx: float, goal_wy: float,
+        search_radius_m: float = 1.5,
+        inflation_radius_m: float = 0.45,
+) -> Optional[Tuple[float, float]]:
+    """A* 空路径时把前沿质心吸附到附近最近可通行自由格。
+
+    深部房间前沿常因走廊仍处于 SLAM 建图（未知区）而让 A* 空路径；
+    若目标边缘 1.5m 内存在可通行格，就以此为新目标重算，避免 45s+ 退避
+    把尚未成图的新区域误判为不可达。只使用当前合法占用网格，不读取
+    场景真值/房间布局。
+    """
+    traversable = _build_traversable_mask(
+        grid, float(grid_msg.info.resolution), inflation_radius_m)
+    h, w = grid.shape
+    res = float(grid_msg.info.resolution)
+    gx = int((goal_wx - grid_msg.info.origin.position.x) / res)
+    gy = int((goal_wy - grid_msg.info.origin.position.y) / res)
+    if not (0 <= gx < w and 0 <= gy < h):
+        return None
+    snapped = _nearest_traversable_cell(
+        traversable, gx, gy, res, search_radius_m)
+    if snapped is None:
+        return None
+    return grid_to_world(int(snapped[0]), int(snapped[1]), grid_msg)
 
 
 def _heuristic(x1: int, y1: int, x2: int, y2: int) -> float:

@@ -17,6 +17,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 import json
 import math
 import time
@@ -52,6 +53,7 @@ from hazardwalker_nav.frontier_detector import (
     return_pose_has_progress,
     select_best_frontier,
     should_switch_frontier,
+    snap_frontier_goal_to_reachable,
     world_to_grid,
     OCCUPIED,
     FREE_MAX,
@@ -86,14 +88,24 @@ class FrontierExplorerNode(Node):
         self.declare_parameter('min_frontier_size', 10)
         # 优先覆盖最近前沿附近的房间入口，避免远端长走廊/自由射线大簇凭
         # 线性信息增益耗尽任务预算；0 表示只比较等距最近候选。
-        self.declare_parameter('frontier_locality_slack_m', 3.0)
-        self.declare_parameter('frontier_switch_margin_m', 1.0)
+        # run_20260820_171917 实锤的深部空转修复：locality_slack 从 3.0
+        # 放宽到 8.0，让深部房间前沿也能进入评分池（原值下近场小簇垄断，
+        # 机器人在房间二反复横跳，深部前沿被选多次却从未真正走到）。切换
+        # 余量 1.0→2.0、进度保护 45s→120s，保证 20m+ 长走廊目标走完不半途
+        # 被近场挑战者劫走。
+        self.declare_parameter('frontier_locality_slack_m', 8.0)
+        self.declare_parameter('frontier_switch_margin_m', 2.0)
         self.declare_parameter('frontier_minimum_hold_s', 8.0)
         # 只要当前目标仍持续缩短合法 SLAM 距离，就不被地图刷新产生的近场
         # 新前沿抢占；否则机器人会在长走廊两端反复掉头，始终到不了房间入口。
         self.declare_parameter('frontier_recent_progress_protection_s', 12.0)
         self.declare_parameter(
-            'frontier_progress_protection_max_hold_s', 45.0)
+            'frontier_progress_protection_max_hold_s', 120.0)
+        # 已探索区域覆盖惩罚：候选前沿周边 1.2m 半径内已被机器人标记为
+        # visited 的自由格占比越高，评分降权越多。防止同一区域（房间二）
+        # 的小碎片前沿被反复选回空转。仅在 coverage_tracker 启用时生效。
+        self.declare_parameter('coverage_penalty_enabled', True)
+        self.declare_parameter('coverage_penalty_strength', 1.0)
         self.declare_parameter('frontier_net_progress_timeout_s', 30.0)
         self.declare_parameter('frontier_net_progress_distance_m', 0.25)
         # 欧氏距离很近但 A* 必须绕墙十余米的目标会吞掉大量搜索预算。仅当
@@ -185,7 +197,9 @@ class FrontierExplorerNode(Node):
             'frontier_observation_sweep_rad', 0.0)  # 2026-08-19: 走廊/墙沿到达不再原地转圈，环视仅保留在房间探索内
         self.declare_parameter('frontier_observation_sweep_speed', 0.60)
         self.declare_parameter('frontier_observation_sweep_timeout_s', 18.0)
-        self.declare_parameter('unreachable_frontier_ttl_s', 45.0)
+        # 深部房间前沿常因走廊尚在 SLAM 建图中而 A* 空路径；缩短初犯退避
+        # 让深部前沿更快重试（45→30s），配合 A* 吸附重试补丁降低误判。
+        self.declare_parameter('unreachable_frontier_ttl_s', 30.0)
         self.declare_parameter('unreachable_frontier_max_ttl_s', 180.0)
         self.declare_parameter('unreachable_frontier_radius_m', 0.45)
         # A* 的空结果既可能表示单个目标不连通，也可能是当前起点吸附失败、
@@ -195,6 +209,14 @@ class FrontierExplorerNode(Node):
         # 必须长于基础 unreachable TTL + 一次重规划周期，否则目标刚过期前
         # 就会误判完成，永远没有机会用扩展后的地图重试。
         self.declare_parameter('frontier_completion_grace_s', 60.0)
+        # 补丁D（位姿创新门控）：/tf map→base 存在双发布源（cartographer +
+        # 平台 adapter 50Hz 中继 ROS1 tf）时，两帧间有恒定 ~82° 刚性旋转，
+        # 机器人位姿会每隔数秒瞬时翻转。按物理运动上界对每次位姿更新做
+        # 门控：超界视为伪源翻转，保持上一帧已接受位姿；连续超界多次才
+        # 强制采纳（容忍真实重锚）。门控只作用于位姿值，tf 新鲜度照常刷新。
+        self.declare_parameter('pose_warp_gate_dx_m', 2.5)
+        self.declare_parameter('pose_warp_gate_dyaw_rad', 1.2)
+        self.declare_parameter('pose_warp_latch_streak', 6)
         # 导航数据记录
         self.declare_parameter('nav_record_enabled', True)
         self.declare_parameter('nav_record_dir', '')
@@ -284,6 +306,16 @@ class FrontierExplorerNode(Node):
         self._last_replan_time = 0.0
         self._last_return_plan_time: Optional[float] = None
         self._visited_frontiers: set = set()  # 真正到达的前沿质心
+        # 补丁C（吸附逃生舱）：同一 0.5m 盆地内吸附目标连续出现视为卡死。
+        # 值 = 该盆地最近一次吸附尝试时机/位置；同盆地连续吸附且机器人
+        # 位移 < 0.6m → 判定原地打转 → 不再吸附、直接走不可达退避。
+        self._snap_basin_last_event: dict = {}
+        # 补丁D（位姿创新门控）状态：上一次已接受位姿 + 连续超界计数。
+        self._pose_gate_ready = False
+        self._pose_gate_x = 0.0
+        self._pose_gate_y = 0.0
+        self._pose_gate_yaw = 0.0
+        self._pose_gate_reject_streak = 0
         self._entry_origin: Optional[Tuple[float, float]] = None
         self._entry_axis: Optional[Tuple[float, float]] = None
         # 暂时不可达不能永久拉黑：按空间盆地合并相邻质心，使用仿真时间
@@ -2139,12 +2171,51 @@ class FrontierExplorerNode(Node):
                 rclpy.time.Time(),
                 rclpy.duration.Duration(seconds=0.5),
             )
-            self.robot_x = transform.transform.translation.x
-            self.robot_y = transform.transform.translation.y
+            x = transform.transform.translation.x
+            y = transform.transform.translation.y
             q = transform.transform.rotation
             siny_cosp = 2.0 * (q.w * q.z + q.x * q.y)
             cosy_cosp = 1.0 - 2.0 * (q.y * q.y + q.z * q.z)
-            self.robot_yaw = math.atan2(siny_cosp, cosy_cosp)
+            yaw = math.atan2(siny_cosp, cosy_cosp)
+            # 补丁D：位姿创新门控。tf map→base 双发布源交替时位姿瞬时翻转
+            # ~82°/数米；按物理运动上界拒绝伪源翻转，保持上一帧已接受位姿，
+            # 连续超界多次才强制采纳（容忍真实重锚/换帧）。只影响位姿值，
+            # 下面的 tf 新鲜度照常刷新（门控期间控制不因拒帧而失鲜）。
+            gate_dx = float(self.get_parameter('pose_warp_gate_dx_m').value)
+            gate_dyaw = float(
+                self.get_parameter('pose_warp_gate_dyaw_rad').value)
+            latch_streak = int(
+                self.get_parameter('pose_warp_latch_streak').value)
+            if self._pose_gate_ready:
+                dpos = math.hypot(x - self._pose_gate_x, y - self._pose_gate_y)
+                dyaw = abs(
+                    ((yaw - self._pose_gate_yaw + math.pi) % (2 * math.pi))
+                    - math.pi)
+                if dpos <= gate_dx and dyaw <= gate_dyaw:
+                    self._pose_gate_x, self._pose_gate_y = x, y
+                    self._pose_gate_yaw = yaw
+                    self._pose_gate_reject_streak = 0
+                else:
+                    self._pose_gate_reject_streak += 1
+                    if self._pose_gate_reject_streak >= latch_streak:
+                        # 持续超界：真实重锚或主导源切换，强制采纳新位姿。
+                        self._pose_gate_x, self._pose_gate_y = x, y
+                        self._pose_gate_yaw = yaw
+                        self._pose_gate_reject_streak = 0
+                    else:
+                        # 伪源翻转：保持已接受位姿，机器人按上一帧继续规划。
+                        self.get_logger().debug(
+                            'Pose warp gate: rejecting tf jump '
+                            f'(dpos={dpos:.2f}m, dyaw={math.degrees(dyaw):.0f}'
+                            f'deg), streak={self._pose_gate_reject_streak}.')
+                        x, y, yaw = (self._pose_gate_x,
+                                     self._pose_gate_y,
+                                     self._pose_gate_yaw)
+            else:
+                self._pose_gate_x, self._pose_gate_y = x, y
+                self._pose_gate_yaw = yaw
+                self._pose_gate_ready = True
+            self.robot_x, self.robot_y, self.robot_yaw = x, y, yaw
             if self._initial_heading_yaw is None:
                 self._initial_heading_yaw = self.robot_yaw
             stamp = (
@@ -2464,6 +2535,20 @@ class FrontierExplorerNode(Node):
                         self.get_parameter('entry_lateral_limit_m').value),
                     room_boost=float(self.get_parameter("room_boost_score").value),
                     corridor_penalty=float(self.get_parameter("corridor_penalty_score").value),
+                    coverage_grid=(
+                        self._coverage.grid
+                        if bool(self.get_parameter(
+                            'coverage_penalty_enabled').value)
+                        and self._coverage is not None else None
+                    ),
+                    coverage_grid_msg=(
+                        self.latest_map
+                        if bool(self.get_parameter(
+                            'coverage_penalty_enabled').value)
+                        and self._coverage is not None else None
+                    ),
+                    coverage_penalty_strength=float(self.get_parameter(
+                        'coverage_penalty_strength').value),
                 )
                 selected_ingress_half_angle = half_angle
                 if selected is not None:
@@ -2641,6 +2726,75 @@ class FrontierExplorerNode(Node):
                     selected_ingress_half_angle,
                 )
                 return
+            # 补丁B：A* 空路径时先试"目标吸附重试"。深部房间前沿常因
+            # 走廊仍处于 SLAM 建图（未知区）而让 A* 空路径，直接退避会
+            # 把尚未成图的新区域误判为不可达。吸附成功后以修正后目标
+            # 重算路径，吸附失败才走 30s 退避。
+            if self.latest_map is not None:
+                # 补丁C：吸附逃生舱。同一 0.5m 盆地上次吸附后机器人位移
+                # < 0.6m（原地打转、visited 台账精度追不上质心漂移的典型
+                # 模式）→ 判定"吸附点可达但质心永久不可达"，跳过吸附直接
+                # 走不可达退避，强制换候选，恢复"此路不通就换目标"语义。
+                snap_basin = (round(best.centroid[0] * 2.0) / 2.0,
+                              round(best.centroid[1] * 2.0) / 2.0)
+                last_snap = self._snap_basin_last_event.get(snap_basin)
+                if last_snap is not None:
+                    moved_since = math.hypot(self.robot_x - last_snap[0],
+                                             self.robot_y - last_snap[1])
+                    if moved_since < 0.6:
+                        self.get_logger().warn(
+                            'Snap basin %.2f,%.2f attempted before but robot '
+                            'only moved %.2fm since (loop guard); marking '
+                            'unreachable instead of snapping again.'
+                            % (snap_basin[0], snap_basin[1], moved_since))
+                        self._mark_frontier_unreachable(best)
+                        plan_failures_this_cycle += 1
+                        candidates = [
+                            candidate for candidate in candidates
+                            if not self._frontier_is_unreachable(
+                                candidate, now_ros)
+                        ]
+                        continue
+                snapped = snap_frontier_goal_to_reachable(
+                    self.grid,
+                    self.latest_map,
+                    best.centroid[0],
+                    best.centroid[1],
+                )
+                if snapped is not None:
+                    snap_distance = math.hypot(
+                        snapped[0] - best.centroid[0],
+                        snapped[1] - best.centroid[1],
+                    )
+                    snapped_path = a_star_path(
+                        self.grid, self.latest_map,
+                        self.robot_x, self.robot_y,
+                        snapped[0], snapped[1],
+                    )
+                    if snapped_path:
+                        snapped_frontier = dataclasses.replace(
+                            best,
+                            centroid=(float(snapped[0]),
+                                      float(snapped[1])),
+                        )
+                        self.get_logger().info(
+                            'A* empty path for frontier '
+                            f'({best.centroid[0]:.2f},{best.centroid[1]:.2f}) '
+                            f'size={best.size}; snapped target '
+                            f'({snapped[0]:.2f},{snapped[1]:.2f}) '
+                            f'({snap_distance:.2f}m away) and re-planning '
+                            'succeeded.'
+                        )
+                        self._snap_basin_last_event[snap_basin] = (
+                            self.robot_x, self.robot_y)
+                        self._accept_frontier_plan(
+                            snapped_frontier,
+                            snapped_path,
+                            now_ros,
+                            entry_heading,
+                            selected_ingress_half_angle,
+                        )
+                        return
             self._mark_frontier_unreachable(best)
             plan_failures_this_cycle += 1
             candidates = [
