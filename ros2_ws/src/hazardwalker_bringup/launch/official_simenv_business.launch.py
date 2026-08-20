@@ -185,7 +185,7 @@ def _launch_frontier_explorer(
 
     parameters = {
         'exploration_timeout_s': exploration_timeout_parameter,
-        'mission_time_budget_s': 600.0,
+        'mission_time_budget_s': 1020.0,
         'minimum_return_reserve_s': 120.0,
         'min_frontier_size': 10,
         # reference.md 公开起点 yaw=+pi/2(world)，而 world->map
@@ -198,9 +198,17 @@ def _launch_frontier_explorer(
         # 官方生成器公开 footprint width 上限为 20 m；多留 2 m
         # SLAM/墙厚裕量，屏蔽横向远处楼外开放区。
         'entry_lateral_limit_m': 12.0,
+        # 探索区域约束（世界系 odom=gazebo world 轴对齐矩形）：gazebo 场景
+        # 楼体外墙 x=±9.910、南墙 y=0.090、北墙 y=35.910，门外 y<0 是户外
+        # 开放区。门外/楼外前沿一律抑制不选为目标；机器人若出区则强制导引
+        # 回楼内（_handle_region_return），避免把户外当成普通前沿继续探索。
+        'region_x_min': -9.91,
+        'region_x_max': 9.91,
+        'region_y_min': 0.09,
+        'region_y_max': 35.91,
         # 0.8 m 会让入口附近的前沿在机器人尚未运动时即被判定完成。
         'goal_tolerance_m': 0.25,
-        'linear_speed': 0.35,
+        'linear_speed': 0.45,
         'angular_speed': 1.5,
         # 控制输出走 hazardwalker_command_mux 仲裁器话题，不直接抢占 /hw/cmd_vel。
         'cmd_vel_topic': '/hw/control/navigation_cmd_vel',
@@ -306,7 +314,7 @@ def generate_launch_description():
         # 保留旧启动接口的 540 秒“请求值”；节点受 600 秒总预算和至少
         # 120 秒返航预留硬约束，实际探索上限仍不超过 480 秒，并会按距家
         # 距离和保守速度进一步提前返航。
-        DeclareLaunchArgument('exploration_timeout_s', default_value='540.0'),
+        DeclareLaunchArgument('exploration_timeout_s', default_value='900.0'),
         # ---- 多楼层探索参数（默认全部等价于单层模式，向后兼容）----
         # target_floors 用 YAML 列表字符串，如 '[0, 1, 2]'；空串=单层。
         DeclareLaunchArgument('target_floors', default_value=''),

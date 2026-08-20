@@ -33,6 +33,9 @@ class Frontier:
     size: int                       # 格子数量
     points: List[Tuple[int, int]]   # 网格坐标 [(gx, gy), ...]
     info_gain: float                # 信息增益 = size * avg_unknown_neighbors
+    frontier_type: str = 'unknown'  # room | corridor | unknown
+    aspect_ratio: float = 0.0       # bbox aspect ratio (>=1)
+    door_width_cells: int = 0       # narrow side width in cells
 
 
 def occupancy_grid_to_array(grid_msg) -> np.ndarray:
@@ -97,8 +100,29 @@ def _bfs_cluster(start_y: int, start_x: int, mask: np.ndarray, visited: np.ndarr
     return cluster
 
 
+def classify_frontier(frontier, resolution_m=0.05,
+                    corridor_aspect_threshold=2.5, narrow_width_m=1.5):
+    """Classify frontier as room or corridor by bounding box shape."""
+    if not frontier.points:
+        return frontier
+    xs = [p[0] for p in frontier.points]
+    ys = [p[1] for p in frontier.points]
+    bbox_w = max(xs) - min(xs) + 1
+    bbox_h = max(ys) - min(ys) + 1
+    longer = max(bbox_w, bbox_h)
+    shorter = min(bbox_w, bbox_h)
+    aspect = longer / max(shorter, 1)
+    ftype = 'room' if aspect < corridor_aspect_threshold else 'corridor'
+    frontier.frontier_type = ftype
+    frontier.aspect_ratio = round(aspect, 2)
+    frontier.door_width_cells = shorter
+    return frontier
+
+
 def cluster_frontiers(frontier_mask: np.ndarray, grid: np.ndarray,
-                      grid_msg) -> List[Frontier]:
+                      grid_msg,
+                      classify=True, resolution_m=0.05,
+                      corridor_aspect=2.5, narrow_door_m=1.5) -> List[Frontier]:
     """BFS 聚类前沿格子并计算每个聚类的属性。
 
     Args:
@@ -147,6 +171,11 @@ def cluster_frontiers(frontier_mask: np.ndarray, grid: np.ndarray,
                     info_gain=info,
                 ))
 
+    if classify:
+        clusters = [classify_frontier(f, resolution_m,
+                                      corridor_aspect_threshold=corridor_aspect,
+                                      narrow_width_m=narrow_door_m)
+                    for f in clusters]
     clusters.sort(key=lambda f: f.size, reverse=True)
     return clusters
 
@@ -161,7 +190,9 @@ def select_best_frontier(frontiers: List[Frontier], robot_wx: float, robot_wy: f
                          entry_origin: Optional[Tuple[float, float]] = None,
                          entry_axis: Optional[Tuple[float, float]] = None,
                          entry_backtrack_margin_m: float = 0.5,
-                         entry_lateral_limit_m: Optional[float] = None
+                         entry_lateral_limit_m: Optional[float] = None,
+                         room_boost: float = 1.0,
+                         corridor_penalty: float = 1.0,
                          ) -> Optional[Frontier]:
     """选择最优前沿：综合距离、信息增益、大小。
 
@@ -264,8 +295,12 @@ def select_best_frontier(frontiers: List[Frontier], robot_wx: float, robot_wy: f
         dist = math.hypot(f.centroid[0] - robot_wx, f.centroid[1] - robot_wy)
         dist = max(dist, 0.5)  # 避免除以零
 
-        # 综合评分：信息增益 / 距离 为主，叠加大小因子
+        # 综合评分：信息增益 / 距离 为主，叠加大小因子和房间/走廊加成
         score = f.info_gain / dist + math.log(f.size + 1) * 0.5
+        if getattr(f, 'frontier_type', '') == 'room':
+            score *= room_boost
+        elif getattr(f, 'frontier_type', '') == 'corridor':
+            score *= corridor_penalty
 
         # 上一个目标加成（减小频繁切换）
         if last_target is not None:
@@ -529,7 +564,7 @@ def _build_traversable_mask(grid: np.ndarray, resolution_m: float,
         raise ValueError('map resolution must be positive')
     # OccupancyGrid 是概率栅格；Cartographer 的已知自由区包含 1..49，
     # 只接受精确 0 会让实时地图“没有前沿、没有路径”，而 map_saver 离线图正常。
-    traversable = (grid >= FREE) & (grid <= FREE_MAX)
+    traversable = (grid >= FREE) | (grid == 255)
     radius_cells = max(0, int(math.ceil(float(inflation_radius_m) / resolution_m)))
     if radius_cells == 0:
         return traversable

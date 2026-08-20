@@ -27,7 +27,7 @@ import rclpy
 import tf2_ros
 import yaml
 from geometry_msgs.msg import Twist
-from nav_msgs.msg import OccupancyGrid
+from nav_msgs.msg import OccupancyGrid, Odometry
 from rclpy.clock import Clock, ClockType
 from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
@@ -114,9 +114,16 @@ class FrontierExplorerNode(Node):
         self.declare_parameter('entry_ingress_max_half_angle_deg', 90.0)
         # 0 表示通用环境不限制；官方 profile 按公开 20 m 楼宽上限加安全裕量。
         self.declare_parameter('entry_lateral_limit_m', 0.0)
+        # 探索区域约束：世界系（odom=gazebo world）轴对齐矩形。楼外/门外
+        # 前沿一律抑制不选为目标；机器人自身若已出区则强制导引回楼内。
+        # 默认全 0 表示不启用（通用/未知场景向后兼容）。
+        self.declare_parameter('region_x_min', 0.0)
+        self.declare_parameter('region_x_max', 0.0)
+        self.declare_parameter('region_y_min', 0.0)
+        self.declare_parameter('region_y_max', 0.0)
         # 官方场景前沿通常距离较近；过大的容差会把首个目标直接误判为“已到达”。
         self.declare_parameter('goal_tolerance_m', 0.25)
-        self.declare_parameter('linear_speed', 0.35)
+        self.declare_parameter('linear_speed', 0.45)
         self.declare_parameter('minimum_linear_speed', 0.30)
         # 官方 A1 RL 控制器对小角速度响应明显偏弱；1.5 rad/s 指令在固定
         # SEED 实测能产生可控转向，控制器仍会在底层限幅。
@@ -175,7 +182,7 @@ class FrontierExplorerNode(Node):
         # 到达房间入口或局部前沿后主动完成一圈 RGB-D 环视，避免相机只沿
         # 路径切线匆匆经过；感知候选仍可随时抢占进入严格 REOBSERVING。
         self.declare_parameter(
-            'frontier_observation_sweep_rad', 2.0 * math.pi)
+            'frontier_observation_sweep_rad', 0.0)  # 2026-08-19: 走廊/墙沿到达不再原地转圈，环视仅保留在房间探索内
         self.declare_parameter('frontier_observation_sweep_speed', 0.60)
         self.declare_parameter('frontier_observation_sweep_timeout_s', 18.0)
         self.declare_parameter('unreachable_frontier_ttl_s', 45.0)
@@ -199,6 +206,22 @@ class FrontierExplorerNode(Node):
         self.declare_parameter('elevator_entry_floor', 0)
         self.declare_parameter('stair_detection_enabled', False)
         self.declare_parameter('simenv_container', 'simenv_ros1_hazard_platform')
+        # 房间/走廊分类参数
+        self.declare_parameter('room_boost_score', 2.0)
+        self.declare_parameter('corridor_penalty_score', 0.3)
+        self.declare_parameter('room_coverage_threshold', 0.85)
+        # Phase 3: 房间完整探索 enter -> explore(走深+覆盖) -> exit
+        # explore 阶段覆盖 >= room_coverage_threshold 才认为探索完整
+        self.declare_parameter('room_entry_depth_m', 2.0)
+        self.declare_parameter('room_half_extent_m', 4.0)
+        self.declare_parameter('room_explore_timeout_s', 60.0)
+        self.declare_parameter('room_enter_fail_s', 3.0)
+        self.declare_parameter('room_sweep_timeout_s', 30.0)
+        self.declare_parameter('room_scan_turn_speed', 0.8)
+        # 门口候选触发：corridor 型前沿窄边 >= room_trigger_min_door_m 且
+        # aspect <= room_trigger_max_aspect 时也尝试进入（enter 有快失败兜底）
+        self.declare_parameter('room_trigger_max_aspect', 4.0)
+        self.declare_parameter('room_trigger_min_door_m', 1.0)
         # 每层电梯入口在 map 帧的坐标 {floor: [x, y]}。map 帧每层 SLAM 重建
         # 后原点会变，无法用固定世界坐标推导，必须真机标定后注入；空字符串时
         # 跨层 navigating 阶段会告警并跳过，避免导航到地图原点。ROS2 参数无
@@ -295,9 +318,23 @@ class FrontierExplorerNode(Node):
         self._stuck_since: Optional[float] = None
         self._safety_blocked_since_ros: Optional[float] = None
 
+        # ---- 世界系参考（区域约束） ----
+        self._world_x: Optional[float] = None
+        self._world_y: Optional[float] = None
+        self._world_yaw: Optional[float] = None
+        # map↔world 变换跳变门禁：map 重锚/localizer yaw 漂移导致变换瞬跳时
+        # hold 区域过滤（本周期视为区内），靠机器人侧 region-return 兜底防出区。
+        self._region_last_transform = None  # last-good: (yaw_diff, s, c, dx, dy)
+        self._region_transform_hold_until = None
+
         # ---- 返航 ----
         self.start_x = float(self.get_parameter('start_x').value)
         self.start_y = float(self.get_parameter('start_y').value)
+        # world 帧家：INIT 时用 /hw/odom 捕获物理出发点。map 帧 start_x/start_y
+        # 会随 SLAM 重锚漂移失效，RETURNING 必须以世界帧家为准、规划时用当前
+        # map↔world 变换重投影回 map 帧，避免返航目标被重锚作废（2026-08-20
+        # run_20260820_171917 实锤：RETURNING 卡在 map(0,0) 假目标上打转）。
+        self._home_world: Optional[Tuple[float, float]] = None
         self._return_best_distance_home: Optional[float] = None
         self._return_last_progress_time: Optional[float] = None
         self._return_last_progress_pose: Optional[Tuple[float, float]] = None
@@ -317,6 +354,11 @@ class FrontierExplorerNode(Node):
             LaserScan, '/hw/scan', self.on_scan, 10)
         self.hazard_sub = self.create_subscription(
             String, '/hw/perception/hazard_detections', self.on_hazard, 10)
+        # 世界真值里程计：adapter 把 /Odometry_gazebo（gazebo world 系）转发
+        # 为 /hw/odom。区域约束用它判断机器人/前沿在世界系中的位置。若环境
+        # 没有该话题（非官方/离线），区域约束自动失效，不影响通用探索。
+        self.odom_sub = self.create_subscription(
+            Odometry, '/hw/odom', self.on_odom, 10)
         self.cmd_pub = self.create_publisher(
             Twist, str(self.get_parameter('cmd_vel_topic').value), 10)
         self.state_pub = self.create_publisher(String, '/hw/nav/state', 10)
@@ -350,6 +392,24 @@ class FrontierExplorerNode(Node):
         self._floor_transition_from_floor: Optional[int] = None
         self._elevator_positions: dict = {}
         self._last_elevator_call_ros: Optional[float] = None
+
+        # ---- Phase 3: 房间完整探索 enter | explore | exit ----
+        self._room_sweep_active: bool = False
+        self._room_sweep_frontier: Optional[Frontier] = None
+        self._room_sweep_phase: str = ''  # enter | explore | exit
+        self._room_sweep_start_time: Optional[float] = None
+        self._room_sweep_entry_pose: Optional[Tuple[float, float]] = None
+        self._room_sweep_yaw_start: Optional[float] = None
+        self._room_enter_blocked_since_ros: Optional[float] = None
+        self._room_internal_target: Optional[Frontier] = None
+        self._room_internal_path: list = []
+        self._room_internal_path_i: int = 0
+        self._room_exit_started_ros: Optional[float] = None
+        self._room_exit_path: list = []
+        self._room_exit_path_i: int = 0
+        self._room_spin_last_yaw: Optional[float] = None
+        self._room_spin_accum: float = 0.0
+        self._room_no_target_spins: int = 0
 
         # floor_index 发布器（发布 Int32，触发 scan_imu_localizer 重置匹配地图）
         self.floor_index_pub = self.create_publisher(
@@ -395,6 +455,15 @@ class FrontierExplorerNode(Node):
         if stamp != (0, 0) and stamp != self._last_scan_stamp:
             self._last_scan_stamp = stamp
             self._last_scan_monotonic = time.monotonic()
+
+    def on_odom(self, msg: Odometry):
+        """保存 gazebo 世界系真值位姿（区域约束参考）。"""
+        self._world_x = msg.pose.pose.position.x
+        self._world_y = msg.pose.pose.position.y
+        q = msg.pose.pose.orientation
+        siny_cosp = 2.0 * (q.w * q.z + q.x * q.y)
+        cosy_cosp = 1.0 - 2.0 * (q.y * q.y + q.z * q.z)
+        self._world_yaw = math.atan2(siny_cosp, cosy_cosp)
 
     def _trigger_reobservation(self, request: dict):
         """执行感知侧已经判定的明确复查动作。"""
@@ -595,10 +664,7 @@ class FrontierExplorerNode(Node):
                 self.get_parameter('exploration_timeout_s').value),
             mission_budget_s=float(
                 self.get_parameter('mission_time_budget_s').value),
-            distance_home_m=math.hypot(
-                self.robot_x - self.start_x,
-                self.robot_y - self.start_y,
-            ),
+            distance_home_m=self._distance_home_m(),
             return_speed_mps=conservative_speed,
             minimum_return_reserve_s=float(
                 self.get_parameter('minimum_return_reserve_s').value),
@@ -708,9 +774,11 @@ class FrontierExplorerNode(Node):
                 (self.grid >= 0) & (self.grid <= FREE_MAX)
             ).sum()
             if free_cells > 100 or elapsed > 10.0:
-                # 记录初始位姿作为家
+                # 记录初始位姿作为家；world 帧家保证 map 重锚后仍指向物理出发点。
                 self.start_x = self.robot_x
                 self.start_y = self.robot_y
+                if self._world_x is not None and self._world_y is not None:
+                    self._home_world = (self._world_x, self._world_y)
                 self.get_logger().info(
                     f'Map ready ({free_cells} free cells). '
                     f'Starting exploration from ({self.start_x:.2f}, {self.start_y:.2f})')
@@ -726,6 +794,92 @@ class FrontierExplorerNode(Node):
             cmd.angular.z = 0.5
         return cmd
 
+    def _handle_region_return(self) -> Twist:
+        """机器人已走出探索区域：计算区域内最近可达点并导引回去。
+
+        不参与常规前沿选择；返回区域后才恢复正常探索。目标标记为
+        synthetic（frontier_type='region_return'），到达后不记 visited、
+        不触发房间扫描。
+        """
+
+        cmd = Twist()
+        if self.grid is None or self.latest_map is None:
+            return cmd
+        if self._world_x is None:
+            return cmd
+        # transform 在跳变 hold 期可能返回 None；world→map 用 last-good 兜底，
+        # 安全网不得因 hold 而失效。
+
+        # 区域内最近点（世界系，向内收 0.6 m，避免目标贴墙/贴门板）
+        x_min, x_max, y_min, y_max = self._region_bounds()
+        inset_x_min, inset_x_max = x_min + 0.6, x_max - 0.6
+        inset_y_min, inset_y_max = y_min + 0.6, y_max - 0.6
+        gx = min(max(self._world_x, inset_x_min), inset_x_max)
+        gy = min(max(self._world_y, inset_y_min), inset_y_max)
+        target_map = self._region_world_to_map(gx, gy)
+        # last-good 变换可能过期（map 重锚大幅改动帧）：若目标距机器人现 map
+        # 位过远则原地扫描等变换恢复，避免朝过期目标乱走。
+        if math.hypot(target_map[0] - self.robot_x,
+                      target_map[1] - self.robot_y) > 12.0:
+            self.current_target = None
+            self.current_path = []
+            self.get_logger().warn(
+                'Region return target stale (map frame moved); '
+                'holding for map update.')
+            return self._hold_scan_rotation(cmd)
+
+        # 已在回区路径中且有进展：继续当前的，避免每帧重算打断转向。
+        if self.current_target is not None and len(self.current_path) > 0:
+            if (getattr(self.current_target, 'frontier_type', '')
+                    == 'region_return'
+                    and math.hypot(
+                        target_map[0] - self.current_target.centroid[0],
+                        target_map[1] - self.current_target.centroid[1],
+                    ) < 1.5):
+                return self._follow_path()
+
+        path = a_star_path(
+            self.grid, self.latest_map,
+            self.robot_x, self.robot_y,
+            target_map[0], target_map[1],
+        )
+        if not path or len(path) == 0:
+            # 没有可行路径（目标格被占/地图瞬时断裂）：原地扫描等下一次。
+            self.current_target = None
+            self.current_path = []
+            self.get_logger().warn(
+                'Region return: no path to nearest in-region point '
+                f'({gx:.2f}, {gy:.2f}) world; holding for map update.'
+            )
+            return self._hold_scan_rotation(cmd)
+
+        ret = Frontier(
+            centroid=target_map, size=1, points=[], info_gain=0.0,
+            frontier_type='region_return',
+        )
+        self.current_target = ret
+        self.current_path = path
+        self.path_index = 0
+        self._current_target_selected_ros_sec = self._ros_time_sec()
+        self._reset_frontier_progress_watchdog()
+        self.get_logger().warn(
+            f'Outside exploration region at world ({self._world_x:.2f}, '
+            f'{self._world_y:.2f}); returning to ({gx:.2f}, {gy:.2f}).'
+        )
+        return self._follow_path()
+
+    def _hold_scan_rotation(self, cmd: Twist) -> Twist:
+        """区域内/区域外等待时缓慢原地扫描，积累地图更新。"""
+
+        if self._scan_allows_action(
+                'turn_left',
+                float(self.get_parameter('rotation_min_clearance_m').value)):
+            cmd.angular.z = min(
+                float(self.get_parameter('frontier_recovery_turn_speed').value),
+                float(self.get_parameter('angular_speed').value),
+            )
+        return cmd
+
     def _handle_exploring(self) -> Twist:
         """EXPLORING: 前沿检测 → 路径规划 → 速度控制。"""
         cmd = Twist()
@@ -738,6 +892,13 @@ class FrontierExplorerNode(Node):
         now_ros = self._ros_time_sec()
         if self._frontier_observation_remaining_rad > 0.0:
             return self._handle_frontier_observation_sweep(now_ros)
+        if self._room_sweep_active:
+            return self._handle_room_sweep(now_ros)
+
+        # 机器人已出探索区域：优先导引回楼内，跳过常规前沿选择。
+        if self._region_enabled() and not self._robot_in_region_world():
+            return self._handle_region_return()
+
         replan_interval = float(self.get_parameter('replan_interval_s').value)
 
         # 无目标时也遵守重规划间隔；否则 steady-clock 10 Hz 控制会每帧重复
@@ -748,6 +909,12 @@ class FrontierExplorerNode(Node):
 
         # 无前沿 → 探索完成，返航
         if self.current_target is None and len(self.current_path) == 0:
+            # 只剩区域外前沿时不做完成判定：replan 已在内部短路 keep，这里
+            # 只是兜底再确认一次（map 更新期间 replan 可能因 grid 尚未刷新
+            # 而提前清目标，此时应等待而不是把门外前沿误判成探索完成）。
+            if self._all_frontiers_outside_region_only():
+                self._no_reachable_frontier_since = None
+                return self._hold_scan_rotation(cmd)
             if self._entry_axis is None:
                 # INIT 为建图做过原地旋转，深度相机可能停在入口侧面，严格
                 # 入楼锥自然还没有前沿。先主动回正到公开入口朝向并持续采集，
@@ -848,6 +1015,448 @@ class FrontierExplorerNode(Node):
         # 沿路径前进
         cmd = self._follow_path()
         return cmd
+
+    def _should_enter_room(self, frontier: Frontier) -> bool:
+        """判定前沿是否值得尝试进入房间探索。
+
+        room 型前沿直接进入；corridor 型但窄边 >= room_trigger_min_door_m、
+        aspect <= room_trigger_max_aspect 的（很可能是被 bbox 纵横比判低的
+        房间门口条带）也尝试进入——enter 阶段用连续受阻快速失败兜底。
+        """
+        ftype = getattr(frontier, 'frontier_type', '')
+        if ftype == 'room':
+            return True
+        if (self.latest_map is None
+                or self.latest_map.info.resolution <= 0.0):
+            return False
+        aspect = getattr(frontier, 'aspect_ratio', 0.0) or 0.0
+        narrow_cells = getattr(frontier, 'door_width_cells', 0) or 0
+        narrow_m = narrow_cells * self.latest_map.info.resolution
+        return (0.0 < aspect <= float(self.get_parameter(
+                    'room_trigger_max_aspect').value)
+                and narrow_m >= float(self.get_parameter(
+                    'room_trigger_min_door_m').value))
+
+    def _start_room_sweep(self, frontier: Frontier):
+        """启动房间完整探索 enter -> explore -> exit 序列。"""
+        self._room_sweep_active = True
+        self._room_sweep_frontier = frontier
+        self._room_sweep_phase = 'enter'
+        self._room_sweep_start_time = self._ros_time_sec()
+        self._room_sweep_entry_pose = (self.robot_x, self.robot_y)
+        self._room_sweep_yaw_start = self.robot_yaw
+        self._room_enter_blocked_since_ros = None
+        self._room_internal_target = None
+        self._room_internal_path = []
+        self._room_internal_path_i = 0
+        self._room_exit_started_ros = None
+        self._room_exit_path = []
+        self._room_exit_path_i = 0
+        self._room_spin_last_yaw = None
+        self._room_spin_accum = 0.0
+        self._room_no_target_spins = 0
+        key = self._frontier_key(frontier)
+        self.get_logger().info(
+            f'Room sweep START for frontier {key} '
+            f'at ({frontier.centroid[0]:.1f},{frontier.centroid[1]:.1f}) '
+            f'type={frontier.frontier_type} aspect={frontier.aspect_ratio}'
+        )
+
+    def _room_refresh_frontiers(self, wall_now: float):
+        """房间探索期间刷新前沿。
+
+        _handle_exploring 因提前 return 不刷新 self.frontiers，房间内部走深后
+        会产生新的内部前沿，必须在本状态机内按 replan_interval_s 主动重聚类。
+        """
+        if self.grid is None or self.latest_map is None:
+            return
+        replan_interval = max(1.0, float(self.get_parameter(
+            'replan_interval_s').value))
+        if wall_now - self._last_replan_time <= replan_interval:
+            return
+        frontier_mask = find_frontiers(self.grid)
+        self.frontiers = cluster_frontiers(
+            frontier_mask, self.grid, self.latest_map,
+            classify=True, resolution_m=0.05)
+        self._last_replan_time = wall_now
+
+    def _room_coverage_ratio(self) -> Optional[float]:
+        """房间半幅矩形内 已访问自由格 / 已知自由格 比例。
+
+        以入口为中心 room_half_extent_m 方形区域，自由格与 robot 走过半径
+        (CoverageGrid) 求交集；数据不足（无地图/入口）返回 None。
+        """
+        if (self._coverage is None or self.grid is None
+                or self.latest_map is None
+                or self._room_sweep_entry_pose is None):
+            return None
+        half = max(1.0, float(self.get_parameter(
+            'room_half_extent_m').value))
+        res = self.latest_map.info.resolution
+        if res <= 0.0:
+            return None
+        origin = self.latest_map.info.origin
+        gx = int((self._room_sweep_entry_pose[0]
+                  - origin.position.x) / res)
+        gy = int((self._room_sweep_entry_pose[1]
+                  - origin.position.y) / res)
+        r = max(1, int(round(half / res)))
+        h, w = self.grid.shape
+        x0, x1 = max(0, gx - r), min(w, gx + r + 1)
+        y0, y1 = max(0, gy - r), min(h, gy + r + 1)
+        if x1 <= x0 or y1 <= y0:
+            return None
+        patch = self.grid[y0:y1, x0:x1]
+        patch_free = (patch >= 0) & (patch <= FREE_MAX)
+        total = int(patch_free.sum())
+        if total == 0:
+            return None
+        covered = int((self._coverage.grid[y0:y1, x0:x1]
+                       & patch_free).sum())
+        return covered / float(total)
+
+    def _room_internal_frontiers(self) -> List[Frontier]:
+        """房间半幅范围内 未访问、未不可达 的前沿，按到机器人距离排序。"""
+        if self._room_sweep_entry_pose is None:
+            return []
+        half = max(1.0, float(self.get_parameter(
+            'room_half_extent_m').value))
+        radius_sq = half * half
+        now_ros = self._ros_time_sec()
+        ex, ey = self._room_sweep_entry_pose
+        candidates = []
+        for f in self.frontiers:
+            key = self._frontier_key(f)
+            if key in self._visited_frontiers:
+                continue
+            if self._frontier_is_unreachable(f, now_ros):
+                continue
+            dx = f.centroid[0] - ex
+            dy = f.centroid[1] - ey
+            if dx * dx + dy * dy <= radius_sq:
+                candidates.append(f)
+        candidates.sort(key=lambda f: (
+            (f.centroid[0] - self.robot_x) ** 2
+            + (f.centroid[1] - self.robot_y) ** 2))
+        return candidates
+
+    def _room_drive_to(self, wx: float, wy: float,
+                       cmd: Twist, tol_m: float) -> bool:
+        """车头引导移动至世界点，受激光门禁约束。返回 True 表示已到达。"""
+        dist = math.hypot(wx - self.robot_x, wy - self.robot_y)
+        if dist <= tol_m:
+            return True
+        target_yaw = math.atan2(wy - self.robot_y, wx - self.robot_x)
+        heading_error = normalize_angle(target_yaw - self.robot_yaw)
+        if abs(heading_error) > float(self.get_parameter(
+                'heading_tolerance_rad').value):
+            action = ('turn_left' if heading_error > 0.0
+                      else 'turn_right')
+            if self._scan_allows_action(
+                    action,
+                    float(self.get_parameter(
+                        'rotation_min_clearance_m').value)):
+                cmd.angular.z = max(
+                    -float(self.get_parameter('angular_speed').value),
+                    min(float(self.get_parameter('angular_speed').value),
+                        heading_error))
+            return False
+        if self._scan_allows_action(
+                'move_forward',
+                float(self.get_parameter(
+                    'navigation_min_clearance_m').value)):
+            cmd.linear.x = min(
+                float(self.get_parameter('linear_speed').value), dist)
+        return False
+
+    def _room_spin_in_place(self, cmd: Twist, turn_speed: float,
+                            wall_now: float) -> bool:
+        """原地左转一圈（累计角增量归一 340°）。转完返回 True。"""
+        prev = getattr(self, '_room_spin_last_yaw', None)
+        if prev is None:
+            self._room_spin_last_yaw = self.robot_yaw
+            self._room_spin_accum = 0.0
+        else:
+            self._room_spin_accum = getattr(
+                self, '_room_spin_accum', 0.0) + abs(normalize_angle(
+                    self.robot_yaw - prev))
+        self._room_spin_last_yaw = self.robot_yaw
+        if self._room_spin_accum >= math.radians(340):
+            self._room_spin_last_yaw = None
+            self._room_spin_accum = 0.0
+            return True
+        if self._scan_allows_action(
+                'turn_left',
+                float(self.get_parameter(
+                    'rotation_min_clearance_m').value)):
+            cmd.angular.z = turn_speed
+        return False
+
+    def _room_reached_internal_target(self):
+        """当前房内目标已环视完毕：标记 visited、清空回到选目标环节。"""
+        target = self._room_internal_target
+        if target is not None:
+            key = self._frontier_key(target)
+            self._visited_frontiers.add(key)
+            self._clear_unreachable_frontier_basin(target)
+            self.get_logger().info(
+                'In-room frontier reached & swept, marked visited: '
+                f'{key}')
+        self._room_internal_target = None
+        self._room_internal_path = []
+        self._room_internal_path_i = 0
+        self._room_spin_last_yaw = None
+        self._room_spin_accum = 0.0
+
+    def _room_begin_exit(self):
+        """切入 exit 阶段（先清空内部推进状态）。"""
+        if self._room_sweep_phase != 'exit':
+            self._room_sweep_phase = 'exit'
+            self._room_exit_path = []
+            self._room_exit_path_i = 0
+            self._room_internal_target = None
+            self._room_internal_path = []
+            self._room_internal_path_i = 0
+            self._room_spin_last_yaw = None
+            self._room_spin_accum = 0.0
+            self.get_logger().info('Room explore complete; exiting room.')
+
+    def _handle_room_sweep(self, now_ros: float) -> Twist:
+        """Phase 3: 房间完整探索 enter -> explore(走深+覆盖) -> exit。
+
+        enter:   沿进入朝向直行 room_entry_depth_m，走满视为进入房间；
+                 期间连续受阻 room_enter_fail_s 则快速失败回到正常探索。
+        explore: 主动刷新房内前沿，A*+车头引导走入房间内部并原地环视，
+                 直到覆盖 >= room_coverage_threshold 或 explore 超时。
+        exit:    A* 回入口附近（无路则直视逼近，激光门禁兜底），
+                 完成并清扫房内前沿。
+        """
+        cmd = Twist()
+        if not self._room_sweep_active:
+            return cmd
+        wall_now = time.monotonic()
+        elapsed = now_ros - (self._room_sweep_start_time or now_ros)
+        entry_depth = max(0.5, float(self.get_parameter(
+            'room_entry_depth_m').value))
+        sweep_timeout = max(5.0, float(self.get_parameter(
+            'room_sweep_timeout_s').value))
+        explore_timeout = max(5.0, float(self.get_parameter(
+            'room_explore_timeout_s').value))
+        cover_threshold = max(
+            0.1, min(0.99, float(self.get_parameter(
+                'room_coverage_threshold').value)))
+        turn_speed = min(
+            abs(float(self.get_parameter('room_scan_turn_speed').value)),
+            abs(float(self.get_parameter('angular_speed').value)),
+        )
+        entry_tol = max(0.3, float(self.get_parameter(
+            'goal_tolerance_m').value))
+
+        # ---- enter ----
+        if self._room_sweep_phase == 'enter':
+            dist_entered = math.hypot(
+                self.robot_x - self._room_sweep_entry_pose[0],
+                self.robot_y - self._room_sweep_entry_pose[1])
+            if dist_entered < entry_depth:
+                if self._scan_allows_action(
+                        'move_forward',
+                        float(self.get_parameter(
+                            'rotation_min_clearance_m').value)):
+                    cmd.linear.x = float(self.get_parameter(
+                        'linear_speed').value)
+                    self._room_enter_blocked_since_ros = None
+                elif self._room_enter_blocked_since_ros is None:
+                    self._room_enter_blocked_since_ros = now_ros
+                elif (now_ros - self._room_enter_blocked_since_ros
+                      >= float(self.get_parameter(
+                          'room_enter_fail_s').value)):
+                    # 连续受阻：多半是走廊尽头 / 墙边条带被误判为房间门口，
+                    # 快速失败，作为普通前沿处理回到正常探索。
+                    self.get_logger().info(
+                        'Room entry blocked; treating frontier as '
+                        'non-room, back to normal exploration.')
+                    self._finish_room_sweep()
+                return cmd
+            # 走满 entry_depth -> 判定进入房间
+            self._room_sweep_phase = 'explore'
+            self._room_internal_target = None
+            self._room_internal_path = []
+            self._room_internal_path_i = 0
+            self.get_logger().info(
+                f'Room ENTER done ({dist_entered:.1f}m); '
+                'exploring interior.')
+            return cmd
+
+        # ---- explore ----
+        if self._room_sweep_phase == 'explore':
+            self._room_refresh_frontiers(wall_now)
+            ratio = self._room_coverage_ratio()
+            if ratio is not None and ratio >= cover_threshold:
+                self.get_logger().info(
+                    f'Room coverage {ratio * 100:.0f}% >= '
+                    f'{cover_threshold * 100:.0f}%; exiting.')
+                self._room_begin_exit()
+                return cmd
+            if elapsed >= explore_timeout:
+                self.get_logger().warn(
+                    f'Room explore timeout after {elapsed:.1f}s; exiting.')
+                self._room_begin_exit()
+                return cmd
+
+            # 选房内目标
+            if self._room_internal_target is None:
+                targets = self._room_internal_frontiers()
+                if targets:
+                    self._room_internal_target = targets[0]
+                    self._room_internal_path = []
+                    self._room_internal_path_i = 0
+                    t = self._room_internal_target
+                    self.get_logger().info(
+                        f'In-room target '
+                        f'({t.centroid[0]:.1f},{t.centroid[1]:.1f}) '
+                        f'type={t.frontier_type} aspect={t.aspect_ratio}')
+                    return cmd
+                # 暂无内部前沿：原地环视（可能发现新内部前沿）；两圈仍无 ->
+                # 覆盖判定与超时在阶段顶兜底，这里也给出强制退出保险。
+                if self._room_spin_in_place(cmd, turn_speed, wall_now):
+                    spins = getattr(self, '_room_no_target_spins', 0) + 1
+                    self._room_no_target_spins = spins
+                    if spins >= 2:
+                        self.get_logger().info(
+                            'No in-room frontiers after 2 spins; '
+                            'exiting.')
+                        self._room_begin_exit()
+                return cmd
+
+            # 前往房内目标（A* 路径 + 车头引导 + 到点环视）
+            target = self._room_internal_target
+            if not self._room_internal_path:
+                path = a_star_path(
+                    self.grid, self.latest_map,
+                    self.robot_x, self.robot_y,
+                    target.centroid[0], target.centroid[1],
+                    inflation_radius_m=0.45)
+                if path:
+                    self._room_internal_path = path
+                    self._room_internal_path_i = 0
+            if self._room_internal_path:
+                while (self._room_internal_path_i
+                       < len(self._room_internal_path)):
+                    wx, wy = self._room_internal_path[
+                        self._room_internal_path_i]
+                    if self._room_drive_to(wx, wy, cmd, 0.3):
+                        self._room_internal_path_i += 1
+                    else:
+                        break
+            dist_target = math.hypot(
+                target.centroid[0] - self.robot_x,
+                target.centroid[1] - self.robot_y)
+            if dist_target <= entry_tol * 2.5:
+                # 贴近目标：原地环视一圈采集房间，转完标记 visited
+                if self._room_spin_in_place(cmd, turn_speed, wall_now):
+                    self._room_reached_internal_target()
+                return cmd
+            if not self._room_internal_path:
+                # A* 无路（目标在未知深处）：直视逼近，激光门禁兜底
+                self._room_drive_to(
+                    target.centroid[0], target.centroid[1],
+                    cmd, entry_tol * 2.5)
+            return cmd
+
+        # ---- exit ----
+        if self._room_sweep_phase == 'exit':
+            if self._room_exit_started_ros is None:
+                self._room_exit_started_ros = now_ros
+            dist_entry = math.hypot(
+                self.robot_x - self._room_sweep_entry_pose[0],
+                self.robot_y - self._room_sweep_entry_pose[1])
+            if dist_entry <= entry_tol:
+                self._finish_room_sweep()
+                return cmd
+            if not self._room_exit_path:
+                path = a_star_path(
+                    self.grid, self.latest_map,
+                    self.robot_x, self.robot_y,
+                    self._room_sweep_entry_pose[0],
+                    self._room_sweep_entry_pose[1],
+                    inflation_radius_m=0.45)
+                if path:
+                    self._room_exit_path = path
+                    self._room_exit_path_i = 0
+            if self._room_exit_path:
+                while (self._room_exit_path_i
+                       < len(self._room_exit_path)):
+                    wx, wy = self._room_exit_path[
+                        self._room_exit_path_i]
+                    if self._room_drive_to(wx, wy, cmd, 0.3):
+                        self._room_exit_path_i += 1
+                    else:
+                        break
+                if self._room_exit_path_i >= len(self._room_exit_path):
+                    self._room_exit_path = []
+            else:
+                # 无路可回：直视入口逼近，激光门禁兜底
+                self._room_drive_to(
+                    self._room_sweep_entry_pose[0],
+                    self._room_sweep_entry_pose[1], cmd, entry_tol)
+            if (now_ros - self._room_exit_started_ros
+                    > sweep_timeout):
+                self.get_logger().warn(
+                    'Room exit timeout; forcing completion.')
+                self._finish_room_sweep()
+            return cmd
+
+        # 兜底
+        if elapsed > sweep_timeout:
+            self.get_logger().warn(
+                f'Room sweep overall timeout ({elapsed:.1f}s); '
+                'forcing completion.')
+            self._finish_room_sweep()
+        return cmd
+
+    def _finish_room_sweep(self):
+        """完成房间探索：清扫房内（半幅矩形内）前沿为 visited，重置状态。"""
+        if self._room_sweep_entry_pose is not None:
+            half = max(1.0, float(self.get_parameter(
+                'room_half_extent_m').value))
+            radius_sq = half * half
+            ex, ey = self._room_sweep_entry_pose
+            swept = 0
+            for f in self.frontiers:
+                dx = f.centroid[0] - ex
+                dy = f.centroid[1] - ey
+                if dx * dx + dy * dy <= radius_sq:
+                    key = self._frontier_key(f)
+                    self._visited_frontiers.add(key)
+                    self._clear_unreachable_frontier_basin(f)
+                    swept += 1
+            self.get_logger().info(
+                f'Room sweep COMPLETE; {swept} in-room frontiers '
+                'marked visited.')
+        if self._room_sweep_frontier is not None:
+            key = self._frontier_key(self._room_sweep_frontier)
+            self._visited_frontiers.add(key)
+            self._clear_unreachable_frontier_basin(
+                self._room_sweep_frontier,
+            )
+            self.get_logger().info(
+                f'Room sweep COMPLETE: {key} marked visited')
+        self._room_sweep_active = False
+        self._room_sweep_frontier = None
+        self._room_sweep_phase = ''
+        self._room_sweep_start_time = None
+        self._room_sweep_entry_pose = None
+        self._room_sweep_yaw_start = None
+        self._room_enter_blocked_since_ros = None
+        self._room_internal_target = None
+        self._room_internal_path = []
+        self._room_internal_path_i = 0
+        self._room_exit_started_ros = None
+        self._room_exit_path = []
+        self._room_exit_path_i = 0
+        self._room_spin_last_yaw = None
+        self._room_spin_accum = 0.0
+        self._room_no_target_spins = 0
 
     def _handle_frontier_observation_sweep(self, now_ros: float) -> Twist:
         """到达前沿后原地环视，让 RGB-D 覆盖房间而不是只看路径方向。"""
@@ -978,14 +1587,39 @@ class FrontierExplorerNode(Node):
 
         return cmd
 
+    def _distance_home_m(self) -> float:
+        """返航物理距离：优先 world 帧（/hw/odom 真值与 INIT 捕获的 world 家）。
+
+        map 帧距离随 SLAM 重锚漂移失真（run_20260820_171917 实锤：返航预算
+        与 drifting-away 看门狗都被 MAP 帧 17m 假距离带偏）。world 帧两点的
+        差值不受重锚影响；无 world 参考时回退 map 帧，行为同旧版。
+        """
+
+        if (self._home_world is not None
+                and self._world_x is not None and self._world_y is not None):
+            return math.hypot(
+                self._world_x - self._home_world[0],
+                self._world_y - self._home_world[1],
+            )
+        return math.hypot(self.robot_x - self.start_x,
+                          self.robot_y - self.start_y)
+
     def _handle_returning(self) -> Twist:
         """RETURNING: A* 返航到起点。"""
         cmd = Twist()
         goal_tol = float(self.get_parameter('goal_tolerance_m').value)
         now = self._ros_time_sec()
 
-        dist_home = math.hypot(self.robot_x - self.start_x,
-                               self.robot_y - self.start_y)
+        # 返航目标以 world 帧家为准：map 重锚会让 INIT 捕获的 map 帧 start 漂移
+        # 失效（run_20260820_171917 实锤：RETURNING 卡死在失效目标上打转）。
+        # 物理距离用 world 帧（/hw/odom），A* 目标用当前 map↔world 变换把
+        # world 家重投影回当前 map 帧，每次规划重取，跟随物理出发点而非旧帧坐标。
+        if self._home_world is not None:
+            hx, hy = self._region_world_to_map(
+                self._home_world[0], self._home_world[1])
+        else:
+            hx, hy = self.start_x, self.start_y
+        dist_home = self._distance_home_m()
 
         if dist_home <= goal_tol:
             self.get_logger().info(
@@ -1027,7 +1661,7 @@ class FrontierExplorerNode(Node):
         straight_dist = float(
             self.get_parameter('return_straight_distance_m').value)
         if not force_replan and dist_home <= straight_dist:
-            self.current_path = [(self.start_x, self.start_y)]
+            self.current_path = [(hx, hy)]
             self.path_index = 0
             return self._follow_path()
 
@@ -1043,7 +1677,7 @@ class FrontierExplorerNode(Node):
             self.current_path = a_star_path(
                 self.grid, self.latest_map,
                 self.robot_x, self.robot_y,
-                self.start_x, self.start_y,
+                hx, hy,
                 start_search_radius_m=0.50,
                 # home 栅格会被机身近场回波或门口门板标成占用；若吸附半径为
                 # 0，_nearest_traversable_cell 会直接返回 None，A* 空路径导致
@@ -1534,6 +2168,149 @@ class FrontierExplorerNode(Node):
         timeout = float(self.get_parameter('pose_fresh_timeout_s').value)
         return time.monotonic() - self._last_pose_monotonic <= max(0.1, timeout)
 
+    # ---- 探索区域约束（世界系矩形） ----
+
+    def _region_enabled(self) -> bool:
+        """世界系矩形已配置（四角非全 0）时启用；无世界真值参考时
+        退化为不限制（保持通用环境向后兼容）。"""
+
+        configured = (
+            float(self.get_parameter('region_x_min').value) != 0.0
+            or float(self.get_parameter('region_x_max').value) != 0.0
+            or float(self.get_parameter('region_y_min').value) != 0.0
+            or float(self.get_parameter('region_y_max').value) != 0.0
+        )
+        if not configured:
+            return False
+        return self._world_x is not None
+
+    def _region_bounds(self) -> Tuple[float, float, float, float]:
+        return (
+            float(self.get_parameter('region_x_min').value),
+            float(self.get_parameter('region_x_max').value),
+            float(self.get_parameter('region_y_min').value),
+            float(self.get_parameter('region_y_max').value),
+        )
+
+    def _point_in_region_world(self, wx: float, wy: float) -> bool:
+        x_min, x_max, y_min, y_max = self._region_bounds()
+        return x_min <= wx <= x_max and y_min <= wy <= y_max
+
+    def _robot_in_region_world(self) -> bool:
+        if self._world_x is None:
+            return True  # 无世界参考时不限制
+        return self._point_in_region_world(self._world_x, self._world_y)
+
+    def _frontier_in_region(self, frontier: Frontier) -> bool:
+        """把 frontier 质心从 map 帧转到世界系后做矩形检查。
+
+        frontier 质心在 map 帧（grid_to_world 产自 /map origin）。世界真值
+        /hw/odom 给出 robot 在世界系位姿，而 tf map→base 给出同一时刻
+        robot 在 map 帧位姿。两者的差 + 朝向差构成 map↔world 的 2D 刚性
+        变换，把质心转到世界系再判断。map 帧回环/漂移只影响该变换的瞬时
+        精度（亚米级），对矩形边界判断可接受。
+        """
+
+        if self._world_x is None:
+            return True  # 无世界参考时不限制
+        x, y = frontier.centroid
+        if self._region_map_to_world_transform() is None:
+            return True
+        wx, wy = self._region_map_to_world(x, y)
+        return self._point_in_region_world(wx, wy)
+
+    def _all_frontiers_outside_region_only(self) -> bool:
+        """region 启用且当前地图只剩区域外前沿 → True。
+
+        用于 completion 块区分“真正全部访问完”与“仅剩门外前沿（应保持
+        扫描等地图更新，而非宣告探索完成返回）”。前沿列表为空时不在此
+        列：那是真正扫完了。区域未启用时恒 False，保持旧行为。
+        """
+
+        if not self._region_enabled() or not self.frontiers:
+            return False
+        result = True
+        for f in self.frontiers:
+            if self._frontier_in_region(f):
+                result = False
+                break
+        return result
+
+    def _region_map_to_world_transform(self):
+        """返回 (yaw_diff, sin, cos, dx, dy) 组成的 map→world 变换。
+
+        map 帧随 SLAM 重锚/重定位会瞬间大幅旋转平移（一次可跳 90°+），
+        localizer odom→base 在停车时也会缓慢漂移。若当前变换相对上一次
+        last-good 变化过大（yaw 跳 >0.6 rad 或平移跳 >2.0 m），说明 map↔world
+        此刻不一致（tf 树与 /hw/odom 来自不同漂移状态），进入 10s hold：期内
+        返回 None，调用方视为“区内/不抑制”，靠机器人侧 region-return 兜底
+        防出区；hold 结束后重新评估，map 稳定后自动接受新变换并继续过滤。
+        """
+
+        if self._world_x is None:
+            return None
+        # robot map 帧位姿与机器人世界系位姿是同一物理点，两者差构成了
+        # 平移；世界朝向与 map 朝向之差构成旋转。
+        yaw_diff = self._world_yaw - self.robot_yaw
+        s = math.sin(yaw_diff)
+        c = math.cos(yaw_diff)
+        dx = self._world_x - (c * self.robot_x - s * self.robot_y)
+        dy = self._world_y - (s * self.robot_x + c * self.robot_y)
+
+        if self._region_transform_hold_until is not None:
+            if time.monotonic() < self._region_transform_hold_until:
+                return None  # hold 期内：视为区内，不抑制前沿
+            self._region_transform_hold_until = None  # hold 结束，重新评估
+
+        last = self._region_last_transform
+        if last is not None:
+            yaw_jump = abs(
+                ((yaw_diff - last[0] + math.pi) % (2 * math.pi)) - math.pi)
+            dpos_jump = math.hypot(dx - last[3], dy - last[4])
+            if yaw_jump > 0.6 or dpos_jump > 2.0:
+                self._region_transform_hold_until = time.monotonic() + 10.0
+                self.get_logger().warn(
+                    'Region map->world transform unstable '
+                    f'(yaw_delta={math.degrees(yaw_jump):.1f} deg, '
+                    f'pos_delta={dpos_jump:.2f} m); holding region filter '
+                    '10s, treating frontiers as in-region.')
+                return None
+
+        self._region_transform_hold_until = None
+        self._region_last_transform = (yaw_diff, s, c, dx, dy)
+        return (yaw_diff, s, c, dx, dy)
+
+    def _region_map_to_world(self, mx: float, my: float):
+        t = self._region_map_to_world_transform()
+        if t is None:
+            lt = self._region_last_transform
+            if lt is None:
+                return (mx, my)
+            _, s, c, dx, dy = lt
+        else:
+            _, s, c, dx, dy = t
+        return (c * mx - s * my + dx, s * mx + c * my + dy)
+
+    def _region_world_to_map(self, wx: float, wy: float):
+        """世界系点转 map 帧（区域外回归目标的逆变换）。
+
+        transform 在跳变 hold 期可能为 None；此时用 last-good 兜底（最多
+        是短暂的过时对齐，目标仍大致在机器人附近，距离门禁会兜住）。
+        """
+
+        t = self._region_map_to_world_transform()
+        if t is None:
+            lt = self._region_last_transform
+            if lt is None:
+                return (wx, wy)
+            _, s, c, dx, dy = lt
+        else:
+            _, s, c, dx, dy = t
+        # 逆旋转并减平移
+        rx = wx - dx
+        ry = wy - dy
+        return (c * rx + s * ry, -s * rx + c * ry)
+
     def _entry_heading(self) -> float:
         """返回合法入楼朝向：优先官方 profile 参数，其次第一条动态 TF。"""
 
@@ -1596,23 +2373,41 @@ class FrontierExplorerNode(Node):
             self.current_path = []
             return
 
-        self.frontiers = cluster_frontiers(frontier_mask, self.grid, self.latest_map)
+        self.frontiers = cluster_frontiers(frontier_mask, self.grid, self.latest_map, classify=True, resolution_m=0.05)
 
-        # 过滤已访问的前沿
+        # 过滤已访问的前沿（区域之外的前沿视为不可选择，但不解成完成）
         min_size = int(self.get_parameter('min_frontier_size').value)
+        region_enabled = self._region_enabled()
+        suppressed_outside = 0
         unvisited_frontiers = []
         for f in self.frontiers:
             key = self._frontier_key(f)
             if (key not in self._visited_frontiers
                     and not self._frontier_is_unreachable(f, now_ros)):
+                if region_enabled and not self._frontier_in_region(f):
+                    suppressed_outside += 1
+                    continue
                 unvisited_frontiers.append(f)
 
         if not unvisited_frontiers:
+            if region_enabled and suppressed_outside > 0:
+                # 本层只剩区域外前沿：不宣告完成。若已在朝向一个合法目标的
+                # 路径上则保持，否则原地等待下一次地图更新继续扫描。
+                self.get_logger().info(
+                    f'All {suppressed_outside} remaining frontiers are '
+                    'outside the exploration region; holding for map update.'
+                )
+                if self.current_target is not None and len(self.current_path) > 0:
+                    return
+                self.current_target = None
+                self.current_path = []
+                return
             # 全部访问过 → 探索完成
             self.current_target = None
             self.current_path = []
             self.get_logger().info('All frontiers visited.')
             return
+        # 房间/走廊分类统计        room_frontiers = [f for f in unvisited_frontiers if getattr(f, "frontier_type", "") == "room"]        corridor_frontiers = [f for f in unvisited_frontiers if getattr(f, "frontier_type", "") == "corridor"]        self.get_logger().info(            f"Frontiers: {len(unvisited_frontiers)} total "            f"({len(room_frontiers)} room, {len(corridor_frontiers)} corridor)")
 
         entry_heading = self._entry_heading()
         entry_progress = entry_axis_progress_m(
@@ -1667,9 +2462,11 @@ class FrontierExplorerNode(Node):
                     entry_axis=self._entry_axis,
                     entry_lateral_limit_m=float(
                         self.get_parameter('entry_lateral_limit_m').value),
+                    room_boost=float(self.get_parameter("room_boost_score").value),
+                    corridor_penalty=float(self.get_parameter("corridor_penalty_score").value),
                 )
+                selected_ingress_half_angle = half_angle
                 if selected is not None:
-                    selected_ingress_half_angle = half_angle
                     return selected
             return None
 
@@ -2130,7 +2927,25 @@ class FrontierExplorerNode(Node):
         if self.path_index >= len(self.current_path):
             # 路径走完
             if self.current_target is not None:
+                # 区域回区合成目标：到达即完成，不视为真实前沿。
+                if (getattr(self.current_target, 'frontier_type', '')
+                        == 'region_return'):
+                    self.current_path = []
+                    self.current_target = None
+                    self._reset_frontier_progress_watchdog()
+                    self.get_logger().info('Region return target reached.')
+                    return cmd
                 key = self._frontier_key(self.current_target)
+                # Phase 3: 门口候选不直接标记已访问，进入 enter->explore->exit；
+                # 宽触发（room 型 + 窄边>=1m 的 corridor 型），走廊/墙边误判由
+                # enter 阶段连续受阻快速失败兜底，成本仅数秒。
+                if (self._should_enter_room(self.current_target)
+                        and not self._room_sweep_active):
+                    self._start_room_sweep(self.current_target)
+                    self.current_path = []
+                    self.current_target = None
+                    self._reset_frontier_progress_watchdog()
+                    return cmd
                 self._visited_frontiers.add(key)
                 self._clear_unreachable_frontier_basin(
                     self.current_target,
@@ -2319,10 +3134,7 @@ class FrontierExplorerNode(Node):
             self._current_target_selected_ros_sec = None
             self._reset_frontier_progress_watchdog()
             self._last_return_plan_time = None
-            self._return_best_distance_home = math.hypot(
-                self.robot_x - self.start_x,
-                self.robot_y - self.start_y,
-            )
+            self._return_best_distance_home = self._distance_home_m()
             self._return_last_progress_time = self._ros_time_sec()
             self._return_last_progress_pose = (
                 self.robot_x, self.robot_y,

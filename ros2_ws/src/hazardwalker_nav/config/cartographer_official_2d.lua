@@ -66,12 +66,7 @@ POSE_GRAPH.optimize_every_n_nodes = 60
 -- 3~7 m 的重复走廊误连成闭环，实测导致地图折叠、Frontier 在不足 1 m 处
 -- 提前耗尽。只允许与控制/扫描先验相近的局部闭环，并提高接受分数；真正回到
 -- 同一区域时先验已足够接近，仍可形成约束。
--- 2026-08-19 治漂移尝试：1.5 m 过保守，回环只在先验 1.5 m 内搜索，漂移一旦
--- 超过该半径就永远无法闭合，实测地图出现墙壁多重错位（4.8% 行驶路径落在墙上）。
--- 3.0 m 实测引发对称走廊误连：pose jump 3.96m ×16 次，回环把相隔 ~4m 的重复
--- 走廊错配成闭环，跳变复发。回退到 2.0 m 避开 3~4m 误连雷区，保留少量回环
--- 纠正能力，继续观察跳变（target=0）与漂移（墙壁多重）的平衡。
-POSE_GRAPH.constraint_builder.max_constraint_distance = 2.0
+POSE_GRAPH.constraint_builder.max_constraint_distance = 1.5
 POSE_GRAPH.constraint_builder.min_score = 0.72
 POSE_GRAPH.constraint_builder.global_localization_min_score = 0.90
 
