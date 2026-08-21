@@ -195,8 +195,8 @@ def main() -> None:
                         help='真实位移参考话题（默认 /hw/odom）')
     parser.add_argument('--target-topic', default='/hazardwalker/slam/odometry',
                         help='待标定 odometry 话题（默认 scan_imu_localizer 输出）')
-    parser.add_argument('--cmd-vel-topic', default='/hw/cmd_vel',
-                        help='命令速度话题（空字符串则不做分速度段统计）')
+    parser.add_argument('--cmd-vel-topic', default='/hw/control/keyboard_cmd_vel',
+                        help='命令速度话题（走 command_mux 键盘通道；空字符串则不做分速度段统计）')
     args = parser.parse_args()
 
     rclpy.init()

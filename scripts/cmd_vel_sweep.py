@@ -32,8 +32,8 @@ def main() -> None:
                         help='每个速度持续秒数')
     parser.add_argument('--gap-sec', type=float, default=2.0,
                         help='两个速度之间停车的秒数')
-    parser.add_argument('--topic', default='/hw/cmd_vel',
-                        help='cmd_vel 话题')
+    parser.add_argument('--topic', default='/hw/control/keyboard_cmd_vel',
+                        help='cmd_vel 话题（走 command_mux 键盘通道，勿直接发 /hw/cmd_vel）')
     parser.add_argument('--rate-hz', type=float, default=20.0,
                         help='发布频率')
     args = parser.parse_args()
