@@ -53,10 +53,11 @@ class ScanImuLocalizerNode(Node):
         self.declare_parameter('min_match_count', 12)
         self.declare_parameter('laser_offset_x_m', 0.20)
         self.declare_parameter('laser_offset_y_m', 0.0)
-        # 官方 A1 控制器在低速区存在明显死区：0.20 m/s 基本不推进，而
-        # 0.35 m/s 的实测位移与命令积分接近。低于阈值不积分，超过阈值按
-        # 可配置比例推进；scan matching 只做毫米级校正，避免走廊退化反向。
-        self.declare_parameter('command_motion_scale', 1.0)
+        # 官方 A1 控制器在低速区存在明显死区：0.20 m/s 基本不推进。低于
+        # min_effective_linear_speed_mps 不积分，超过阈值按 command_motion_scale
+        # 比例推进；scale 经 cmd_vel_sweep+calibrate 标定为 0.65（原 1.0 积分偏大约 1.5x）。
+        # scan matching 只做毫米级校正，避免走廊退化反向。
+        self.declare_parameter('command_motion_scale', 0.65)
         self.declare_parameter('min_effective_linear_speed_mps', 0.30)
         self.declare_parameter('command_fresh_timeout_s', 0.5)
         self.declare_parameter('max_scan_dt_s', 0.25)

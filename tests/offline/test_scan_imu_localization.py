@@ -41,7 +41,7 @@ def test_online_localizer_can_publish_odometry_without_competing_tf():
     ).read_text(encoding='utf-8')
     assert "declare_parameter('publish_tf', True)" in source
     assert 'if self.tf_broadcaster is not None:' in source
-    assert "declare_parameter('command_motion_scale', 1.0)" in source
+    assert "declare_parameter('command_motion_scale', 0.65)" in source
     assert "declare_parameter('min_effective_linear_speed_mps', 0.30)" in source
     assert 'if abs(command_x) < min_effective_speed:' in source
 
