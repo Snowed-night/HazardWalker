@@ -41,7 +41,8 @@ def main() -> None:
     rclpy.init()
     node = Node('cmd_vel_sweep')
     pub = node.create_publisher(Twist, args.topic, 10)
-    rate = node.create_rate(args.rate_hz)
+    # 用 Python 原生 sleep 控节奏，避免 rclpy 的 Rate 在无 spin 时永久阻塞。
+    period = 1.0 / args.rate_hz
 
     def send(vx: float) -> None:
         msg = Twist()
@@ -58,13 +59,13 @@ def main() -> None:
             deadline = time.monotonic() + args.each_sec
             while time.monotonic() < deadline:
                 send(vx)
-                rate.sleep()
+                time.sleep(period)
 
             node.get_logger().info('>>> 停车（%.1fs）' % args.gap_sec)
             deadline = time.monotonic() + args.gap_sec
             while time.monotonic() < deadline:
                 send(0.0)
-                rate.sleep()
+                time.sleep(period)
 
         send(0.0)
         node.get_logger().info('扫描完成，已停车。')
