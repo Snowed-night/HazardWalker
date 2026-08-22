@@ -135,18 +135,15 @@ class CalibrationNode(Node):
     # ---- 输出 ----
 
     def summarize(self) -> dict:
-        t_delta = math.hypot(
-            self._target_last[0] - self._target_first[0],
-            self._target_last[1] - self._target_first[1],
-        ) if self._target_last and self._target_first else 0.0
-        r_delta = math.hypot(
-            self._ref_last[0] - self._ref_first[0],
-            self._ref_last[1] - self._ref_first[1],
-        ) if self._ref_last and self._ref_first else 0.0
-        total_scale = (r_delta / t_delta) if t_delta > 1e-6 else float('nan')
+        # 用累加路径长度而非首末直线距离：四足前进天然走曲线，首末直线距离
+        # 被系统性低估，导致 scale 偏小（此前 0.6477/0.8660/0.5100 三轮剧烈
+        # 波动的直接原因之一）。分桶在 _on_target 里已按相邻帧累加位移。
+        total_t = sum(entry[0] for entry in self._buckets.values())
+        total_r = sum(entry[1] for entry in self._buckets.values())
+        total_scale = (total_r / total_t) if total_t > 1e-6 else float('nan')
         return {
-            'target_dist_m': round(t_delta, 4),
-            'ref_dist_m': round(r_delta, 4),
+            'target_dist_m': round(total_t, 4),
+            'ref_dist_m': round(total_r, 4),
             'total_scale': round(total_scale, 4),
             'buckets': self._buckets,
         }
@@ -182,10 +179,21 @@ class CalibrationNode(Node):
                 flag = '  <-- 死区（命令有积分但实际没动）'
             print('%-10s %6d %10.4f %10.4f %8s%s' % (bucket, n, t, r, scale_str, flag))
 
+        # 有效速度段（>=0.30 m/s）合并比例：导航实际用 0.45 m/s，低速段存在
+        # 死区、噪声大，不参与推荐，避免把停车滑行/死区漂移掺进 scale。
+        eff_buckets = [b for b in ('0.30~0.40', '>=0.40') if b in s['buckets']]
+        if eff_buckets:
+            eff_t = sum(s['buckets'][b][0] for b in eff_buckets)
+            eff_r = sum(s['buckets'][b][1] for b in eff_buckets)
+            eff_scale = (eff_r / eff_t) if eff_t > 1e-6 else float('nan')
+            if math.isfinite(eff_scale):
+                print('\n有效速度段(>=0.30 m/s)合并 scale = %.4f' % eff_scale)
+                print('  → 推荐 command_motion_scale 用这个值，而非含死区噪声的总位移比。')
+
         print('\n解读：')
         print('  - 死区档：把 min_effective_linear_speed_mps 设到该档上界；')
-        print('  - 有效速度档：用该档 scale 作为 command_motion_scale（若各档一致，')
-        print('    用总位移比即可）。')
+        print('  - 有效速度档：优先用上面「有效速度段合并 scale」作为 command_motion_scale，')
+        print('    多轮标定后取中位数；各有效档一致时用总位移比即可。')
         print('==========================================')
 
 
