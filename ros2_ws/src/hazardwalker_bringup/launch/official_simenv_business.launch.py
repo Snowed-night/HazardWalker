@@ -350,7 +350,7 @@ def generate_launch_description():
                 'odom_frame': 'odom',
                 'base_frame': 'base',
                 'publish_tf': publish_legal_tf_parameter,
-                'command_motion_scale': 0.65,
+                'command_motion_scale': 0.95,
                 'min_effective_linear_speed_mps': 0.30,
                 'use_sim_time': sim_time_parameter,
             }],
