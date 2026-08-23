@@ -24,6 +24,7 @@ import time
 from collections import deque
 from typing import List, Optional, Tuple
 
+import numpy as np
 import rclpy
 import tf2_ros
 import yaml
@@ -106,6 +107,12 @@ class FrontierExplorerNode(Node):
         # 的小碎片前沿被反复选回空转。仅在 coverage_tracker 启用时生效。
         self.declare_parameter('coverage_penalty_enabled', True)
         self.declare_parameter('coverage_penalty_strength', 1.0)
+        # 未知连通域增益评分：对 region 内的未知域做连通域标记，窄门后大
+        # 房间以"门后区域面积"的形式进入评分，替代纯边界长度 info_gain。
+        # 默认关闭（0 增益），开启且 region 掩码可用时才生效；region 变换
+        # 不稳时 fail-closed 回退旧评分。
+        self.declare_parameter('frontier_gain_enabled', False)
+        self.declare_parameter('frontier_gain_weight', 1.0)
         self.declare_parameter('frontier_net_progress_timeout_s', 30.0)
         self.declare_parameter('frontier_net_progress_distance_m', 0.25)
         # 欧氏距离很近但 A* 必须绕墙十余米的目标会吞掉大量搜索预算。仅当
@@ -182,7 +189,7 @@ class FrontierExplorerNode(Node):
         self.declare_parameter('return_recovery_turn_duration_s', 2.0)
         self.declare_parameter('pose_fresh_timeout_s', 1.0)
         self.declare_parameter('scan_fresh_timeout_s', 1.0)
-        self.declare_parameter('navigation_min_clearance_m', 0.45)
+        self.declare_parameter('navigation_min_clearance_m', 0.30)
         # 安全门禁把期望运动归零时，普通卡死检测看不到“已请求但被拦截”的
         # 动作。超过该仿真时间后退避当前前沿，避免在门口永久静止。
         self.declare_parameter('safety_blocked_timeout_s', 8.0)
@@ -1107,9 +1114,15 @@ class FrontierExplorerNode(Node):
         if wall_now - self._last_replan_time <= replan_interval:
             return
         frontier_mask = find_frontiers(self.grid)
+        gain_mask = (
+            self._unknown_region_gain_mask()
+            if bool(self.get_parameter('frontier_gain_enabled').value)
+            else None
+        )
         self.frontiers = cluster_frontiers(
             frontier_mask, self.grid, self.latest_map,
-            classify=True, resolution_m=0.05)
+            classify=True, resolution_m=0.05,
+            unknown_region_mask=gain_mask)
         self._last_replan_time = wall_now
 
     def _room_coverage_ratio(self) -> Optional[float]:
@@ -1367,7 +1380,7 @@ class FrontierExplorerNode(Node):
                     self.grid, self.latest_map,
                     self.robot_x, self.robot_y,
                     target.centroid[0], target.centroid[1],
-                    inflation_radius_m=0.45)
+                    inflation_radius_m=0.25)
                 if path:
                     self._room_internal_path = path
                     self._room_internal_path_i = 0
@@ -1411,7 +1424,7 @@ class FrontierExplorerNode(Node):
                     self.robot_x, self.robot_y,
                     self._room_sweep_entry_pose[0],
                     self._room_sweep_entry_pose[1],
-                    inflation_radius_m=0.45)
+                    inflation_radius_m=0.25)
                 if path:
                     self._room_exit_path = path
                     self._room_exit_path_i = 0
@@ -1946,9 +1959,19 @@ class FrontierExplorerNode(Node):
             f'current={self._current_floor}')
 
     def _update_coverage(self):
-        """以 2 Hz 降采样更新覆盖网格。"""
-        if self._coverage is None or self.grid is None:
+        """以 2 Hz 降采样更新覆盖网格。
+
+        覆盖网格缺失（单层模式此前从不构建 CoverageGrid，导致
+        coverage penalty 评分恒回退 1.0 失效）或地图 shape 变化
+        （探索/多楼层建图增长）时，按当前 map 懒初始化/重建。
+        只使用合法 SLAM 轨迹与公开 /map，不读取场景真值。
+        """
+        if self.grid is None or self.latest_map is None:
             return
+        if (self._coverage is None
+                or self._coverage.grid.shape != self.grid.shape):
+            h, w = self.grid.shape
+            self._coverage = CoverageGrid(h, w)
         now = time.monotonic()
         if (getattr(self, '_last_coverage_update', None) is not None
                 and now - self._last_coverage_update < 0.5):
@@ -2382,6 +2405,43 @@ class FrontierExplorerNode(Node):
         ry = wy - dy
         return (c * rx + s * ry, -s * rx + c * ry)
 
+    def _unknown_region_gain_mask(self):
+        """构建 region 矩形内的未知域掩码（map 帧 bool），供增益评分使用。
+
+        从公开地图（self.grid/self.latest_map）与公开世界位姿（/hw/odom +
+        tf）把每一格映射到世界系并取 region 矩形交集。把楼外 void 未知区
+        排除在增益之外——否则外部巨型未知域会吞并室内前沿的增益比较。
+
+        region 未启用、地图缺失或 map↔world 变换 hold/fail 时返回 None
+        （fail-closed，评分回退旧公式，不放大风险）。
+        """
+        if not self._region_enabled():
+            return None
+        if self.grid is None or self.latest_map is None:
+            return None
+        t = self._region_map_to_world_transform()
+        if t is None:
+            return None
+        _, s, c, dx, dy = t
+        info = self.latest_map.info
+        res = float(info.resolution)
+        if res <= 0.0:
+            return None
+        h, w = self.grid.shape
+        ox = float(info.origin.position.x)
+        oy = float(info.origin.position.y)
+        gx = np.arange(w, dtype=np.float64) + 0.5
+        gy = np.arange(h, dtype=np.float64) + 0.5
+        wx = ox + gx * res          # (w,)
+        wy = oy + gy * res          # (h,)
+        world_x = c * wx[None, :] - s * wy[:, None] + dx   # (h, w)
+        world_y = s * wx[None, :] + c * wy[:, None] + dy   # (h, w)
+        x_min, x_max, y_min, y_max = self._region_bounds()
+        return (
+            (world_x >= x_min) & (world_x <= x_max)
+            & (world_y >= y_min) & (world_y <= y_max)
+        )
+
     def _entry_heading(self) -> float:
         """返回合法入楼朝向：优先官方 profile 参数，其次第一条动态 TF。"""
 
@@ -2444,7 +2504,21 @@ class FrontierExplorerNode(Node):
             self.current_path = []
             return
 
-        self.frontiers = cluster_frontiers(frontier_mask, self.grid, self.latest_map, classify=True, resolution_m=0.05)
+        gain_mask = (
+            self._unknown_region_gain_mask()
+            if bool(self.get_parameter('frontier_gain_enabled').value)
+            else None
+        )
+        if gain_mask is not None:
+            self.get_logger().info(
+                'Frontier gain scoring enabled: region-masked unknown '
+                'component gain in use.',
+                throttle_duration_sec=30.0,
+            )
+        self.frontiers = cluster_frontiers(
+            frontier_mask, self.grid, self.latest_map,
+            classify=True, resolution_m=0.05,
+            unknown_region_mask=gain_mask)
 
         # 过滤已访问的前沿（区域之外的前沿视为不可选择，但不解成完成）
         min_size = int(self.get_parameter('min_frontier_size').value)
@@ -2549,6 +2623,13 @@ class FrontierExplorerNode(Node):
                     ),
                     coverage_penalty_strength=float(self.get_parameter(
                         'coverage_penalty_strength').value),
+                    gain_weight=(
+                        float(self.get_parameter(
+                            'frontier_gain_weight').value)
+                        if bool(self.get_parameter(
+                            'frontier_gain_enabled').value)
+                        else 0.0
+                    ),
                 )
                 selected_ingress_half_angle = half_angle
                 if selected is not None:

@@ -36,6 +36,7 @@ class Frontier:
     frontier_type: str = 'unknown'  # room | corridor | unknown
     aspect_ratio: float = 0.0       # bbox aspect ratio (>=1)
     door_width_cells: int = 0       # narrow side width in cells
+    gain_m2: Optional[float] = None  # 未知连通域增益（region 内），无掩码时为 None
 
 
 def occupancy_grid_to_array(grid_msg) -> np.ndarray:
@@ -122,13 +123,26 @@ def classify_frontier(frontier, resolution_m=0.05,
 def cluster_frontiers(frontier_mask: np.ndarray, grid: np.ndarray,
                       grid_msg,
                       classify=True, resolution_m=0.05,
-                      corridor_aspect=2.5, narrow_door_m=1.5) -> List[Frontier]:
+                      corridor_aspect=2.5, narrow_door_m=1.5,
+                      unknown_region_mask: Optional[np.ndarray] = None,
+                      gain_max_radius_m: float = 8.0,
+                      ) -> List[Frontier]:
     """BFS 聚类前沿格子并计算每个聚类的属性。
 
     Args:
         frontier_mask: find_frontiers 的输出。
         grid: 原始 occupancy 数组。
         grid_msg: OccupancyGrid 消息（用于坐标转换）。
+        unknown_region_mask: 与 grid 同形的 bool 掩码（True=探索区域内可计入
+            增益的未知格）。提供时给每个聚类计算 ``gain_m2``——以所有前沿格
+            为源做半径上限的多源 BFS，未知格归入距它最近的源簇（区域内的
+            沃罗诺伊分割），簇的增益 = 半径内归属于它的未知格面积（m²）。
+            这样窄门后的大房间归门洞前沿簇，建筑物另外远角的大面积未知只
+            归它自己的最近前沿，不会把“门后体积”平均化。掩码由调用方用
+            region 矩形/公开位姿构建，把楼外 void 排除在增益之外；为 None
+            时 ``gain_m2`` 保持 None，评分回退旧 info_gain 路径。
+        gain_max_radius_m: 多源 BFS 的半径上限；超过该距离的未知格不计入
+            任何簇的增益（避免“整片未探未知区都从属于最近前沿”的均值化）。
 
     Returns:
         Frontier 对象列表，按 size 降序排列。
@@ -136,6 +150,13 @@ def cluster_frontiers(frontier_mask: np.ndarray, grid: np.ndarray,
     h, w = frontier_mask.shape
     visited = np.zeros((h, w), dtype=bool)
     clusters = []
+
+    gain_max_radius_cells = max(
+        1, int(round(float(gain_max_radius_m) / float(resolution_m))))
+    region_gain_active = (
+        unknown_region_mask is not None
+        and unknown_region_mask.shape == (h, w)
+    )
 
     for y in range(h):
         for x in range(w):
@@ -169,7 +190,47 @@ def cluster_frontiers(frontier_mask: np.ndarray, grid: np.ndarray,
                     size=len(points),
                     points=points,
                     info_gain=info,
+                    gain_m2=None,
                 ))
+
+    # 距离-最近簇增益：聚类完成后单次多源 BFS。源=每个聚类的全部前沿格
+    # （自由格，回填其簇号）；扩张只经过 region 内未知格、半径内停止。
+    # 未知格归入距它最近的源格所属簇，因此窄门后的大房间归门洞前沿簇，
+    # 建筑远角的大面积未知只归它自己的最近前沿，不会把体积全局平均化。
+    if region_gain_active:
+        gain_owner = np.full((h, w), -1, dtype=np.int64)
+        gain_dist = np.full((h, w), -1, dtype=np.int32)
+        queue = deque()
+        for cid, cluster in enumerate(clusters):
+            for (gx, gy) in cluster.points:
+                if gain_owner[gy, gx] != -1:
+                    continue
+                gain_owner[gy, gx] = cid
+                gain_dist[gy, gx] = 0
+                queue.append((gy, gx))
+        radius = gain_max_radius_cells
+        while queue:
+            y, x = queue.popleft()
+            depth = gain_dist[y, x]
+            owner = gain_owner[y, x]
+            if depth >= radius:
+                continue
+            for ny, nx in ((y - 1, x), (y + 1, x), (y, x - 1), (y, x + 1)):
+                if not (0 <= ny < h and 0 <= nx < w):
+                    continue
+                if gain_owner[ny, nx] != -1:
+                    continue
+                if grid[ny, nx] != UNKNOWN or not unknown_region_mask[ny, nx]:
+                    continue
+                gain_owner[ny, nx] = owner
+                gain_dist[ny, nx] = depth + 1
+                queue.append((ny, nx))
+        unknown_cells = gain_owner[grid == UNKNOWN]
+        masses = np.bincount(
+            unknown_cells[unknown_cells >= 0], minlength=len(clusters))
+        for cid, cluster in enumerate(clusters):
+            cluster.gain_m2 = (
+                float(int(masses[cid])) * resolution_m * resolution_m)
 
     if classify:
         clusters = [classify_frontier(f, resolution_m,
@@ -197,11 +258,19 @@ def select_best_frontier(frontiers: List[Frontier], robot_wx: float, robot_wy: f
                          coverage_grid_msg: Optional[object] = None,
                          coverage_penalty_strength: float = 0.0,
                          coverage_penalty_radius_m: float = 1.2,
+                         gain_weight: float = 0.0,
                          ) -> Optional[Frontier]:
     """选择最优前沿：综合距离、信息增益、大小。
 
     策略：优先选择近距离、高信息增益的前沿。
     如果有上一个目标且它仍然是前沿，优先继续前往。
+
+    增益通道：当候选带 ``gain_m2``（cluster_frontiers 传入
+    ``unknown_region_mask`` 后产生）且 ``gain_weight > 0`` 时，评分改用
+    ``gain_weight * log1p(gain_m2) / dist``——未知连通域面积（m²）经对数
+    压缩后除以距离，保留"同体积优先近处"的近场特性，同时让窄门后的大
+    房间以体积优势压制浅层残留前沿。gain_weight<=0 或候选无 gain_m2 时
+    完全回退旧 ``info_gain / dist`` 公式，行为与旧版逐位一致。
     """
     if not frontiers:
         return None
@@ -341,8 +410,15 @@ def select_best_frontier(frontiers: List[Frontier], robot_wx: float, robot_wy: f
         dist = math.hypot(f.centroid[0] - robot_wx, f.centroid[1] - robot_wy)
         dist = max(dist, 0.5)  # 避免除以零
 
-        # 综合评分：信息增益 / 距离 为主，叠加大小因子和房间/走廊加成
-        score = f.info_gain / dist + math.log(f.size + 1) * 0.5
+        # 综合评分：优先未知连通域增益（region 内体积），无增益时回退
+        # 边界长度 info_gain；再叠加大小因子和房间/走廊加成。
+        gain = getattr(f, 'gain_m2', None)
+        if gain is not None and gain_weight > 0.0:
+            score = (gain_weight * math.log1p(max(0.0, float(gain)))
+                     / dist)
+        else:
+            score = f.info_gain / dist
+        score += math.log(f.size + 1) * 0.5
         if getattr(f, 'frontier_type', '') == 'room':
             score *= room_boost
         elif getattr(f, 'frontier_type', '') == 'corridor':
@@ -476,7 +552,7 @@ def should_switch_frontier(current_distance_m: float,
 def a_star_path(grid: np.ndarray, grid_msg,
                 start_wx: float, start_wy: float,
                 goal_wx: float, goal_wy: float,
-                inflation_radius_m: float = 0.45,
+                inflation_radius_m: float = 0.25,
                 endpoint_search_radius_m: float = 0.50,
                 max_expansions: int = 250000,
                 start_search_radius_m: Optional[float] = None,
@@ -666,7 +742,7 @@ def snap_frontier_goal_to_reachable(
         grid: np.ndarray, grid_msg,
         goal_wx: float, goal_wy: float,
         search_radius_m: float = 1.5,
-        inflation_radius_m: float = 0.45,
+        inflation_radius_m: float = 0.25,
 ) -> Optional[Tuple[float, float]]:
     """A* 空路径时把前沿质心吸附到附近最近可通行自由格。
 
