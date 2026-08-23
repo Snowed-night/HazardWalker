@@ -30,6 +30,7 @@ from geometry_msgs.msg import TransformStamped
 
 from hazardwalker_platform.rosbridge_protocol import (
     FragmentAssembler,
+    clamp_monotonic_nanoseconds,
     decode_laser_ranges,
     decode_packet,
     decode_ros_time,

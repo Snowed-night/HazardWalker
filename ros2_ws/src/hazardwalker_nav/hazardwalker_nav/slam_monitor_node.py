@@ -98,11 +98,13 @@ class SlamMonitorNode(Node):
 
         self.get_logger().info(
             'SLAM 监测已启动：跳变阈值 %.2f m/s + %.2f m 容差，漂移告警 %.1f m；'
-            '输出目录 %s',
-            float(self.get_parameter('max_speed_m_s').value),
-            float(self.get_parameter('min_distance_m').value),
-            float(self.get_parameter('drift_warn_m').value),
-            self._dir,
+            '输出目录 %s'
+            % (
+                float(self.get_parameter('max_speed_m_s').value),
+                float(self.get_parameter('min_distance_m').value),
+                float(self.get_parameter('drift_warn_m').value),
+                self._dir,
+            )
         )
 
     # ---- 输出目录 ----
