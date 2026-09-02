@@ -210,6 +210,17 @@ def _launch_frontier_explorer(
         'goal_tolerance_m': 0.25,
         'linear_speed': 0.45,
         'angular_speed': 1.5,
+        # 单房间逐障碍巡检（找障碍后红球）。默认开启，explore 阶段会提取房内
+        # 家具障碍簇逐一巡检四周看全后再退房；跑不通/想回退覆盖率式时置 False。
+        'obstacle_inspection_enabled': True,
+        'obstacle_min_area_m2': 0.05,
+        'obstacle_viewpoint_count': 6,
+        'obstacle_standoff_m': 0.50,
+        'obstacle_covered_viewpoints': 3,
+        'obstacle_inspection_timeout_s': 90.0,
+        # 固定场景房间布局注入（YAML，可选）：空=纯运行时提取。例：
+        # "{rooms: [{x_min: 2.0, x_max: 10.0, y_min: 3.0, y_max: 11.0}]}"
+        'room_layout_yaml': '',
         # 控制输出走 hazardwalker_command_mux 仲裁器话题，不直接抢占 /hw/cmd_vel。
         'cmd_vel_topic': '/hw/control/navigation_cmd_vel',
         'current_floor_index': int(

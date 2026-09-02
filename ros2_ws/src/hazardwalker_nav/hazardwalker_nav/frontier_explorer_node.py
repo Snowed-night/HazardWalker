@@ -72,6 +72,13 @@ from hazardwalker_nav.reobservation_contract import (
 from hazardwalker_nav.coverage_tracker import CoverageGrid
 from hazardwalker_nav.elevator_controller import call_elevator
 from hazardwalker_nav.nav_recorder import NavRecorder
+from hazardwalker_nav.room_obstacle_profiler import (
+    ObstacleCluster,
+    ViewPoint,
+    extract_room_mask,
+    extract_room_obstacles,
+    plan_obstacle_viewpoints,
+)
 from hazardwalker_nav.waypoint_controller import normalize_angle
 
 
@@ -251,6 +258,20 @@ class FrontierExplorerNode(Node):
         # aspect <= room_trigger_max_aspect 时也尝试进入（enter 有快失败兜底）
         self.declare_parameter('room_trigger_max_aspect', 4.0)
         self.declare_parameter('room_trigger_min_door_m', 1.0)
+        # 单房间逐障碍巡检（找藏在障碍物后面的红球）：explore 阶段从 OccupancyGrid
+        # 提取房内独立家具障碍簇，规划环绕观察点逐一巡检，保证每个障碍四周都被
+        # 相机看到，替代"只靠前沿覆盖率"的旧 explore。可整体关闭回退旧行为。
+        self.declare_parameter('obstacle_inspection_enabled', True)
+        self.declare_parameter('obstacle_min_area_m2', 0.05)
+        self.declare_parameter('obstacle_viewpoint_count', 6)
+        self.declare_parameter('obstacle_standoff_m', 0.50)
+        self.declare_parameter('obstacle_covered_viewpoints', 3)
+        self.declare_parameter('obstacle_seed_offset_m', 0.5)
+        self.declare_parameter('obstacle_wall_margin_m', 0.5)
+        self.declare_parameter('obstacle_inspection_timeout_s', 90.0)
+        # 固定场景房间布局注入（YAML 字符串，可选）：格式见设计文档，命中时房间
+        # 范围用注入矩形而非运行时连通域估计；空字符串=纯运行时提取。
+        self.declare_parameter('room_layout_yaml', '')
         # 每层电梯入口在 map 帧的坐标 {floor: [x, y]}。map 帧每层 SLAM 重建
         # 后原点会变，无法用固定世界坐标推导，必须真机标定后注入；空字符串时
         # 跨层 navigating 阶段会告警并跳过，避免导航到地图原点。ROS2 参数无
@@ -449,6 +470,26 @@ class FrontierExplorerNode(Node):
         self._room_spin_last_yaw: Optional[float] = None
         self._room_spin_accum: float = 0.0
         self._room_no_target_spins: int = 0
+
+        # ---- 单房间逐障碍巡检（obstacle_inspection_enabled 时） ----
+        # explore 阶段替代"覆盖率式走内部前沿"：从地图提取房内家具障碍簇，
+        # 规划环绕观察点逐一巡检，看全每个障碍四周即完成房间。_obs_* 只在
+        # room sweep 的 explore 子阶段内使用，enter/exit 不触碰。
+        self._obs_room_mask: Optional[np.ndarray] = None  # 房间内部 free 掩码
+        self._obs_obstacles: List[ObstacleCluster] = []   # 房内障碍簇（含已完成）
+        self._obs_viewpoints: dict = {}                   # id -> List[ViewPoint]
+        self._obs_seen_viewpoints: dict = {}              # key -> set(dir bucket)
+        self._obs_current: Optional[ObstacleCluster] = None
+        self._obs_current_vp_idx: int = 0
+        self._obs_driving_to: Optional[ViewPoint] = None  # 正在前往的观察点
+        self._obs_profiled_at: Optional[float] = None     # 上次 profiler 墙钟
+        self._obs_timeout_reported: bool = False
+        self._obs_had_obstacles: bool = False  # 本房 profiler 曾见过障碍
+        self._obs_room_done_since: Optional[float] = None  # 本房感知确认/看全时间
+        self._obs_spin_last_yaw: Optional[float] = None
+        self._obs_spin_accum: float = 0.0
+        self._obs_current_path: Optional[list] = None
+        self._obs_current_path_i: int = 0
 
         # floor_index 发布器（发布 Int32，触发 scan_imu_localizer 重置匹配地图）
         self.floor_index_pub = self.create_publisher(
@@ -1094,6 +1135,7 @@ class FrontierExplorerNode(Node):
         self._room_spin_last_yaw = None
         self._room_spin_accum = 0.0
         self._room_no_target_spins = 0
+        self._obs_reset()
         key = self._frontier_key(frontier)
         self.get_logger().info(
             f'Room sweep START for frontier {key} '
@@ -1253,6 +1295,413 @@ class FrontierExplorerNode(Node):
         self._room_spin_last_yaw = None
         self._room_spin_accum = 0.0
 
+    # ---- 单房间逐障碍巡检（_handle_room_sweep explore 子阶段） ----
+
+    def _obs_reset(self):
+        """重置巡检状态（房间 sweep 开始/结束时调用）。"""
+        self._obs_room_mask = None
+        self._obs_obstacles = []
+        self._obs_viewpoints = {}
+        self._obs_seen_viewpoints = {}
+        self._obs_current = None
+        self._obs_current_vp_idx = 0
+        self._obs_driving_to = None
+        self._obs_profiled_at = None
+        self._obs_timeout_reported = False
+        self._obs_had_obstacles = False
+        self._obs_room_done_since = None
+        self._obs_spin_last_yaw = None
+        self._obs_spin_accum = 0.0
+        self._obs_current_path = None
+        self._obs_current_path_i = 0
+
+    def _obs_inspection_timeout_s(self) -> float:
+        return max(
+            5.0, float(self.get_parameter('obstacle_inspection_timeout_s').value))
+
+    def _obs_injected_rect_for(self) -> Optional[Tuple[float, float, float, float]]:
+        """若入口落在 room_layout_yaml 注入的房间矩形内，返回该矩形 (x_min,x_max,y_min,y_max)。
+
+        固定场景可把已知房间范围注进来，让 profiler 直接用矩形当房掩码边界，
+        避免依赖运行时 flood（对图未完全建好时更稳）。空 YAML / 未命中返回 None。
+        """
+        raw = str(self.get_parameter('room_layout_yaml').value or '').strip()
+        if not raw:
+            return None
+        entry = self._room_sweep_entry_pose
+        if entry is None:
+            return None
+        try:
+            parsed = yaml.safe_load(raw)
+            rooms = parsed.get('rooms', []) if isinstance(parsed, dict) else []
+        except Exception:
+            return None
+        for room in rooms:
+            try:
+                x0 = float(room['x_min']); x1 = float(room['x_max'])
+                y0 = float(room['y_min']); y1 = float(room['y_max'])
+            except (KeyError, TypeError, ValueError):
+                continue
+            if x0 <= entry[0] <= x1 and y0 <= entry[1] <= y1:
+                return (x0, x1, y0, y1)
+        return None
+
+    def _obs_profiler_step(self, wall_now: float) -> Optional[float]:
+        """按 replan_interval 节奏调用纯函数 profiler，刷新房内障碍簇。
+
+        返回本步耗时秒数（供调用方决定本轮是否继续派活）；房掩码/地图不可用
+        时返回 None（由调用方回退覆盖率式 explore）。
+        """
+        if self.grid is None or self.latest_map is None:
+            return None
+        if self._obs_profiled_at is not None:
+            replan_interval = max(1.0, float(self.get_parameter(
+                'replan_interval_s').value))
+            if wall_now - self._obs_profiled_at < replan_interval:
+                return 0.0
+        res = float(self.latest_map.info.resolution)
+        if res <= 0.0:
+            return None
+        entry = self._room_sweep_entry_pose
+        if entry is None:
+            return None
+        door_cells = 0
+        if self._room_sweep_frontier is not None:
+            door_cells = int(getattr(
+                self._room_sweep_frontier, 'door_width_cells', 0) or 0)
+        door_width_m = max(0.8, door_cells * res)
+        seed_offset = max(
+            0.3, float(self.get_parameter('obstacle_seed_offset_m').value))
+        wall_margin = max(
+            0.2, float(self.get_parameter('obstacle_wall_margin_m').value))
+        yaw = self._room_sweep_yaw_start
+        if yaw is None:
+            yaw = 0.0
+        # 固定场景注入矩形：命中时优先用矩形兜底/替代运行时 flood 房掩码
+        injected = self._obs_injected_rect_for()
+        mask = None
+        if injected is None:
+            mask = extract_room_mask(
+                self.grid, self.latest_map,
+                entry[0], entry[1], yaw,
+                door_width_m=door_width_m,
+                seed_offset_m=seed_offset,
+                min_room_free_cells=120,
+            )
+        else:
+            # 注入矩形内视为房间范围：free 格即 room_mask（矩形覆盖楼层内整房，
+            # 边界由内缩 wall_margin 交给 extract_room_obstacles 排除墙）。
+            x0, x1, y0, y1 = injected
+            origin = self.latest_map.info.origin
+            gx0 = max(0, int((x0 - origin.position.x) / res))
+            gx1 = min(self.grid.shape[1], int((x1 - origin.position.x) / res))
+            gy0 = max(0, int((y0 - origin.position.y) / res))
+            gy1 = min(self.grid.shape[0], int((y1 - origin.position.y) / res))
+            if gx1 > gx0 and gy1 > gy0:
+                rect_free = (self.grid[gy0:gy1, gx0:gx1] >= 0) & (
+                    self.grid[gy0:gy1, gx0:gx1] <= FREE_MAX)
+                if rect_free.sum() >= 120:
+                    mask = np.zeros(self.grid.shape, dtype=bool)
+                    mask[gy0:gy1, gx0:gx1] = rect_free
+            # 注入矩形太新/格太少则回退运行时提取
+            if mask is None:
+                mask = extract_room_mask(
+                    self.grid, self.latest_map,
+                    entry[0], entry[1], yaw,
+                    door_width_m=door_width_m,
+                    seed_offset_m=seed_offset,
+                    min_room_free_cells=120,
+                )
+        if mask is None:
+            # 图未建全/提取失败：巡检让位给覆盖率式 explore，稍后再试。
+            return None
+        obstacles = extract_room_obstacles(
+            self.grid, mask, self.latest_map,
+            min_area_m2=float(self.get_parameter('obstacle_min_area_m2').value),
+            wall_margin_m=wall_margin,
+        )
+        self._obs_room_mask = mask
+        self._obs_obstacles = obstacles
+        self._obs_profiled_at = wall_now
+        if obstacles:
+            self._obs_had_obstacles = True
+        self.get_logger().info(
+            f'Obstacle profiler: {len(obstacles)} obstacle(s) in room '
+            f'({"injected" if injected else "runtime"} '
+            f'({entry[0]:.1f},{entry[1]:.1f})).')
+        return 0.0
+
+    @staticmethod
+    def _obs_dir_bucket(yaw: float, n_buckets: int = 12) -> int:
+        """把方向角量化到 12 个桶之一，作为跨 plan 重建稳定的方向标识。"""
+        return int(round(normalize_angle(yaw)
+                         / (2.0 * math.pi / n_buckets))) % n_buckets
+
+    def _obs_obstacle_done(self, cluster: ObstacleCluster) -> bool:
+        """障碍是否四周已看过（到访过 >= 覆盖阈值 个不同环绕方向桶）。"""
+        key = (cluster.grid_centroid[0], cluster.grid_centroid[1])
+        seen = self._obs_seen_viewpoints.get(key, set())
+        viewpoints = self._obs_viewpoints.get(key, [])
+        if not viewpoints:
+            return True  # 无可用环绕点（如贴墙小障碍），视为无需巡检
+        reachable_buckets = {
+            self._obs_dir_bucket(v.face_yaw) for v in viewpoints
+        }
+        required = max(
+            1, min(
+                len(reachable_buckets),
+                int(self.get_parameter(
+                    'obstacle_covered_viewpoints').value),
+            ))
+        return len(seen & reachable_buckets) >= required
+
+    def _obs_build_plans(self):
+        """先为全部障碍规划环绕观察点，再剔除四周已看全的障碍。"""
+        if self._obs_room_mask is None or self.grid is None:
+            return
+        count = max(
+            4, int(self.get_parameter('obstacle_viewpoint_count').value))
+        standoff = max(
+            0.2, float(self.get_parameter('obstacle_standoff_m').value))
+        # 全量重规划：plan_obstacle_viewpoints 只接受单体簇，逐个生成。
+        planned = {}
+        for cluster in self._obs_obstacles:
+            key = (cluster.grid_centroid[0], cluster.grid_centroid[1])
+            if key in planned:
+                continue
+            vps = plan_obstacle_viewpoints(
+                self.grid, self.latest_map, cluster,
+                self._obs_room_mask,
+                count=count, standoff_m=standoff,
+                clearance_m=0.30,
+            )
+            planned[key] = vps
+        self._obs_viewpoints = planned
+        # 只保留四周未看全的障碍；看全的障碍从本轮任务剔除。
+        remaining = []
+        for cluster in self._obs_obstacles:
+            if self._obs_obstacle_done(cluster):
+                key = (cluster.grid_centroid[0], cluster.grid_centroid[1])
+                self.get_logger().info(
+                    f'Obstacle {key} fully inspected; {len(self._obs_viewpoints.get(key, []))} directions.')
+                continue
+            remaining.append(cluster)
+        self._obs_obstacles = remaining
+        self._obs_current = None
+        self._obs_driving_to = None
+        self._obs_current_path = None
+
+    def _obs_pick_next_target(self):
+        """选一个未看全障碍的未看方向作为当前巡检目标。
+
+        优先欠看最多的障碍，其次距机器人近者；方向选最接近当前机头的未看桶。
+        返回后设 self._obs_current / _obs_current_vp_idx / _obs_driving_to。
+        """
+        self._obs_current = None
+        self._obs_current_vp_idx = 0
+        self._obs_driving_to = None
+        best = None
+        best_score = -1e18
+        for cluster in self._obs_obstacles:
+            key = (cluster.grid_centroid[0], cluster.grid_centroid[1])
+            vps = self._obs_viewpoints.get(key, [])
+            seen_buckets = self._obs_seen_viewpoints.get(key, set())
+            unvisited = [
+                i for i in range(len(vps))
+                if self._obs_dir_bucket(vps[i].face_yaw) not in seen_buckets
+            ]
+            if not unvisited:
+                continue
+            dist = math.hypot(
+                cluster.centroid[0] - self.robot_x,
+                cluster.centroid[1] - self.robot_y)
+            remaining = len(vps) - len(seen_buckets & {
+                self._obs_dir_bucket(v.face_yaw) for v in vps})
+            # 欠看越多越优先（同分取近）
+            score = remaining * 100.0 - dist
+            if score > best_score:
+                best_score = score
+                best = (cluster, unvisited)
+        if best is None:
+            return
+        cluster, unvisited = best
+        key = (cluster.grid_centroid[0], cluster.grid_centroid[1])
+        vps = self._obs_viewpoints.get(key, [])
+        idx = min(
+            unvisited,
+            key=lambda i: abs(normalize_angle(vps[i].face_yaw - self.robot_yaw)),
+        )
+        self._obs_current = cluster
+        self._obs_current_vp_idx = idx
+        self._obs_driving_to = vps[idx]
+
+    def _obs_spin_in_place(self, cmd: Twist, wall_now: float) -> bool:
+        """巡检时原地左转一圈（累计 ~120° 即可覆盖障碍一侧）。
+
+        复用全局 _room_spin_in_place 的累积字段，转满目标角返回 True。
+        """
+        target_rad = 2.0 * math.pi / 3.0  # 120°
+        turn_speed = min(
+            abs(float(self.get_parameter('room_scan_turn_speed').value)),
+            abs(float(self.get_parameter('angular_speed').value)),
+        )
+        prev = self._obs_spin_last_yaw
+        if prev is None:
+            self._obs_spin_last_yaw = self.robot_yaw
+            self._obs_spin_accum = 0.0
+        else:
+            self._obs_spin_accum += abs(normalize_angle(
+                self.robot_yaw - prev))
+        self._obs_spin_last_yaw = self.robot_yaw
+        if self._obs_spin_accum >= target_rad:
+            self._obs_spin_last_yaw = None
+            self._obs_spin_accum = 0.0
+            return True
+        if self._scan_allows_action(
+                'turn_left',
+                float(self.get_parameter('rotation_min_clearance_m').value)):
+            cmd.angular.z = turn_speed
+        return False
+
+    def _handle_obstacle_inspection(
+            self, now_ros: float, wall_now: float, cmd: Twist) -> bool:
+        """巡检接管 explore：走到每个障碍的环绕观察点并环视，看全返回 True。
+
+        cmd 由调用方（_handle_room_sweep）传入，本方法只填充不发布（与
+        _room_drive_to 等一致，避免 on_timer 用空 cmd 覆盖）。返回 True 表示
+        巡检已接管（已填充 cmd / 转入 exit）；返回 False 表示本 tick 巡检
+        不接管（房掩码不可用 / 空房无障碍），让 explore 分支走覆盖率式兜底。
+        """
+        if self.grid is None or self.latest_map is None:
+            return False
+        if self._room_sweep_entry_pose is None:
+            return False
+
+        # 首次进入巡检：重置自旋累积字段
+        if self._obs_profiled_at is None:
+            self._obs_spin_last_yaw = None
+            self._obs_spin_accum = 0.0
+
+        # 定期重提取障碍（房内建图过程中障碍可能逐渐出现）
+        refreshed = False
+        if (self._obs_profiled_at is None
+                or wall_now - self._obs_profiled_at >= max(
+                    1.0, float(self.get_parameter('replan_interval_s').value))):
+            step_cost = self._obs_profiler_step(wall_now)
+            if step_cost is None:
+                return False  # 图未建全，交回覆盖率式 explore
+            refreshed = True
+
+        # 空房：从未见过任何障碍 → 交回覆盖率式 explore；曾见过但现已全部
+        # 看全 → 走 build 之后 _obs_obstacles 变空的兜底完成分支。
+        if not self._obs_obstacles and not self._obs_had_obstacles:
+            return False
+        if refreshed:
+            self._obs_build_plans()
+
+        # 房间级预算：超时强制退出
+        elapsed = now_ros - (self._room_sweep_start_time or now_ros)
+        timeout = self._obs_inspection_timeout_s()
+        if elapsed >= timeout:
+            if not self._obs_timeout_reported:
+                self._obs_timeout_reported = True
+                self.get_logger().warn(
+                    f'Obstacle inspection timeout after {elapsed:.1f}s; '
+                    'exiting room.')
+            self._room_begin_exit()
+            return True
+
+        # build_plans 后障碍全部看全 → 房间完成
+        if not self._obs_obstacles:
+            self.get_logger().info(
+                'All room obstacles fully inspected; exiting room.')
+            self._room_begin_exit()
+            return True
+
+        # 无当前目标则选一个欠看障碍
+        if self._obs_current is None or self._obs_driving_to is None:
+            self._obs_pick_next_target()
+        if self._obs_current is None or self._obs_driving_to is None:
+            # 全部障碍看全（防御分支）
+            self._room_begin_exit()
+            return True
+
+        cluster = self._obs_current
+        key = (cluster.grid_centroid[0], cluster.grid_centroid[1])
+        vp = self._obs_driving_to
+        tol = max(
+            0.3, float(self.get_parameter('goal_tolerance_m').value))
+        dist_vp = math.hypot(vp.wx - self.robot_x, vp.wy - self.robot_y)
+
+        if dist_vp > tol:
+            # 前往观察点：先 A* 路径后车头引导
+            if self._obs_current_path is None:
+                self._obs_current_path = a_star_path(
+                    self.grid, self.latest_map,
+                    self.robot_x, self.robot_y,
+                    vp.wx, vp.wy,
+                    inflation_radius_m=0.25)
+                self._obs_current_path_i = 0
+            path = self._obs_current_path
+            progressed = False
+            if path:
+                while (self._obs_current_path_i < len(path)):
+                    wx, wy = path[self._obs_current_path_i]
+                    if self._room_drive_to(wx, wy, cmd, 0.3):
+                        self._obs_current_path_i += 1
+                        progressed = True
+                    else:
+                        break
+            if path and self._obs_current_path_i >= len(path):
+                self._obs_current_path = None
+                # 走完全部路径点，本 tick 停在目标附近；下 tick 进入朝向分支
+            elif not path and not progressed:
+                # A* 无路：直视逼近，激光门禁兜底
+                self._room_drive_to(vp.wx, vp.wy, cmd, tol)
+            return True
+
+        # 已到观察点：机头转向障碍质心，转到位后短环视覆盖障碍一侧
+        target_yaw = math.atan2(
+            cluster.centroid[1] - self.robot_y,
+            cluster.centroid[0] - self.robot_x)
+        heading_error = normalize_angle(target_yaw - self.robot_yaw)
+        if abs(heading_error) > float(self.get_parameter(
+                'heading_tolerance_rad').value):
+            action = 'turn_left' if heading_error > 0.0 else 'turn_right'
+            if self._scan_allows_action(
+                    action,
+                    float(self.get_parameter(
+                        'rotation_min_clearance_m').value)):
+                cmd.angular.z = max(
+                    -float(self.get_parameter('angular_speed').value),
+                    min(float(self.get_parameter('angular_speed').value),
+                        heading_error))
+            return True
+
+        # 对准后短环视（累积 ~120° 覆盖障碍一侧）
+        if self._obs_spin_last_yaw is None:
+            self._obs_spin_last_yaw = self.robot_yaw
+            self._obs_spin_accum = 0.0
+        if not self._obs_spin_in_place(cmd, wall_now):
+            return True
+
+        # 环视完成：记录该障碍该方向桶，进入下一目标
+        self._obs_seen_viewpoints.setdefault(key, set()).add(
+            self._obs_dir_bucket(vp.face_yaw))
+        self._obs_current = None
+        self._obs_current_vp_idx = 0
+        self._obs_driving_to = None
+        self._obs_current_path = None
+        self._obs_spin_last_yaw = None
+        self._obs_spin_accum = 0.0
+        seen_buckets = self._obs_seen_viewpoints.get(key, set())
+        vps = self._obs_viewpoints.get(key, [])
+        reachable = {self._obs_dir_bucket(v.face_yaw) for v in vps}
+        self.get_logger().info(
+            f'Obstacle {key} viewpoint swept; '
+            f'seen {len(seen_buckets & reachable)}/{len(reachable)} directions.')
+        return True
+
     def _room_begin_exit(self):
         """切入 exit 阶段（先清空内部推进状态）。"""
         if self._room_sweep_phase != 'exit':
@@ -1335,6 +1784,17 @@ class FrontierExplorerNode(Node):
         # ---- explore ----
         if self._room_sweep_phase == 'explore':
             self._room_refresh_frontiers(wall_now)
+
+            # 单房间逐障碍巡检（找藏在障碍后的红球）：explore 阶段改为对房内
+            # 家具障碍簇逐一巡检四周，看全后才退出。开启时接管本阶段；巡检因
+            # 房掩码不可用/空房无障碍/无目标而让位时返回 False，才落回下方
+            # 覆盖率式逻辑（兼容无家具空房、图未建全的兜底推进）。
+            if bool(self.get_parameter('obstacle_inspection_enabled').value):
+                handled = self._handle_obstacle_inspection(
+                    now_ros, wall_now, cmd)
+                if handled:
+                    return cmd
+
             ratio = self._room_coverage_ratio()
             if ratio is not None and ratio >= cover_threshold:
                 self.get_logger().info(
@@ -1502,6 +1962,7 @@ class FrontierExplorerNode(Node):
         self._room_spin_last_yaw = None
         self._room_spin_accum = 0.0
         self._room_no_target_spins = 0
+        self._obs_reset()
 
     def _handle_frontier_observation_sweep(self, now_ros: float) -> Twist:
         """到达前沿后原地环视，让 RGB-D 覆盖房间而不是只看路径方向。"""
