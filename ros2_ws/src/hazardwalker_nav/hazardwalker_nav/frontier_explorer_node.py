@@ -1727,8 +1727,23 @@ class FrontierExplorerNode(Node):
                 self._obs_current_path = None
                 # 走完全部路径点，本 tick 停在目标附近；下 tick 进入朝向分支
             elif not path and not progressed:
-                # A* 无路：直视逼近，激光门禁兜底
-                self._room_drive_to(vp.wx, vp.wy, cmd, tol)
+                # A* 无路：直视逼近通常被障碍挡死（观察点常在障碍另一侧/被墙隔开），
+                # 死磕 9s 只会空耗。直接放弃该方向，快速试下一个；若全方向都 A* 空，
+                # 说明观察点普遍不可达（房间范围/障碍识别问题），日志会集中暴露。
+                self.get_logger().warn(
+                    f'Obstacle {key}: A* no path to vp ({vp.wx:.1f},{vp.wy:.1f}) '
+                    f'from robot ({self.robot_x:.2f},{self.robot_y:.2f}) '
+                    f'dist {dist_vp:.2f}m; skipping dir '
+                    f'{self._obs_dir_bucket(vp.face_yaw)}.')
+                bucket = self._obs_dir_bucket(vp.face_yaw)
+                self._obs_vp_skip_directions.add((key, bucket))
+                self._obs_current = None
+                self._obs_current_vp_idx = 0
+                self._obs_driving_to = None
+                self._obs_current_path = None
+                self._obs_vp_started_wall = None
+                self._obs_vp_last_dist = None
+                self._obs_vp_start_dist = None
             return True
 
         # 已到观察点：机头转向障碍质心，转到位后短环视覆盖障碍一侧
