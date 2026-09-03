@@ -213,7 +213,7 @@ def _launch_frontier_explorer(
         # 单房间逐障碍巡检（找障碍后红球）。默认开启，explore 阶段会提取房内
         # 家具障碍簇逐一巡检四周看全后再退房；跑不通/想回退覆盖率式时置 False。
         'obstacle_inspection_enabled': True,
-        'obstacle_min_area_m2': 0.05,
+        'obstacle_min_area_m2': 0.15,
         'obstacle_viewpoint_count': 6,
         'obstacle_standoff_m': 0.50,
         'obstacle_covered_viewpoints': 3,

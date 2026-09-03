@@ -262,12 +262,16 @@ class FrontierExplorerNode(Node):
         # 提取房内独立家具障碍簇，规划环绕观察点逐一巡检，保证每个障碍四周都被
         # 相机看到，替代"只靠前沿覆盖率"的旧 explore。可整体关闭回退旧行为。
         self.declare_parameter('obstacle_inspection_enabled', True)
-        self.declare_parameter('obstacle_min_area_m2', 0.05)
+        # 面积下限 0.05 m² 会把门框/墙边残渣算成障碍（实测一房 15-19 个 vs 期望
+        # 4-5）；调高到 0.15 滤掉小碎块，家具(>0.2m²)不受影响。
+        self.declare_parameter('obstacle_min_area_m2', 0.15)
         self.declare_parameter('obstacle_viewpoint_count', 6)
         self.declare_parameter('obstacle_standoff_m', 0.50)
         self.declare_parameter('obstacle_covered_viewpoints', 3)
         self.declare_parameter('obstacle_seed_offset_m', 0.5)
-        self.declare_parameter('obstacle_wall_margin_m', 0.5)
+        # 墙排除内缩：0.5m 会把 SLAM 墙毛刺/门框算成房内障碍；房间内家具离墙
+        # 数米，放宽到 0.9m 只剔除真正贴墙的条带。
+        self.declare_parameter('obstacle_wall_margin_m', 0.9)
         self.declare_parameter('obstacle_inspection_timeout_s', 90.0)
         # 固定场景房间布局注入（YAML 字符串，可选）：格式见设计文档，命中时房间
         # 范围用注入矩形而非运行时连通域估计；空字符串=纯运行时提取。
@@ -490,6 +494,13 @@ class FrontierExplorerNode(Node):
         self._obs_spin_accum: float = 0.0
         self._obs_current_path: Optional[list] = None
         self._obs_current_path_i: int = 0
+        # 观察点无进展看门狗：开始 drive 某 vp 时记录墙钟与初始距离；长时间
+        # 距离不缩短则放弃该方向（跳过），避免卡在 scan 门禁/A* 绕不动上
+        # 硬耗到整房超时。
+        self._obs_vp_started_wall: Optional[float] = None
+        self._obs_vp_start_dist: Optional[float] = None
+        self._obs_vp_last_dist: Optional[float] = None
+        self._obs_vp_skip_directions: set = set()  # 已放弃的方向桶（key, bucket）
 
         # floor_index 发布器（发布 Int32，触发 scan_imu_localizer 重置匹配地图）
         self.floor_index_pub = self.create_publisher(
@@ -1314,6 +1325,10 @@ class FrontierExplorerNode(Node):
         self._obs_spin_accum = 0.0
         self._obs_current_path = None
         self._obs_current_path_i = 0
+        self._obs_vp_started_wall = None
+        self._obs_vp_start_dist = None
+        self._obs_vp_last_dist = None
+        self._obs_vp_skip_directions = set()
 
     def _obs_inspection_timeout_s(self) -> float:
         return max(
@@ -1438,12 +1453,17 @@ class FrontierExplorerNode(Node):
                          / (2.0 * math.pi / n_buckets))) % n_buckets
 
     def _obs_obstacle_done(self, cluster: ObstacleCluster) -> bool:
-        """障碍是否四周已看过（到访过 >= 覆盖阈值 个不同环绕方向桶）。"""
+        """障碍是否四周已处理完（看过 + 放弃方向 覆盖 >= 阈值，或无可用环绕点）。
+
+        "已处理"包含两种情况：真正绕过去环视过（seen），或某方向 drive 无进展
+        被看门狗放弃（skip）。两者都算该方向已尽力，障碍据此可推进/收尾。
+        """
         key = (cluster.grid_centroid[0], cluster.grid_centroid[1])
-        seen = self._obs_seen_viewpoints.get(key, set())
+        handled = self._obs_seen_viewpoints.get(key, set()) | set(
+            b for (k, b) in self._obs_vp_skip_directions if k == key)
         viewpoints = self._obs_viewpoints.get(key, [])
         if not viewpoints:
-            return True  # 无可用环绕点（如贴墙小障碍），视为无需巡检
+            return True  # 无可规划环绕点（贴墙/被夹），视为尽力巡检
         reachable_buckets = {
             self._obs_dir_bucket(v.face_yaw) for v in viewpoints
         }
@@ -1453,17 +1473,20 @@ class FrontierExplorerNode(Node):
                 int(self.get_parameter(
                     'obstacle_covered_viewpoints').value),
             ))
-        return len(seen & reachable_buckets) >= required
+        return len(handled & reachable_buckets) >= required
 
     def _obs_build_plans(self):
-        """先为全部障碍规划环绕观察点，再剔除四周已看全的障碍。"""
+        """先为全部障碍规划环绕观察点，再剔除四周已处理完的障碍。
+
+        若正在 drive 某观察点（_obs_driving_to 有效），本轮不打断当前目标，
+        只更新观察点字典，让 drive 看门狗继续（避免重规划把走一半的路打断）。
+        """
         if self._obs_room_mask is None or self.grid is None:
             return
         count = max(
             4, int(self.get_parameter('obstacle_viewpoint_count').value))
         standoff = max(
             0.2, float(self.get_parameter('obstacle_standoff_m').value))
-        # 全量重规划：plan_obstacle_viewpoints 只接受单体簇，逐个生成。
         planned = {}
         for cluster in self._obs_obstacles:
             key = (cluster.grid_centroid[0], cluster.grid_centroid[1])
@@ -1477,25 +1500,35 @@ class FrontierExplorerNode(Node):
             )
             planned[key] = vps
         self._obs_viewpoints = planned
-        # 只保留四周未看全的障碍；看全的障碍从本轮任务剔除。
         remaining = []
         for cluster in self._obs_obstacles:
             if self._obs_obstacle_done(cluster):
                 key = (cluster.grid_centroid[0], cluster.grid_centroid[1])
                 self.get_logger().info(
-                    f'Obstacle {key} fully inspected; {len(self._obs_viewpoints.get(key, []))} directions.')
+                    f'Obstacle {key} fully inspected (seen+skip '
+                    f'{len(self._obs_viewpoints.get(key, []))} dirs).')
                 continue
             remaining.append(cluster)
         self._obs_obstacles = remaining
-        self._obs_current = None
-        self._obs_driving_to = None
-        self._obs_current_path = None
+        # 仅当没有正在 drive 的目标时才清空当前目标；否则保留让 drive 继续。
+        if self._obs_driving_to is None:
+            self._obs_current = None
+            self._obs_current_path = None
+            self._obs_current_vp_idx = 0
+
+    def _obs_handled_buckets(self, key) -> set:
+        """该障碍已处理方向桶 = 真正环视过(seen) ∪ 看门狗放弃(skip)。"""
+        return (
+            set(self._obs_seen_viewpoints.get(key, set()))
+            | set(b for (k, b) in self._obs_vp_skip_directions if k == key)
+        )
 
     def _obs_pick_next_target(self):
-        """选一个未看全障碍的未看方向作为当前巡检目标。
+        """选一个未处理完障碍的未处理方向作为当前巡检目标。
 
-        优先欠看最多的障碍，其次距机器人近者；方向选最接近当前机头的未看桶。
-        返回后设 self._obs_current / _obs_current_vp_idx / _obs_driving_to。
+        优先欠处理最多的障碍，其次距机器人近者；方向选最接近当前机头的未处理桶。
+        返回后设 self._obs_current / _obs_current_vp_idx / _obs_driving_to，
+        并重置该观察点的无进展看门狗起点。
         """
         self._obs_current = None
         self._obs_current_vp_idx = 0
@@ -1505,19 +1538,18 @@ class FrontierExplorerNode(Node):
         for cluster in self._obs_obstacles:
             key = (cluster.grid_centroid[0], cluster.grid_centroid[1])
             vps = self._obs_viewpoints.get(key, [])
-            seen_buckets = self._obs_seen_viewpoints.get(key, set())
+            handled = self._obs_handled_buckets(key)
             unvisited = [
                 i for i in range(len(vps))
-                if self._obs_dir_bucket(vps[i].face_yaw) not in seen_buckets
+                if self._obs_dir_bucket(vps[i].face_yaw) not in handled
             ]
             if not unvisited:
                 continue
             dist = math.hypot(
                 cluster.centroid[0] - self.robot_x,
                 cluster.centroid[1] - self.robot_y)
-            remaining = len(vps) - len(seen_buckets & {
+            remaining = len(vps) - len(handled & {
                 self._obs_dir_bucket(v.face_yaw) for v in vps})
-            # 欠看越多越优先（同分取近）
             score = remaining * 100.0 - dist
             if score > best_score:
                 best_score = score
@@ -1534,6 +1566,11 @@ class FrontierExplorerNode(Node):
         self._obs_current = cluster
         self._obs_current_vp_idx = idx
         self._obs_driving_to = vps[idx]
+        # 重置本观察点看门狗
+        self._obs_vp_started_wall = time.monotonic()
+        self._obs_vp_start_dist = math.hypot(
+            vps[idx].wx - self.robot_x, vps[idx].wy - self.robot_y)
+        self._obs_vp_last_dist = self._obs_vp_start_dist
 
     def _obs_spin_in_place(self, cmd: Twist, wall_now: float) -> bool:
         """巡检时原地左转一圈（累计 ~120° 即可覆盖障碍一侧）。
@@ -1634,6 +1671,40 @@ class FrontierExplorerNode(Node):
         dist_vp = math.hypot(vp.wx - self.robot_x, vp.wy - self.robot_y)
 
         if dist_vp > tol:
+            # ---- 观察点无进展看门狗：drive 一段时间距离不缩短则放弃该方向 ----
+            if self._obs_vp_started_wall is None:
+                self._obs_vp_started_wall = wall_now
+                self._obs_vp_start_dist = dist_vp
+                self._obs_vp_last_dist = dist_vp
+            else:
+                # 距离持续缩短则续期
+                if dist_vp < self._obs_vp_last_dist - 0.05:
+                    self._obs_vp_last_dist = dist_vp
+                    self._obs_vp_started_wall = wall_now
+                    self._obs_vp_start_dist = dist_vp
+                watchdog_s = max(
+                    5.0, float(self.get_parameter('replan_interval_s').value) * 3)
+                if wall_now - self._obs_vp_started_wall >= watchdog_s:
+                    # 放弃此方向：标记 skip、清当前目标回选点
+                    bucket = self._obs_dir_bucket(vp.face_yaw)
+                    self._obs_vp_skip_directions.add((key, bucket))
+                    handled = self._obs_handled_buckets(key)
+                    reachable = len(set(
+                        self._obs_dir_bucket(v.face_yaw)
+                        for v in self._obs_viewpoints.get(key, [])))
+                    self.get_logger().warn(
+                        f'Obstacle {key} dir {bucket}: no progress '
+                        f'{watchdog_s:.0f}s (dist {dist_vp:.2f}m); skipping. '
+                        f'handled {len(handled)}/{reachable}.')
+                    self._obs_current = None
+                    self._obs_current_vp_idx = 0
+                    self._obs_driving_to = None
+                    self._obs_current_path = None
+                    self._obs_vp_started_wall = None
+                    self._obs_vp_last_dist = None
+                    self._obs_vp_start_dist = None
+                    return True
+
             # 前往观察点：先 A* 路径后车头引导
             if self._obs_current_path is None:
                 self._obs_current_path = a_star_path(
@@ -1694,12 +1765,17 @@ class FrontierExplorerNode(Node):
         self._obs_current_path = None
         self._obs_spin_last_yaw = None
         self._obs_spin_accum = 0.0
+        self._obs_vp_started_wall = None
+        self._obs_vp_last_dist = None
+        self._obs_vp_start_dist = None
         seen_buckets = self._obs_seen_viewpoints.get(key, set())
         vps = self._obs_viewpoints.get(key, [])
         reachable = {self._obs_dir_bucket(v.face_yaw) for v in vps}
+        handled = seen_buckets | set(
+            b for (k, b) in self._obs_vp_skip_directions if k == key)
         self.get_logger().info(
             f'Obstacle {key} viewpoint swept; '
-            f'seen {len(seen_buckets & reachable)}/{len(reachable)} directions.')
+            f'handled {len(handled & reachable)}/{len(reachable)} directions.')
         return True
 
     def _room_begin_exit(self):
