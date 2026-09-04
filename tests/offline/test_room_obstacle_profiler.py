@@ -158,6 +158,28 @@ def test_neighbor_door_voronoi_partition_blocks_cross_room_slam_gap():
     assert mask[:16, 12:].any()
 
 
+def test_mirrored_neighbor_doors_bound_an_end_room_on_both_sides():
+    grid = np.zeros((40, 30), dtype=np.int8)
+    msg = _grid_message(grid, resolution=0.5)
+    mask = extract_room_mask(
+        grid,
+        msg,
+        entry_wx=5.0,
+        entry_wy=10.0,
+        entry_yaw=0.0,
+        seed_offset_m=1.0,
+        min_room_free_cells=20,
+        restrict_to_inside_half_plane=True,
+        # 实际邻门 y=16；镜像邻门 y=4 由两门间距推导。
+        neighbor_entries_world=[(5.0, 16.0), (5.0, 4.0)],
+    )
+    assert mask is not None
+    # 两条中垂线 y=7 与 y=13 把端部入口限定在自己的拓扑房间内。
+    assert not mask[:14, :].any()
+    assert mask[15:26, 12:].any()
+    assert not mask[27:, :].any()
+
+
 def test_room_mask_too_small_returns_none():
     # 几乎封闭无空间 → None
     grid = np.full((10, 10), OCCUPIED_THRESHOLD, dtype=np.int8)

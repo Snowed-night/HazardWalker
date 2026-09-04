@@ -2095,15 +2095,21 @@ class FrontierExplorerNode(Node):
                 'official_near_room_y_m'
                 if sector.startswith('far_')
                 else 'official_far_room_y_m').value)
-            neighbor_x, neighbor_y, _neighbor_yaw = (
-                reproject_planar_pose_between_robot_frames(
-                    (door_x, other_door_y),
-                    physical_entry_yaw,
-                    (official_x, official_y, official_yaw),
-                    (self.robot_x, self.robot_y, self.robot_yaw),
+            # 同侧只实际观察到两扇门。除真实邻门外，再按两门间距在当前门
+            # 另一侧构造镜像拓扑邻居，使端部房间也受到双侧 Voronoi 边界
+            # 约束。该边界由在线门拓扑推导，不依赖楼层绝对坐标或房间尺寸。
+            for topology_door_y in (
+                    other_door_y,
+                    door_y + (door_y - other_door_y)):
+                neighbor_x, neighbor_y, _neighbor_yaw = (
+                    reproject_planar_pose_between_robot_frames(
+                        (door_x, topology_door_y),
+                        physical_entry_yaw,
+                        (official_x, official_y, official_yaw),
+                        (self.robot_x, self.robot_y, self.robot_yaw),
+                    )
                 )
-            )
-            neighbor_entries_world.append((neighbor_x, neighbor_y))
+                neighbor_entries_world.append((neighbor_x, neighbor_y))
         else:
             neighbor_sector = (
                 ('near_' if sector.startswith('far_') else 'far_')
@@ -2111,6 +2117,12 @@ class FrontierExplorerNode(Node):
             neighbor = self._room_sector_candidate_poses.get(neighbor_sector)
             if neighbor is not None:
                 neighbor_entries_world.append(neighbor)
+                # 非官方模式同样只利用已观察门的位置关系：把真实邻门绕
+                # 当前门镜像，给走廊端部房间补齐另一侧拓扑边界。
+                neighbor_entries_world.append((
+                    2.0 * entry_world[0] - float(neighbor[0]),
+                    2.0 * entry_world[1] - float(neighbor[1]),
+                ))
         plan = build_room_visibility_inspection_plan(
             self.grid,
             self.latest_map,

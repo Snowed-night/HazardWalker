@@ -293,6 +293,9 @@ def test_official_corridor_completion_uses_the_same_control_frame_as_motion():
     assert 'self._complete_current_deterministic_waypoint()' in strict_orientation
     assert 'return self._follow_path()' not in strict_orientation
     assert 'neighbor_entries_world=neighbor_entries_world' in source
+    assert 'door_y + (door_y - other_door_y)' in source
+    assert '2.0 * entry_world[0] - float(neighbor[0])' in source
+    assert '2.0 * entry_world[1] - float(neighbor[1])' in source
     assert "goal_id_prefix=f'floor_{self._current_floor}_{sector}'" in source
     assert "'official_near_room_y_m'" in source
     assert "'official_far_room_y_m'" in source
