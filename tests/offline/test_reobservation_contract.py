@@ -106,6 +106,7 @@ def test_official_reobservation_cannot_preempt_corridor_or_door_entry():
     source = open(source_path, encoding='utf-8').read()
     assert "'reobserve_only_inside_active_room', False" in source
     assert "and self._active_room_sector is None" in source
+    assert "self._deterministic_route_phase == 'room_inspection'" in source
 
     launch_path = os.path.join(
         REPO_ROOT, 'ros2_ws', 'src', 'hazardwalker_bringup',

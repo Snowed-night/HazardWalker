@@ -842,8 +842,7 @@ class FrontierExplorerNode(Node):
             return
         deterministic_room_active = (
             self._deterministic_room_sector is not None
-            and self._deterministic_route_phase in (
-                'room_loop', 'room_inspection', 'room_exit'))
+            and self._deterministic_route_phase == 'room_inspection')
         if (bool(self.get_parameter(
                 'reobserve_only_inside_active_room').value)
                 and self._active_room_sector is None
