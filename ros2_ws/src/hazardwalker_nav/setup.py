@@ -35,6 +35,10 @@ setup(
         'console_scripts': [
             'waypoint_patrol_node = hazardwalker_nav.waypoint_patrol_node:main',
             'frontier_explorer_node = hazardwalker_nav.frontier_explorer_node:main',
+            'slam_monitor = hazardwalker_nav.slam_monitor_node:main',
+            'pointcloud_map = hazardwalker_nav.pointcloud_map_node:main',
+            'multifloor_occupancy_mapper = hazardwalker_nav.multifloor_occupancy_mapper_node:main',
+            'slam_video_recorder = hazardwalker_nav.slam_video_recorder_node:main',
         ],
     },
 )

@@ -10,12 +10,17 @@ sys.path.insert(0, os.path.join(REPO_ROOT, 'ros2_ws', 'src', 'hazardwalker_nav')
 from hazardwalker_nav.reobservation_contract import (
     action_has_scan_clearance,
     bearing_change_deg,
+    bounded_planar_pose_increment,
     find_target_detection,
     find_target_status,
+    lateral_centering_angular_velocity,
+    live_reobservation_action_update_allowed,
     parse_reobservation_request,
     reobservation_actions_conflict,
     reobservation_request_is_eligible,
+    select_live_reobservation_update,
     target_centered_in_image,
+    target_horizontal_error_ratio,
 )
 
 
@@ -62,6 +67,35 @@ def test_same_target_has_bounded_reobservation_attempts_and_state_gate():
         {'action': 'move_left', 'target_id': 'untracked:7'},
         'EXPLORING', {'7': 4}, 4,
     ) is False
+    assert reobservation_request_is_eligible(
+        request, 'RETURNING', {}, 2,
+    ) is False
+    assert reobservation_request_is_eligible(
+        request, 'RETURNING', {}, 2, allow_returning=True,
+    ) is True
+    assert reobservation_request_is_eligible(
+        request, 'RETURNING', {'7': 2}, 2, allow_returning=True,
+    ) is False
+
+
+def test_official_returning_reobservation_is_bounded_and_resumes_returning():
+    source_path = os.path.join(
+        REPO_ROOT, 'ros2_ws', 'src', 'hazardwalker_nav',
+        'hazardwalker_nav', 'frontier_explorer_node.py',
+    )
+    source = open(source_path, encoding='utf-8').read()
+
+    assert "declare_parameter('reobserve_during_returning', False)" in source
+    assert "'reobserve_returning_max_attempts_per_target', 2" in source
+    assert "'RETURNING' if self.state == 'RETURNING' else 'EXPLORING'" in source
+    assert 'self._transition(resume_state)' in source
+    launch_path = os.path.join(
+        REPO_ROOT, 'ros2_ws', 'src', 'hazardwalker_bringup',
+        'launch', 'official_simenv_business.launch.py',
+    )
+    launch = open(launch_path, encoding='utf-8').read()
+    assert "'reobserve_during_returning': True" in launch
+    assert "'reobserve_returning_max_attempts_per_target': 2" in launch
 
 
 def test_reobservation_motion_requires_clear_relevant_scan_sector():
@@ -250,6 +284,156 @@ def test_turn_feedback_stops_when_target_enters_center_band():
     assert not target_centered_in_image(edge, 640, 0.18)
     assert reobservation_actions_conflict('move_left', 'move_right')
     assert not reobservation_actions_conflict('move_left', 'move_forward')
+    assert target_horizontal_error_ratio(centered, 640) == -0.03125
+    assert target_horizontal_error_ratio(edge, 640) > 0.9
+
+
+def test_lateral_arc_centering_turns_toward_target_with_limits():
+    assert lateral_centering_angular_velocity(-0.5, 0.8, 0.6, 0.05) == 0.4
+    assert lateral_centering_angular_velocity(0.9, 0.8, 0.6, 0.05) == -0.6
+    assert lateral_centering_angular_velocity(0.02, 0.8, 0.6, 0.05) == 0.0
+    assert lateral_centering_angular_velocity(float('nan'), 0.8, 0.6) == 0.0
+
+
+def test_live_action_updates_do_not_oscillate_between_lateral_and_turning():
+    assert live_reobservation_action_update_allowed('turn_left', 'move_left')
+    assert live_reobservation_action_update_allowed('turn_right', 'move_right')
+    assert not live_reobservation_action_update_allowed('turn_left', 'move_right')
+    assert not live_reobservation_action_update_allowed('move_left', 'turn_left')
+    assert not live_reobservation_action_update_allowed('move_right', 'turn_right')
+    assert live_reobservation_action_update_allowed('turn_left', 'move_forward')
+
+
+def test_reobservation_pose_increment_accepts_realistic_motion():
+    increment = bounded_planar_pose_increment(
+        (18.32, 0.63), (18.36, 0.65), 0.30,
+    )
+
+    assert abs(increment - (0.04 ** 2 + 0.02 ** 2) ** 0.5) < 1e-9
+
+
+def test_reobservation_pose_increment_rejects_slam_map_jump():
+    assert bounded_planar_pose_increment(
+        (18.32, 0.63), (-3.60, 18.49), 0.30,
+    ) is None
+
+
+def test_filtered_reobservation_distance_accumulates_only_valid_steps():
+    poses = [(0.0, 0.0), (0.2, 0.0), (23.8, 0.0), (24.0, 0.0), (24.2, 0.0)]
+    distance = 0.0
+    previous = poses[0]
+    for current in poses[1:]:
+        increment = bounded_planar_pose_increment(previous, current, 0.30)
+        previous = current
+        if increment is not None:
+            distance += increment
+
+    assert abs(distance - 0.60) < 1e-9
+
+
+def test_same_target_live_recommendation_updates_active_action():
+    payload = {
+        'view_recommendation': {
+            'action': 'move_forward',
+            'target_id': 'candidate-1',
+            'reason': '目标已离开边缘，靠近补充面积',
+        },
+    }
+
+    update = select_live_reobservation_update(
+        payload, 'candidate-1', 'turn_right',
+    )
+
+    assert update['action'] == 'move_forward'
+    assert update['target_id'] == 'candidate-1'
+
+
+def test_same_target_live_lateral_recommendation_updates_active_action():
+    payload = {
+        'view_recommendation': {
+            'action': 'move_right',
+            'target_id': 'untracked:candidate-2',
+        },
+    }
+
+    update = select_live_reobservation_update(
+        payload, 'candidate-2', 'turn_right',
+    )
+
+    assert update['action'] == 'move_right'
+
+
+def test_live_update_follows_explicit_candidate_alias_after_track_upgrade():
+    payload = {
+        'view_recommendation': {
+            'action': 'move_right',
+            'target_id': 'track-7',
+        },
+        'detections_2d': [{
+            'track_id': 'track-7',
+            'candidate_aliases': ['candidate-2'],
+        }],
+    }
+
+    update = select_live_reobservation_update(
+        payload, 'candidate-2', 'turn_right',
+    )
+
+    assert update['action'] == 'move_right'
+    assert update['target_id'] == 'track-7'
+
+
+def test_live_update_rejects_unlinked_track_even_with_similar_suffix():
+    payload = {
+        'view_recommendation': {
+            'action': 'move_right',
+            'target_id': 'track-2',
+        },
+        'detections_2d': [{
+            'track_id': 'track-2',
+            'candidate_aliases': ['candidate-9'],
+        }],
+    }
+
+    assert select_live_reobservation_update(
+        payload, 'candidate-2', 'turn_right',
+    ) is None
+
+
+def test_live_recommendation_cannot_switch_target_or_repeat_action():
+    other_target = {
+        'view_recommendation': {
+            'action': 'move_forward',
+            'target_id': 'candidate-9',
+        },
+    }
+    same_action = {
+        'view_recommendation': {
+            'action': 'turn_right',
+            'target_id': 'candidate-1',
+        },
+    }
+
+    assert select_live_reobservation_update(
+        other_target, 'candidate-1', 'turn_right',
+    ) is None
+    assert select_live_reobservation_update(
+        same_action, 'candidate-1', 'turn_right',
+    ) is None
+
+
+def test_invalid_or_continue_live_recommendation_never_changes_action():
+    for action in ('teleport', 'continue_exploring'):
+        assert select_live_reobservation_update(
+            {
+                'view_recommendation': {
+                    'action': action,
+                    'target_id': 'candidate-1',
+                },
+            },
+            'candidate-1',
+            'turn_right',
+        ) is None
 
 
 def test_reobservation_uses_sim_time_and_has_feedback_bounded_lateral_motion():
@@ -267,8 +451,10 @@ def test_reobservation_uses_sim_time_and_has_feedback_bounded_lateral_motion():
 
     assert "declare_parameter('reobserve_lateral_motion_duration_s', 3.0)" in source
     assert "declare_parameter('reobserve_lateral_max_distance_m', 0.80)" in source
+    assert "declare_parameter('reobserve_pose_jump_reject_m', 0.30)" in source
     assert "declare_parameter('reobserve_target_loss_timeout_s', 0.40)" in source
     assert "declare_parameter('reobserve_lateral_speed', 0.45)" in source
+    assert "declare_parameter('reobserve_lateral_centering_gain', 0.80)" in source
     assert "declare_parameter('reobserve_forward_speed', 0.30)" in source
     assert 'now = self._ros_time_sec()' in trigger
     assert 'time.monotonic()' not in trigger
@@ -277,8 +463,20 @@ def test_reobservation_uses_sim_time_and_has_feedback_bounded_lateral_motion():
     assert 'Reobservation bearing goal reached' in source
     assert 'target_centered_in_image(' in source
     assert 'reobservation_actions_conflict(' in source
+    assert 'select_live_reobservation_update(' in source
+    assert 'Reobservation action updated for target=' in source
+    assert 'self.reobserve_end_time =' not in source.split(
+        'def _update_active_reobservation_action', 1,
+    )[1].split('def _stop_reobservation_motion', 1)[0]
     assert 'self._reobserve_allow_untracked_upgrade = False' in source
     assert 'lateral_distance >= maximum_distance' in handler
+    assert 'bounded_planar_pose_increment(' in handler
+    assert 'self._reobserve_lateral_distance_m += increment' in handler
+    assert "turn_action = 'turn_left' if angular > 0.0 else 'turn_right'" in handler
+    assert 'cmd.angular.z = angular' in handler
+    assert 'lateral_centering_angular_velocity(' in handler
+    assert 'live_reobservation_action_update_allowed(' in source
+    assert 'self._reobserve_start_pose' not in source
 
 
 def test_returning_replans_on_sim_time_and_recovers_without_nonzero_cmd():
@@ -293,14 +491,21 @@ def test_returning_replans_on_sim_time_and_recovers_without_nonzero_cmd():
     watchdog = source.split(
         'def _return_progress_watchdog_expired', 1,
     )[1].split('def _update_pose', 1)[0]
+    recovery = source.split(
+        'def _return_recovery_command_for_now', 1,
+    )[1].split('def _return_progress_watchdog_expired', 1)[0]
+    planner = source.split('def _hybrid_return_path', 1)[1].split(
+        'def _verified_reverse_return_path', 1)[0]
 
     assert 'now = self._ros_time_sec()' in handler
     assert 'time.monotonic()' not in handler
     assert 'now - self._last_return_plan_time >= replan_interval' not in handler
     assert 'or len(self.current_path) == 0' in handler
-    assert 'goal_search_radius_m=0.0' in handler
-    assert 'append_exact_goal=True' in handler
-    assert 'start_search_radius_m=0.50' in handler
+    assert 'self._hybrid_return_path(' in handler
+    assert 'goal_search_radius_m=0.0' in planner
+    assert 'append_exact_goal=True' in planner
+    assert 'start_search_radius_m=0.50' in planner
+    assert 'self._verified_reverse_return_path(home_x, home_y)' in planner
     assert 'Return progress watchdog expired' in watchdog
     assert 'self.current_path = []' in watchdog
     assert 'return_pose_has_progress(' in watchdog
@@ -322,6 +527,8 @@ def test_returning_replans_on_sim_time_and_recovers_without_nonzero_cmd():
     )
     # 看门狗直接观察实际位移，不能依赖经 scan 安全门禁后的 cmd_vel。
     assert 'cmd.' not in watchdog
+    assert 'self._elevator_odom_path = []' not in recovery
+    assert 'self._elevator_odom_path_index + 2' in recovery
 
 
 def test_exploring_stuck_target_is_suppressed_before_path_is_cleared():
@@ -339,3 +546,94 @@ def test_exploring_stuck_target_is_suppressed_before_path_is_cleared():
     )
     clear_index = stuck_handler.index('self.current_target = None')
     assert mark_index < clear_index
+    # Gazebo 可能只有 0.1 左右实时因子；卡死判断必须使用仿真时钟，不能让
+    # 墙钟看门狗提前打断按仿真时间工作的房间目标收缩恢复器。
+    assert 'now = self._ros_time_sec()' in stuck_handler
+
+
+def test_deterministic_room_new_goals_use_filtered_unitree_backend():
+    source_path = os.path.join(
+        REPO_ROOT, 'ros2_ws', 'src', 'hazardwalker_nav',
+        'hazardwalker_nav', 'frontier_explorer_node.py',
+    )
+    source = open(source_path, encoding='utf-8').read()
+    handler = source.split(
+        'def _handle_deterministic_room_route', 1,
+    )[1].split('def _handle_exploring', 1)[0]
+
+    room_approach = handler.split(
+        "if phase == 'room_approach':", 1,
+    )[1].split("if phase == 'room_cross':", 1)[0]
+    room_waypoints = handler.split(
+        "if phase == 'room_cross':", 1,
+    )[1]
+    assert 'else self._follow_path()' in room_approach
+    assert 'else self._follow_path()' in room_waypoints
+
+
+def test_deterministic_doorways_freeze_after_corridor_outbound():
+    source_path = os.path.join(
+        REPO_ROOT, 'ros2_ws', 'src', 'hazardwalker_nav',
+        'hazardwalker_nav', 'frontier_explorer_node.py',
+    )
+    source = open(source_path, encoding='utf-8').read()
+    handler = source.split(
+        'def _handle_deterministic_room_route', 1,
+    )[1].split('def _handle_exploring', 1)[0]
+
+    refresh = handler.split(
+        'self._refresh_deterministic_doorways()', 1,
+    )[0].rsplit('\n', 8)[-8:]
+    refresh_context = '\n'.join(refresh)
+    assert "self._deterministic_route_phase == 'corridor_outbound'" in (
+        refresh_context
+    )
+    assert 'select_symmetric_doorway_stations(' in source
+
+
+def test_deterministic_corridor_rejects_entry_empty_before_calibrated_depth():
+    """入口空地即使形成两排候选，也不能让确定性路线提前返程。"""
+
+    source_path = os.path.join(
+        REPO_ROOT, 'ros2_ws', 'src', 'hazardwalker_nav',
+        'hazardwalker_nav', 'frontier_explorer_node.py',
+    )
+    source = open(source_path, encoding='utf-8').read()
+    assert "'deterministic_corridor_min_progress_m', 30.0" in source
+    assert "'deterministic_corridor_max_lateral_m', 1.0" in source
+    assert "'deterministic_corridor_center_lateral_m', 0.0" in source
+    assert "'deterministic_corridor_inflation_radius_m', 0.20" in source
+    assert "'deterministic_entry_direct_until_progress_m', 0.0" in source
+    assert "'deterministic_entry_clearance_m', -1.0" in source
+    assert "'deterministic_entry_rotation_clearance_m', 0.30" in source
+    assert "'deterministic_calibrated_doorways_enabled', False" in source
+    assert "'deterministic_near_door_progress_m', 18.9" in source
+    assert "'deterministic_far_door_progress_m', 32.7" in source
+    assert "'deterministic_corridor_hard_limit_m', 35.5" in source
+    assert "'deterministic_corridor_waypoint_tolerance_m', 0.8" in source
+    assert 'minimum_outbound_reached' in source
+    assert source.count('and minimum_outbound_reached') >= 2
+    corridor_planner = source.split(
+        'def _plan_reachable_corridor_goal', 1,
+    )[1].split('def _update_deterministic_room_distance', 1)[0]
+    assert "'deterministic_corridor_max_lateral_m'" in corridor_planner
+    assert "'deterministic_corridor_inflation_radius_m'" in corridor_planner
+    assert 'fallback_path = [fallback]' in corridor_planner
+    assert 'center_goal = self._deterministic_world_point(' in corridor_planner
+    assert 'goal_progress = min(progress, hard_limit)' in corridor_planner
+    assert 'progress > robot_progress + minimum_goal_gap' in corridor_planner
+    assert "label == 'corridor_outbound'" in source
+    assert 'path.append(resolved_goal)' in source
+    assert 'for lateral_limit in (narrow, wide)' not in corridor_planner
+    route_handler = source.split(
+        'def _handle_deterministic_room_route', 1,
+    )[1].split('def _handle_exploring', 1)[0]
+    assert "'deterministic_corridor_center_lateral_m'" in route_handler
+    assert 'self.start_x - self._entry_axis[1] * lateral_offset' in route_handler
+    assert "phase == 'corridor_outbound'" in route_handler
+    assert "'deterministic_entry_direct_until_progress_m'" in route_handler
+    assert 'navigation_clearance_override=clearance' in route_handler
+    assert 'rotation_clearance_override=rotation_clearance' in route_handler
+    assert 'self._seed_calibrated_doorways()' in route_handler
+    assert "'use_official_odom_for_room_control'" in source
+    assert "path = [resolved_goal]" in source

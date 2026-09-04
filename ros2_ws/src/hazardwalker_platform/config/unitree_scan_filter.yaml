@@ -1,0 +1,15 @@
+# 官方 A1 水平雷达原点位于机身内部，/scan 固定包含 0.10--0.34m
+# 自身回波。使用 ROS laser_filters 标准插件剔除这些回波，再交给赛事
+# move_base/Navfn/TrajectoryPlannerROS；这里不实现任何自定义避障策略。
+scan_filter_chain:
+  - name: remove_a1_self_returns
+    type: laser_filters/LaserScanBoxFilter
+    params:
+      box_frame: base
+      min_x: -0.48
+      max_x: 0.45
+      min_y: -0.40
+      max_y: 0.40
+      min_z: -1.0
+      max_z: 1.0
+      invert: false

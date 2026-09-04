@@ -10,6 +10,9 @@
     <arg name="headless" default="false"/>
     <arg name="debug" default="false"/>
     <arg name="user_debug" default="false"/>
+    <!-- 默认关闭 /scan，降低 GUI 渲染与物理负载；SLAM/导航测试显式传 true。 -->
+    <arg name="enable_lidar" default="$(optenv ENABLE_LIDAR false)"/>
+    <arg name="enable_livox_3d" default="$(optenv ENABLE_LIVOX_3D false)"/>
     <!-- 当前官方 /scan 是 sensor_msgs/LaserScan；旧转换脚本按 PointCloud 订阅
          同名话题会触发类型冲突并使 Gazebo 退出。仅旧版 PointCloud 环境显式开启。 -->
     <arg name="enable_legacy_pointcloud2livox" default="false"/>
@@ -32,7 +35,8 @@
 
     <param name="robot_description"
            command="$(find xacro)/xacro --inorder '$(arg dollar)$(arg robot_path)/xacro/robot.xacro'
-           DEBUG:=$(arg user_debug)"/>
+           DEBUG:=$(arg user_debug) ENABLE_LIDAR:=$(arg enable_lidar)
+           ENABLE_LIVOX_3D:=$(arg enable_livox_3d)"/>
 
     <node pkg="gazebo_ros" type="spawn_model" name="urdf_spawner" respawn="false" output="screen"
               args="-urdf -z $(arg robot_z) -y $(arg robot_y) -x $(arg robot_x) -Y $(arg robot_yaw) -model $(arg rname)_gazebo -param robot_description -unpause"/>
@@ -71,5 +75,18 @@
         <param name="laser_blind" value="0.5" />
         <param name="min_angle" value="-7"/>
         <param name="max_angle" value="55"/>
+    </node>
+
+    <node if="$(arg enable_livox_3d)"
+          pkg="unitree_guide" type="livox_3d_preprocessor.py"
+          name="hazardwalker_livox_3d_preprocessor" output="screen">
+        <param name="input_topic" value="/livox/lidar_raw"/>
+        <param name="sensor_frame" value="laser_livox"/>
+        <param name="scan_frame" value="laser_scan"/>
+        <param name="mount_pitch_rad" value="0.78539816339"/>
+        <param name="blind_m" value="0.40"/>
+        <param name="max_range_m" value="20.0"/>
+        <param name="scan_bins" value="360"/>
+        <param name="scan_period_sec" value="0.10"/>
     </node>
 </launch>

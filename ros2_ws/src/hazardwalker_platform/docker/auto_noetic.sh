@@ -7,7 +7,8 @@ SIMENV_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 COMPOSE_FILE="$SCRIPT_DIR/docker-compose.yml"
 
 export SIMENV_HOST_PATH="$SIMENV_ROOT"
-export DOCKER_SIMENV_USER="${USER:-default}"
+# 共享正式环境可显式指定容器属主；未指定时才沿用当前登录账号，避免主账号误建平行容器。
+export DOCKER_SIMENV_USER="${DOCKER_SIMENV_USER:-${USER:-default}}"
 export COMPOSE_PROJECT_NAME="simenv_ros1_${DOCKER_SIMENV_USER}"
 
 CONTAINER_NAME="simenv_ros1_${DOCKER_SIMENV_USER}"
@@ -45,6 +46,8 @@ Usage: $0 {build|up|down|logs|shell|status|image}
 Environment (passed into container):
   GUI=false  PAUSED=true  START_CONTROLLER=0|1  SIMENV_AUTO_RL=0|1
   START_ROSBRIDGE=0|1  START_ODOM_RELAY=0|1  SEED=...
+  SIMENV_MEMORY_LIMIT=32g  SIMENV_MEMORY_SWAP_LIMIT=32g
+  SIMENV_RESTART_POLICY=no
   Container name: ${CONTAINER_NAME}
 
 Note: Docker image includes LibTorch CUDA (cu118) + CUDA 11.8 toolkit (for cmake compile).
@@ -69,8 +72,8 @@ case "$cmd" in
     compose build "$@"
     clean=""
     if [[ -n "$force" ]]; then
-      clean="rm -rf build devel install && "
-      echo "Force rebuild: cleaning build/ devel/ install/"
+      clean="rm -rf .ros1_catkin_ws/build .ros1_catkin_ws/devel .ros1_catkin_ws/install && "
+      echo "Force rebuild: cleaning .ros1_catkin_ws/{build,devel,install}/"
     fi
     compose run --rm --entrypoint /ros_entrypoint.sh \
       -e HOST_UID="$(id -u)" -e HOST_GID="$(id -g)" \
@@ -91,7 +94,7 @@ case "$cmd" in
     ;;
   shell)
     docker exec -it "$CONTAINER_NAME" bash -lc \
-      'source /opt/ros/noetic/setup.bash && source devel/setup.bash && bash'
+      'source /opt/ros/noetic/setup.bash && source .ros1_catkin_ws/devel/setup.bash && bash'
     ;;
   status)
     docker ps -a --filter "name=${CONTAINER_NAME}" --format 'table {{.Names}}\t{{.Status}}\t{{.Image}}'

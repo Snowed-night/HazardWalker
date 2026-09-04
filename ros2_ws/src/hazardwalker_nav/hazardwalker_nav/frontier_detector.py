@@ -19,6 +19,132 @@ from typing import Iterable, List, Optional, Tuple
 
 import numpy as np
 
+
+def body_tilt_degrees_from_quaternion(
+        x: float, y: float, z: float, w: float) -> Optional[float]:
+    """由公开 IMU 四元数计算机体 z 轴相对世界 z 轴的倾角。"""
+
+    values = tuple(float(value) for value in (x, y, z, w))
+    if not all(math.isfinite(value) for value in values):
+        return None
+    norm = math.sqrt(sum(value * value for value in values))
+    if norm <= 1e-9:
+        return None
+    qx, qy, _qz, _qw = (value / norm for value in values)
+    upright_cosine = 1.0 - 2.0 * (qx * qx + qy * qy)
+    upright_cosine = max(-1.0, min(1.0, upright_cosine))
+    return math.degrees(math.acos(upright_cosine))
+
+
+def append_loop_erased_history(
+        history, point, spacing_m: float = 0.10,
+        loop_radius_m: float = 0.75, min_index_gap: int = 10) -> bool:
+    """向轨迹栈追加点；回到旧轨迹邻域时删除中间闭环。"""
+
+    x, y = float(point[0]), float(point[1])
+    spacing = max(0.02, float(spacing_m))
+    if history and math.hypot(
+            x - float(history[-1][0]), y - float(history[-1][1])) < spacing:
+        return False
+    radius = max(spacing, float(loop_radius_m))
+    gap = max(2, int(min_index_gap))
+    search_end = len(history) - gap
+    for index in range(search_end - 1, -1, -1):
+        if math.hypot(
+                x - float(history[index][0]),
+                y - float(history[index][1])) <= radius:
+            while len(history) > index + 1:
+                history.pop()
+            break
+    history.append((x, y))
+    return True
+
+
+def detect_opened_door_from_scans(
+        closed_ranges, opened_ranges, angle_min: float,
+        angle_increment: float, min_delta_m: float = 0.25,
+        min_changed_bins: int = 4, min_closed_range_m: float = 2.0,
+        max_closed_range_m: float = 8.0):
+    """由门关闭/打开两帧激光差分返回门洞方位、关闭距离和有效束数。"""
+
+    count = min(len(closed_ranges), len(opened_ranges))
+    changed = []
+    for index in range(count):
+        closed = float(closed_ranges[index])
+        opened = float(opened_ranges[index])
+        if (not math.isfinite(closed)
+                or closed < max(0.05, float(min_closed_range_m))
+                or closed > max(0.5, float(max_closed_range_m))):
+            continue
+        if not math.isfinite(opened):
+            opened = 40.0
+        delta = opened - closed
+        if delta >= max(0.05, float(min_delta_m)):
+            changed.append((index, closed, delta))
+    if not changed:
+        return None
+
+    # 只使用最大连续变化簇，排除远处动态物体或单束噪声。
+    groups = []
+    current = [changed[0]]
+    for item in changed[1:]:
+        if item[0] <= current[-1][0] + 2:
+            current.append(item)
+        else:
+            groups.append(current)
+            current = [item]
+    groups.append(current)
+    group = max(groups, key=len)
+    if len(group) < max(1, int(min_changed_bins)):
+        return None
+
+    weighted_sin = 0.0
+    weighted_cos = 0.0
+    closed_values = []
+    for index, closed, delta in group:
+        angle = float(angle_min) + index * float(angle_increment)
+        weight = max(0.05, float(delta))
+        weighted_sin += math.sin(angle) * weight
+        weighted_cos += math.cos(angle) * weight
+        closed_values.append(float(closed))
+    bearing = math.atan2(weighted_sin, weighted_cos)
+    closed_values.sort()
+    middle = len(closed_values) // 2
+    if len(closed_values) % 2:
+        distance = closed_values[middle]
+    else:
+        distance = 0.5 * (
+            closed_values[middle - 1] + closed_values[middle])
+    return float(bearing), float(distance), len(group)
+
+
+def build_reverse_history_path(
+        visited_positions, current_x, current_y, home_x, home_y,
+        spacing_m=0.45):
+    """把本层已走轨迹倒序压缩为返航路径，作为占用图断开时的安全保底。"""
+
+    spacing = max(0.05, float(spacing_m))
+    path = []
+    last_x = float(current_x)
+    last_y = float(current_y)
+    for position in reversed(list(visited_positions or [])):
+        try:
+            x_value = float(position[0])
+            y_value = float(position[1])
+        except (IndexError, TypeError, ValueError):
+            continue
+        if not math.isfinite(x_value) or not math.isfinite(y_value):
+            continue
+        if math.hypot(x_value - last_x, y_value - last_y) < spacing:
+            continue
+        path.append((x_value, y_value))
+        last_x, last_y = x_value, y_value
+    if not path or math.hypot(
+            float(home_x) - path[-1][0],
+            float(home_y) - path[-1][1]) >= 0.05:
+        path.append((float(home_x), float(home_y)))
+    return path
+
 # OccupancyGrid 常量
 FREE = 0
 FREE_MAX = 49
@@ -33,6 +159,175 @@ class Frontier:
     size: int                       # 格子数量
     points: List[Tuple[int, int]]   # 网格坐标 [(gx, gy), ...]
     info_gain: float                # 信息增益 = size * avg_unknown_neighbors
+
+
+def simulation_period_elapsed(
+        now_sec: float,
+        last_sec: Optional[float],
+        period_sec: float,
+) -> bool:
+    """判断仿真时间周期是否到期，并在时钟回退后立即重建状态。
+
+    控制心跳必须使用墙钟，但地图重规划和覆盖统计应跟随 `/clock`。复杂 Gazebo
+    实时倍率约 0.1 时，使用墙钟会在同一仿真秒内重复规划近十次，反过来继续
+    压低实时倍率。非法或尚未开始的仿真时间返回 False。
+    """
+
+    try:
+        now = float(now_sec)
+        period = float(period_sec)
+        previous = None if last_sec is None else float(last_sec)
+    except (TypeError, ValueError, OverflowError):
+        return False
+    if (not math.isfinite(now) or not math.isfinite(period)
+            or now <= 0.0 or period <= 0.0):
+        return False
+    if previous is None or not math.isfinite(previous) or now < previous:
+        return True
+    return now - previous >= period
+
+
+def transform_planar_point(
+        point_x: float,
+        point_y: float,
+        translation_x: float,
+        translation_y: float,
+        yaw_rad: float,
+) -> Tuple[float, float]:
+    """将二维点应用刚体变换；用于合法 odom 家点重投影到当前 map。"""
+
+    values = (
+        point_x, point_y, translation_x, translation_y, yaw_rad)
+    if not all(math.isfinite(float(value)) for value in values):
+        raise ValueError('二维刚体变换参数必须是有限数')
+    cosine = math.cos(float(yaw_rad))
+    sine = math.sin(float(yaw_rad))
+    return (
+        float(translation_x) + cosine * float(point_x)
+        - sine * float(point_y),
+        float(translation_y) + sine * float(point_x)
+        + cosine * float(point_y),
+    )
+
+
+def transform_planar_goal_to_robot_frame(
+        goal_x: float, goal_y: float, goal_yaw: float,
+        robot_x: float, robot_y: float,
+        robot_yaw: float) -> Tuple[float, float, float]:
+    """把同一合法地图中的绝对目标转为机器人 base 相对目标。"""
+
+    values = (
+        goal_x, goal_y, goal_yaw, robot_x, robot_y, robot_yaw)
+    if not all(math.isfinite(float(value)) for value in values):
+        raise ValueError('二维相对目标参数必须是有限数')
+    dx = float(goal_x) - float(robot_x)
+    dy = float(goal_y) - float(robot_y)
+    cosine = math.cos(float(robot_yaw))
+    sine = math.sin(float(robot_yaw))
+    return (
+        cosine * dx + sine * dy,
+        -sine * dx + cosine * dy,
+        math.atan2(
+            math.sin(float(goal_yaw) - float(robot_yaw)),
+            math.cos(float(goal_yaw) - float(robot_yaw)),
+        ),
+    )
+
+
+def interpolate_path_lookahead(
+        path, start_index: int, current_x: float, current_y: float,
+        lookahead_m: float) -> Optional[Tuple[float, float, float]]:
+    """从机器人在折线上的最近投影向前取前视点，绝不追逐身后旧点。"""
+
+    raw_points = list(path or [])[max(0, int(start_index)):]
+    points = []
+    for point in raw_points:
+        try:
+            point_x, point_y = float(point[0]), float(point[1])
+        except (IndexError, TypeError, ValueError):
+            continue
+        if math.isfinite(point_x) and math.isfinite(point_y):
+            points.append((point_x, point_y))
+    if not points:
+        return None
+    current_x, current_y = float(current_x), float(current_y)
+    remaining = max(0.01, float(lookahead_m))
+    if not all(math.isfinite(value) for value in (
+            current_x, current_y, remaining)):
+        return None
+    if len(points) == 1:
+        dx = points[0][0] - current_x
+        dy = points[0][1] - current_y
+        length = math.hypot(dx, dy)
+        if length <= 1e-9:
+            return points[0][0], points[0][1], 0.0
+        ratio = min(1.0, remaining / length)
+        yaw = math.atan2(dy, dx)
+        return current_x + ratio * dx, current_y + ratio * dy, yaw
+
+    best = None
+    for segment_index in range(len(points) - 1):
+        start_x, start_y = points[segment_index]
+        end_x, end_y = points[segment_index + 1]
+        dx, dy = end_x - start_x, end_y - start_y
+        length_sq = dx * dx + dy * dy
+        if length_sq <= 1e-12:
+            continue
+        projection = max(0.0, min(1.0, (
+            (current_x - start_x) * dx
+            + (current_y - start_y) * dy
+        ) / length_sq))
+        projected_x = start_x + projection * dx
+        projected_y = start_y + projection * dy
+        distance_sq = (
+            (projected_x - current_x) ** 2
+            + (projected_y - current_y) ** 2
+        )
+        candidate = (
+            distance_sq, -segment_index, -projection,
+            segment_index, projected_x, projected_y,
+        )
+        if best is None or candidate < best:
+            best = candidate
+    if best is None:
+        return interpolate_path_lookahead(
+            [points[-1]], 0, current_x, current_y, remaining)
+
+    _, _, _, segment_index, projected_x, projected_y = best
+    connector_x = projected_x - current_x
+    connector_y = projected_y - current_y
+    connector_length = math.hypot(connector_x, connector_y)
+    if connector_length > 1e-9:
+        connector_yaw = math.atan2(connector_y, connector_x)
+        if remaining <= connector_length:
+            ratio = remaining / connector_length
+            return (
+                current_x + ratio * connector_x,
+                current_y + ratio * connector_y,
+                connector_yaw,
+            )
+        remaining -= connector_length
+
+    previous_x, previous_y = projected_x, projected_y
+    last_yaw = 0.0
+    for point_index in range(segment_index + 1, len(points)):
+        point_x, point_y = points[point_index]
+        dx, dy = point_x - previous_x, point_y - previous_y
+        length = math.hypot(dx, dy)
+        if length <= 1e-9:
+            previous_x, previous_y = point_x, point_y
+            continue
+        last_yaw = math.atan2(dy, dx)
+        if remaining <= length:
+            ratio = remaining / length
+            return (
+                previous_x + ratio * dx,
+                previous_y + ratio * dy,
+                last_yaw,
+            )
+        remaining -= length
+        previous_x, previous_y = point_x, point_y
+    return previous_x, previous_y, last_yaw
 
 
 def occupancy_grid_to_array(grid_msg) -> np.ndarray:
@@ -67,15 +362,25 @@ def find_frontiers(grid: np.ndarray, free_max: int = FREE_MAX) -> np.ndarray:
     Returns:
         (height, width) 布尔数组，True 表示该格子是前沿。
     """
+    if grid.ndim != 2:
+        raise ValueError('OccupancyGrid 必须是二维数组')
     h, w = grid.shape
     frontiers = np.zeros((h, w), dtype=bool)
-    for y in range(1, h - 1):
-        for x in range(1, w - 1):
-            if FREE <= grid[y, x] <= int(free_max):
-                # 检查四邻域
-                if (grid[y - 1, x] == UNKNOWN or grid[y + 1, x] == UNKNOWN or
-                        grid[y, x - 1] == UNKNOWN or grid[y, x + 1] == UNKNOWN):
-                    frontiers[y, x] = True
+    if h < 3 or w < 3:
+        return frontiers
+    free = (grid >= FREE) & (grid <= int(free_max))
+    unknown = grid == UNKNOWN
+    adjacent_unknown = np.zeros_like(frontiers)
+    adjacent_unknown[1:-1, 1:-1] = (
+        unknown[:-2, 1:-1]
+        | unknown[2:, 1:-1]
+        | unknown[1:-1, :-2]
+        | unknown[1:-1, 2:]
+    )
+    frontiers = free & adjacent_unknown
+    # 与旧实现保持一致：地图边界不参与前沿，避免开放地图边缘吸走机器人。
+    frontiers[[0, -1], :] = False
+    frontiers[:, [0, -1]] = False
     return frontiers
 
 
@@ -161,7 +466,14 @@ def select_best_frontier(frontiers: List[Frontier], robot_wx: float, robot_wy: f
                          entry_origin: Optional[Tuple[float, float]] = None,
                          entry_axis: Optional[Tuple[float, float]] = None,
                          entry_backtrack_margin_m: float = 0.5,
-                         entry_lateral_limit_m: Optional[float] = None
+                         entry_lateral_limit_m: Optional[float] = None,
+                         entry_progress_priority_slack_m: Optional[float] = None,
+                         visited_positions: Optional[
+                             Iterable[Tuple[float, float]]] = None,
+                         revisit_penalty_radius_m: float = 1.2,
+                         revisit_penalty_strength: float = 0.0,
+                         revisit_free_samples: int = 4,
+                         revisit_full_penalty_samples: int = 12,
                          ) -> Optional[Frontier]:
     """选择最优前沿：综合距离、信息增益、大小。
 
@@ -208,6 +520,28 @@ def select_best_frontier(frontiers: List[Frontier], robot_wx: float, robot_wy: f
             ]
             if not valid:
                 return None
+            # 走廊骨架阶段不再被近处门口的大前沿拖住：只在当前已知地图中
+            # 保留纵深接近最远值的候选。该排序只使用入口轴与合法 SLAM
+            # 前沿，不读取房间坐标或场景真值；骨架结束后调用方传 None，
+            # 自动恢复常规的近场房间探索。
+            if entry_progress_priority_slack_m is not None:
+                progress_slack = max(
+                    0.0, float(entry_progress_priority_slack_m))
+                projected = [
+                    (
+                        (frontier.centroid[0] - float(entry_origin[0]))
+                        * axis_x
+                        + (frontier.centroid[1] - float(entry_origin[1]))
+                        * axis_y,
+                        frontier,
+                    )
+                    for frontier in valid
+                ]
+                maximum_progress = max(item[0] for item in projected)
+                valid = [
+                    frontier for progress, frontier in projected
+                    if progress >= maximum_progress - progress_slack
+                ]
     if robot_yaw is not None:
         # 官方起点位于入口外且朝向建筑内部。若不考虑当前视线，外部无障碍区的
         # 巨大前沿会压倒入口/走廊前沿，机器人随即绕楼外圈。只要前方半平面有
@@ -259,6 +593,12 @@ def select_best_frontier(frontiers: List[Frontier], robot_wx: float, robot_wy: f
 
     best = None
     best_score = -float('inf')
+    visited = list(visited_positions or ())
+    revisit_radius = max(0.0, float(revisit_penalty_radius_m))
+    revisit_strength = max(
+        0.0, min(0.95, float(revisit_penalty_strength)))
+    free_samples = max(0, int(revisit_free_samples))
+    full_samples = max(free_samples + 1, int(revisit_full_penalty_samples))
 
     for f in valid:
         dist = math.hypot(f.centroid[0] - robot_wx, f.centroid[1] - robot_wy)
@@ -266,6 +606,21 @@ def select_best_frontier(frontiers: List[Frontier], robot_wx: float, robot_wy: f
 
         # 综合评分：信息增益 / 距离 为主，叠加大小因子
         score = f.info_gain / dist + math.log(f.size + 1) * 0.5
+
+        # 轨迹密度惩罚只使用合法 SLAM 位姿历史。首次经过允许少量样本，只有
+        # 同一区域长时间停留或多次折返才逐步降权，避免把正常近场前沿全部压低。
+        if visited and revisit_radius > 0.0 and revisit_strength > 0.0:
+            nearby = sum(
+                1 for x, y in visited
+                if math.hypot(f.centroid[0] - x, f.centroid[1] - y)
+                <= revisit_radius
+            )
+            excess = max(0, nearby - free_samples)
+            density = min(
+                1.0,
+                excess / float(full_samples - free_samples),
+            )
+            score *= max(0.05, 1.0 - revisit_strength * density)
 
         # 上一个目标加成（减小频繁切换）
         if last_target is not None:
@@ -305,6 +660,463 @@ def entry_axis_progress_m(robot_wx: float, robot_wy: float,
         (float(robot_wx) - float(entry_origin[0])) * axis_x
         + (float(robot_wy) - float(entry_origin[1])) * axis_y
     ) / axis_norm
+
+
+def corridor_room_sector(
+        world_x: float, world_y: float,
+        entry_origin: Optional[Tuple[float, float]],
+        entry_axis: Optional[Tuple[float, float]],
+        split_depth_m: float = 14.0,
+        lateral_entry_m: float = 2.0) -> Optional[str]:
+    """把合法 SLAM 点划分为近/远、左/右四个房间扇区。"""
+
+    if entry_origin is None or entry_axis is None:
+        return None
+    axis_x = float(entry_axis[0])
+    axis_y = float(entry_axis[1])
+    axis_norm = math.hypot(axis_x, axis_y)
+    if axis_norm <= 1e-6:
+        return None
+    axis_x /= axis_norm
+    axis_y /= axis_norm
+    delta_x = float(world_x) - float(entry_origin[0])
+    delta_y = float(world_y) - float(entry_origin[1])
+    progress = delta_x * axis_x + delta_y * axis_y
+    lateral = -delta_x * axis_y + delta_y * axis_x
+    threshold = max(0.05, float(lateral_entry_m))
+    if progress < 0.0 or abs(lateral) < threshold:
+        return None
+    depth = 'far' if progress >= max(0.0, float(split_depth_m)) else 'near'
+    side = 'left' if lateral > 0.0 else 'right'
+    return f'{depth}_{side}'
+
+
+def select_symmetric_doorway_stations(
+        observations,
+        entry_origin: Optional[Tuple[float, float]],
+        entry_axis: Optional[Tuple[float, float]],
+        preferred_lateral_m: float = 1.5,
+        pair_progress_gap_m: float = 2.0,
+        station_cluster_m: float = 2.0,
+        minimum_station_separation_m: float = 6.0,
+        maximum_station_count: int = 2,
+):
+    """从门带观测中聚类左右同排门，并选择最远的两个真实房间站位。
+
+    Frontier 会在入口空地、墙边、走廊尽头和房间内部产生很多短暂候选。
+    固定 14m 分界曾把约 19m 的真实近房划成远房，又把入口空地误当近房。
+    本函数不再假设任何绝对房门距离，只使用 SLAM 坐标：
+
+    - 先枚举纵向差小于 ``pair_progress_gap_m`` 的左右候选；
+    - 再按纵向位置聚类为门排；
+    - 只选相互间隔足够大的最远两个门排，因此自动排除入口空地；
+    - 每排左右坐标取平均纵深和对称横距，冻结后供返程逐房使用。
+
+    返回值为 ``far_left/far_right/near_left/near_right`` 到世界坐标的映射。
+    """
+
+    if entry_origin is None or entry_axis is None:
+        return {}
+    axis_x = float(entry_axis[0])
+    axis_y = float(entry_axis[1])
+    norm = math.hypot(axis_x, axis_y)
+    if norm <= 1e-6:
+        return {}
+    axis_x /= norm
+    axis_y /= norm
+    normal_x, normal_y = -axis_y, axis_x
+    origin_x, origin_y = float(entry_origin[0]), float(entry_origin[1])
+    preferred = max(0.05, abs(float(preferred_lateral_m)))
+    pair_gap = max(0.1, float(pair_progress_gap_m))
+    cluster_radius = max(0.2, float(station_cluster_m))
+    minimum_separation = max(
+        cluster_radius, float(minimum_station_separation_m))
+    maximum_count = max(1, int(maximum_station_count))
+
+    annotated = []
+    for raw_pose in list(observations or []):
+        try:
+            world_x = float(raw_pose[0])
+            world_y = float(raw_pose[1])
+        except (IndexError, TypeError, ValueError):
+            continue
+        if not math.isfinite(world_x) or not math.isfinite(world_y):
+            continue
+        delta_x = world_x - origin_x
+        delta_y = world_y - origin_y
+        progress = delta_x * axis_x + delta_y * axis_y
+        lateral = delta_x * normal_x + delta_y * normal_y
+        if progress < 0.0 or abs(lateral) < 0.05:
+            continue
+        annotated.append((progress, lateral, world_x, world_y))
+
+    left = [item for item in annotated if item[1] > 0.0]
+    right = [item for item in annotated if item[1] < 0.0]
+    pairs = []
+    for left_item in left:
+        for right_item in right:
+            progress_gap = abs(left_item[0] - right_item[0])
+            if progress_gap > pair_gap:
+                continue
+            station_progress = 0.5 * (
+                left_item[0] + right_item[0])
+            lateral_magnitude = 0.5 * (
+                abs(left_item[1]) + abs(right_item[1]))
+            quality = (
+                progress_gap
+                + 0.30 * abs(abs(left_item[1]) - preferred)
+                + 0.30 * abs(abs(right_item[1]) - preferred)
+            )
+            pairs.append({
+                'progress': station_progress,
+                'lateral': lateral_magnitude,
+                'quality': quality,
+            })
+    if not pairs:
+        return {}
+
+    # 同一真实门排会产生多个相邻 Frontier 配对；先聚类，再取每簇质量最好
+    # 的代表，避免某一帧的小幅质心漂移被误计成另一排房门。
+    clusters = []
+    for pair in sorted(pairs, key=lambda item: item['progress']):
+        nearest = None
+        nearest_gap = math.inf
+        for cluster in clusters:
+            gap = abs(pair['progress'] - cluster['mean_progress'])
+            if gap <= cluster_radius and gap < nearest_gap:
+                nearest = cluster
+                nearest_gap = gap
+        if nearest is None:
+            clusters.append({
+                'pairs': [pair],
+                'mean_progress': pair['progress'],
+            })
+        else:
+            nearest['pairs'].append(pair)
+            nearest['mean_progress'] = sum(
+                item['progress'] for item in nearest['pairs']) / len(
+                    nearest['pairs'])
+
+    representatives = []
+    for cluster in clusters:
+        representative = min(
+            cluster['pairs'], key=lambda item: item['quality'])
+        representatives.append(representative)
+    representatives.sort(key=lambda item: item['progress'], reverse=True)
+
+    selected = []
+    for representative in representatives:
+        if any(abs(
+                representative['progress'] - existing['progress'])
+                < minimum_separation for existing in selected):
+            continue
+        selected.append(representative)
+        if len(selected) >= maximum_count:
+            break
+    if len(selected) < 2:
+        # 四房官方楼层必须观测到两组左右配对；不允许凭单侧点或固定比例
+        # 伪造第二排，否则入口空地会再次被算作房间。
+        return {}
+
+    result = {}
+    for depth, station in zip(('far', 'near'), selected[:2]):
+        station_progress = float(station['progress'])
+        lateral_magnitude = max(preferred, float(station['lateral']))
+        for side, sign in (('left', 1.0), ('right', -1.0)):
+            result[f'{depth}_{side}'] = (
+                origin_x + axis_x * station_progress
+                + normal_x * sign * lateral_magnitude,
+                origin_y + axis_y * station_progress
+                + normal_y * sign * lateral_magnitude,
+            )
+    return result
+
+
+def prioritize_unvisited_room_frontiers(
+        frontiers: Iterable[Frontier],
+        entry_origin: Optional[Tuple[float, float]],
+        entry_axis: Optional[Tuple[float, float]],
+        visited_sectors: Iterable[str],
+        attempted_sectors: Iterable[str] = (),
+        active_sector: Optional[str] = None,
+        split_depth_m: float = 14.0,
+        candidate_lateral_m: float = 1.2,
+        candidate_max_lateral_m: float = 4.0,
+        far_depth_margin_m: float = 2.0):
+    """优先当前房间闭环，其次按远到近选择尚未完成的房间。"""
+
+    candidates = list(frontiers)
+    if not candidates:
+        return candidates, (
+            'active_room_frontiers_exhausted'
+            if active_sector is not None else 'unconstrained'
+        )
+    if entry_origin is None or entry_axis is None:
+        return candidates, 'unconstrained'
+    visited = set(str(item) for item in visited_sectors)
+    attempted = set(str(item) for item in attempted_sectors)
+    axis_x = float(entry_axis[0])
+    axis_y = float(entry_axis[1])
+    axis_norm = math.hypot(axis_x, axis_y)
+    if axis_norm <= 1e-6:
+        return candidates, 'unconstrained'
+    axis_x /= axis_norm
+    axis_y /= axis_norm
+
+    def lateral_of(frontier: Frontier) -> float:
+        delta_x = frontier.centroid[0] - float(entry_origin[0])
+        delta_y = frontier.centroid[1] - float(entry_origin[1])
+        return -delta_x * axis_y + delta_y * axis_x
+
+    maximum_lateral = max(
+        float(candidate_lateral_m), float(candidate_max_lateral_m))
+    annotated = [
+        (
+            corridor_room_sector(
+                frontier.centroid[0], frontier.centroid[1],
+                entry_origin, entry_axis,
+                split_depth_m=split_depth_m,
+                lateral_entry_m=candidate_lateral_m,
+            ),
+            frontier,
+        )
+        for frontier in candidates
+    ]
+    if active_sector is not None:
+        # 一旦真正跨过门口，后续目标必须留在同一房间，直到房间内前沿
+        # 耗尽或轨迹闭环。这样不会刚进入两米就被走廊上的大前沿拉出去。
+        active = [
+            frontier for sector, frontier in annotated
+            if sector == str(active_sector)
+        ]
+        return active, (
+            'active_room_perimeter'
+            if active else 'active_room_frontiers_exhausted'
+        )
+    # 门口已经物理到达但尚未跨门时，必须先完成同一房间的深层解锁。
+    # 否则左右两侧仍同属“未完成远房间”，信息增益会把机器人立即拉去
+    # 对侧门口，形成只看门不入室。优先选门带外的同扇区前沿；地图暂时
+    # 尚未显出深层前沿时保留同扇区门口候选等待继续观测。
+    attempted_unfinished = [
+        frontier for sector, frontier in annotated
+        if sector in attempted and sector not in visited
+    ]
+    if attempted_unfinished:
+        attempted_deep = [
+            frontier for frontier in attempted_unfinished
+            if abs(lateral_of(frontier)) > maximum_lateral
+        ]
+        return (
+            attempted_deep or attempted_unfinished,
+            'attempted_room_deep_after_door',
+        )
+    unvisited_far = [
+        frontier for sector, frontier in annotated
+        if sector in ('far_left', 'far_right') and sector not in visited
+        and (
+            abs(lateral_of(frontier)) <= maximum_lateral
+            or sector in attempted
+        )
+    ]
+    if unvisited_far:
+        return unvisited_far, 'unvisited_far_room'
+
+    missing_far = {'far_left', 'far_right'} - visited
+    if missing_far:
+        minimum_progress = max(
+            0.0,
+            float(split_depth_m) - max(0.0, float(far_depth_margin_m)),
+        )
+        far_zone = [
+            frontier for frontier in candidates
+            if (
+                (frontier.centroid[0] - float(entry_origin[0])) * axis_x
+                + (frontier.centroid[1] - float(entry_origin[1])) * axis_y
+            ) >= minimum_progress
+            and abs(lateral_of(frontier)) < max(
+                0.2, float(candidate_lateral_m))
+        ]
+        if far_zone:
+            return far_zone, 'far_room_discovery'
+
+    unvisited_near = [
+        frontier for sector, frontier in annotated
+        if sector in ('near_left', 'near_right') and sector not in visited
+        and (
+            abs(lateral_of(frontier)) <= maximum_lateral
+            or sector in attempted
+        )
+    ]
+    if unvisited_near:
+        return unvisited_near, 'unvisited_near_room'
+    return candidates, 'all_room_sectors_covered'
+
+
+def select_cached_missing_room_doorway(
+        cached_poses, visited_sectors, attempted_sectors):
+    """按远到近返回尚未尝试房间的合法 SLAM 门带缓存。"""
+
+    cached = dict(cached_poses or {})
+    visited = set(str(item) for item in visited_sectors or ())
+    attempted = set(str(item) for item in attempted_sectors or ())
+    # 已到门但未完成的房间拥有最高优先级，应由实时深层前沿或房间收尾
+    # 处理；此时返回另一个缓存门口会再次造成“只看门不入室”。
+    if attempted - visited:
+        return None
+    for sector in ('far_left', 'far_right', 'near_left', 'near_right'):
+        if sector in visited or sector in attempted or sector not in cached:
+            continue
+        pose = cached[sector]
+        try:
+            x_value = float(pose[0])
+            y_value = float(pose[1])
+        except (IndexError, TypeError, ValueError):
+            continue
+        if math.isfinite(x_value) and math.isfinite(y_value):
+            return sector, (x_value, y_value)
+    return None
+
+
+def build_counterclockwise_room_loop(
+        doorway: Tuple[float, float],
+        entry_axis: Tuple[float, float],
+        side: str,
+        shallow_depth_m: float = 2.0,
+        deep_depth_m: float = 5.0,
+        half_length_m: float = 2.0,
+        corner_radius_m: float = 0.0,
+) -> List[Tuple[float, float]]:
+    """以房门为基准生成世界坐标逆时针矩形单圈，不读取房间真值。"""
+
+    axis_x = float(entry_axis[0])
+    axis_y = float(entry_axis[1])
+    norm = math.hypot(axis_x, axis_y)
+    if norm <= 1e-6:
+        return []
+    axis_x /= norm
+    axis_y /= norm
+    normal_x, normal_y = -axis_y, axis_x
+    side_value = str(side).strip().lower()
+    if side_value not in ('left', 'right'):
+        return []
+    sign = 1.0 if side_value == 'left' else -1.0
+    shallow = max(0.5, float(shallow_depth_m))
+    deep = max(shallow + 0.5, float(deep_depth_m))
+    half = max(0.5, float(half_length_m))
+    radius = min(
+        max(0.0, float(corner_radius_m)),
+        half * 0.45,
+        (deep - shallow) * 0.45,
+    )
+    # 左房从门内底边向走廊前方开始；右房镜像后仍保持正面积（逆时针）。
+    # 官方DWA使用6点圆角六边形：比四点矩形转角小，又避免八点路线在
+    # 圆角附近产生四个短小目标和额外停顿。
+    if radius > 1e-6:
+        middle = 0.5 * (shallow + deep)
+        local_points = (
+            (sign * (half - radius), sign * shallow),
+            (sign * half, sign * middle),
+            (sign * (half - radius), sign * deep),
+            (-sign * (half - radius), sign * deep),
+            (-sign * half, sign * middle),
+            (-sign * (half - radius), sign * shallow),
+        )
+    else:
+        local_points = (
+            (sign * half, sign * shallow),
+            (sign * half, sign * deep),
+            (-sign * half, sign * deep),
+            (-sign * half, sign * shallow),
+        )
+    result = []
+    door_x, door_y = float(doorway[0]), float(doorway[1])
+    for progress, lateral in local_points:
+        result.append((
+            door_x + axis_x * progress + normal_x * lateral,
+            door_y + axis_y * progress + normal_y * lateral,
+        ))
+    return result
+
+
+def scaled_room_waypoint_candidates(
+        doorway: Tuple[float, float],
+        waypoint: Tuple[float, float],
+        scales=(0.8, 0.6, 0.4),
+) -> List[Tuple[float, float]]:
+    """把被障碍挡住的房间角点沿门口方向收缩，保持原有象限顺序。"""
+
+    door_x, door_y = float(doorway[0]), float(doorway[1])
+    goal_x, goal_y = float(waypoint[0]), float(waypoint[1])
+    if not all(math.isfinite(value) for value in (
+            door_x, door_y, goal_x, goal_y)):
+        return []
+    result = []
+    for raw_scale in scales:
+        scale = float(raw_scale)
+        if not math.isfinite(scale) or not 0.0 < scale < 1.0:
+            continue
+        candidate = (
+            round(door_x + (goal_x - door_x) * scale, 6),
+            round(door_y + (goal_y - door_y) * scale, 6),
+        )
+        if candidate not in result:
+            result.append(candidate)
+    return result
+
+
+def polygon_signed_area(points) -> float:
+    """返回闭合二维多边形有符号面积，正值表示逆时针。"""
+
+    values = list(points or [])
+    if len(values) < 3:
+        return 0.0
+    total = 0.0
+    for index, point in enumerate(values):
+        next_point = values[(index + 1) % len(values)]
+        total += (
+            float(point[0]) * float(next_point[1])
+            - float(next_point[0]) * float(point[1]))
+    return 0.5 * total
+
+
+def physical_room_loop_is_valid(
+        samples,
+        reached_count: int,
+        expected_count: int,
+        physical_path_m: float,
+        min_path_m: float,
+        min_area_m2: float) -> bool:
+    """严格验收真实物理房间闭环，防止门口徘徊被计成四个角点。"""
+
+    values = list(samples or [])
+    expected = max(4, int(expected_count))
+    if int(reached_count) != expected or len(values) < expected:
+        return False
+    try:
+        points = [
+            (float(point[0]), float(point[1]))
+            for point in values[:expected]
+        ]
+        path_m = float(physical_path_m)
+    except (IndexError, TypeError, ValueError):
+        return False
+    if not all(math.isfinite(value) for point in points for value in point):
+        return False
+    loop_perimeter = 0.0
+    for index, point in enumerate(points):
+        next_point = points[(index + 1) % len(points)]
+        loop_perimeter += math.hypot(
+            next_point[0] - point[0],
+            next_point[1] - point[1],
+        )
+    # 定时器增量会因 rosbridge批次到达而漏计，四个已经验真的物理角点
+    # 本身可给出闭环周长下界；取两者较大值，仍不允许原地重复采样通过。
+    effective_path_m = max(path_m, loop_perimeter)
+    if (not math.isfinite(effective_path_m)
+            or effective_path_m < max(0.0, float(min_path_m))):
+        return False
+    return abs(polygon_signed_area(points)) >= max(
+        0.0, float(min_area_m2))
 
 
 def entry_ingress_constraint_active(
@@ -483,6 +1295,7 @@ def a_star_path(grid: np.ndarray, grid_msg,
                 cy, cx = came_from[(cy, cx)]
                 path.append((cx, cy))
             path.reverse()
+            path = simplify_grid_path(path, traversable)
             world_path = [
                 grid_to_world(px, py, grid_msg) for px, py in path
             ]
@@ -519,6 +1332,61 @@ def a_star_path(grid: np.ndarray, grid_msg,
                 heapq.heappush(open_set, (f, ny, nx))
 
     return []  # 不可达
+
+
+def _grid_segment_is_traversable(
+        start: Tuple[int, int],
+        end: Tuple[int, int],
+        traversable: np.ndarray) -> bool:
+    """以超采样栅格线检查路径捷径，并保持 A* 的禁止对角穿角约束。"""
+
+    x0, y0 = int(start[0]), int(start[1])
+    x1, y1 = int(end[0]), int(end[1])
+    height, width = traversable.shape
+    sample_count = max(abs(x1 - x0), abs(y1 - y0)) * 4 + 1
+    xs = np.rint(np.linspace(x0, x1, sample_count)).astype(np.int32)
+    ys = np.rint(np.linspace(y0, y1, sample_count)).astype(np.int32)
+    cells = []
+    for x, y in zip(xs.tolist(), ys.tolist()):
+        cell = (x, y)
+        if not cells or cell != cells[-1]:
+            cells.append(cell)
+    previous = None
+    for x, y in cells:
+        if not (0 <= x < width and 0 <= y < height and traversable[y, x]):
+            return False
+        if previous is not None:
+            px, py = previous
+            if x != px and y != py:
+                if not traversable[py, x] or not traversable[y, px]:
+                    return False
+        previous = (x, y)
+    return True
+
+
+def simplify_grid_path(
+        path: List[Tuple[int, int]],
+        traversable: np.ndarray) -> List[Tuple[int, int]]:
+    """用安全视线压缩 A* 栅格折线，避免机器狗逐 5 cm 点停车转向。
+
+    每段捷径都在已经按机体半径膨胀的可通行掩膜内验证；一旦下一候选不可见，
+    保留最后安全拐点。这样减少控制振荡，但不会跨未知区或切过障碍角。
+    """
+
+    if len(path) <= 2:
+        return list(path)
+    result = [path[0]]
+    anchor = 0
+    while anchor < len(path) - 1:
+        best = anchor + 1
+        for candidate in range(anchor + 2, len(path)):
+            if not _grid_segment_is_traversable(
+                    path[anchor], path[candidate], traversable):
+                break
+            best = candidate
+        result.append(path[best])
+        anchor = best
+    return result
 
 
 def _build_traversable_mask(grid: np.ndarray, resolution_m: float,

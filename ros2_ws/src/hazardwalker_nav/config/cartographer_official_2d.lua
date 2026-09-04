@@ -46,12 +46,19 @@ TRAJECTORY_BUILDER_2D.min_range = 0.40
 TRAJECTORY_BUILDER_2D.max_range = 8.0
 TRAJECTORY_BUILDER_2D.missing_data_ray_length = 8.0
 TRAJECTORY_BUILDER_2D.num_accumulated_range_data = 1
-TRAJECTORY_BUILDER_2D.submaps.num_range_data = 60
+-- 子图大小 60→90：实测跳变每 5~8 秒一次，正对应 60 帧子图切换频率（每次新子图
+-- 创建时位姿重新匹配、可能错配）。更大子图切换更少、上下文更多，抗错配震荡。
+TRAJECTORY_BUILDER_2D.submaps.num_range_data = 90
 TRAJECTORY_BUILDER_2D.motion_filter.max_time_seconds = 0.25
 TRAJECTORY_BUILDER_2D.motion_filter.max_distance_meters = 0.04
 TRAJECTORY_BUILDER_2D.motion_filter.max_angle_radians = math.rad(0.5)
--- 官方走廊/单墙视角的 scan translation 存在侧向多解；提高控制先验权重，
--- 仍保留占据栅格残差用于小范围修正和闭环。
+-- 官方走廊/单墙视角的 scan translation 存在侧向多解，提高控制先验权重抗沿墙滑移。
+-- 2026-08-17 试过降到 50（a3521d7）：返航 36.4→4.9min 但 occupied 1.22%→0.11%，
+-- scan matching 沿墙滑移把墙擦成 free，地图一片白，不可接受。回调 100 恢复抗滑移，
+-- 震荡改走「增大子图 num_range_data」方向。
+-- 2026-08-18 治根尝试：对称无特征走廊里 ceres 从外推位姿出发会收敛到对称错误解（跳变）。
+-- 开启实时相关性粗匹配，先全局搜出大致位置再交 ceres 精化，减少陷入局部最优。
+TRAJECTORY_BUILDER_2D.use_online_correlative_scan_matching = true
 TRAJECTORY_BUILDER_2D.ceres_scan_matcher.translation_weight = 100.0
 TRAJECTORY_BUILDER_2D.ceres_scan_matcher.rotation_weight = 100.0
 POSE_GRAPH.optimize_every_n_nodes = 60

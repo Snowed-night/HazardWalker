@@ -3,6 +3,10 @@
 <robot name="a1" xmlns:xacro="http://www.ros.org/wiki/xacro">
 
     <xacro:arg name="DEBUG" default="false"/>
+    <!-- 默认关闭激光雷达，导航/SLAM profile 通过 ENABLE_LIDAR:=true 显式开启。 -->
+    <xacro:arg name="ENABLE_LIDAR" default="false"/>
+    <!-- 三维建图 profile 才启用真实 Mid-360 非重复扫描插件；默认二维保底。 -->
+    <xacro:arg name="ENABLE_LIVOX_3D" default="false"/>
 
     <xacro:include filename="$(find a1_description)/xacro/const.xacro"/>
     <xacro:include filename="$(find a1_description)/xacro/materials.xacro"/>
@@ -142,7 +146,11 @@
     </link>
     <!-- 对于连接 -->
     <joint name="laser_livox_joint" type="fixed" >
-        <origin xyz="0.2 0 0.08" rpy="0 0.785 0" />
+        <!-- 负责人修复：原 z=0.08 只比 A1 机身顶部高约 2.3cm，水平
+             ray 会扫到髋腿并让 move_base 把机器人自身标成障碍。按真实
+             顶置 Mid-360 安装，并按 RL 动态步态的髋腿最高包络留足余量，
+             把扫描原点抬到 z=0.35。 -->
+        <origin xyz="0.2 0 0.35" rpy="0 0.785 0" />
         <parent link="base" />
         <child link="laser_livox"/>
     </joint>
@@ -151,7 +159,7 @@
          几何关系，避免 LaserScan 数据挂在上仰的 laser_livox 帧上污染 SLAM。 -->
     <link name="laser_scan"/>
     <joint name="laser_scan_joint" type="fixed">
-        <origin xyz="0.2 0 0.08" rpy="0 0 0"/>
+        <origin xyz="0.2 0 0.35" rpy="0 0 0"/>
         <parent link="base"/>
         <child link="laser_scan"/>
     </joint>

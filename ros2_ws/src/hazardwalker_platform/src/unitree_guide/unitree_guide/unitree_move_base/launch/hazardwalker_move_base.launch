@@ -1,0 +1,24 @@
+<launch>
+  <!-- 负责人适配：赛事随附宇树 move_base 可使用 Mid-360 投影或官方 /scan。 -->
+  <arg name="cmd_vel_topic" default="/hazardwalker/unitree_move_base/cmd_vel"/>
+  <arg name="scan_topic" default="/livox/scan_projection"/>
+
+  <node pkg="move_base" type="move_base" name="move_base"
+        respawn="false" output="screen" clear_params="true">
+    <remap from="cmd_vel" to="$(arg cmd_vel_topic)"/>
+    <rosparam file="$(find unitree_move_base)/config/hazardwalker_costmap_common_params.yaml"
+              command="load" ns="global_costmap"/>
+    <rosparam file="$(find unitree_move_base)/config/hazardwalker_costmap_common_params.yaml"
+              command="load" ns="local_costmap"/>
+    <rosparam file="$(find unitree_move_base)/config/hazardwalker_local_costmap_params.yaml"
+              command="load"/>
+    <rosparam file="$(find unitree_move_base)/config/hazardwalker_global_costmap_params.yaml"
+              command="load"/>
+    <rosparam file="$(find unitree_move_base)/config/hazardwalker_base_local_planner_params.yaml"
+              command="load"/>
+    <!-- rosparam 文件保留正式 Mid-360 默认值；显式参数允许低负载二维验收
+         使用同为 360° LaserScan 的 /scan，不改变上游 DWA 算法。 -->
+    <param name="global_costmap/livox_scan/topic" value="$(arg scan_topic)"/>
+    <param name="local_costmap/livox_scan/topic" value="$(arg scan_topic)"/>
+  </node>
+</launch>

@@ -26,14 +26,14 @@ def test_gui_sidecar_uses_virtual_display_and_loopback_novnc():
     assert '127.0.0.1:${NOVNC_PORT}' in entrypoint
 
 
-def test_fullscreen_viewer_fills_viewport_and_blocks_vnc_input():
+def test_fullscreen_viewer_fills_viewport_and_allows_gazebo_camera_input():
     dockerfile = (DOCKER_DIR / 'Dockerfile.gui').read_text(encoding='utf-8')
     viewer = (DOCKER_DIR / 'gui_fullscreen.html').read_text(encoding='utf-8')
     assert 'gui_fullscreen.html /usr/share/novnc/hazardwalker.html' in dockerfile
     assert 'rfb.scaleViewport = true' in viewer
     assert 'rfb.addEventListener(\'connect\'' in viewer
     assert 'position: fixed' in viewer
-    assert 'rfb.viewOnly = true' in viewer
+    assert 'rfb.viewOnly = false' in viewer
     assert 'height: 100vh' in viewer
 
 

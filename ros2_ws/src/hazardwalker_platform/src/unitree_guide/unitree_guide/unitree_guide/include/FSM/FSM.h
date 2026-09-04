@@ -75,6 +75,8 @@ private:
     double _headlessStandDelaySec;
     double _headlessRlDelaySec;
     std::string _headlessMode;
+    // 平台维护命令通过一次性文件请求状态机退回固定站立；不依赖控制终端 stdin。
+    std::string _headlessRecoveryRequestFile;
     int count;
 };
 

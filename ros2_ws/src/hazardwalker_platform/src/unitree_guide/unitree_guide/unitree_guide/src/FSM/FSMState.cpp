@@ -86,4 +86,19 @@ void FSMState::cmdVelCallback(const geometry_msgs::Twist::ConstPtr& msg){
     // std::cout << "cmd_vel_angular_z"<< this->current_cmd_vel_.angular_z<< std::endl;
 }
 
+bool FSMState::hasFreshMotionCommand(double deadband, double timeout_sec){
+    std::lock_guard<std::mutex> lock(cmd_vel_mutex_);
+    if (!current_cmd_vel_.valid) {
+        return false;
+    }
+    const double age_sec = std::chrono::duration<double>(
+        std::chrono::steady_clock::now() - current_cmd_vel_.received_at).count();
+    if (age_sec > timeout_sec) {
+        return false;
+    }
+    return std::fabs(current_cmd_vel_.linear_x) > deadband ||
+           std::fabs(current_cmd_vel_.linear_y) > deadband ||
+           std::fabs(current_cmd_vel_.angular_z) > deadband;
+}
+
 

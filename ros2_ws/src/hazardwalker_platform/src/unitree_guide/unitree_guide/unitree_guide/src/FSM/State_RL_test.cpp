@@ -3,6 +3,7 @@
 ***********************************************************************/
 #include <iostream>
 #include <chrono>
+#include <cstdlib>
 #include <limits>
 #include "FSM/State_RL_test.h"
 
@@ -25,13 +26,8 @@ State_RL::~State_RL(){
 
 void State_RL::enter(){
     stopWorkerThreads();
-    {
-        std::lock_guard<std::mutex> lock(this->cmd_vel_mutex_);
-        this->current_cmd_vel_.linear_x = 0.0;
-        this->current_cmd_vel_.linear_y = 0.0;
-        this->current_cmd_vel_.angular_z = 0.0;
-        this->current_cmd_vel_.valid = false;
-    }
+    // 切入 RL 时保留刚收到的 /cmd_vel。若在此清空，键盘持续按住的首帧会丢失，
+    // 状态机会立即回到固定站立并造成“站立/RL”反复切换。
      // if (real == false){
         for(int i=0; i<12; i++){
             _lowCmd->motorCmd[i].q = _lowState->motorState[i].q;
@@ -505,15 +501,22 @@ void State_RL::load_policy()
     model_path = "src/unitree_guide/logs/policy_act_inference_stair.pt";
     std::cout << model_path << std::endl;
     // load model from check point
-    std::cout << "cuda::is_available():" << torch::cuda::is_available() << std::endl;
+    const bool cuda_available = torch::cuda::is_available();
+    const char *force_cpu_value = std::getenv("UNITREE_RL_FORCE_CPU");
+    const bool force_cpu = force_cpu_value != nullptr
+        && std::string(force_cpu_value) != "0"
+        && std::string(force_cpu_value) != "false";
+    std::cout << "cuda::is_available():" << cuda_available
+              << " force_cpu:" << force_cpu << std::endl;
     device= torch::kCPU;
-    if (torch::cuda::is_available()){
+    if (cuda_available && !force_cpu){
         device = torch::kCUDA;
     }
     model = torch::jit::load(model_path);
     std::cout << "load model is successed!" << std::endl;
     model.to(device);
-    std::cout << "load model to device!" << std::endl;
+    std::cout << "load model to device:"
+              << (device == torch::kCUDA ? "cuda" : "cpu") << std::endl;
     model.eval();
 }
 

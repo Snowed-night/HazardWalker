@@ -5,7 +5,12 @@
 set -euo pipefail
 
 WORKSPACE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+CATKIN_WORKSPACE_DIR="${CATKIN_WORKSPACE_DIR:-$WORKSPACE_DIR/.ros1_catkin_ws}"
+CATKIN_DEVEL_DIR="$CATKIN_WORKSPACE_DIR/devel"
 cd "$WORKSPACE_DIR"
+RUNTIME_READY_FILE="/tmp/hazardwalker-simenv-runtime-ready"
+# 健康检查只能在本轮完整启动结束后通过；先清除同容器上轮残留标记。
+rm -f "$RUNTIME_READY_FILE"
 
 SEED="${SEED:-}"
 FLOOR_COUNT="${FLOOR_COUNT:-3}"
@@ -19,6 +24,7 @@ PAUSED="${PAUSED:-true}"
 START_CONTROLLER="${START_CONTROLLER:-1}"
 START_VIRTUAL_JOY="${START_VIRTUAL_JOY:-0}"
 START_ROSBRIDGE="${START_ROSBRIDGE:-1}"
+ROSBRIDGE_PORT="${ROSBRIDGE_PORT:-9090}"
 START_ODOM_RELAY="${START_ODOM_RELAY:-1}"
 CONTROLLER_FOREGROUND="${CONTROLLER_FOREGROUND:-0}"
 SIMENV_AUTO_RL="${SIMENV_AUTO_RL:-1}"
@@ -26,11 +32,30 @@ SIMENV_AUTO_RL="${SIMENV_AUTO_RL:-1}"
 # 不能只设置 SIMENV_AUTO_RL，否则节点会存在却不对速度命令产生有效运动。
 SIMENV_HEADLESS_MODE="${SIMENV_HEADLESS_MODE:-move_base}"
 START_BUILDING_CONTROL="${START_BUILDING_CONTROL:-1}"
-UNITREE_CTRL_DT="${UNITREE_CTRL_DT:-0.002}"
+AUTO_OPEN_MAIN_ENTRANCE="${AUTO_OPEN_MAIN_ENTRANCE:-1}"
+START_UNITREE_MOVE_BASE="${START_UNITREE_MOVE_BASE:-0}"
+UNITREE_CTRL_DT="${UNITREE_CTRL_DT:-0.004}"
+UNITREE_MOVE_BASE_FILTER_SELF_SCAN="${UNITREE_MOVE_BASE_FILTER_SELF_SCAN:-1}"
+UNITREE_MOVE_BASE_FILTERED_SCAN_TOPIC="${UNITREE_MOVE_BASE_FILTERED_SCAN_TOPIC:-/hazardwalker/unitree_move_base/scan_filtered}"
 AUTO_UNPAUSE_AFTER_CONTROLLER="${AUTO_UNPAUSE_AFTER_CONTROLLER:-1}"
 CONTROLLER_SENSOR_READY_TIMEOUT_SEC="${CONTROLLER_SENSOR_READY_TIMEOUT_SEC:-5}"
 # GUI=false 只禁用 gzclient；相机与激光的 headless 渲染仍由 Xvfb 提供软件 GL。
 GAZEBO_HEADLESS="${GAZEBO_HEADLESS:-false}"
+# 默认不加载激光雷达：感知组的 RGB-D 与平台控制不依赖 /scan，关闭可显著降低
+# Gazebo 图形与物理负载。导航/SLAM 测试显式设置 ENABLE_LIDAR=true。
+ENABLE_LIDAR="${ENABLE_LIDAR:-false}"
+ENABLE_LIVOX_3D="${ENABLE_LIVOX_3D:-false}"
+if [ -z "${UNITREE_MOVE_BASE_SCAN_TOPIC:-}" ]; then
+  if [ "$ENABLE_LIVOX_3D" = "true" ]; then
+    UNITREE_MOVE_BASE_SCAN_TOPIC="/livox/scan_projection"
+  else
+    UNITREE_MOVE_BASE_SCAN_TOPIC="/scan"
+  fi
+fi
+# 第一人称和感知均复用 RealSense RGB。官方插件默认仅 2 Hz，浏览器画面会明显跳帧；
+# 设为 10 Hz 以匹配当前低负载 profile。JPEG 质量仅在压缩话题有订阅者时生效。
+CAMERA_IMAGER_RATE_HZ="${CAMERA_IMAGER_RATE_HZ:-10}"
+CAMERA_JPEG_QUALITY="${CAMERA_JPEG_QUALITY:-92}"
 # 后台控制器必须完成 FSM 初始化后再解除暂停，避免 A1 在接管前跌倒。
 CONTROLLER_READY_TIMEOUT_SEC="${CONTROLLER_READY_TIMEOUT_SEC:-60}"
 # 自动控制器使用当前已编译 Unitree 控制器的 SIMENV_AUTO_RL headless 模式。
@@ -38,13 +63,20 @@ CONTROLLER_READY_TIMEOUT_SEC="${CONTROLLER_READY_TIMEOUT_SEC:-60}"
 # 仿真步进机会而会形成启动死锁。
 CONTROLLER_AUTO_STAND_DELAY_SEC="${CONTROLLER_AUTO_STAND_DELAY_SEC:-5}"
 CONTROLLER_AUTO_RL_DELAY_SEC="${CONTROLLER_AUTO_RL_DELAY_SEC:-2}"
-VERIFY_CONTROLLER_MOTION="${VERIFY_CONTROLLER_MOTION:-1}"
+VERIFY_CONTROLLER_MOTION="${VERIFY_CONTROLLER_MOTION:-0}"
+# 请求真实位移验收时必须同时启用动态控制启动；否则脚本只会完成固定站立，
+# 即使等待很久也不会进入 RL，容易把“未执行验收”误判为控制故障。
+CONTROLLER_DYNAMIC_RL_STARTUP="${CONTROLLER_DYNAMIC_RL_STARTUP:-$VERIFY_CONTROLLER_MOTION}"
+controller_motion_verified=0
 CONTROLLER_RL_SETTLE_SEC="${CONTROLLER_RL_SETTLE_SEC:-3.0}"
 CONTROLLER_PROBE_SPEED_MPS="${CONTROLLER_PROBE_SPEED_MPS:-0.30}"
 CONTROLLER_PROBE_DURATION_SEC="${CONTROLLER_PROBE_DURATION_SEC:-3.0}"
-CONTROLLER_PROBE_MIN_DISPLACEMENT_M="${CONTROLLER_PROBE_MIN_DISPLACEMENT_M:-0.05}"
+# 无 GPU/低实时倍率的官方场景中，3 秒宿主时间通常只推进约 0.5 秒仿真时间；
+# 1 cm 已足以排除“命令未到控制器”，同时不会把正常的低 RTF 误判为失效。
+CONTROLLER_PROBE_MIN_DISPLACEMENT_M="${CONTROLLER_PROBE_MIN_DISPLACEMENT_M:-0.01}"
 CONTROLLER_PROBE_MAX_DISPLACEMENT_M="${CONTROLLER_PROBE_MAX_DISPLACEMENT_M:-1.00}"
 CONTROLLER_PROBE_MIN_BASE_HEIGHT_M="${CONTROLLER_PROBE_MIN_BASE_HEIGHT_M:-0.30}"
+CONTROLLER_STAND_SETTLE_SEC="${CONTROLLER_STAND_SETTLE_SEC:-6.0}"
 # 等仿真时钟稳定后再启动 rosbridge，避免新客户端收到启动期陈旧队列。
 ROSBRIDGE_START_AFTER_SIM_TIME_SEC="${ROSBRIDGE_START_AFTER_SIM_TIME_SEC:-1}"
 ROBOT_X="${ROBOT_X:-0.0}"
@@ -59,18 +91,25 @@ pkill -f "gzserver|gzclient|gazebo" 2>/dev/null || true
 pkill -f "junior_ctrl" 2>/dev/null || true
 pkill -f "virtual_joy.py" 2>/dev/null || true
 pkill -f "rosbridge_odom_relay.py" 2>/dev/null || true
+pkill -f "roslaunch unitree_move_base hazardwalker_move_base.launch" 2>/dev/null || true
+pkill -f "hazardwalker_unitree_scan_filter" 2>/dev/null || true
 
 echo "Sourcing ROS environment..."
 export ROS_MASTER_URI="${ROS_MASTER_URI:-http://127.0.0.1:11311}"
 source /opt/ros/noetic/setup.bash
-source "$WORKSPACE_DIR/devel/setup.bash"
+if [[ ! -f "$CATKIN_DEVEL_DIR/setup.bash" ]]; then
+  echo "ERROR: missing $CATKIN_DEVEL_DIR/setup.bash." >&2
+  echo "Run './auto_docker.sh build' from the host before starting this container." >&2
+  exit 66
+fi
+source "$CATKIN_DEVEL_DIR/setup.bash"
 
 # ROS 的 OpenNI Kinect 包依赖 Gazebo Classic 自带的 DepthCameraPlugin。
 # 该目录默认在 GAZEBO_PLUGIN_PATH，却不一定进入动态链接器搜索路径；缺失时
 # Gazebo 仍会生成内部 image topic，但 ROS 的 RGB/深度/点云话题完全不存在。
 GAZEBO_CLASSIC_PLUGIN_DIR="/usr/lib/x86_64-linux-gnu/gazebo-11/plugins"
 if [ -d "$GAZEBO_CLASSIC_PLUGIN_DIR" ]; then
-  export GAZEBO_PLUGIN_PATH="$WORKSPACE_DIR/devel/lib:/opt/ros/noetic/lib:$GAZEBO_CLASSIC_PLUGIN_DIR:${GAZEBO_PLUGIN_PATH:-}"
+  export GAZEBO_PLUGIN_PATH="$CATKIN_DEVEL_DIR/lib:/opt/ros/noetic/lib:$GAZEBO_CLASSIC_PLUGIN_DIR:${GAZEBO_PLUGIN_PATH:-}"
   export LD_LIBRARY_PATH="$GAZEBO_CLASSIC_PLUGIN_DIR:${LD_LIBRARY_PATH:-}"
 fi
 
@@ -111,7 +150,7 @@ if [ -n "$SEED" ]; then
   GENERATOR_ARGS+=(--seed "$SEED")
 fi
 if [ "${SIMENV_PRACTICE:-0}" = "1" ]; then
-  "$WORKSPACE_DIR/devel/lib/building_obstacles/generate_competition_scene.py" "${GENERATOR_ARGS[@]}" \
+  "$CATKIN_DEVEL_DIR/lib/building_obstacles/generate_competition_scene.py" "${GENERATOR_ARGS[@]}" \
     > "$SCENE_OUTPUT_DIR/scene_manifest.stdout.json"
 else
   python3 "$BUILDING_OBSTACLES_DIR/scripts/generate_competition_scene.py" "${GENERATOR_ARGS[@]}" \
@@ -201,6 +240,8 @@ roslaunch unitree_guide multi_floor_gazeboSim.launch \
   gui:="$GUI" \
   headless:="$GAZEBO_HEADLESS" \
   paused:="$PAUSED" \
+  enable_lidar:="$ENABLE_LIDAR" \
+  enable_livox_3d:="$ENABLE_LIVOX_3D" \
   user_debug:=False \
   rname:=a1 \
   robot_x:="$ROBOT_X" \
@@ -226,6 +267,26 @@ until rosservice info /gazebo/unpause_physics >/dev/null 2>&1; do
   sleep 0.2
 done
 
+# OpenNI/RealSense 的 imager_rate 属于动态参数，xacro 内 updateRate 不能覆盖其
+# 默认 2 Hz。等待插件服务注册后显式设置，避免第一人称画面因低帧率产生闪烁感。
+camera_config_deadline=$((SECONDS + CONTROLLER_READY_TIMEOUT_SEC))
+until rosservice info /real_sense/set_parameters >/dev/null 2>&1; do
+  if ! kill -0 "$LAUNCH_PID" 2>/dev/null; then
+    echo "Gazebo launch exited before RealSense dynamic parameters became available." >&2
+    exit 1
+  fi
+  if [ "$SECONDS" -ge "$camera_config_deadline" ]; then
+    echo "Timed out waiting for RealSense dynamic parameters." >&2
+    exit 1
+  fi
+  sleep 0.2
+done
+rosrun dynamic_reconfigure dynparam set /real_sense imager_rate "$CAMERA_IMAGER_RATE_HZ" >/dev/null
+rosparam set /real_sense/rgb/image_raw/compressed/jpeg_quality "$CAMERA_JPEG_QUALITY"
+rosparam set /real_sense/rgb/image_raw/compressed/jpeg_progressive false
+rosparam set /real_sense/rgb/image_raw/compressed/jpeg_optimize true
+echo "RealSense RGB configured: imager_rate=${CAMERA_IMAGER_RATE_HZ} Hz, jpeg_quality=${CAMERA_JPEG_QUALITY}."
+
 # 非暂停启动时先取得真实关节状态；暂停 profile 只需让服务完成注册。
 if [ "$START_CONTROLLER" = "1" ] && [ "$PAUSED" != "true" ]; then
   echo "Waiting for the first A1 joint-state sample before starting controller..."
@@ -245,6 +306,19 @@ if [ "$START_BUILDING_CONTROL" = "1" ]; then
     --elevator-config "$SCENE_OUTPUT_DIR/elevator_config.yaml" \
     > "$WORKSPACE_DIR/logs/building_control.log" 2>&1 &
   echo $! > "$WORKSPACE_DIR/logs/building_control.pid"
+  timeout "$CONTROLLER_READY_TIMEOUT_SEC" bash -lc \
+    'until rosservice info /set_door_state >/dev/null 2>&1; do sleep 0.2; done' || {
+      echo "Building door control service did not become ready." >&2
+      exit 1
+    }
+  if [ "$AUTO_OPEN_MAIN_ENTRANCE" = "1" ]; then
+    door_response="$(rosservice call /set_door_state main_entrance true)"
+    if ! grep -q 'accepted: True' <<<"$door_response"; then
+      echo "Main entrance open request failed: $door_response" >&2
+      exit 1
+    fi
+    echo "Main entrance opened by /set_door_state before navigation startup."
+  fi
 fi
 
 if [ "$START_CONTROLLER" = "1" ]; then
@@ -252,16 +326,16 @@ if [ "$START_CONTROLLER" = "1" ]; then
     echo "Starting junior_ctrl controller in the foreground."
     echo "UNITREE_CTRL_DT=$UNITREE_CTRL_DT seconds."
     echo "Use keyboard input in this terminal: 2 = stand, 6 = RL mode."
-    "$WORKSPACE_DIR/devel/lib/unitree_guide/junior_ctrl"
-  elif [ "$SIMENV_AUTO_RL" = "1" ]; then
+    "$CATKIN_DEVEL_DIR/lib/unitree_guide/junior_ctrl"
+  elif [ "$SIMENV_HEADLESS_MODE" = "move_base" ]; then
     if ! command -v expect >/dev/null 2>&1; then
-      echo "expect is missing; the image is incomplete and cannot certify RL control." >&2
+      echo "expect is missing; the image is incomplete and cannot start the headless controller." >&2
       exit 1
     fi
-    export CONTROLLER_BINARY="$WORKSPACE_DIR/devel/lib/unitree_guide/junior_ctrl"
+    export CONTROLLER_BINARY="$CATKIN_DEVEL_DIR/lib/unitree_guide/junior_ctrl"
     export SIMENV_HEADLESS_MODE
     export CONTROLLER_AUTO_STAND_DELAY_SEC CONTROLLER_AUTO_RL_DELAY_SEC
-    echo "Starting junior_ctrl with formal headless RL mode..."
+    echo "Starting junior_ctrl with formal headless controller mode..."
     expect -c '
       set timeout -1
       log_user 1
@@ -276,14 +350,14 @@ if [ "$START_CONTROLLER" = "1" ]; then
     echo $! > "$WORKSPACE_DIR/logs/junior_ctrl.pid"
 
     controller_deadline=$((SECONDS + CONTROLLER_READY_TIMEOUT_SEC))
-    until grep -q '\[HEADLESS_FSM\].*mode=move_base.*auto_rl=1' \
+    until grep -Eq '\[HEADLESS_FSM\].*mode=move_base.*auto_rl=[01]' \
         "$WORKSPACE_DIR/logs/junior_ctrl.log" 2>/dev/null; do
       if ! kill -0 "$(cat "$WORKSPACE_DIR/logs/junior_ctrl.pid")" 2>/dev/null; then
-        echo "junior_ctrl exited before entering headless RL mode; see logs/junior_ctrl.log." >&2
+        echo "junior_ctrl exited before entering headless controller mode; see logs/junior_ctrl.log." >&2
         exit 1
       fi
       if [ "$SECONDS" -ge "$controller_deadline" ]; then
-        echo "Timed out waiting for junior_ctrl headless RL mode; refusing control-ready status." >&2
+        echo "Timed out waiting for junior_ctrl headless controller mode; refusing control-ready status." >&2
         exit 1
       fi
       sleep 0.2
@@ -303,10 +377,10 @@ if [ "$START_CONTROLLER" = "1" ]; then
       fi
       sleep 0.2
     done
-    echo "junior_ctrl headless RL mode and /cmd_vel subscription are ready; physics can now unpause."
+    echo "junior_ctrl headless controller and /cmd_vel subscription are ready; physics can now unpause."
   else
-    echo "Background junior_ctrl without SIMENV_AUTO_RL=1 cannot prove RL mode." >&2
-    echo "Use CONTROLLER_FOREGROUND=1 for manual diagnosis, or SIMENV_AUTO_RL=1 for formal startup." >&2
+    echo "Background junior_ctrl requires SIMENV_HEADLESS_MODE=move_base for formal startup." >&2
+    echo "Use CONTROLLER_FOREGROUND=1 for manual diagnosis, or set SIMENV_HEADLESS_MODE=move_base." >&2
     exit 1
   fi
 fi
@@ -322,58 +396,156 @@ if [ "$PAUSED" = "true" ] && [ "$START_CONTROLLER" = "1" ] \
   }
 fi
 
-if [ "$START_CONTROLLER" = "1" ] && [ "$SIMENV_AUTO_RL" = "1" ]; then
-  # 初始化日志只表示 headless 参数已生效；必须等状态机实际进入 RL，订阅者存在本身
-  # 不能证明回调被处理。
+if [ "$START_CONTROLLER" = "1" ] && [ "$SIMENV_HEADLESS_MODE" = "move_base" ]; then
+  # 正式静止验收：无命令时必须停在固定站立，不能把“进程存在”误报为已站稳。
   controller_state_deadline=$((SECONDS + CONTROLLER_READY_TIMEOUT_SEC))
-  until grep -q 'Switched from fixed stand to RL' \
+  until grep -q 'Switched from passive to fixed stand' \
       "$WORKSPACE_DIR/logs/junior_ctrl.log" 2>/dev/null; do
     if ! kill -0 "$(cat "$WORKSPACE_DIR/logs/junior_ctrl.pid")" 2>/dev/null; then
-      echo "junior_ctrl exited before entering the active RL state." >&2
+      echo "junior_ctrl exited before entering fixed stand." >&2
       exit 1
     fi
     if [ "$SECONDS" -ge "$controller_state_deadline" ]; then
-      echo "Timed out waiting for junior_ctrl to enter the active RL state." >&2
+      echo "Timed out waiting for junior_ctrl fixed stand state." >&2
       exit 1
     fi
     sleep 0.2
   done
+  # 状态切换日志不等于真的站稳。等待关节插值结束后用官方诊断里程计只做
+  # 平台健康门禁；该真值不进入感知、SLAM、导航或比赛结果。
+  sleep "$CONTROLLER_STAND_SETTLE_SEC"
+  controller_base_z="$(
+    timeout 10 rostopic echo -n 1 /Odometry_gazebo 2>/dev/null |
+      awk '/^    position:/{in_position=1; next} in_position && /^      z:/{print $2; exit}' \
+      || true
+  )"
+  if [ -z "$controller_base_z" ] || ! python3 -c '
+import math, sys
+height, minimum = map(float, sys.argv[1:])
+raise SystemExit(0 if math.isfinite(height) and height >= minimum else 1)
+' "$controller_base_z" "$CONTROLLER_PROBE_MIN_BASE_HEIGHT_M"; then
+    echo "Controller fixed-stand posture failed: base_z=${controller_base_z:-missing}m." >&2
+    exit 1
+  fi
+  echo "junior_ctrl fixed stand is physically upright: base_z=${controller_base_z}m."
+fi
 
-  if [ "$VERIFY_CONTROLLER_MOTION" = "1" ]; then
-    # RL 推理线程需完成历史观测初始化；刚切换状态就发速度会被初始化阶段吞掉。
-    sleep "$CONTROLLER_RL_SETTLE_SEC"
-    read_odom_pose() {
-      timeout 10 rostopic echo -n 1 /Odometry_gazebo |
-        awk '
-          /^pose:/{in_pose=1; next}
-          in_pose && /^  pose:/{in_pose_pose=1; next}
-          in_pose_pose && /^    position:/{in_position=1; next}
-          in_position && /^      x:/{x=$2; next}
-          in_position && /^      y:/{y=$2; next}
-          in_position && /^      z:/{print x, y, $2; exit}
-        '
-    }
-    read -r probe_x_before probe_y_before probe_z_before < <(read_odom_pose)
-    python3 "$WORKSPACE_DIR/scripts/controller_motion_probe.py" \
-      --speed-mps "$CONTROLLER_PROBE_SPEED_MPS" \
-      --duration-sec "$CONTROLLER_PROBE_DURATION_SEC"
-    sleep 1
-    read -r probe_x_after probe_y_after probe_z_after < <(read_odom_pose)
-    probe_displacement="$(
-      python3 -c 'import math,sys; print(math.hypot(float(sys.argv[3])-float(sys.argv[1]), float(sys.argv[4])-float(sys.argv[2])))' \
-        "$probe_x_before" "$probe_y_before" "$probe_x_after" "$probe_y_after"
-    )"
-    if ! python3 -c '
+# 固定站立是本控制器的安全默认态；它会在收到第一条非零 /cmd_vel 后才切入
+# RL 或 move_base。旧实现错误地先等待状态切换，导致启动验收永远超时。
+if [ "$START_CONTROLLER" = "1" ] && [ "$VERIFY_CONTROLLER_MOTION" = "1" ]; then
+  # 先用短时、低速的真实速度命令触发状态机，再按真实 Gazebo 位移验收。
+  # 此探针只在显式 VERIFY_CONTROLLER_MOTION=1 时执行，不改变日常启动位置。
+  sleep "$CONTROLLER_RL_SETTLE_SEC"
+  read_odom_pose() {
+    timeout 10 rostopic echo -n 1 /Odometry_gazebo |
+      awk '
+        /^pose:/{in_pose=1; next}
+        in_pose && /^  pose:/{in_pose_pose=1; next}
+        in_pose_pose && /^    position:/{in_position=1; next}
+        in_position && /^      x:/{x=$2; next}
+        in_position && /^      y:/{y=$2; next}
+        in_position && /^      z:/{print x, y, $2; exit}
+      '
+  }
+  read -r probe_x_before probe_y_before probe_z_before < <(read_odom_pose)
+  python3 "$WORKSPACE_DIR/scripts/controller_motion_probe.py" \
+    --speed-mps "$CONTROLLER_PROBE_SPEED_MPS" \
+    --duration-sec "$CONTROLLER_PROBE_DURATION_SEC"
+
+  expected_walking_state='move_base'
+  if [ "$SIMENV_AUTO_RL" = "1" ]; then
+    expected_walking_state='RL'
+  fi
+  controller_state_deadline=$((SECONDS + CONTROLLER_READY_TIMEOUT_SEC))
+  until grep -q "Switched from fixed stand to ${expected_walking_state}" \
+      "$WORKSPACE_DIR/logs/junior_ctrl.log" 2>/dev/null; do
+    if ! kill -0 "$(cat "$WORKSPACE_DIR/logs/junior_ctrl.pid")" 2>/dev/null; then
+      echo "junior_ctrl exited before entering ${expected_walking_state}." >&2
+      exit 1
+    fi
+    if [ "$SECONDS" -ge "$controller_state_deadline" ]; then
+      echo "Controller probe sent motion but junior_ctrl did not enter ${expected_walking_state}." >&2
+      exit 1
+    fi
+    sleep 0.2
+  done
+  sleep 1
+  read -r probe_x_after probe_y_after probe_z_after < <(read_odom_pose)
+  probe_displacement="$(
+    python3 -c 'import math,sys; print(math.hypot(float(sys.argv[3])-float(sys.argv[1]), float(sys.argv[4])-float(sys.argv[2])))' \
+      "$probe_x_before" "$probe_y_before" "$probe_x_after" "$probe_y_after"
+  )"
+  if ! python3 -c '
 import sys
 distance, minimum, maximum, height, min_height = map(float, sys.argv[1:])
 raise SystemExit(0 if minimum <= distance <= maximum and height >= min_height else 1)
 ' "$probe_displacement" "$CONTROLLER_PROBE_MIN_DISPLACEMENT_M" \
-        "$CONTROLLER_PROBE_MAX_DISPLACEMENT_M" "$probe_z_after" \
-        "$CONTROLLER_PROBE_MIN_BASE_HEIGHT_M"; then
-      echo "Controller probe failed: displacement=${probe_displacement}m, base_z=${probe_z_after}m." >&2
+      "$CONTROLLER_PROBE_MAX_DISPLACEMENT_M" "$probe_z_after" \
+      "$CONTROLLER_PROBE_MIN_BASE_HEIGHT_M"; then
+    echo "Controller probe failed: displacement=${probe_displacement}m, base_z=${probe_z_after}m." >&2
+    exit 1
+  fi
+  echo "Controller physical /cmd_vel probe passed: ${probe_displacement}m, base_z=${probe_z_after}m."
+  controller_motion_verified=1
+fi
+
+if [ "$START_UNITREE_MOVE_BASE" = "1" ]; then
+  # TrajectoryPlannerROS/DWA 只订阅二维 /scan；Livox 三维点云属于 SLAM
+  # 展示能力，不能与局部避障强绑定。低负载二维验收可显式关闭 3D 点云。
+  if [ "$ENABLE_LIDAR" != "true" ]; then
+    echo "START_UNITREE_MOVE_BASE=1 requires ENABLE_LIDAR=true." >&2
+    exit 1
+  fi
+  if [ ! -x /opt/ros/noetic/lib/move_base/move_base ]; then
+    echo "ROS1 move_base executable is missing from the image; rebuild the platform image." >&2
+    exit 1
+  fi
+  move_base_scan_topic="$UNITREE_MOVE_BASE_SCAN_TOPIC"
+  if [ "$UNITREE_MOVE_BASE_SCAN_TOPIC" = "/scan" ] \
+      && [ "$UNITREE_MOVE_BASE_FILTER_SELF_SCAN" = "1" ]; then
+    if [ ! -x /opt/ros/noetic/lib/laser_filters/scan_to_scan_filter_chain ]; then
+      echo "ROS1 laser_filters is missing from the image; rebuild the platform image." >&2
       exit 1
     fi
-    echo "Controller physical /cmd_vel probe passed: ${probe_displacement}m, base_z=${probe_z_after}m."
+    rosparam load "$WORKSPACE_DIR/config/unitree_scan_filter.yaml" \
+      /hazardwalker_unitree_scan_filter
+    rosrun laser_filters scan_to_scan_filter_chain \
+      scan:="$UNITREE_MOVE_BASE_SCAN_TOPIC" \
+      scan_filtered:="$UNITREE_MOVE_BASE_FILTERED_SCAN_TOPIC" \
+      __name:=hazardwalker_unitree_scan_filter \
+      > "$WORKSPACE_DIR/logs/unitree_scan_filter.log" 2>&1 &
+    echo $! > "$WORKSPACE_DIR/logs/unitree_scan_filter.pid"
+    timeout "$CONTROLLER_READY_TIMEOUT_SEC" \
+      rostopic echo -n 1 "$UNITREE_MOVE_BASE_FILTERED_SCAN_TOPIC" \
+      >/dev/null || {
+        echo "Filtered LaserScan $UNITREE_MOVE_BASE_FILTERED_SCAN_TOPIC is unavailable." >&2
+        exit 1
+      }
+    move_base_scan_topic="$UNITREE_MOVE_BASE_FILTERED_SCAN_TOPIC"
+    echo "Unitree move_base scan self-return filter ready: $move_base_scan_topic"
+  fi
+  echo "Starting Unitree upstream move_base/TrajectoryPlannerROS local planner..."
+  timeout "$CONTROLLER_READY_TIMEOUT_SEC" \
+    rostopic echo -n 1 "$UNITREE_MOVE_BASE_SCAN_TOPIC" >/dev/null || {
+      echo "LaserScan $UNITREE_MOVE_BASE_SCAN_TOPIC is unavailable for move_base." >&2
+      exit 1
+    }
+  roslaunch unitree_move_base hazardwalker_move_base.launch \
+    cmd_vel_topic:=/hazardwalker/unitree_move_base/cmd_vel \
+    scan_topic:="$move_base_scan_topic" \
+    > "$WORKSPACE_DIR/logs/unitree_move_base.log" 2>&1 &
+  MOVE_BASE_LAUNCH_PID=$!
+  echo "$MOVE_BASE_LAUNCH_PID" > "$WORKSPACE_DIR/logs/unitree_move_base.pid"
+  timeout "$CONTROLLER_READY_TIMEOUT_SEC" bash -lc \
+    'until pgrep -x move_base >/dev/null 2>&1 && rosnode ping -c 1 /move_base >/dev/null 2>&1; do sleep 0.2; done' || {
+      echo "Unitree move_base did not become ready." >&2
+      tail -n 80 "$WORKSPACE_DIR/logs/unitree_move_base.log" >&2 || true
+      exit 1
+    }
+  if ! kill -0 "$MOVE_BASE_LAUNCH_PID" 2>/dev/null; then
+    echo "Unitree move_base roslaunch exited during startup." >&2
+    tail -n 80 "$WORKSPACE_DIR/logs/unitree_move_base.log" >&2 || true
+    exit 1
   fi
 fi
 
@@ -409,13 +581,22 @@ if [ "$START_ROSBRIDGE" = "1" ]; then
       }
   fi
   roslaunch rosbridge_server rosbridge_websocket.launch \
+    port:="$ROSBRIDGE_PORT" \
     > "$WORKSPACE_DIR/logs/rosbridge.log" 2>&1 &
   echo $! > "$WORKSPACE_DIR/logs/rosbridge.pid"
+  timeout "$CONTROLLER_READY_TIMEOUT_SEC" bash -lc \
+    'until rosnode ping -c 1 /rosbridge_websocket >/dev/null 2>&1; do sleep 0.2; done' || {
+      echo "rosbridge node did not become ready." >&2
+      exit 1
+    }
 fi
 
+touch "$RUNTIME_READY_FILE"
 echo "Simulation startup completed; keeping Docker main process attached to Gazebo."
-if [ "$START_CONTROLLER" = "1" ] && [ "$SIMENV_AUTO_RL" = "1" ]; then
-  echo "Headless RL state and physical /cmd_vel response were verified."
+if [ "$controller_motion_verified" = "1" ]; then
+  echo "Headless walking state and physical /cmd_vel response were verified."
+elif [ "$START_CONTROLLER" = "1" ]; then
+  echo "Controller process, fixed stand, and /cmd_vel subscription are ready; physical motion probe was not requested."
 fi
 # Docker 以本脚本为 PID 1。等待 roslaunch 退出可避免“脚本结束但 Gazebo/中继被
 # Docker 回收”的脱节；容器停止时 Docker 会向同一进程组发送终止信号。

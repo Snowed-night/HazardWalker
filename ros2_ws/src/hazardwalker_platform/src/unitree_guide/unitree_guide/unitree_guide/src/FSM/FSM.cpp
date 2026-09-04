@@ -3,6 +3,7 @@
 ***********************************************************************/
 #include "FSM/FSM.h"
 #include <algorithm>
+#include <cstdio>
 #include <cstdlib>
 #include <iostream>
 
@@ -47,6 +48,10 @@ void FSM::initialize(){
     _headlessAutoRl = autoRl != nullptr && std::string(autoRl) == "1";
     const char *standDelay = std::getenv("CONTROLLER_AUTO_STAND_DELAY_SEC");
     const char *rlDelay = std::getenv("CONTROLLER_AUTO_RL_DELAY_SEC");
+    const char *recoveryRequestFile = std::getenv("SIMENV_RECOVERY_REQUEST_FILE");
+    _headlessRecoveryRequestFile = recoveryRequestFile == nullptr
+        ? "/tmp/hazardwalker-controller-recover.request"
+        : recoveryRequestFile;
     if (standDelay != nullptr) {
         _headlessStandDelaySec = std::max(0.0, std::atof(standDelay));
     }
@@ -144,6 +149,18 @@ bool FSM::checkSafty(){
 }
 
 FSMStateName FSM::getHeadlessNextState(){
+    // 倒地恢复由宿主维护脚本显式触发。读取后立即删除请求文件，确保同一请求
+    // 只消费一次；状态机先退回固定站立，再由非零 /cmd_vel 正常恢复行走。
+    if (!_headlessRecoveryRequestFile.empty()) {
+        FILE *request = std::fopen(_headlessRecoveryRequestFile.c_str(), "r");
+        if (request != nullptr) {
+            std::fclose(request);
+            std::remove(_headlessRecoveryRequestFile.c_str());
+            std::cout << "[HEADLESS_FSM] recovery requested; switching to fixed stand"
+                      << std::endl;
+            return FSMStateName::FIXEDSTAND;
+        }
+    }
     const double stateAgeSec =
         static_cast<double>(getSystemTime() - _stateEnteredTime) / 1000000.0;
     if (_currentState->_stateName == FSMStateName::PASSIVE) {
@@ -151,8 +168,10 @@ FSMStateName FSM::getHeadlessNextState(){
         return FSMStateName::FIXEDSTAND;
     }
     if (_currentState->_stateName == FSMStateName::FIXEDSTAND) {
-        // 保留原启动流程的“站立稳定 + 切入 RL”总等待时间。
-        if (stateAgeSec < _headlessStandDelaySec + _headlessRlDelaySec) {
+        // 无速度命令时始终固定站立；只有用户实际发出非零 /cmd_vel 才进入
+        // 行走控制器。SIMENV_AUTO_RL=1 选择学习策略，=0 选择官方经典
+        // move_base/步态控制器，便于在低实时倍率或策略不稳定时安全回退。
+        if (!_stateList.fixedStand->hasFreshMotionCommand()) {
             return FSMStateName::FIXEDSTAND;
         }
         if (_headlessAutoRl) {
@@ -164,6 +183,12 @@ FSMStateName FSM::getHeadlessNextState(){
         return FSMStateName::FIXEDSTAND;
 #endif
     }
-    // 进入目标行走状态后保持该状态；速度失联由 RL 命令看门狗负责停车。
+    if (_currentState->_stateName == FSMStateName::RL
+            || _currentState->_stateName == FSMStateName::MOVE_BASE) {
+        // 已切入行走状态后保持该状态。各控制器自行处理速度更新；不能再读取
+        // fixedStand 对象的时间戳，否则正常行走会被误切回固定站立。
+        return _currentState->_stateName;
+    }
+    // 其他状态保持不变。
     return _currentState->_stateName;
 }

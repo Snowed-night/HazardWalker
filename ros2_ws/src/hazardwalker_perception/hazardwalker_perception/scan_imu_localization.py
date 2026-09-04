@@ -55,10 +55,14 @@ class ScanImuLocalizerConfig:
     icp_max_correspondence_m: float = 0.45
     icp_iteration_count: int = 4
     icp_trim_fraction: float = 0.70
-    # scan-to-scan 在平行墙走廊中存在沿墙多解；它只能给命令积分提供毫米级校正，
-    # 不能每帧覆盖运动方向。全局闭环由 SLAM Toolbox 负责。
-    scan_correction_gain: float = 0.02
-    max_scan_correction_m: float = 0.001
+    # cmd_vel通常只作为ICP初值。长直重复走廊没有纵向几何约束时，可接受
+    # 经过单帧限幅的短时控制先验；上游360°净空门禁负责在受阻前归零命令，
+    # 后续房门、家具和三维点云再纠正累计误差。
+    scan_correction_gain: float = 1.0
+    max_scan_correction_m: float = 0.25
+    allow_degenerate_command_prior: bool = True
+    max_degenerate_prior_step_m: float = 0.25
+    minimum_command_progress_ratio: float = 0.85
 
 
 class ScanImuLocalizer:
@@ -86,25 +90,36 @@ class ScanImuLocalizer:
 
     def update_scan(
             self, ranges, angle_min, angle_increment, imu_yaw_rad,
-            motion_prior_base=(0.0, 0.0)):
+            motion_prior_base=(0.0, 0.0), allow_translation_update=True):
         """用一帧 LaserScan 与最新 IMU 朝向更新 start→base 位姿。"""
 
         points = scan_ranges_to_points(
             ranges, angle_min, angle_increment,
             self.config.min_range_m, self.config.max_range_m, self.config.endpoint_stride,
         )
-        return self.update_points(points, imu_yaw_rad, motion_prior_base)
+        return self.update_points(
+            points,
+            imu_yaw_rad,
+            motion_prior_base,
+            allow_translation_update=allow_translation_update,
+        )
 
     def update_points(
-            self, laser_points, imu_yaw_rad, motion_prior_base=(0.0, 0.0)):
+            self, laser_points, imu_yaw_rad, motion_prior_base=(0.0, 0.0),
+            allow_translation_update=True):
         """允许测试或点云前端直接输入 laser_link 坐标系二维端点。"""
 
         base_points = _laser_to_base_points(laser_points, self.config)
         return self.update_base_points(
-            base_points, imu_yaw_rad, motion_prior_base)
+            base_points,
+            imu_yaw_rad,
+            motion_prior_base,
+            allow_translation_update=allow_translation_update,
+        )
 
     def update_base_points(
-            self, base_points, imu_yaw_rad, motion_prior_base=(0.0, 0.0)):
+            self, base_points, imu_yaw_rad, motion_prior_base=(0.0, 0.0),
+            allow_translation_update=True):
         """使用已经按公开外参转换到 base 坐标系的二维端点。"""
 
         if self._initial_imu_yaw is None:
@@ -115,7 +130,9 @@ class ScanImuLocalizer:
             return ScanMatchResult(self.pose, 'no_valid_scan_points', 0, 0.0)
 
         if not self._occupancy:
-            self.pose = Pose2D(0.0, 0.0, yaw)
+            # 首次启动时当前位姿本来就是(0,0)；换层清图后则必须保留
+            # 电梯落点的x/y，只用新层第一帧重建端点图。
+            self.pose = Pose2D(self.pose.x, self.pose.y, yaw)
             self._integrate_points(base_points, self.pose)
             self._previous_world_points = _transform_planar_points(base_points, self.pose)
             return ScanMatchResult(self.pose, 'initialized', 0, 0.0)
@@ -137,23 +154,66 @@ class ScanImuLocalizer:
             yaw,
         )
 
+        if not bool(allow_translation_update):
+            # 四足机体在固定站立时仍有激光振动和姿态微摆。没有新鲜线速度请求时
+            # 这些变化不能解释为平移；只更新公开 IMU 给出的 yaw，并用当前扫描
+            # 刷新相邻帧参考，避免停车越久里程越远。
+            self.pose = Pose2D(self.pose.x, self.pose.y, yaw)
+            self._integrate_points(base_points, self.pose)
+            self._previous_world_points = _transform_planar_points(
+                base_points, self.pose)
+            return ScanMatchResult(
+                self.pose,
+                'stationary_command_hold',
+                len(base_points),
+                1.0,
+            )
+
         best_pose, best_count = self._match_translation_icp(
             base_points, yaw, predicted_pose)
         if best_count < self.config.min_match_count:
             best_pose, best_count = self._search_translation(
                 base_points, yaw, predicted_pose)
         if best_count < self.config.min_match_count:
-            # 弱纹理时沿已下发控制的短时运动先验推进；先验只约束方向并有节点侧
-            # dt/新鲜度上限，不读取 Gazebo 里程计或场景真值。
-            self.pose = predicted_pose
-            return ScanMatchResult(self.pose, 'motion_prior_only', best_count,
-                                   best_count / float(max(1, len(base_points))))
+            prior_dx = predicted_pose.x - self.pose.x
+            prior_dy = predicted_pose.y - self.pose.y
+            prior_distance = math.hypot(prior_dx, prior_dy)
+            if (self.config.allow_degenerate_command_prior
+                    and prior_distance > 0.0):
+                maximum_step = max(
+                    0.0, float(self.config.max_degenerate_prior_step_m))
+                scale = (
+                    1.0 if prior_distance <= maximum_step
+                    else maximum_step / prior_distance
+                ) if maximum_step > 0.0 else 0.0
+                self.pose = Pose2D(
+                    self.pose.x + prior_dx * scale,
+                    self.pose.y + prior_dy * scale,
+                    yaw,
+                )
+                self._integrate_points(base_points, self.pose)
+                self._previous_world_points = _transform_planar_points(
+                    base_points, self.pose)
+                return ScanMatchResult(
+                    self.pose, 'motion_prior_only', best_count,
+                    best_count / float(max(1, len(base_points))))
+            self.pose = Pose2D(self.pose.x, self.pose.y, yaw)
+            return ScanMatchResult(
+                self.pose, 'insufficient_scan_evidence', best_count,
+                best_count / float(max(1, len(base_points))))
 
-        self.pose = _bound_translation_correction(
+        previous_pose = Pose2D(self.pose.x, self.pose.y, yaw)
+        corrected_pose = _bound_translation_correction(
             best_pose,
             predicted_pose,
             gain=self.config.scan_correction_gain,
             max_correction_m=self.config.max_scan_correction_m,
+        )
+        self.pose = _enforce_minimum_command_progress(
+            previous_pose,
+            predicted_pose,
+            corrected_pose,
+            self.config.minimum_command_progress_ratio,
         )
         self._integrate_points(base_points, self.pose)
         self._previous_world_points = _transform_planar_points(base_points, self.pose)
@@ -208,7 +268,9 @@ class ScanImuLocalizer:
         return candidate, matched_count
 
     def _search_translation(self, base_points, yaw, predicted_pose=None):
-        center = predicted_pose or Pose2D(self.pose.x, self.pose.y, yaw)
+        # 离散回退搜索必须围绕上一条已证实位姿。predicted_pose 只供 ICP 初值；
+        # 若围绕命令积分中心搜索，退化走廊中的同分候选会再次把命令伪装成位移。
+        center = Pose2D(self.pose.x, self.pose.y, yaw)
         best_pose = Pose2D(center.x, center.y, yaw)
         best_count = -1
         best_motion_sq = float('inf')
@@ -282,6 +344,21 @@ def quaternion_to_yaw(x, y, z, w):
     numerator = 2.0 * (float(w) * float(z) + float(x) * float(y))
     denominator = 1.0 - 2.0 * (float(y) * float(y) + float(z) * float(z))
     return math.atan2(numerator, denominator)
+
+
+def quaternion_upright_cosine(x, y, z, w):
+    """返回机体 z 轴与世界 z 轴夹角的余弦，用于识别明显倒地。
+
+    输入来自公开 trunk IMU。返回值接近 1 表示直立，低于 0.5 表示倾斜超过
+    60°；该检查不读取 Gazebo 姿态真值。
+    """
+
+    values = [float(x), float(y), float(z), float(w)]
+    norm = math.sqrt(sum(value * value for value in values))
+    if not math.isfinite(norm) or norm <= 1e-12:
+        return float('-inf')
+    qx, qy, _qz, _qw = (value / norm for value in values)
+    return 1.0 - 2.0 * (qx * qx + qy * qy)
 
 
 def floor_index_to_elevation(floor_index, floor_height_m=2.6,
@@ -380,12 +457,7 @@ def _median(values):
 
 
 def _bound_translation_correction(candidate, predicted, gain, max_correction_m):
-    """把退化 scan match 限制为命令积分附近的毫米级校正。
-
-    官方长走廊的两侧墙面会让最近邻 ICP 沿墙产生大幅同分跳变。这里不把控制
-    当作真值，只用系统自己已发布的动作限定“下一帧不可能瞬移”；SLAM Toolbox
-    仍可通过 ``map -> odom`` 完成全局扫描匹配与回环。
-    """
+    """限制扫描匹配相对运动预测位姿的单帧校正量。"""
 
     delta_x = float(candidate.x) - float(predicted.x)
     delta_y = float(candidate.y) - float(predicted.y)
@@ -399,6 +471,32 @@ def _bound_translation_correction(candidate, predicted, gain, max_correction_m):
         predicted.x + delta_x / distance * correction,
         predicted.y + delta_y / distance * correction,
         candidate.yaw,
+    )
+
+
+def _enforce_minimum_command_progress(
+        previous, predicted, corrected, minimum_ratio):
+    """保留退化方向上的最小命令进展，同时不限制横向扫描校正。"""
+
+    prior_x = float(predicted.x) - float(previous.x)
+    prior_y = float(predicted.y) - float(previous.y)
+    prior_distance = math.hypot(prior_x, prior_y)
+    ratio = min(1.0, max(0.0, float(minimum_ratio)))
+    if prior_distance <= 1e-12 or ratio <= 0.0:
+        return corrected
+    unit_x = prior_x / prior_distance
+    unit_y = prior_y / prior_distance
+    progress_x = float(corrected.x) - float(previous.x)
+    progress_y = float(corrected.y) - float(previous.y)
+    parallel_progress = progress_x * unit_x + progress_y * unit_y
+    required_progress = prior_distance * ratio
+    if parallel_progress >= required_progress:
+        return corrected
+    deficit = required_progress - parallel_progress
+    return Pose2D(
+        float(corrected.x) + unit_x * deficit,
+        float(corrected.y) + unit_y * deficit,
+        corrected.yaw,
     )
 
 

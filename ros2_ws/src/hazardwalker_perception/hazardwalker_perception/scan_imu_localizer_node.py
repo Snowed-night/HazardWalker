@@ -21,9 +21,11 @@ from std_msgs.msg import Int32, String
 from tf2_ros import TransformBroadcaster
 
 from hazardwalker_perception.scan_imu_localization import (
+    ScanMatchResult,
     ScanImuLocalizer,
     ScanImuLocalizerConfig,
     floor_index_to_elevation,
+    quaternion_upright_cosine,
     quaternion_to_yaw,
 )
 
@@ -38,6 +40,9 @@ class ScanImuLocalizerNode(Node):
         self.declare_parameter('floor_index_topic', '/hazardwalker/navigation/floor_index')
         self.declare_parameter('cmd_vel_topic', '/hw/cmd_vel')
         self.declare_parameter('output_topic', '/hazardwalker/slam/odometry')
+        # 运行时发布同一份来源声明，供预检与 rosbag 交叉验证。该节点只能
+        # 声明自身实际实现的 scan/IMU 两种来源，不能冒充视觉定位。
+        self.declare_parameter('localization_provenance', 'lidar_imu_slam')
         self.declare_parameter('odom_frame', 'odom')
         self.declare_parameter('base_frame', 'base')
         # 作为 SLAM Toolbox 前端时需直接发布 odom→base；作为 Cartographer
@@ -53,13 +58,18 @@ class ScanImuLocalizerNode(Node):
         self.declare_parameter('min_match_count', 12)
         self.declare_parameter('laser_offset_x_m', 0.20)
         self.declare_parameter('laser_offset_y_m', 0.0)
-        # 官方 A1 控制器在低速区存在明显死区：0.20 m/s 基本不推进，而
-        # 0.35 m/s 的实测位移与命令积分接近。低于阈值不积分，超过阈值按
-        # 可配置比例推进；scan matching 只做毫米级校正，避免走廊退化反向。
+        # 该阈值只判断本轮是否允许扫描更新平移，不把命令当作位移真值。
+        # 固定距离扫描标定显示命令积分偏大约 1.5 倍，因此默认比例为 0.65；
+        # 低于 0.30 m/s 的命令处于官方 A1 控制死区附近，不作为平移先验。
         self.declare_parameter('command_motion_scale', 1.0)
         self.declare_parameter('min_effective_linear_speed_mps', 0.30)
         self.declare_parameter('command_fresh_timeout_s', 0.5)
         self.declare_parameter('max_scan_dt_s', 0.25)
+        self.declare_parameter('minimum_command_progress_ratio', 0.85)
+        self.declare_parameter('max_degenerate_prior_step_m', 0.25)
+        # 与官方控制器安全检查一致：机体倾斜超过 60° 时冻结平移，避免倒地后
+        # 的畸变扫描和仍在发布的 cmd_vel 伪造巡检覆盖或危险源位置。
+        self.declare_parameter('min_upright_cosine', 0.5)
 
         self.odom_frame = str(self.get_parameter('odom_frame').value)
         self.base_frame = str(self.get_parameter('base_frame').value)
@@ -82,8 +92,13 @@ class ScanImuLocalizerNode(Node):
             min_match_count=int(self.get_parameter('min_match_count').value),
             laser_offset_x_m=float(self.get_parameter('laser_offset_x_m').value),
             laser_offset_y_m=float(self.get_parameter('laser_offset_y_m').value),
+            minimum_command_progress_ratio=float(self.get_parameter(
+                'minimum_command_progress_ratio').value),
+            max_degenerate_prior_step_m=float(self.get_parameter(
+                'max_degenerate_prior_step_m').value),
         ))
         self.latest_imu_yaw = None
+        self.latest_upright_cosine = None
         self.latest_command = Twist()
         self._last_command_monotonic = None
         self._last_scan_time_sec = None
@@ -95,13 +110,23 @@ class ScanImuLocalizerNode(Node):
         self.odom_pub = self.create_publisher(
             Odometry, str(self.get_parameter('output_topic').value), 10,
         )
+        self.localization_provenance = str(
+            self.get_parameter('localization_provenance').value).strip()
+        allowed_provenance = {
+            'lidar_imu_slam',
+            'lidar_imu_slam+public_floor_action',
+        }
+        if self.localization_provenance not in allowed_provenance:
+            raise ValueError(
+                'scan/IMU 定位来源不合法：'
+                f'{self.localization_provenance!r}')
         provenance_qos = QoSProfile(depth=1)
         provenance_qos.durability = DurabilityPolicy.TRANSIENT_LOCAL
         self.provenance_pub = self.create_publisher(
             String, '/hazardwalker/slam/localization_provenance', provenance_qos,
         )
         self.provenance_pub.publish(
-            String(data='lidar_imu_slam+public_floor_action')
+            String(data=self.localization_provenance)
         )
         self.create_subscription(
             Imu,
@@ -142,6 +167,9 @@ class ScanImuLocalizerNode(Node):
         self.latest_imu_yaw = quaternion_to_yaw(
             orientation.x, orientation.y, orientation.z, orientation.w,
         )
+        self.latest_upright_cosine = quaternion_upright_cosine(
+            orientation.x, orientation.y, orientation.z, orientation.w,
+        )
 
     def on_cmd_vel(self, message):
         """保存本系统已下发的合法控制，作为退化走廊中的短时匹配方向先验。"""
@@ -178,6 +206,23 @@ class ScanImuLocalizerNode(Node):
                 throttle_duration_sec=5.0,
             )
             return
+        if (self.latest_upright_cosine is None
+                or self.latest_upright_cosine
+                < float(self.get_parameter('min_upright_cosine').value)):
+            self.get_logger().error(
+                '机体明显倾倒，冻结合法里程计平移；恢复站立后再继续定位。',
+                throttle_duration_sec=5.0,
+            )
+            self.publish_pose(
+                ScanMatchResult(
+                    self.localizer.pose,
+                    'robot_not_upright',
+                    0,
+                    0.0,
+                ),
+                message.header.stamp,
+            )
+            return
         scan_time_sec = (
             float(message.header.stamp.sec)
             + float(message.header.stamp.nanosec) * 1e-9
@@ -199,6 +244,7 @@ class ScanImuLocalizerNode(Node):
         )
         scale = float(self.get_parameter('command_motion_scale').value)
         motion_prior = (0.0, 0.0)
+        translation_expected = False
         if command_fresh and dt_sec > 0.0:
             command_x = float(self.latest_command.linear.x)
             command_y = float(self.latest_command.linear.y)
@@ -209,6 +255,7 @@ class ScanImuLocalizerNode(Node):
                 command_x = 0.0
             if abs(command_y) < min_effective_speed:
                 command_y = 0.0
+            translation_expected = bool(command_x or command_y)
             motion_prior = (
                 command_x * dt_sec * scale,
                 command_y * dt_sec * scale,
@@ -219,6 +266,7 @@ class ScanImuLocalizerNode(Node):
             message.angle_increment,
             self.latest_imu_yaw,
             motion_prior_base=motion_prior,
+            allow_translation_update=translation_expected,
         )
         self.publish_pose(result, message.header.stamp)
 
@@ -249,7 +297,9 @@ class ScanImuLocalizerNode(Node):
         message.pose.pose.position.z = self.floor_elevation_m
         message.pose.pose.orientation.z = quaternion_z
         message.pose.pose.orientation.w = quaternion_w
-        variance = 0.04 if result.status in ('initialized', 'tracking') else 1.0
+        variance = 0.04 if result.status in (
+            'initialized', 'tracking', 'stationary_command_hold',
+        ) else 1.0
         message.pose.covariance[0] = variance
         message.pose.covariance[7] = variance
         message.pose.covariance[14] = 0.04

@@ -340,8 +340,11 @@
 
 
 
-     <!-- gazebo livox mid360 plugins -->
+    <!-- gazebo livox mid360 plugins -->
     <xacro:property name="M_PI" value="3.14159"/>
+    <xacro:if value="$(arg ENABLE_LIDAR)">
+    <!-- 水平 360° 扫描独立服务 Cartographer/避障；三维 profile 额外启动
+         Mid-360，不能用稀疏三维切片覆盖 /scan。 -->
     <gazebo reference="laser_livox">
         <sensor type="ray" name="laser_livox">
             <!-- laser_livox 链路俯仰约 +45°；反向补偿后 ray 扫描面保持水平。 -->
@@ -376,6 +379,56 @@
             </plugin>
         </sensor>
     </gazebo>
+
+    <xacro:if value="$(arg ENABLE_LIVOX_3D)">
+    <gazebo reference="laser_livox">
+        <sensor type="ray" name="laser_livox_3d">
+            <pose>0 0 0 0 0 0</pose>
+            <!-- 传感器必须主动更新；仅创建 ROS publisher 不会让 Gazebo
+                 默认关闭的 ray sensor 产生扫描回调。 -->
+            <always_on>true</always_on>
+            <visualize>false</visualize>
+            <update_rate>10</update_rate>
+            <plugin name="gazebo_livox_mid360_controller"
+                    filename="liblivox_laser_simulation.so">
+                <ray>
+                    <scan>
+                        <horizontal>
+                            <samples>100</samples>
+                            <resolution>1</resolution>
+                            <min_angle>0</min_angle>
+                            <max_angle>${2*M_PI}</max_angle>
+                        </horizontal>
+                        <vertical>
+                            <samples>360</samples>
+                            <resolution>1</resolution>
+                            <min_angle>${-3.22/180*M_PI}</min_angle>
+                            <max_angle>${56.22/180*M_PI}</max_angle>
+                        </vertical>
+                    </scan>
+                    <range>
+                        <min>0.1</min>
+                        <max>30.0</max>
+                        <resolution>0.02</resolution>
+                    </range>
+                    <noise>
+                        <type>gaussian</type>
+                        <mean>0.0</mean>
+                        <stddev>0.005</stddev>
+                    </noise>
+                </ray>
+                <!-- Mid-360 真机约 20 万点/秒。仿真保留约 1.2 万条射线/帧，
+                     让非重复扫描在室内平面上仍有足够重叠供 LIO 配准。 -->
+                <samples>24000</samples>
+                <downsample>2</downsample>
+                <repeat_pattern>true</repeat_pattern>
+                <csv_file_name>package://livox_laser_simulation/scan_mode/mid360.csv</csv_file_name>
+                <ros_topic>/livox/lidar_raw</ros_topic>
+            </plugin>
+        </sensor>
+    </gazebo>
+    </xacro:if>
+    </xacro:if>
 
 
     <!-- gazebo livox imu-link plugins -->

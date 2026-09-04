@@ -42,6 +42,7 @@ from hazardwalker_perception.localize_hazard import (
     evaluate_sphere_depth_shape,
     localize_bbox_from_depth_image,
 )
+from hazardwalker_perception.inspection_capture import InspectionCaptureGate
 from hazardwalker_perception.red_ball_detector import (
     create_detection_backend,
     is_complete_candidate_for_3d_tracking,
@@ -169,6 +170,12 @@ class HsvDetectorNode(Node):
             'active_view_max_normalized_depth_curvature', 0.30,
         )
         self.declare_parameter('candidate_memory_ttl_s', 8.0)
+        self.declare_parameter(
+            'inspection_request_topic',
+            '/hw/perception/inspection_request')
+        self.declare_parameter(
+            'inspection_result_topic',
+            '/hw/perception/inspection_result')
         self.declare_parameter('active_view_direction_memory_ttl_s', 12.0)
         self.declare_parameter('candidate_memory_min_iou', 0.05)
         self.declare_parameter(
@@ -260,6 +267,7 @@ class HsvDetectorNode(Node):
                 ).value
             ),
         )
+        self.inspection_capture_gate = InspectionCaptureGate()
 
         self.tf_buffer = Buffer()
         self.tf_listener = TransformListener(self.tf_buffer, self)
@@ -270,7 +278,33 @@ class HsvDetectorNode(Node):
         self.depth_sub = self.create_subscription(Image, '/hw/camera/depth_image', self.on_depth_image, 10)
         # 第一阶段用 String(JSON) 快速打通链路；稳定后迁移到 hazardwalker_msgs/HazardArray。
         self.pub = self.create_publisher(String, '/hw/perception/hazard_detections', 10)
+        self.inspection_request_sub = self.create_subscription(
+            String,
+            str(self.get_parameter('inspection_request_topic').value),
+            self.on_inspection_request,
+            10,
+        )
+        self.inspection_result_pub = self.create_publisher(
+            String,
+            str(self.get_parameter('inspection_result_topic').value),
+            10,
+        )
         self.get_logger().info('HSV detector subscribed to camera image, camera info and depth image.')
+
+    def on_inspection_request(self, msg: String):
+        """登记导航观察目标；同目标可靠重发不会刷新新鲜帧边界。"""
+
+        try:
+            payload = json.loads(msg.data)
+        except (json.JSONDecodeError, TypeError):
+            return
+        if self.inspection_capture_gate.accept_request(
+                payload, self._image_callback_count):
+            self.get_logger().info(
+                'Inspection request accepted: %s.'
+                % str(payload.get('goal_id', '')),
+                throttle_duration_sec=2.0,
+            )
 
     def on_camera_info(self, msg: CameraInfo):
         self.camera_intrinsics = camera_intrinsics_from_k(msg.k)
@@ -797,6 +831,25 @@ class HsvDetectorNode(Node):
             'stable_view_frame_count': self._stable_view_frame_count,
         }, ensure_ascii=False)
         self.pub.publish(out)
+        inspection_result = self.inspection_capture_gate.observe_frame(
+            frame_index=self._image_callback_count,
+            stamp_sec=(
+                float(stamp_sec) if stamp_sec is not None else time.time()),
+            camera_stable=bool(camera_stable),
+            depth_synchronized=bool(self._last_depth_synchronized),
+            tf_synchronized=bool(self._last_tf_synchronized),
+            localization_ready=bool(localization_ready),
+            hazard_count=len(hazards),
+            detection_count=len(detections_2d),
+        )
+        if inspection_result is not None:
+            result_message = String()
+            result_message.data = json.dumps(
+                inspection_result, ensure_ascii=False)
+            self.inspection_result_pub.publish(result_message)
+            self.get_logger().info(
+                'Inspection capture published: %s.'
+                % inspection_result['goal_id'])
         if self._image_callback_count <= 2:
             self.get_logger().info('Published perception payload for RGB frame %d.' % self._image_callback_count)
 

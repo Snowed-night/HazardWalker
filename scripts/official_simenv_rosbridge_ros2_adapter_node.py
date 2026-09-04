@@ -17,7 +17,7 @@ import threading
 import time
 
 import rclpy
-from geometry_msgs.msg import Twist
+from geometry_msgs.msg import PoseStamped, Twist
 from nav_msgs.msg import Odometry
 from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
@@ -25,6 +25,7 @@ from rclpy.qos import DurabilityPolicy, QoSProfile
 from rosgraph_msgs.msg import Clock
 from sensor_msgs.msg import CameraInfo, Image, Imu, LaserScan, PointCloud2
 from std_msgs.msg import String
+from std_srvs.srv import Trigger
 from tf2_msgs.msg import TFMessage
 from geometry_msgs.msg import TransformStamped
 
@@ -47,6 +48,16 @@ class RosbridgeHwAdapter(Node):
     def __init__(self):
         super().__init__('hazardwalker_official_rosbridge_adapter')
         self.url = self.declare_parameter('rosbridge_url', 'ws://127.0.0.1:9090').value
+        # 正式实例由 auto_docker 宿主侧管理器传入，供业务门禁拒绝旧版手工残留进程。
+        self.managed_lifecycle = bool(
+            self.declare_parameter('managed_lifecycle', False).value)
+        self.lifecycle_container = str(
+            self.declare_parameter('lifecycle_container', '').value)
+        # 固定 SEED 是正式人工巡检的数据合同，而不是危险源真值。该值由
+        # auto_docker.sh 从当前容器 Config.Env 读取，防止录包命令把运行场景
+        # 误标成另一个 SEED。
+        self.scenario_seed = str(
+            self.declare_parameter('scenario_seed', '').value).strip()
         # 适配器本身必须继续使用墙钟，确保首条仿真时钟到达前接收循环与零速
         # 看门狗仍可运行；这里只负责把官方 ROS1 /clock 原样转成 ROS2 /clock。
         self.enable_clock_relay = bool(
@@ -60,7 +71,10 @@ class RosbridgeHwAdapter(Node):
         self.enable_image_relay = bool(self.declare_parameter('enable_image_relay', True).value)
         # 原始 640x480 RGB-D 通过 rosbridge 时，前一帧未收全又开始下一帧会造成分片混杂。
         # 默认节流到 2 Hz；平台带宽验证充足后可按毫秒调小此参数。
-        self.image_throttle_rate_ms = int(self.declare_parameter('image_throttle_rate_ms', 500).value)
+        # 默认 5 Hz 支撑动态检测与辅助转向；第一人称视频仍走 ROS1 压缩流，
+        # 不通过本适配器搬运高帧率原始图像。
+        self.image_throttle_rate_ms = int(
+            self.declare_parameter('image_throttle_rate_ms', 200).value)
         # ---- 激光雷达与 IMU 转发 (导航组 SLAM 必需) ----
         self.enable_scan_relay = bool(self.declare_parameter('enable_scan_relay', True).value)
         # 当前 SLAM 只消费 LaserScan 与 trunk IMU。默认关闭高带宽点云和未消费
@@ -90,6 +104,11 @@ class RosbridgeHwAdapter(Node):
         self.enable_odom_relay = bool(
             self.declare_parameter('enable_odom_relay', False).value
         )
+        # 官方里程计可供 ROS1 局部控制居中，但绝不能与 scan/IMU localizer
+        # 同时发布 odom→base。默认只发布 /hw/odom 消息，不发布 TF。
+        self.enable_odom_tf_relay = bool(
+            self.declare_parameter('enable_odom_tf_relay', False).value
+        )
         self.odom_throttle_rate_ms = int(self.declare_parameter('odom_throttle_rate_ms', 20).value)
         # 官方 /tf 可达 500 Hz；三维定位消费的是低频 RGB-D，保留 50 Hz 已足够插值，
         # 否则 JSON 解码会饿死大图像分片与感知回调。
@@ -114,6 +133,27 @@ class RosbridgeHwAdapter(Node):
             self.declare_parameter('public_start_world_yaw', 1.5708).value
         )
         self.enable_control = bool(self.declare_parameter('enable_cmd_vel_relay', False).value)
+        # 宇树官方 move_base 在 ROS1 容器内运行；这里只做目标与速度的消息
+        # 适配，不实现任何局部避障算法。速度仍进入 ROS2 command_mux，随后
+        # 由本适配器唯一回传 /cmd_vel，避免绕过键盘/辅助/电梯控制仲裁。
+        self.enable_unitree_move_base_bridge = bool(self.declare_parameter(
+            'enable_unitree_move_base_bridge', False).value)
+        self.ros1_move_base_goal_topic = str(self.declare_parameter(
+            'ros1_move_base_goal_topic', '/move_base_simple/goal').value)
+        self.ros1_move_base_cancel_topic = str(self.declare_parameter(
+            'ros1_move_base_cancel_topic', '/move_base/cancel').value)
+        self.ros1_move_base_cmd_topic = str(self.declare_parameter(
+            'ros1_move_base_cmd_topic',
+            '/hazardwalker/unitree_move_base/cmd_vel').value)
+        self.ros2_move_base_goal_topic = str(self.declare_parameter(
+            'ros2_move_base_goal_topic',
+            '/hw/navigation/unitree_move_base_goal').value)
+        self.ros2_move_base_control_topic = str(self.declare_parameter(
+            'ros2_move_base_control_topic',
+            '/hw/navigation/unitree_move_base_control').value)
+        self.ros2_move_base_cmd_topic = str(self.declare_parameter(
+            'ros2_move_base_cmd_topic',
+            '/hw/control/unitree_move_base_cmd_vel').value)
         self.enable_mission_state_relay = bool(
             self.declare_parameter('enable_mission_state_relay', True).value
         )
@@ -122,6 +162,20 @@ class RosbridgeHwAdapter(Node):
         ).value
         self.ros1_mission_state_topic = self.declare_parameter(
             'ros1_mission_state_topic', '/hazardwalker/mission/state',
+        ).value
+        # 第一人称 sidecar 运行在 ROS1 网络。这里只转发低带宽 JSON 状态，
+        # 供浏览器叠框和显示动作建议；不改变相机图像，也不新增控制入口。
+        self.enable_gui_overlay_relay = bool(
+            self.declare_parameter('enable_gui_overlay_relay', True).value
+        )
+        self.gui_overlay_topics = {
+            '/hw/perception/hazard_detections': '/hazardwalker/gui/perception',
+            '/hw/control/status': '/hazardwalker/gui/control_status',
+            '/hw/control/assist_status': '/hazardwalker/gui/assist_status',
+        }
+        self.gui_assist_request_topic = self.declare_parameter(
+            'gui_assist_request_topic',
+            '/hazardwalker/gui/assist_request',
         ).value
         self.timeout_sec = float(self.declare_parameter('cmd_vel_timeout_sec', 0.5).value)
         # 官方版本相机命名有差异；源话题可配，但稳定的 ROS2 /hw 输出不变。
@@ -147,6 +201,7 @@ class RosbridgeHwAdapter(Node):
         # Fast DDS 可能出现“已解码计数增长、订阅者无帧”的跨线程投递异常。接收线程只保留
         # 每类最新消息，ROS2 执行器定时统一发布；图像过期帧天然被丢弃，不积压内存。
         self._pending_messages = {}
+        self._pending_gui_assist_action = ''
         self._pending_lock = threading.Lock()
         self.clock_pub = self.create_publisher(Clock, '/clock', 10)
         self.odom_pub = self.create_publisher(Odometry, '/hw/odom', 10)
@@ -162,6 +217,8 @@ class RosbridgeHwAdapter(Node):
         self.livox_cloud_pub = self.create_publisher(PointCloud2, '/hw/lidar/points', 10)
         self.livox_imu_pub = self.create_publisher(Imu, '/hw/livox/imu', 10)
         self.trunk_imu_pub = self.create_publisher(Imu, '/hw/trunk_imu', 10)
+        self.unitree_move_base_cmd_pub = self.create_publisher(
+            Twist, self.ros2_move_base_cmd_topic, 10)
         self._ros_publishers = {
             'clock': self.clock_pub,
             'odom': self.odom_pub, 'rgb': self.rgb_pub, 'depth': self.depth_pub,
@@ -170,12 +227,42 @@ class RosbridgeHwAdapter(Node):
             'scan': self.scan_pub, 'scan_raw': self.scan_raw_pub,
             'livox_cloud': self.livox_cloud_pub,
             'livox_imu': self.livox_imu_pub, 'trunk_imu': self.trunk_imu_pub,
+            'unitree_move_base_cmd': self.unitree_move_base_cmd_pub,
         }
         self.status_pub = self.create_publisher(String, '/hw/platform/official_simenv_adapter_status', 10)
         self.cmd_sub = self.create_subscription(Twist, '/hw/cmd_vel', self._on_cmd, 10)
+        self.move_base_goal_sub = None
+        self.move_base_control_sub = None
+        if self.enable_unitree_move_base_bridge:
+            self.move_base_goal_sub = self.create_subscription(
+                PoseStamped,
+                self.ros2_move_base_goal_topic,
+                self._on_move_base_goal,
+                10,
+            )
+            self.move_base_control_sub = self.create_subscription(
+                String,
+                self.ros2_move_base_control_topic,
+                self._on_move_base_control,
+                10,
+            )
         self.mission_state_sub = self.create_subscription(
             String, self.ros2_mission_state_topic, self._on_mission_state, 10,
         )
+        self.gui_overlay_subscriptions = []
+        self.assist_start_client = self.create_client(
+            Trigger, '/hw/control/assist_align/start')
+        self.assist_cancel_client = self.create_client(
+            Trigger, '/hw/control/assist_align/cancel')
+        if self.enable_gui_overlay_relay:
+            for ros2_topic, ros1_topic in self.gui_overlay_topics.items():
+                self.gui_overlay_subscriptions.append(self.create_subscription(
+                    String,
+                    ros2_topic,
+                    lambda message, topic=ros1_topic: self._on_gui_overlay(
+                        topic, message),
+                    10,
+                ))
         self.create_timer(0.1, self._watchdog)
         self.create_timer(0.5, self._status)
         self.create_timer(0.01, self._flush_pending_messages)
@@ -190,6 +277,27 @@ class RosbridgeHwAdapter(Node):
                 worker = threading.Thread(target=self._receive_image_loop, args=(topic,), daemon=True)
                 worker.start()
                 self._image_threads.append(worker)
+        # Unitree DWA 速度属于实时控制链，不能与 PointCloud2、TF 等高带宽
+        # 数据共用主 WebSocket。独立连接保证低实时倍率下仍按每个仿真控制周期
+        # 及时送达 ROS2，避免 Frontier 因“命令陈旧”反复停车。
+        self._unitree_cmd_thread = None
+        if self.enable_unitree_move_base_bridge:
+            self._unitree_cmd_thread = threading.Thread(
+                target=self._receive_unitree_cmd_loop,
+                daemon=True,
+            )
+            self._unitree_cmd_thread.start()
+        # 受管进程的 stdout/stderr 会进入 adapter.log。启动时必须明确记录关键
+        # 开关，避免“传感器正常但控制被关闭”只能通过 ROS2 参数反向猜测。
+        self.get_logger().info(
+            'official SimEnv adapter started: control=%s image=%s odom=%s seed=%s'
+            % (
+                self.enable_control,
+                self.enable_image_relay,
+                self.enable_odom_relay,
+                self.scenario_seed or 'unset',
+            )
+        )
 
     def _send(self, packet):
         with self._send_lock:
@@ -208,8 +316,43 @@ class RosbridgeHwAdapter(Node):
         with self._pending_lock:
             pending = self._pending_messages
             self._pending_messages = {}
+            assist_action = self._pending_gui_assist_action
+            self._pending_gui_assist_action = ''
         for name, message in pending.items():
             self._ros_publishers[name].publish(message)
+        if assist_action:
+            self._dispatch_gui_assist_request(assist_action)
+
+    def _dispatch_gui_assist_request(self, action):
+        """在 ROS2 执行器线程调用辅助服务，网页不能直接发布速度。"""
+
+        client = (
+            self.assist_start_client if action == 'start'
+            else self.assist_cancel_client
+        )
+        if not client.service_is_ready():
+            self.get_logger().warning('辅助对准服务未就绪，拒绝 GUI 请求：%s' % action)
+            self._counts['gui_assist_request_rejected'] = (
+                self._counts.get('gui_assist_request_rejected', 0) + 1)
+            return
+        future = client.call_async(Trigger.Request())
+        future.add_done_callback(
+            lambda result, requested=action: self._on_gui_assist_result(
+                requested, result))
+        self._counts['gui_assist_request:' + action] = (
+            self._counts.get('gui_assist_request:' + action, 0) + 1)
+
+    def _on_gui_assist_result(self, action, future):
+        try:
+            response = future.result()
+        except Exception as error:
+            self.get_logger().warning(
+                'GUI 辅助对准请求失败：%s（%s）' % (action, error))
+            return
+        if not response.success:
+            self.get_logger().warning(
+                'GUI 辅助对准请求被拒绝：%s（%s）' % (
+                    action, response.message))
 
     def _receive_loop(self):
         try:
@@ -224,14 +367,35 @@ class RosbridgeHwAdapter(Node):
                     connection_options['host'] = self.host_header
                 self._socket = websocket.create_connection(self.url, timeout=5, **connection_options)
                 self._send({'op': 'advertise', 'topic': '/cmd_vel', 'type': 'geometry_msgs/Twist'})
+                if self.enable_unitree_move_base_bridge:
+                    self._send({
+                        'op': 'advertise',
+                        'topic': self.ros1_move_base_goal_topic,
+                        'type': 'geometry_msgs/PoseStamped',
+                    })
+                    self._send({
+                        'op': 'advertise',
+                        'topic': self.ros1_move_base_cancel_topic,
+                        'type': 'actionlib_msgs/GoalID',
+                    })
                 if self.enable_mission_state_relay:
                     self._send({
                         'op': 'advertise',
                         'topic': self.ros1_mission_state_topic,
                         'type': 'std_msgs/String',
                     })
+                if self.enable_gui_overlay_relay:
+                    for topic in self.gui_overlay_topics.values():
+                        self._send({
+                            'op': 'advertise',
+                            'topic': topic,
+                            'type': 'std_msgs/String',
+                        })
                 subscriptions = [(self.rgb_info_topic, 'sensor_msgs/CameraInfo'),
                                  (self.depth_info_topic, 'sensor_msgs/CameraInfo')]
+                if self.enable_gui_overlay_relay:
+                    subscriptions.append((
+                        self.gui_assist_request_topic, 'std_msgs/String'))
                 if self.enable_clock_relay:
                     subscriptions.append((self.clock_topic, 'rosgraph_msgs/Clock'))
                 if self.enable_odom_relay:
@@ -272,6 +436,53 @@ class RosbridgeHwAdapter(Node):
                 self.get_logger().warn('rosbridge 连接中断：%s' % error)
                 self._socket = None
                 time.sleep(2.0)
+
+    def _receive_unitree_cmd_loop(self):
+        """用独立 WebSocket 接收 DWA 速度，隔离点云/TF 解码造成的阻塞。"""
+
+        try:
+            import websocket
+        except ImportError:
+            return
+        while rclpy.ok():
+            connection = None
+            try:
+                connection_options = {}
+                if self.host_header:
+                    connection_options['host'] = self.host_header
+                connection = websocket.create_connection(
+                    self.url, timeout=5, **connection_options)
+                connection.send(json.dumps({
+                    'op': 'subscribe',
+                    'id': 'hw:unitree_move_base_cmd',
+                    'topic': self.ros1_move_base_cmd_topic,
+                    'type': 'geometry_msgs/Twist',
+                    'queue_length': 1,
+                    'fragment_size': 60000,
+                    'compression': 'none',
+                }, separators=(',', ':')))
+                assembler = FragmentAssembler()
+                while rclpy.ok():
+                    packet = decode_packet(connection.recv(), assembler)
+                    if (packet and packet.get('op') == 'publish'
+                            and packet.get('topic')
+                            == self.ros1_move_base_cmd_topic):
+                        self._publish(
+                            self.ros1_move_base_cmd_topic,
+                            packet.get('msg', {}),
+                        )
+            except Exception as error:
+                self.get_logger().warning(
+                    'Unitree move_base 独立速度连接中断：%s' % error,
+                    throttle_duration_sec=5.0,
+                )
+                time.sleep(1.0)
+            finally:
+                if connection is not None:
+                    try:
+                        connection.close()
+                    except Exception:
+                        pass
 
     def _receive_image_loop(self, topic):
         """用独立 WebSocket 接收单个图像话题，隔离官方 fragment 的错误 id。"""
@@ -329,17 +540,18 @@ class RosbridgeHwAdapter(Node):
             for name in ('x', 'y', 'z'):
                 setattr(message.twist.twist.angular, name, float(twist.get('angular', {}).get(name, 0.0)))
             self._queue_message('odom', message)
-            # 该分支只允许平台诊断。正式模式由 scan_imu_localizer_node 唯一发布
-            # odom→base，不能把这里的 Gazebo 派生值用于探索或危险源坐标。
-            odom_tf = TransformStamped()
-            odom_tf.header.stamp = message.header.stamp
-            odom_tf.header.frame_id = message.header.frame_id or 'odom'
-            odom_tf.child_frame_id = message.child_frame_id or 'base'
-            odom_tf.transform.translation.x = message.pose.pose.position.x
-            odom_tf.transform.translation.y = message.pose.pose.position.y
-            odom_tf.transform.translation.z = message.pose.pose.position.z
-            odom_tf.transform.rotation = message.pose.pose.orientation
-            self._queue_message('tf', TFMessage(transforms=[odom_tf]))
+            # 正式模式由 scan_imu_localizer_node 唯一发布 odom→base。官方
+            # Odometry 仅作为局部 DWA 控制参考，不进入 SLAM/危险源坐标。
+            if self.enable_odom_tf_relay:
+                odom_tf = TransformStamped()
+                odom_tf.header.stamp = message.header.stamp
+                odom_tf.header.frame_id = message.header.frame_id or 'odom'
+                odom_tf.child_frame_id = message.child_frame_id or 'base'
+                odom_tf.transform.translation.x = message.pose.pose.position.x
+                odom_tf.transform.translation.y = message.pose.pose.position.y
+                odom_tf.transform.translation.z = message.pose.pose.position.z
+                odom_tf.transform.rotation = message.pose.pose.orientation
+                self._queue_message('tf', TFMessage(transforms=[odom_tf]))
         elif topic in (self.rgb_topic, self.depth_topic):
             message = Image(); _stamp(message.header.stamp, header.get('stamp')); message.header.frame_id = header.get('frame_id', '')
             message.height = int(source.get('height', 0)); message.width = int(source.get('width', 0))
@@ -489,6 +701,25 @@ class RosbridgeHwAdapter(Node):
             message.angular_velocity.y = float(ang.get('y', 0.0))
             message.angular_velocity.z = float(ang.get('z', 0.0))
             self._queue_message('trunk_imu', message)
+        elif (self.enable_unitree_move_base_bridge
+              and topic == self.ros1_move_base_cmd_topic):
+            message = Twist()
+            linear = source.get('linear', {})
+            angular = source.get('angular', {})
+            for name in ('x', 'y', 'z'):
+                setattr(message.linear, name, float(linear.get(name, 0.0)))
+                setattr(message.angular, name, float(angular.get(name, 0.0)))
+            self._queue_message('unitree_move_base_cmd', message)
+        elif self.enable_gui_overlay_relay and topic == self.gui_assist_request_topic:
+            action = str(source.get('data', '')).strip().lower()
+            if action not in ('start', 'cancel'):
+                self._counts['gui_assist_request_invalid'] = (
+                    self._counts.get('gui_assist_request_invalid', 0) + 1)
+                return
+            # WebSocket 接收线程只保存最后一次明确请求；服务调用由 ROS2 定时
+            # 回调执行，避免从网络线程直接操作 rclpy client。
+            with self._pending_lock:
+                self._pending_gui_assist_action = action
         else:
             return
         self._counts[topic] = self._counts.get(topic, 0) + 1
@@ -504,6 +735,61 @@ class RosbridgeHwAdapter(Node):
             self._last_forwarded_cmd = payload
             self._last_cmd = time.monotonic()
 
+    def _on_move_base_goal(self, message):
+        """把 ROS2 显式坐标系目标原样发布给 ROS1 宇树 move_base。"""
+
+        if not self.enable_unitree_move_base_bridge:
+            return
+        position = message.pose.position
+        orientation = message.pose.orientation
+        payload = {
+            'header': {
+                # ROS1 Gazebo 使用仿真时钟，ROS2 调用方可能仍处于墙钟；相对
+                # base 目标应在 ROS1 收到时用最新 TF 解释，零时间戳可避免
+                # 跨时钟外推失败，同时不改变目标的合法相对坐标语义。
+                'stamp': {
+                    'secs': 0,
+                    'nsecs': 0,
+                },
+                'frame_id': str(message.header.frame_id or 'odom'),
+            },
+            'pose': {
+                'position': {
+                    'x': float(position.x),
+                    'y': float(position.y),
+                    'z': float(position.z),
+                },
+                'orientation': {
+                    'x': float(orientation.x),
+                    'y': float(orientation.y),
+                    'z': float(orientation.z),
+                    'w': float(orientation.w),
+                },
+            },
+        }
+        if self._send({
+                'op': 'publish',
+                'topic': self.ros1_move_base_goal_topic,
+                'msg': payload}):
+            self._counts['unitree_move_base_goal_forwarded'] = (
+                self._counts.get('unitree_move_base_goal_forwarded', 0) + 1)
+
+    def _on_move_base_control(self, message):
+        """支持显式 cancel；其他字符串一律拒绝，避免形成隐藏控制入口。"""
+
+        if (not self.enable_unitree_move_base_bridge
+                or str(message.data).strip().lower() != 'cancel'):
+            return
+        if self._send({
+                'op': 'publish',
+                'topic': self.ros1_move_base_cancel_topic,
+                'msg': {
+                    'stamp': {'secs': 0, 'nsecs': 0},
+                    'id': '',
+                }}):
+            self._counts['unitree_move_base_cancel_forwarded'] = (
+                self._counts.get('unitree_move_base_cancel_forwarded', 0) + 1)
+
     def _on_mission_state(self, message):
         """把 ROS2 任务完成状态回传给 ROS1 证据记录器。"""
 
@@ -518,6 +804,19 @@ class RosbridgeHwAdapter(Node):
                 self._counts.get('mission_state_forwarded', 0) + 1
             )
 
+    def _on_gui_overlay(self, ros1_topic, message):
+        """把 ROS2 感知/控制状态转成 ROS1 String，供只读 GUI 使用。"""
+
+        if not self.enable_gui_overlay_relay:
+            return
+        if self._send({
+            'op': 'publish',
+            'topic': ros1_topic,
+            'msg': {'data': str(message.data)},
+        }):
+            key = 'gui_overlay:' + ros1_topic.rsplit('/', 1)[-1]
+            self._counts[key] = self._counts.get(key, 0) + 1
+
     def _watchdog(self):
         if self.enable_control and self._last_cmd and time.monotonic() - self._last_cmd > self.timeout_sec:
             self._send({'op': 'publish', 'topic': '/cmd_vel', 'msg': {'linear': {'x': 0.0, 'y': 0.0, 'z': 0.0}, 'angular': {'x': 0.0, 'y': 0.0, 'z': 0.0}}})
@@ -526,8 +825,23 @@ class RosbridgeHwAdapter(Node):
     def _status(self):
         self.status_pub.publish(String(data=json.dumps({
             'adapter': 'rosbridge_ros2', 'url': self.url,
+            'managed_lifecycle': self.managed_lifecycle,
+            'lifecycle_container': self.lifecycle_container or None,
+            'scenario_seed': self.scenario_seed or None,
             'rosbridge_host_header': self.host_header or None,
             'enable_cmd_vel_relay': self.enable_control, 'received': self._counts,
+            'enable_unitree_move_base_bridge': (
+                self.enable_unitree_move_base_bridge),
+            'unitree_move_base_topics': ({
+                'ros1_goal': self.ros1_move_base_goal_topic,
+                'ros1_cancel': self.ros1_move_base_cancel_topic,
+                'ros1_cmd_vel': self.ros1_move_base_cmd_topic,
+                'ros2_goal': self.ros2_move_base_goal_topic,
+                'ros2_control': self.ros2_move_base_control_topic,
+                'ros2_cmd_vel': self.ros2_move_base_cmd_topic,
+            } if self.enable_unitree_move_base_bridge else None),
+            'enable_gui_overlay_relay': self.enable_gui_overlay_relay,
+            'gui_assist_request_topic': self.gui_assist_request_topic,
             'dropped_invalid_image_frames': self._dropped_image_frames,
             'forwarded_cmd_count': self._forwarded_cmd_count,
             'last_forwarded_cmd': self._last_forwarded_cmd,
@@ -546,6 +860,7 @@ class RosbridgeHwAdapter(Node):
             'enable_mission_state_relay': self.enable_mission_state_relay,
             'image_throttle_rate_ms': self.image_throttle_rate_ms,
             'enable_odom_relay': self.enable_odom_relay,
+            'enable_odom_tf_relay': self.enable_odom_tf_relay,
             'odom_throttle_rate_ms': self.odom_throttle_rate_ms,
             'enable_tf_relay': self.enable_tf_relay,
             'tf_throttle_rate_ms': self.tf_throttle_rate_ms,
