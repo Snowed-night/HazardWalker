@@ -111,6 +111,32 @@ def reproject_planar_pose_between_robot_frames(
     return float(output_x), float(output_y), float(output_yaw)
 
 
+def bounded_inspection_turn_rate(
+        heading_error_rad: float,
+        tolerance_rad: float,
+        maximum_speed_rad_s: float,
+        minimum_speed_rad_s: float,
+) -> float:
+    """为已到位的观察点生成可收敛的低速比例转向命令。"""
+
+    error = math.atan2(
+        math.sin(float(heading_error_rad)),
+        math.cos(float(heading_error_rad)),
+    )
+    tolerance = max(0.0, float(tolerance_rad))
+    maximum = max(0.0, float(maximum_speed_rad_s))
+    minimum = min(maximum, max(0.0, float(minimum_speed_rad_s)))
+    if not all(math.isfinite(value) for value in (
+            error, tolerance, maximum, minimum)):
+        raise ValueError('转向参数必须为有限数')
+    if abs(error) <= tolerance or maximum <= 0.0:
+        return 0.0
+    command = max(-maximum, min(maximum, error))
+    if 0.0 < abs(command) < minimum:
+        command = math.copysign(minimum, command)
+    return float(command)
+
+
 class InspectionProgress:
     """仅记录有成功采帧证据的观察目标。"""
 

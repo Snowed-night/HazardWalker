@@ -17,6 +17,7 @@ if str(NAV_SRC) not in sys.path:
 from hazardwalker_nav.room_inspection_planner import (  # noqa: E402
     InspectionProgress,
     RoomInspectionExecution,
+    bounded_inspection_turn_rate,
     build_room_visibility_inspection_plan,
     build_strict_room_inspection_plan,
     reproject_planar_pose_between_robot_frames,
@@ -180,6 +181,13 @@ def test_pose_reprojection_uses_synchronized_robot_anchor_not_fixed_map_offset()
     assert projected[0] == pytest.approx(10.0)
     assert projected[1] == pytest.approx(22.0)
     assert projected[2] == pytest.approx(math.pi / 2.0)
+
+
+def test_inspection_turn_rate_is_bounded_and_stops_inside_tolerance():
+    assert bounded_inspection_turn_rate(0.1, 0.2, 0.8, 0.15) == 0.0
+    assert bounded_inspection_turn_rate(2.0, 0.2, 0.8, 0.15) == 0.8
+    assert bounded_inspection_turn_rate(-2.0, 0.2, 0.8, 0.15) == -0.8
+    assert bounded_inspection_turn_rate(0.25, 0.2, 0.8, 0.15) == 0.25
 
 
 def test_visibility_plan_covers_open_room_and_requires_physical_captures():

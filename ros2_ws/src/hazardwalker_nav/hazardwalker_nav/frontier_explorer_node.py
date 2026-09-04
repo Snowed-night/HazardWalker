@@ -103,6 +103,7 @@ from hazardwalker_nav.elevator_controller import (
 from hazardwalker_nav.nav_recorder import NavRecorder
 from hazardwalker_nav.room_inspection_planner import (
     RoomInspectionExecution,
+    bounded_inspection_turn_rate,
     build_room_visibility_inspection_plan,
     reproject_planar_pose_between_robot_frames,
 )
@@ -329,6 +330,8 @@ class FrontierExplorerNode(Node):
         self.declare_parameter('strict_room_maximum_viewpoints', 16)
         self.declare_parameter('strict_room_visibility_coverage_ratio', 0.95)
         self.declare_parameter('strict_room_heading_tolerance_rad', 0.20)
+        self.declare_parameter('strict_room_orientation_max_speed', 0.80)
+        self.declare_parameter('strict_room_orientation_min_speed', 0.15)
         self.declare_parameter('strict_room_capture_timeout_s', 15.0)
         self.declare_parameter(
             'inspection_request_topic',
@@ -2154,6 +2157,50 @@ class FrontierExplorerNode(Node):
             f'visibility={plan.visibility_coverage_ratio:.1%}.')
         return True
 
+    def _strict_room_orientation_command(self) -> Twist:
+        """观察点位置已到达后低速原地对准；旋转仍受实时激光门禁约束。"""
+
+        command = Twist()
+        execution = self._room_inspection_execution
+        goal = execution.current_goal if execution is not None else None
+        if goal is None:
+            return command
+        desired_yaw = goal.face_yaw_rad
+        current_yaw = self.robot_yaw
+        if (bool(self.get_parameter(
+                'use_official_odom_for_room_control').value)
+                and self._has_fresh_official_control_odom()):
+            official_goal = self._official_room_goal_from_map(
+                (goal.x_m, goal.y_m))
+            if official_goal is None:
+                return command
+            desired_yaw = official_goal[2]
+            current_yaw = self._official_control_odom[2]
+        tolerance = max(
+            0.05,
+            float(self.get_parameter(
+                'strict_room_heading_tolerance_rad').value),
+        )
+        heading_error = normalize_angle(desired_yaw - current_yaw)
+        turn_rate = bounded_inspection_turn_rate(
+            heading_error,
+            tolerance,
+            float(self.get_parameter(
+                'strict_room_orientation_max_speed').value),
+            float(self.get_parameter(
+                'strict_room_orientation_min_speed').value),
+        )
+        if turn_rate == 0.0:
+            # _follow_path 在发布任何运动前先完成位置/朝向验收并推进到采帧。
+            return self._follow_path()
+        self._cancel_unitree_move_base()
+        turn_action = 'turn_left' if turn_rate > 0.0 else 'turn_right'
+        if self._scan_allows_action(
+                turn_action,
+                float(self.get_parameter('rotation_min_clearance_m').value)):
+            command.angular.z = turn_rate
+        return command
+
     def _finish_deterministic_room(self, now_ros: float) -> bool:
         sector = self._deterministic_room_sector
         if sector is None:
@@ -2492,6 +2539,9 @@ class FrontierExplorerNode(Node):
             if phase in (
                     'room_approach', 'room_cross', 'room_loop',
                     'room_inspection', 'room_exit'):
+                if self._deterministic_waypoint_label.startswith(
+                        'room_inspect_orient:'):
+                    return self._strict_room_orientation_command()
                 return self._follow_path()
             return self._follow_path()
 
