@@ -155,6 +155,34 @@ def bounded_inspection_turn_rate(
     return float(command)
 
 
+def physical_pose_has_progressed(
+        anchor_pose: Optional[Sequence[float]],
+        current_pose: Sequence[float],
+        translation_threshold_m: float = 0.20,
+        yaw_threshold_rad: float = 0.20,
+) -> bool:
+    """判断机器人是否产生足以证明“仍在执行路径”的物理位移或转向。"""
+
+    if anchor_pose is None:
+        return True
+    anchor = tuple(float(value) for value in anchor_pose[:3])
+    current = tuple(float(value) for value in current_pose[:3])
+    if len(anchor) != 3 or len(current) != 3:
+        raise ValueError('anchor_pose 与 current_pose 必须包含 x、y、yaw')
+    if not all(math.isfinite(value) for value in anchor + current):
+        raise ValueError('物理位姿必须是有限数')
+    translation = math.hypot(
+        current[0] - anchor[0], current[1] - anchor[1])
+    yaw_change = abs(math.atan2(
+        math.sin(current[2] - anchor[2]),
+        math.cos(current[2] - anchor[2]),
+    ))
+    return (
+        translation >= max(0.0, float(translation_threshold_m))
+        or yaw_change >= max(0.0, float(yaw_threshold_rad))
+    )
+
+
 class InspectionProgress:
     """仅记录有成功采帧证据的观察目标。"""
 

@@ -20,9 +20,20 @@ from hazardwalker_nav.room_inspection_planner import (  # noqa: E402
     bounded_inspection_turn_rate,
     build_room_visibility_inspection_plan,
     build_strict_room_inspection_plan,
+    physical_pose_has_progressed,
     reproject_planar_pose_between_robot_frames,
     visibility_coverage_requirement_met,
 )
+
+
+def test_physical_progress_accepts_detour_translation_or_in_place_rotation():
+    anchor = (1.0, 2.0, math.pi - 0.05)
+    assert not physical_pose_has_progressed(
+        anchor, (1.10, 2.05, -math.pi + 0.05))
+    assert physical_pose_has_progressed(
+        anchor, (1.21, 2.0, math.pi - 0.05))
+    assert physical_pose_has_progressed(
+        anchor, (1.0, 2.0, -math.pi + 0.25))
 from hazardwalker_nav.room_obstacle_profiler import (  # noqa: E402
     OCCUPIED_THRESHOLD,
 )

@@ -105,6 +105,7 @@ from hazardwalker_nav.room_inspection_planner import (
     RoomInspectionExecution,
     bounded_inspection_turn_rate,
     build_room_visibility_inspection_plan,
+    physical_pose_has_progressed,
     reproject_planar_pose_between_robot_frames,
 )
 
@@ -643,6 +644,8 @@ class FrontierExplorerNode(Node):
         self._deterministic_waypoint_scales = {}
         self._deterministic_waypoint_started_ros = None
         self._deterministic_waypoint_best_distance = None
+        self._deterministic_waypoint_motion_anchor_official: Optional[
+            Tuple[float, float, float]] = None
         self._deterministic_doorway_observations: List[
             Tuple[float, float]] = []
         self._last_replan_ros_sec: Optional[float] = None
@@ -1611,6 +1614,7 @@ class FrontierExplorerNode(Node):
         self._deterministic_waypoint_scales = {}
         self._deterministic_waypoint_started_ros = None
         self._deterministic_waypoint_best_distance = None
+        self._deterministic_waypoint_motion_anchor_official = None
         self._deterministic_doorway_observations = []
 
     def _deterministic_axis_coordinates(
@@ -1851,6 +1855,12 @@ class FrontierExplorerNode(Node):
         self._deterministic_waypoint_started_ros = now_ros
         self._deterministic_waypoint_best_distance = (
             self._frontier_progress_reference_distance)
+        self._deterministic_waypoint_motion_anchor_official = (
+            self._official_control_odom[:3]
+            if label.startswith('room_inspect_move:')
+            and self._has_fresh_official_control_odom()
+            else None
+        )
         self.get_logger().info(
             f'Deterministic waypoint: {label} -> '
             f'({resolved_goal[0]:.2f}, {resolved_goal[1]:.2f}), '
@@ -1886,9 +1896,29 @@ class FrontierExplorerNode(Node):
                 self.current_target.centroid[0] - self.robot_x,
                 self.current_target.centroid[1] - self.robot_y,
             )
-        if (self._deterministic_waypoint_best_distance is None
-                or distance
-                <= self._deterministic_waypoint_best_distance - 0.12):
+        inspection_motion_evidence = (
+            label.startswith('room_inspect_move:')
+            and official_goal is not None)
+        if inspection_motion_evidence:
+            current_motion_pose = (
+                official_x, official_y, self._official_control_odom[2])
+            anchor = self._deterministic_waypoint_motion_anchor_official
+            moved = physical_pose_has_progressed(
+                anchor, current_motion_pose,
+                translation_threshold_m=0.20,
+                yaw_threshold_rad=0.20,
+            )
+            if moved:
+                # 房内绕障允许先远离目标；只要物理位置或朝向产生净进展，
+                # 就不能用直线目标距离误判为停滞并打断 DWA 正常轨迹。
+                self._deterministic_waypoint_motion_anchor_official = (
+                    current_motion_pose)
+                self._deterministic_waypoint_best_distance = distance
+                self._deterministic_waypoint_started_ros = now_ros
+                return False
+        elif (self._deterministic_waypoint_best_distance is None
+              or distance
+              <= self._deterministic_waypoint_best_distance - 0.12):
             self._deterministic_waypoint_best_distance = distance
             self._deterministic_waypoint_started_ros = now_ros
             return False
@@ -1930,18 +1960,26 @@ class FrontierExplorerNode(Node):
                 goal_search_radius_m=0.30,
             )
             if not path:
-                execution.mark_motion_failure(
-                    'inspection_goal_unreachable_after_map_update')
-                self._deterministic_route_phase = 'room_inspection_failed'
-                self.get_logger().error(
-                    f'Inspection goal became unreachable after map update: '
-                    f'{goal.goal_id}.')
+                # 占据栅格在扫描融合时可能短暂闭合通道。保留原目标和路径，
+                # 等下一次地图更新后再判断；不得跳过采帧，也避免每个控制
+                # 周期重复失败。
+                self._deterministic_waypoint_started_ros = now_ros
+                self._deterministic_waypoint_best_distance = distance
+                if self._has_fresh_official_control_odom():
+                    self._deterministic_waypoint_motion_anchor_official = (
+                        self._official_control_odom[:3])
+                self.get_logger().warning(
+                    f'Inspection goal temporarily has no current-map A* '
+                    f'path; keeping target pending: {goal.goal_id}.')
                 return True
             self._cancel_unitree_move_base()
             self.current_path = list(path)
             self.path_index = 0
             self._deterministic_waypoint_started_ros = now_ros
             self._deterministic_waypoint_best_distance = distance
+            if self._has_fresh_official_control_odom():
+                self._deterministic_waypoint_motion_anchor_official = (
+                    self._official_control_odom[:3])
             self.get_logger().warning(
                 f'Inspection goal stalled; replanned current-map A* path: '
                 f'{goal.goal_id}, path={len(path)}.')
@@ -1960,6 +1998,7 @@ class FrontierExplorerNode(Node):
             self._deterministic_waypoint_label = ''
             self._deterministic_waypoint_started_ros = now_ros
             self._deterministic_waypoint_best_distance = None
+            self._deterministic_waypoint_motion_anchor_official = None
             return True
         previous_scale = float(
             self._deterministic_waypoint_scales.get(label, 1.0))
@@ -1978,6 +2017,7 @@ class FrontierExplorerNode(Node):
         self._deterministic_waypoint_label = ''
         self._deterministic_waypoint_started_ros = now_ros
         self._deterministic_waypoint_best_distance = None
+        self._deterministic_waypoint_motion_anchor_official = None
         return True
 
     def _plan_reachable_corridor_goal(self, now_ros: float) -> bool:
@@ -2292,6 +2332,7 @@ class FrontierExplorerNode(Node):
             return False
         self._cancel_unitree_move_base()
         self._deterministic_waypoint_label = ''
+        self._deterministic_waypoint_motion_anchor_official = None
         self.current_path = []
         self.current_target = None
         self.path_index = 0

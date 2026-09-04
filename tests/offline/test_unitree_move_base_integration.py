@@ -328,5 +328,8 @@ def test_official_corridor_completion_uses_the_same_control_frame_as_motion():
     assert "'official_room_waypoint_stall'" not in stall_recovery
     assert "label.startswith('room_inspect_move:')" in stall_recovery
     assert 'Inspection goal stalled; replanned current-map A* path' in stall_recovery
-    assert 'inspection_goal_unreachable_after_map_update' in stall_recovery
+    assert 'Inspection goal temporarily has no current-map' in stall_recovery
+    assert 'path; keeping target pending' in stall_recovery
+    assert '_deterministic_waypoint_motion_anchor_official' in stall_recovery
+    assert 'physical_pose_has_progressed(' in stall_recovery
     assert "'strict_room_path_inflation_radius_m'" in stall_recovery
