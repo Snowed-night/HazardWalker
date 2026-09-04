@@ -160,6 +160,11 @@ class FrontierExplorerNode(Node):
         # ROS1 10 Hz 按仿真时间运行；复杂楼宇实时倍率约 0.08--0.16 时，
         # 墙钟相邻速度可间隔 0.6--1.3 秒。保留约三个低倍率周期，失联后归零。
         self.declare_parameter('unitree_move_base_cmd_timeout_s', 3.00)
+        # ROS1 DWA 会在近目标/窄区给出约 0.1m/s 的合法方向，但 A1 RL
+        # 步态低于约 0.45m/s 不产生位移。统一在 DWA 出口跨越执行器死区，
+        # 不改变路径、方向、角速度或 DWA 的碰撞判定。
+        self.declare_parameter(
+            'unitree_move_base_minimum_linear_command', 0.45)
         # 赛事公开 Gazebo odom 只用于 ROS1 DWA 的局部走廊居中目标；SLAM、
         # 房间判定、返航和危险源坐标继续使用 scan+IMU 合法位姿。
         self.declare_parameter('use_official_odom_for_corridor_control', False)
@@ -6734,28 +6739,47 @@ class FrontierExplorerNode(Node):
             )
             return Twist()
         self._unitree_move_base_cmd_stale_since_wall = None
-        command = self._unitree_move_base_cmd
+        return self._unitree_move_base_effective_command(
+            self._unitree_move_base_cmd)
+
+    def _unitree_move_base_effective_command(self, command: Twist) -> Twist:
+        """保留 DWA 决策，只把非零指令提升到 A1 可执行死区之外。"""
+
+        minimum_linear = max(
+            0.0,
+            float(self.get_parameter(
+                'unitree_move_base_minimum_linear_command').value),
+        )
         if self.state == 'FLOOR_TRANSITION':
-            minimum = max(
-                0.0,
+            minimum_linear = max(
+                minimum_linear,
                 float(self.get_parameter(
                     'official_elevator_minimum_linear_command').value),
             )
-            norm = math.hypot(command.linear.x, command.linear.y)
-            if 1e-6 < norm < minimum:
-                # A1 RL 步态对 0.1m/s 的 DWA近目标减速没有位移响应，会
-                # 永久停在轿厢门槛。只放大 DWA 已判定安全的平移方向，角
-                # 速度和避障决策不变。
-                scale = minimum / norm
-                scaled = Twist()
-                scaled.linear.x = command.linear.x * scale
-                scaled.linear.y = command.linear.y * scale
-                scaled.linear.z = command.linear.z
-                scaled.angular.x = command.angular.x
-                scaled.angular.y = command.angular.y
-                scaled.angular.z = command.angular.z
-                return scaled
-        return command
+        linear_norm = math.hypot(command.linear.x, command.linear.y)
+        minimum_angular = max(
+            0.0,
+            float(self.get_parameter('minimum_turn_speed').value),
+        )
+        scale_linear = 1e-6 < linear_norm < minimum_linear
+        scale_angular = (
+            linear_norm <= 1e-6
+            and 1e-6 < abs(command.angular.z) < minimum_angular)
+        if not scale_linear and not scale_angular:
+            return command
+
+        scaled = Twist()
+        linear_scale = (
+            minimum_linear / linear_norm if scale_linear else 1.0)
+        scaled.linear.x = command.linear.x * linear_scale
+        scaled.linear.y = command.linear.y * linear_scale
+        scaled.linear.z = command.linear.z
+        scaled.angular.x = command.angular.x
+        scaled.angular.y = command.angular.y
+        scaled.angular.z = (
+            math.copysign(minimum_angular, command.angular.z)
+            if scale_angular else command.angular.z)
+        return scaled
 
     def _follow_path_with_direct_backend(
             self,

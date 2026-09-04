@@ -156,6 +156,14 @@ def test_frontier_delegates_local_avoidance_to_unitree_move_base():
     assert 'self._local_planner_backend = saved_backend' in source
     assert 'and not goal_changed):' in source
     assert "declare_parameter('unitree_move_base_cmd_timeout_s', 3.00)" in source
+    assert "'unitree_move_base_minimum_linear_command', 0.45" in source
+    deadband = source.split(
+        'def _unitree_move_base_effective_command', 1)[1].split(
+            'def _follow_path_with_direct_backend', 1)[0]
+    assert 'minimum_linear / linear_norm' in deadband
+    assert 'linear_norm <= 1e-6' in deadband
+    assert "self.get_parameter('minimum_turn_speed').value" in deadband
+    assert 'return self._unitree_move_base_effective_command(' in source
     assert 'Unitree move_base goal updated:' in source
     assert 'ParameterUninitializedException' in source
 
