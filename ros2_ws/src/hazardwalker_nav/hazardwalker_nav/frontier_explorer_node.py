@@ -155,6 +155,7 @@ class FrontierExplorerNode(Node):
         # 相同目标不得按墙钟重发，否则 ROS1 simple action server 会不断取消
         # 自己的规划。只有前视点实际移动超过 change_m 才更新。
         self.declare_parameter('unitree_move_base_goal_refresh_s', 15.0)
+        self.declare_parameter('unitree_move_base_goal_yaw_change_rad', 0.15)
         # ROS1 10 Hz 按仿真时间运行；复杂楼宇实时倍率约 0.08--0.16 时，
         # 墙钟相邻速度可间隔 0.6--1.3 秒。保留约三个低倍率周期，失联后归零。
         self.declare_parameter('unitree_move_base_cmd_timeout_s', 3.00)
@@ -560,7 +561,7 @@ class FrontierExplorerNode(Node):
         self._unitree_move_base_goal_active = False
         self._unitree_move_base_cmd_after_goal = False
         self._unitree_move_base_last_goal_map: Optional[
-            Tuple[float, float]] = None
+            Tuple[float, float, float]] = None
         self._unitree_move_base_last_goal_wall: Optional[float] = None
         self._unitree_move_base_selected_this_cycle = False
 
@@ -6387,7 +6388,7 @@ class FrontierExplorerNode(Node):
                     'official_corridor_yaw_rad').value),
             )
             outgoing_frame = str(self.get_parameter('odom_frame').value)
-            goal_key = (outgoing_goal[0], outgoing_goal[1])
+            goal_key = tuple(float(value) for value in outgoing_goal)
         elif use_official_room_goal:
             map_target = (
                 self.current_target.centroid
@@ -6456,11 +6457,11 @@ class FrontierExplorerNode(Node):
                 else:
                     outgoing_goal = official_room_goal
             outgoing_frame = str(self.get_parameter('odom_frame').value)
-            goal_key = (outgoing_goal[0], outgoing_goal[1])
+            goal_key = tuple(float(value) for value in outgoing_goal)
         elif use_official_return_goal:
             outgoing_goal = self._official_return_target()
             outgoing_frame = str(self.get_parameter('odom_frame').value)
-            goal_key = (outgoing_goal[0], outgoing_goal[1])
+            goal_key = tuple(float(value) for value in outgoing_goal)
         elif use_official_elevator_goal:
             lobby_x = float(self.get_parameter(
                 'official_elevator_lobby_x_m').value)
@@ -6490,7 +6491,7 @@ class FrontierExplorerNode(Node):
             )
             outgoing_goal = target_x, target_y, target_yaw
             outgoing_frame = str(self.get_parameter('odom_frame').value)
-            goal_key = (target_x, target_y)
+            goal_key = tuple(float(value) for value in outgoing_goal)
         else:
             goal_local = self._map_goal_to_unitree_base(*goal_map)
             if goal_local is None:
@@ -6501,22 +6502,37 @@ class FrontierExplorerNode(Node):
                 return False
             outgoing_goal = goal_local
             outgoing_frame = str(self.get_parameter('base_frame').value)
-            goal_key = (float(goal_map[0]), float(goal_map[1]))
+            goal_key = tuple(float(value) for value in goal_map)
         goal_change_parameter = (
             'unitree_move_base_corridor_goal_change_m'
             if self._deterministic_waypoint_label == 'corridor_outbound'
             else 'unitree_move_base_goal_change_m'
         )
-        goal_changed = (
-            self._unitree_move_base_last_goal_map is None
+        last_goal = self._unitree_move_base_last_goal_map
+        position_changed = (
+            last_goal is None
             or math.hypot(
-                goal_key[0] - self._unitree_move_base_last_goal_map[0],
-                goal_key[1] - self._unitree_move_base_last_goal_map[1],
+                goal_key[0] - last_goal[0],
+                goal_key[1] - last_goal[1],
             ) >= max(
                 0.05,
                 float(self.get_parameter(goal_change_parameter).value),
-            )
-        )
+            ))
+        yaw_changed = (
+            last_goal is None
+            or abs(normalize_angle(goal_key[2] - last_goal[2])) >= max(
+                0.01,
+                float(self.get_parameter(
+                    'unitree_move_base_goal_yaw_change_rad').value),
+            ))
+        refresh_period = float(self.get_parameter(
+            'unitree_move_base_goal_refresh_s').value)
+        refresh_due = (
+            refresh_period > 0.0
+            and self._unitree_move_base_last_goal_wall is not None
+            and now_wall - self._unitree_move_base_last_goal_wall
+            >= refresh_period)
+        goal_changed = position_changed or yaw_changed or refresh_due
         if (self._unitree_move_base_goal_active
                 and not goal_changed):
             return True

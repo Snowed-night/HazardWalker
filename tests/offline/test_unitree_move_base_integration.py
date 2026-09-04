@@ -103,7 +103,7 @@ def test_frontier_delegates_local_avoidance_to_unitree_move_base():
     assert 'self._unitree_move_base_last_goal_map' in source
     assert "'unitree_move_base_corridor_lookahead_m', 3.0" in source
     assert "'unitree_move_base_corridor_goal_change_m', 0.80" in source
-    assert 'goal_key[0] - self._unitree_move_base_last_goal_map[0]' in source
+    assert 'goal_key[0] - last_goal[0]' in source
     assert "'use_official_odom_for_corridor_control', False" in source
     assert "'official_corridor_center_x_m', 0.0" in source
     assert "'use_official_odom_for_room_control', False" in source
@@ -137,7 +137,6 @@ def test_frontier_delegates_local_avoidance_to_unitree_move_base():
     assert "self._local_planner_backend = 'direct'" in source
     assert 'self._local_planner_backend = saved_backend' in source
     assert 'and not goal_changed):' in source
-    assert 'refresh_due = (' not in source
     assert "declare_parameter('unitree_move_base_cmd_timeout_s', 3.00)" in source
     assert 'Unitree move_base goal updated:' in source
     assert 'ParameterUninitializedException' in source
@@ -274,3 +273,7 @@ def test_official_corridor_completion_uses_the_same_control_frame_as_motion():
             'def _finish_deterministic_room', 1)[0]
     assert 'viewpoint_count=' not in prepare
     assert 'required_views_per_obstacle=' not in prepare
+    assert "'unitree_move_base_goal_yaw_change_rad', 0.15" in source
+    assert 'abs(normalize_angle(goal_key[2] - last_goal[2]))' in source
+    assert 'refresh_due = (' in source
+    assert "'unitree_move_base_goal_refresh_s'" in source
