@@ -286,6 +286,12 @@ def test_official_corridor_completion_uses_the_same_control_frame_as_motion():
         'if execution.phase == execution.ORIENT:', 1)[1].split(
             'if execution.phase == execution.CAPTURE:', 1)[0]
     assert 'self._strict_room_orientation_command()' in orient_branch
+    assert 'def _complete_current_deterministic_waypoint' in source
+    strict_orientation = source.split(
+        'def _strict_room_orientation_command', 1)[1].split(
+            'def _complete_current_deterministic_waypoint', 1)[0]
+    assert 'self._complete_current_deterministic_waypoint()' in strict_orientation
+    assert 'return self._follow_path()' not in strict_orientation
     assert 'neighbor_entries_world=neighbor_entries_world' in source
     assert "'official_near_room_y_m'" in source
     assert "'official_far_room_y_m'" in source

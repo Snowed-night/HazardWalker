@@ -2215,8 +2215,10 @@ class FrontierExplorerNode(Node):
                 'strict_room_orientation_min_speed').value),
         )
         if turn_rate == 0.0:
-            # _follow_path 在发布任何运动前先完成位置/朝向验收并推进到采帧。
-            return self._follow_path()
+            # MOVE 阶段已经单独验收位置。ORIENT 只验 yaw；转身产生的厘米级
+            # 平移不能把状态机退回 DWA，否则会在两种控制器间来回切换。
+            self._complete_current_deterministic_waypoint()
+            return command
         self._cancel_unitree_move_base()
         turn_action = 'turn_left' if turn_rate > 0.0 else 'turn_right'
         if self._scan_allows_action(
@@ -2224,6 +2226,22 @@ class FrontierExplorerNode(Node):
                 float(self.get_parameter('rotation_min_clearance_m').value)):
             command.angular.z = turn_rate
         return command
+
+    def _complete_current_deterministic_waypoint(self) -> bool:
+        """原子完成当前确定性目标并推进状态机，避免各阶段复制清理逻辑。"""
+
+        label = self._deterministic_waypoint_label
+        if not label:
+            return False
+        self._cancel_unitree_move_base()
+        self._deterministic_waypoint_label = ''
+        self.current_path = []
+        self.current_target = None
+        self.path_index = 0
+        self._current_target_selected_ros_sec = None
+        self._reset_frontier_progress_watchdog()
+        self._on_deterministic_waypoint_reached(label, self._ros_time_sec())
+        return True
 
     def _finish_deterministic_room(self, now_ros: float) -> bool:
         sector = self._deterministic_room_sector
@@ -6890,19 +6908,11 @@ class FrontierExplorerNode(Node):
 
         if self.path_index >= len(self.current_path):
             # 路径走完
-            self._cancel_unitree_move_base()
             if (self._deterministic_route_enabled()
                     and self._deterministic_waypoint_label):
-                label = self._deterministic_waypoint_label
-                self._deterministic_waypoint_label = ''
-                self.current_path = []
-                self.current_target = None
-                self.path_index = 0
-                self._current_target_selected_ros_sec = None
-                self._reset_frontier_progress_watchdog()
-                self._on_deterministic_waypoint_reached(
-                    label, self._ros_time_sec())
+                self._complete_current_deterministic_waypoint()
                 return cmd
+            self._cancel_unitree_move_base()
             if self.current_target is not None:
                 key = self._frontier_key(self.current_target)
                 reached_room_sector = self._frontier_room_sector(
