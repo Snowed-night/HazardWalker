@@ -379,9 +379,13 @@ def validate_navigation_acceptance(
                     'required_visibility_coverage_ratio', 1.0))
                 visibility_targets = int(row.get(
                     'visibility_target_cell_count', 0))
+                visibility_covered = int(row.get(
+                    'visibility_covered_cell_count', 0))
+                required_visible_cells = int(math.ceil(
+                    visibility_required * visibility_targets - 1e-12))
                 if (required <= 0 or captured != required
                         or visibility_targets <= 0
-                        or visibility + 1e-9 < visibility_required):
+                        or visibility_covered + 1 < required_visible_cells):
                     raise RuntimeError(
                         f'楼层 {floor} 房间 {row.get("sector")} 巡检证据不足：'
                         f'captures={captured}/{required}, '

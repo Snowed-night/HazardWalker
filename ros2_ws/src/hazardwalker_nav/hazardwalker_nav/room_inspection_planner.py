@@ -49,6 +49,24 @@ class UncoveredObstacle:
     reachable_direction_count: int
 
 
+def visibility_coverage_requirement_met(
+        covered_cell_count: int,
+        target_cell_count: int,
+        required_ratio: float,
+        quantization_tolerance_cells: int = 1,
+) -> bool:
+    """按整数采样格验收覆盖，允许至多一个栅格的离散量化误差。"""
+
+    target = max(0, int(target_cell_count))
+    covered = max(0, int(covered_cell_count))
+    if target <= 0:
+        return False
+    ratio = min(1.0, max(0.0, float(required_ratio)))
+    required = int(math.ceil(ratio * target - 1e-12))
+    tolerance = max(0, int(quantization_tolerance_cells))
+    return covered + tolerance >= required
+
+
 @dataclass(frozen=True)
 class RoomInspectionPlan:
     """单房间严格巡检计划。"""
@@ -67,10 +85,10 @@ class RoomInspectionPlan:
         coverage_required = self.required_visibility_coverage_ratio > 0.0
         coverage_valid = (
             not coverage_required
-            or (
-                self.visibility_target_cell_count > 0
-                and self.visibility_coverage_ratio
-                >= self.required_visibility_coverage_ratio
+            or visibility_coverage_requirement_met(
+                self.visibility_covered_cell_count,
+                self.visibility_target_cell_count,
+                self.required_visibility_coverage_ratio,
             )
         )
         return (
@@ -597,13 +615,16 @@ def build_room_visibility_inspection_plan(
         current_x, current_y = float(pose.x_m), float(pose.y_m)
 
     uncovered = tuple()
-    if (coverage.target_cell_count <= 0
-            or coverage.coverage_ratio + 1e-9 < desired):
+    if not visibility_coverage_requirement_met(
+            coverage.covered_cell_count,
+            coverage.target_cell_count,
+            desired):
+        required_cells = int(math.ceil(
+            desired * coverage.target_cell_count - 1e-12))
         uncovered = (UncoveredObstacle(
             obstacle_id='room_visibility_coverage',
-            required_direction_count=int(round(desired * 1000.0)),
-            reachable_direction_count=int(round(
-                coverage.coverage_ratio * 1000.0)),
+            required_direction_count=required_cells,
+            reachable_direction_count=int(coverage.covered_cell_count),
         ),)
     obstacles = extract_room_obstacles(
         occupancy,

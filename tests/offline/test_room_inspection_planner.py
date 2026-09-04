@@ -21,6 +21,7 @@ from hazardwalker_nav.room_inspection_planner import (  # noqa: E402
     build_room_visibility_inspection_plan,
     build_strict_room_inspection_plan,
     reproject_planar_pose_between_robot_frames,
+    visibility_coverage_requirement_met,
 )
 from hazardwalker_nav.room_obstacle_profiler import (  # noqa: E402
     OCCUPIED_THRESHOLD,
@@ -188,6 +189,12 @@ def test_inspection_turn_rate_is_bounded_and_stops_inside_tolerance():
     assert bounded_inspection_turn_rate(2.0, 0.2, 0.8, 0.15) == 0.8
     assert bounded_inspection_turn_rate(-2.0, 0.2, 0.8, 0.15) == -0.8
     assert bounded_inspection_turn_rate(0.25, 0.2, 0.8, 0.15) == 0.25
+
+
+def test_visibility_requirement_uses_integer_cells_with_one_cell_tolerance():
+    assert visibility_coverage_requirement_met(379, 400, 0.95)
+    assert not visibility_coverage_requirement_met(378, 400, 0.95)
+    assert not visibility_coverage_requirement_met(0, 0, 0.95)
 
 
 def test_visibility_plan_covers_open_room_and_requires_physical_captures():
