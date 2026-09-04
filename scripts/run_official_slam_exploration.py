@@ -42,6 +42,14 @@ BUSINESS_NODE_NAMES = {
     '/hazardwalker_slam_monitor',
     '/hazardwalker_pointcloud_map',
 }
+RUNTIME_GIT_EXCLUDES = (
+    'install',
+    'build',
+    'log',
+    'ros2_ws/src/hazardwalker_platform/.ros1_catkin_ws',
+    'ros2_ws/src/hazardwalker_platform/generated_building',
+    'ros2_ws/src/hazardwalker_platform/results',
+)
 
 
 def utc_now() -> str:
@@ -55,8 +63,11 @@ def read_git_state(repo_root: Path) -> dict:
         ['git', 'rev-parse', 'HEAD'], cwd=repo_root,
         text=True, stderr=subprocess.DEVNULL,
     ).strip()
+    status_command = [
+        'git', 'status', '--porcelain', '--untracked-files=all', '--', '.',
+    ] + [f':(exclude){path}' for path in RUNTIME_GIT_EXCLUDES]
     dirty_lines = subprocess.check_output(
-        ['git', 'status', '--porcelain'],
+        status_command,
         cwd=repo_root, text=True,
     ).splitlines()
     return {

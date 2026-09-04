@@ -5,6 +5,7 @@ import json
 import math
 from pathlib import Path
 import tempfile
+import subprocess
 from types import SimpleNamespace
 
 import pytest
@@ -77,6 +78,35 @@ def test_target_floor_parser_preserves_order_and_rejects_duplicates():
     assert MODULE.parse_target_floors('') == ()
     with pytest.raises(ValueError, match='不得重复'):
         MODULE.parse_target_floors('0,1,1')
+
+
+def test_git_state_ignores_runtime_products_but_detects_source_changes():
+    with tempfile.TemporaryDirectory() as temporary:
+        root = Path(temporary)
+        subprocess.run(['git', 'init', '-q'], cwd=root, check=True)
+        subprocess.run(
+            ['git', 'config', 'user.email', 'test@example.com'],
+            cwd=root, check=True)
+        subprocess.run(
+            ['git', 'config', 'user.name', 'Test'], cwd=root, check=True)
+        source = root / 'scripts' / 'runner.py'
+        source.parent.mkdir()
+        source.write_text('stable\n', encoding='utf-8')
+        subprocess.run(['git', 'add', '.'], cwd=root, check=True)
+        subprocess.run(
+            ['git', 'commit', '-qm', 'baseline'], cwd=root, check=True)
+
+        generated = (
+            root / 'ros2_ws/src/hazardwalker_platform/generated_building'
+            / 'world.sdf')
+        generated.parent.mkdir(parents=True)
+        generated.write_text('runtime\n', encoding='utf-8')
+        (root / 'install').mkdir()
+        (root / 'install/cache').write_text('runtime\n', encoding='utf-8')
+        assert MODULE.read_git_state(root)['dirty'] is False
+
+        source.write_text('changed\n', encoding='utf-8')
+        assert MODULE.read_git_state(root)['dirty'] is True
 
 
 def test_official_evaluation_runs_only_from_explicit_post_run_files():
