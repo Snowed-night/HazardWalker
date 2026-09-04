@@ -563,6 +563,9 @@ class FrontierExplorerNode(Node):
                 'local_planner_backend must be direct or unitree_move_base')
         self._unitree_move_base_cmd = Twist()
         self._unitree_move_base_cmd_wall: Optional[float] = None
+        # 单独记录速度流连续失联起点，不能复用目标发布时间：move_base 目标
+        # 会周期刷新，若每次刷新都清零计时，直接回退只能偶发执行一帧。
+        self._unitree_move_base_cmd_stale_since_wall: Optional[float] = None
         self._unitree_move_base_goal_active = False
         self._unitree_move_base_cmd_after_goal = False
         self._unitree_move_base_last_goal_map: Optional[
@@ -915,6 +918,7 @@ class FrontierExplorerNode(Node):
 
         self._unitree_move_base_cmd = msg
         self._unitree_move_base_cmd_wall = time.monotonic()
+        self._unitree_move_base_cmd_stale_since_wall = None
         if self._unitree_move_base_goal_active:
             self._unitree_move_base_cmd_after_goal = True
 
@@ -6672,6 +6676,7 @@ class FrontierExplorerNode(Node):
             self.unitree_move_base_control_pub.publish(message)
         self._unitree_move_base_goal_active = False
         self._unitree_move_base_cmd_after_goal = False
+        self._unitree_move_base_cmd_stale_since_wall = None
         self._unitree_move_base_last_goal_map = None
         self._unitree_move_base_last_goal_wall = None
 
@@ -6687,10 +6692,11 @@ class FrontierExplorerNode(Node):
             float(self.get_parameter(
                 'unitree_move_base_cmd_timeout_s').value),
         )
+        now_wall = time.monotonic()
         command_stale = (
             not self._unitree_move_base_cmd_after_goal
             or self._unitree_move_base_cmd_wall is None
-            or time.monotonic() - self._unitree_move_base_cmd_wall > timeout
+            or now_wall - self._unitree_move_base_cmd_wall > timeout
         )
         if command_stale:
             fallback_after = max(
@@ -6698,11 +6704,11 @@ class FrontierExplorerNode(Node):
                 float(self.get_parameter(
                     'unitree_move_base_direct_fallback_s').value),
             )
-            goal_age = (
-                0.0 if self._unitree_move_base_last_goal_wall is None
-                else time.monotonic() - self._unitree_move_base_last_goal_wall
-            )
-            if goal_age >= fallback_after:
+            if self._unitree_move_base_cmd_stale_since_wall is None:
+                self._unitree_move_base_cmd_stale_since_wall = now_wall
+            stale_age = (
+                now_wall - self._unitree_move_base_cmd_stale_since_wall)
+            if stale_age >= fallback_after:
                 self.get_logger().warning(
                     'Unitree move_base produced no fresh command; using '
                     'existing A* path with lidar clearance fallback.',
@@ -6714,6 +6720,7 @@ class FrontierExplorerNode(Node):
                 throttle_duration_sec=3.0,
             )
             return Twist()
+        self._unitree_move_base_cmd_stale_since_wall = None
         command = self._unitree_move_base_cmd
         if self.state == 'FLOOR_TRANSITION':
             minimum = max(
