@@ -215,11 +215,15 @@ def test_visibility_plan_covers_open_room_and_requires_physical_captures():
         maximum_viewpoints=12,
         desired_coverage_ratio=0.90,
         path_inflation_radius_m=0.15,
+        goal_id_prefix='floor_2_near_left',
     )
     assert plan.executable
     assert plan.visibility_coverage_ratio >= 0.90
     assert plan.visibility_target_cell_count > 0
     assert plan.goals
+    assert all(
+        goal.goal_id.startswith('floor_2_near_left_room_visibility_')
+        for goal in plan.goals)
     execution = RoomInspectionExecution(plan)
     assert not execution.complete
     for goal in plan.goals:

@@ -1902,13 +1902,6 @@ class FrontierExplorerNode(Node):
             self.get_logger().warning(
                 f'Official room waypoint stalled: {label}; reissuing the '
                 'same physical goal without shrinking or accepting it.')
-            self.recorder.record_failure(
-                now_ros,
-                'official_room_waypoint_stall',
-                self.robot_x,
-                self.robot_y,
-                detail=f'label={label}; distance={distance:.3f}',
-            )
             self._cancel_unitree_move_base()
             self.current_target = None
             self.current_path = []
@@ -2151,6 +2144,7 @@ class FrontierExplorerNode(Node):
             desired_coverage_ratio=float(self.get_parameter(
                 'strict_room_visibility_coverage_ratio').value),
             neighbor_entries_world=neighbor_entries_world,
+            goal_id_prefix=f'floor_{self._current_floor}_{sector}',
         )
         self._room_inspection_execution = RoomInspectionExecution(plan)
         self._room_inspection_request_goal_id = ''

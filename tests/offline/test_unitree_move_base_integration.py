@@ -293,5 +293,10 @@ def test_official_corridor_completion_uses_the_same_control_frame_as_motion():
     assert 'self._complete_current_deterministic_waypoint()' in strict_orientation
     assert 'return self._follow_path()' not in strict_orientation
     assert 'neighbor_entries_world=neighbor_entries_world' in source
+    assert "goal_id_prefix=f'floor_{self._current_floor}_{sector}'" in source
     assert "'official_near_room_y_m'" in source
     assert "'official_far_room_y_m'" in source
+    stall_recovery = source.split(
+        'def _recover_stalled_deterministic_waypoint', 1)[1].split(
+            'def _plan_reachable_corridor_goal', 1)[0]
+    assert "'official_room_waypoint_stall'" not in stall_recovery

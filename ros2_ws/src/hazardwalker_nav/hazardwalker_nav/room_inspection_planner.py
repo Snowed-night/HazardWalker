@@ -510,6 +510,7 @@ def build_room_visibility_inspection_plan(
         wall_margin_m: float = 0.9,
         neighbor_entries_world: Optional[
             Sequence[Sequence[float]]] = None,
+        goal_id_prefix: str = '',
 ) -> RoomInspectionPlan:
     """按真实入门方向规划整房视线覆盖，并为每个位姿生成可达路径。"""
 
@@ -573,6 +574,8 @@ def build_room_visibility_inspection_plan(
 
     current_x, current_y = start_x, start_y
     goals = []
+    prefix = str(goal_id_prefix).strip()
+    prefix = f'{prefix}_' if prefix else ''
     for index, pose in enumerate(coverage.observation_poses):
         path = a_star_path(
             occupancy,
@@ -604,7 +607,7 @@ def build_room_visibility_inspection_plan(
             )
         bucket = _direction_bucket(pose.yaw_rad, heading_sample_count)
         goals.append(InspectionGoal(
-            goal_id=f'room_visibility_{index}_view_{bucket}',
+            goal_id=f'{prefix}room_visibility_{index}_view_{bucket}',
             obstacle_id='room_visibility',
             direction_bucket=bucket,
             x_m=float(pose.x_m),
