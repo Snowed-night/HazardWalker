@@ -143,6 +143,12 @@ def test_frontier_delegates_local_avoidance_to_unitree_move_base():
         'def _publish_unitree_move_base_goal', 1)[1].split(
             'def _cancel_unitree_move_base', 1)[0]
     assert '_unitree_move_base_cmd_stale_since_wall' not in goal_publish
+    direct_path = source.split(
+        'def _follow_path(', 1)[1].split(
+            'def _update_stuck_detection', 1)[0]
+    assert 'requested_linear > 0.02' in direct_path
+    assert 'cmd.linear.x <= 0.02' in direct_path
+    assert '0.0 < abs(cmd.angular.z) < minimum_turn_speed' in direct_path
     assert 'def _follow_path_with_direct_backend(' in source
     assert "'room_approach', 'room_cross', 'room_loop'," in source
     assert "'room_inspection', 'room_exit'" in source

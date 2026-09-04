@@ -361,7 +361,9 @@ class FrontierExplorerNode(Node):
         # 官方 A1 RL 控制器对小角速度响应明显偏弱；1.5 rad/s 指令在固定
         # SEED 实测能产生可控转向，控制器仍会在底层限幅。
         self.declare_parameter('angular_speed', 1.5)
-        self.declare_parameter('minimum_turn_speed', 0.45)
+        # A1 强化学习步态对更小角速度没有可观测转向；该值属于执行器
+        # 死区标定，不依赖地图、房间坐标或路线。
+        self.declare_parameter('minimum_turn_speed', 0.60)
         self.declare_parameter('heading_tolerance_rad', 0.25)
         self.declare_parameter('reobserve_motion_duration_s', 2.0)
         # 横移采用短分段并由合法 SLAM 实际位移限幅。一次最多约 0.8 m，
@@ -7051,6 +7053,16 @@ class FrontierExplorerNode(Node):
                     and not self._scan_allows_action(
                         turn_action, rotation_clearance)):
                 cmd.angular.z = 0.0
+
+        # 当激光门禁只阻止前进、但允许原计划方向转向时，航向误差可能仍
+        # 落在 heading_tol 内，前面的常规钳位不会执行。把这个已获安全
+        # 许可的微小转向提升到 A1 最小有效速度，避免持续发送无效小量；
+        # 若转向也被激光拒绝，cmd.angular.z 已为零，此处不会绕过门禁。
+        if (requested_linear > 0.02
+                and cmd.linear.x <= 0.02
+                and 0.0 < abs(cmd.angular.z) < minimum_turn_speed):
+            cmd.angular.z = math.copysign(
+                minimum_turn_speed, cmd.angular.z)
 
         motion_requested = (
             abs(requested_linear) > 0.02

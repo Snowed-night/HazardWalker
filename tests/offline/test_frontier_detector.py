@@ -1069,7 +1069,7 @@ def test_frontier_node_fails_closed_without_pose_scan_or_safe_return_path():
     assert "declare_parameter('frontier_completion_grace_s', 60.0)" in source
     assert "declare_parameter('frontier_recovery_turn_speed', 0.60)" in source
     assert "declare_parameter('minimum_linear_speed', 0.45)" in source
-    assert "declare_parameter('minimum_turn_speed', 0.45)" in source
+    assert "declare_parameter('minimum_turn_speed', 0.60)" in source
     assert 'math.copysign(' in source
     assert 'except ExternalShutdownException:' in source
     assert 'if rclpy.ok():' in source
