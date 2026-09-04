@@ -99,6 +99,7 @@ def extract_room_mask(
     door_margin_m: float = 0.25,
     min_room_free_cells: int = 80,
     restrict_to_inside_half_plane: bool = False,
+    neighbor_entries_world: Optional[List[Tuple[float, float]]] = None,
 ) -> Optional[np.ndarray]:
     """估计房间内部可达 free 连通域，阻断经门洞回流走廊。
 
@@ -134,6 +135,20 @@ def extract_room_mask(
             (world_x - float(entry_wx)) * ux
             + (world_y - float(entry_wy)) * uy)
         walkable[signed_inside < -max(0.0, float(door_margin_m))] = False
+        # 不完整 SLAM 墙体可能让同侧相邻房间在栅格上意外连通。门拓扑已
+        # 观察到相邻入口时，按最近入口的 Voronoi 半平面分区；这只消除跨房
+        # 泄漏，不假设房间尺寸或绝对坐标。
+        entry_distance_squared = (
+            (world_x - float(entry_wx)) ** 2
+            + (world_y - float(entry_wy)) ** 2)
+        for neighbor in neighbor_entries_world or []:
+            neighbor_x, neighbor_y = float(neighbor[0]), float(neighbor[1])
+            if not math.isfinite(neighbor_x) or not math.isfinite(neighbor_y):
+                continue
+            neighbor_distance_squared = (
+                (world_x - neighbor_x) ** 2
+                + (world_y - neighbor_y) ** 2)
+            walkable[entry_distance_squared > neighbor_distance_squared] = False
 
     # ---- 扣除虚拟门板 ----
     half_door = max(0.1, (door_width_m + door_margin_m) / 2.0)

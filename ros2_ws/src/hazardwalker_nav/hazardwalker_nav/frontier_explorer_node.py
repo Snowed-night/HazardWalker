@@ -2064,6 +2064,7 @@ class FrontierExplorerNode(Node):
             side_sign * normal_x,
         )
         entry_world = doorway
+        neighbor_entries_world = []
         if bool(self.get_parameter(
                 'use_official_odom_for_room_control').value):
             if (self._deterministic_room_door_official_goal is None
@@ -2095,6 +2096,26 @@ class FrontierExplorerNode(Node):
                 )
             )
             entry_world = (entry_x, entry_y)
+            other_door_y = float(self.get_parameter(
+                'official_near_room_y_m'
+                if sector.startswith('far_')
+                else 'official_far_room_y_m').value)
+            neighbor_x, neighbor_y, _neighbor_yaw = (
+                reproject_planar_pose_between_robot_frames(
+                    (door_x, other_door_y),
+                    physical_entry_yaw,
+                    (official_x, official_y, official_yaw),
+                    (self.robot_x, self.robot_y, self.robot_yaw),
+                )
+            )
+            neighbor_entries_world.append((neighbor_x, neighbor_y))
+        else:
+            neighbor_sector = (
+                ('near_' if sector.startswith('far_') else 'far_')
+                + ('left' if sector.endswith('left') else 'right'))
+            neighbor = self._room_sector_candidate_poses.get(neighbor_sector)
+            if neighbor is not None:
+                neighbor_entries_world.append(neighbor)
         plan = build_room_visibility_inspection_plan(
             self.grid,
             self.latest_map,
@@ -2127,6 +2148,7 @@ class FrontierExplorerNode(Node):
                 'strict_room_maximum_viewpoints').value),
             desired_coverage_ratio=float(self.get_parameter(
                 'strict_room_visibility_coverage_ratio').value),
+            neighbor_entries_world=neighbor_entries_world,
         )
         self._room_inspection_execution = RoomInspectionExecution(plan)
         self._room_inspection_request_goal_id = ''

@@ -490,6 +490,8 @@ def build_room_visibility_inspection_plan(
         path_inflation_radius_m: float = 0.25,
         minimum_obstacle_area_m2: float = 0.15,
         wall_margin_m: float = 0.9,
+        neighbor_entries_world: Optional[
+            Sequence[Sequence[float]]] = None,
 ) -> RoomInspectionPlan:
     """按真实入门方向规划整房视线覆盖，并为每个位姿生成可达路径。"""
 
@@ -512,6 +514,10 @@ def build_room_visibility_inspection_plan(
         seed_offset_m=max(0.1, float(seed_offset_m)),
         min_room_free_cells=max(1, int(minimum_room_free_cells)),
         restrict_to_inside_half_plane=True,
+        neighbor_entries_world=[
+            (float(entry[0]), float(entry[1]))
+            for entry in (neighbor_entries_world or tuple())
+        ],
     )
     desired = min(1.0, max(0.01, float(desired_coverage_ratio)))
     if room_mask is None:

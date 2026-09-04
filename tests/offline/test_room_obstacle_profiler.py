@@ -138,6 +138,26 @@ def test_inside_half_plane_blocks_wide_open_doorway_from_rejoining_corridor():
     assert mask[:, 12:].any()
 
 
+def test_neighbor_door_voronoi_partition_blocks_cross_room_slam_gap():
+    grid = np.zeros((30, 30), dtype=np.int8)
+    msg = _grid_message(grid, resolution=0.5)
+    mask = extract_room_mask(
+        grid,
+        msg,
+        entry_wx=5.0,
+        entry_wy=5.0,
+        entry_yaw=0.0,
+        seed_offset_m=1.0,
+        min_room_free_cells=20,
+        restrict_to_inside_half_plane=True,
+        neighbor_entries_world=[(5.0, 12.0)],
+    )
+    assert mask is not None
+    # 两门中垂线 y=8.5；当前房间不能泄漏到更靠近邻门的上半区。
+    assert not mask[18:, :].any()
+    assert mask[:16, 12:].any()
+
+
 def test_room_mask_too_small_returns_none():
     # 几乎封闭无空间 → None
     grid = np.full((10, 10), OCCUPIED_THRESHOLD, dtype=np.int8)

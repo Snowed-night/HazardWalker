@@ -280,3 +280,6 @@ def test_official_corridor_completion_uses_the_same_control_frame_as_motion():
     assert 'def _strict_room_orientation_command' in source
     assert 'bounded_inspection_turn_rate(' in source
     assert "startswith('room_inspect_orient:')" in source
+    assert 'neighbor_entries_world=neighbor_entries_world' in source
+    assert "'official_near_room_y_m'" in source
+    assert "'official_far_room_y_m'" in source
