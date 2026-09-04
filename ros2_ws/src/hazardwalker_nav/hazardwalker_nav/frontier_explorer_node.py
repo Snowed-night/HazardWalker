@@ -1170,7 +1170,10 @@ class FrontierExplorerNode(Node):
             f'at ({frontier.centroid[0]:.1f},{frontier.centroid[1]:.1f}) '
             f'type={frontier.frontier_type} aspect={frontier.aspect_ratio} '
             f'enter_yaw={self._room_sweep_yaw_start:.2f} '
-            f'(was {self.robot_yaw:.2f})'
+            f'(was {self.robot_yaw:.2f}) '
+            f'robot_pose=({self.robot_x:.2f},{self.robot_y:.2f},'
+            f'{self.robot_yaw:.2f}) '
+            f'frontier_pts={len(frontier.points)}'
         )
 
     def _room_inner_direction_yaw(self, frontier: Frontier) -> float:
@@ -1997,6 +2000,10 @@ class FrontierExplorerNode(Node):
             self._room_internal_path_i = 0
             self.get_logger().info(
                 f'Room ENTER done ({dist_entered:.1f}m); '
+                f'pose=({self.robot_x:.2f},{self.robot_y:.2f},'
+                f'{self.robot_yaw:.2f}) '
+                f'entry=({self._room_sweep_entry_pose[0]:.2f},'
+                f'{self._room_sweep_entry_pose[1]:.2f}) '
                 'exploring interior.')
             return cmd
 
