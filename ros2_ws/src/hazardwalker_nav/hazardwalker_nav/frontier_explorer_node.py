@@ -160,11 +160,11 @@ class FrontierExplorerNode(Node):
         # ROS1 10 Hz 按仿真时间运行；复杂楼宇实时倍率约 0.08--0.16 时，
         # 墙钟相邻速度可间隔 0.6--1.3 秒。保留约三个低倍率周期，失联后归零。
         self.declare_parameter('unitree_move_base_cmd_timeout_s', 3.00)
-        # ROS1 DWA 会在近目标/窄区给出约 0.1m/s 的合法方向，但 A1 RL
-        # 步态低于约 0.45m/s 不产生位移。统一在 DWA 出口跨越执行器死区，
-        # 不改变路径、方向、角速度或 DWA 的碰撞判定。
+        # ROS1 DWA 偶尔会持续给出低于 A1 RL 步态死区的小量。不得事后
+        # 放大该速度（会破坏 DWA 按原速度完成的碰撞预测）；只把它判为
+        # 无有效控制，超时后交给已有 A* 路径与激光净空回退。
         self.declare_parameter(
-            'unitree_move_base_minimum_linear_command', 0.45)
+            'unitree_move_base_effective_linear_threshold', 0.45)
         # 赛事公开 Gazebo odom 只用于 ROS1 DWA 的局部走廊居中目标；SLAM、
         # 房间判定、返航和危险源坐标继续使用 scan+IMU 合法位姿。
         self.declare_parameter('use_official_odom_for_corridor_control', False)
@@ -6707,12 +6707,22 @@ class FrontierExplorerNode(Node):
         # move_base 找不到局部轨迹时可能仍以 10 Hz 发布全零 Twist。通信虽
         # 新鲜，但执行效果与断流相同；只要活动目标尚未由上层结算，就应
         # 与断流共用连续计时，超时后切换到已有 A*+激光净空路径跟踪。
+        command_linear_norm = math.hypot(
+            float(self._unitree_move_base_cmd.linear.x),
+            float(self._unitree_move_base_cmd.linear.y),
+        )
+        command_angular_magnitude = abs(
+            float(self._unitree_move_base_cmd.angular.z))
         command_idle = (
-            math.hypot(
-                float(self._unitree_move_base_cmd.linear.x),
-                float(self._unitree_move_base_cmd.linear.y),
-            ) <= 1e-6
-            and abs(float(self._unitree_move_base_cmd.angular.z)) <= 1e-6
+            command_linear_norm < max(
+                1e-6,
+                float(self.get_parameter(
+                    'unitree_move_base_effective_linear_threshold').value),
+            )
+            and command_angular_magnitude < max(
+                1e-6,
+                float(self.get_parameter('minimum_turn_speed').value),
+            )
         )
         command_unusable = command_stale or command_idle
         if command_unusable:
@@ -6739,47 +6749,7 @@ class FrontierExplorerNode(Node):
             )
             return Twist()
         self._unitree_move_base_cmd_stale_since_wall = None
-        return self._unitree_move_base_effective_command(
-            self._unitree_move_base_cmd)
-
-    def _unitree_move_base_effective_command(self, command: Twist) -> Twist:
-        """保留 DWA 决策，只把非零指令提升到 A1 可执行死区之外。"""
-
-        minimum_linear = max(
-            0.0,
-            float(self.get_parameter(
-                'unitree_move_base_minimum_linear_command').value),
-        )
-        if self.state == 'FLOOR_TRANSITION':
-            minimum_linear = max(
-                minimum_linear,
-                float(self.get_parameter(
-                    'official_elevator_minimum_linear_command').value),
-            )
-        linear_norm = math.hypot(command.linear.x, command.linear.y)
-        minimum_angular = max(
-            0.0,
-            float(self.get_parameter('minimum_turn_speed').value),
-        )
-        scale_linear = 1e-6 < linear_norm < minimum_linear
-        scale_angular = (
-            linear_norm <= 1e-6
-            and 1e-6 < abs(command.angular.z) < minimum_angular)
-        if not scale_linear and not scale_angular:
-            return command
-
-        scaled = Twist()
-        linear_scale = (
-            minimum_linear / linear_norm if scale_linear else 1.0)
-        scaled.linear.x = command.linear.x * linear_scale
-        scaled.linear.y = command.linear.y * linear_scale
-        scaled.linear.z = command.linear.z
-        scaled.angular.x = command.angular.x
-        scaled.angular.y = command.angular.y
-        scaled.angular.z = (
-            math.copysign(minimum_angular, command.angular.z)
-            if scale_angular else command.angular.z)
-        return scaled
+        return self._unitree_move_base_cmd
 
     def _follow_path_with_direct_backend(
             self,
