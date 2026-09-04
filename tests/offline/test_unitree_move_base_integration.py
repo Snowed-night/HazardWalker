@@ -269,3 +269,8 @@ def test_official_corridor_completion_uses_the_same_control_frame_as_motion():
     assert "'official_far_room_y_m'" in source
     assert 'build_room_visibility_inspection_plan' in source
     assert 'reproject_planar_pose_between_robot_frames' in source
+    prepare = source.split(
+        'def _prepare_strict_room_inspection', 1)[1].split(
+            'def _finish_deterministic_room', 1)[0]
+    assert 'viewpoint_count=' not in prepare
+    assert 'required_views_per_obstacle=' not in prepare

@@ -319,10 +319,6 @@ class FrontierExplorerNode(Node):
         self.declare_parameter('strict_room_wall_margin_m', 0.90)
         self.declare_parameter('strict_room_seed_offset_m', 0.50)
         self.declare_parameter('strict_room_door_width_m', 1.80)
-        self.declare_parameter('strict_room_viewpoint_count', 8)
-        self.declare_parameter('strict_room_required_views_per_obstacle', 3)
-        self.declare_parameter('strict_room_viewpoint_standoff_m', 0.50)
-        self.declare_parameter('strict_room_viewpoint_clearance_m', 0.30)
         self.declare_parameter('strict_room_path_inflation_radius_m', 0.25)
         self.declare_parameter('strict_room_camera_fov_deg', 87.0)
         self.declare_parameter('strict_room_camera_range_m', 10.0)
@@ -2107,14 +2103,6 @@ class FrontierExplorerNode(Node):
                 'strict_room_min_obstacle_area_m2').value),
             wall_margin_m=float(self.get_parameter(
                 'strict_room_wall_margin_m').value),
-            viewpoint_count=int(self.get_parameter(
-                'strict_room_viewpoint_count').value),
-            required_views_per_obstacle=int(self.get_parameter(
-                'strict_room_required_views_per_obstacle').value),
-            viewpoint_standoff_m=float(self.get_parameter(
-                'strict_room_viewpoint_standoff_m').value),
-            viewpoint_clearance_m=float(self.get_parameter(
-                'strict_room_viewpoint_clearance_m').value),
             path_inflation_radius_m=float(self.get_parameter(
                 'strict_room_path_inflation_radius_m').value),
             camera_fov_rad=math.radians(float(self.get_parameter(
