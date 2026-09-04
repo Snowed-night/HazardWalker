@@ -15,9 +15,26 @@ if str(NAV_SRC) not in sys.path:
 from hazardwalker_nav.room_coverage import (  # noqa: E402
     GridFrame,
     coverage_candidate_utility,
+    grid_shortest_path_distances,
     plan_room_visibility_coverage,
     visible_room_cells,
 )
+
+
+def test_grid_shortest_path_cost_respects_wall_detour_and_corner_cutting():
+    traversable = np.ones((9, 9), dtype=bool)
+    traversable[1:8, 4] = False
+    distances = grid_shortest_path_distances(
+        traversable, start_cell=(2, 4), resolution_m=0.5)
+
+    # 直线仅 2m，但墙迫使路线从上下开口绕行；代价必须反映真实绕路。
+    assert distances[4, 6] > 4.0
+    blocked = np.ones((3, 3), dtype=bool)
+    blocked[0, 1] = False
+    blocked[1, 0] = False
+    corner_distances = grid_shortest_path_distances(
+        blocked, start_cell=(0, 0), resolution_m=1.0)
+    assert not math.isfinite(corner_distances[1, 1])
 
 
 def test_normalized_utility_can_prefer_near_high_information_view():

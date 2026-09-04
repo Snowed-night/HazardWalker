@@ -326,3 +326,7 @@ def test_official_corridor_completion_uses_the_same_control_frame_as_motion():
         'def _recover_stalled_deterministic_waypoint', 1)[1].split(
             'def _plan_reachable_corridor_goal', 1)[0]
     assert "'official_room_waypoint_stall'" not in stall_recovery
+    assert "label.startswith('room_inspect_move:')" in stall_recovery
+    assert 'Inspection goal stalled; replanned current-map A* path' in stall_recovery
+    assert 'inspection_goal_unreachable_after_map_update' in stall_recovery
+    assert "'strict_room_path_inflation_radius_m'" in stall_recovery

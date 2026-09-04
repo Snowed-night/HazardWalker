@@ -1864,6 +1864,7 @@ class FrontierExplorerNode(Node):
         if (self.current_target is None
                 or not (label.startswith('room_cross:')
                         or label.startswith('room_loop:')
+                        or label.startswith('room_inspect_move:')
                         or label.startswith('room_exit:'))):
             return False
         if (bool(self.get_parameter(
@@ -1905,6 +1906,46 @@ class FrontierExplorerNode(Node):
         )
         if now_ros - self._deterministic_waypoint_started_ros < stall_s:
             return False
+        if label.startswith('room_inspect_move:'):
+            execution = self._room_inspection_execution
+            goal = execution.current_goal if execution is not None else None
+            if goal is None:
+                return False
+            # 房内地图在前几个观察点持续更新，初始 A* 路径可能已过时。
+            # 停滞时从当前合法 SLAM 位姿对同一观察目标重算最短路；目标和
+            # 采帧要求保持不变，不缩点、不跳过，也不写入场景坐标。
+            path = a_star_path(
+                self.grid,
+                self.latest_map,
+                self.robot_x,
+                self.robot_y,
+                goal.x_m,
+                goal.y_m,
+                inflation_radius_m=max(
+                    0.0,
+                    float(self.get_parameter(
+                        'strict_room_path_inflation_radius_m').value),
+                ),
+                start_search_radius_m=0.45,
+                goal_search_radius_m=0.30,
+            )
+            if not path:
+                execution.mark_motion_failure(
+                    'inspection_goal_unreachable_after_map_update')
+                self._deterministic_route_phase = 'room_inspection_failed'
+                self.get_logger().error(
+                    f'Inspection goal became unreachable after map update: '
+                    f'{goal.goal_id}.')
+                return True
+            self._cancel_unitree_move_base()
+            self.current_path = list(path)
+            self.path_index = 0
+            self._deterministic_waypoint_started_ros = now_ros
+            self._deterministic_waypoint_best_distance = distance
+            self.get_logger().warning(
+                f'Inspection goal stalled; replanned current-map A* path: '
+                f'{goal.goal_id}, path={len(path)}.')
+            return True
         if official_goal is not None:
             # 固定赛场的物理角点是验收目标。旧逻辑把角点向门口缩小，甚至
             # 在当前位置直接“接受”，会让未进房也累计 probe_count。卡住时

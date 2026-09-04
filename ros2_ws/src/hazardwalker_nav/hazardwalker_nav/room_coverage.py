@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import heapq
 import math
 from typing import FrozenSet, Iterable, List, Optional, Sequence, Tuple
 
@@ -169,6 +170,61 @@ def _sample_mask(mask: np.ndarray, stride_cells: int) -> List[GridCell]:
     ]
 
 
+def grid_shortest_path_distances(
+        traversable_mask: np.ndarray,
+        start_cell: GridCell,
+        resolution_m: float,
+) -> np.ndarray:
+    """计算起点到全部可通行格的八邻域最短路径距离（米）。
+
+    对角移动禁止穿越墙角，规则与导航 A* 一致。该距离用于覆盖贪心的
+    行走代价，避免把隔着家具但欧氏距离很近的观察点误判为便宜目标。
+    """
+
+    traversable = np.asarray(traversable_mask, dtype=bool)
+    if traversable.ndim != 2:
+        raise ValueError('traversable_mask 必须是二维数组')
+    resolution = float(resolution_m)
+    if not math.isfinite(resolution) or resolution <= 0.0:
+        raise ValueError('resolution_m 必须为正的有限数')
+    height, width = traversable.shape
+    start_x, start_y = int(start_cell[0]), int(start_cell[1])
+    distances = np.full((height, width), np.inf, dtype=np.float64)
+    if (not (0 <= start_x < width and 0 <= start_y < height)
+            or not traversable[start_y, start_x]):
+        return distances
+
+    distances[start_y, start_x] = 0.0
+    queue = [(0.0, start_x, start_y)]
+    diagonal = math.sqrt(2.0)
+    neighbors = (
+        (-1, 0, 1.0), (1, 0, 1.0),
+        (0, -1, 1.0), (0, 1, 1.0),
+        (-1, -1, diagonal), (1, -1, diagonal),
+        (-1, 1, diagonal), (1, 1, diagonal),
+    )
+    while queue:
+        distance, cell_x, cell_y = heapq.heappop(queue)
+        if distance > distances[cell_y, cell_x] + 1e-12:
+            continue
+        for offset_x, offset_y, step_cells in neighbors:
+            next_x, next_y = cell_x + offset_x, cell_y + offset_y
+            if not (0 <= next_x < width and 0 <= next_y < height):
+                continue
+            if not traversable[next_y, next_x]:
+                continue
+            if (offset_x != 0 and offset_y != 0
+                    and (not traversable[cell_y, next_x]
+                         or not traversable[next_y, cell_x])):
+                continue
+            candidate = distance + step_cells * resolution
+            if candidate + 1e-12 >= distances[next_y, next_x]:
+                continue
+            distances[next_y, next_x] = candidate
+            heapq.heappush(queue, (candidate, next_x, next_y))
+    return distances
+
+
 def visible_room_cells(
         occupancy_grid: np.ndarray,
         room_mask: np.ndarray,
@@ -306,6 +362,21 @@ def plan_room_visibility_coverage(
     used_candidates = set()
 
     while uncovered and len(selected) < viewpoint_limit:
+        current_cell = frame.world_to_grid((current_x, current_y))
+        if (not (0 <= current_cell[0] < traversable.shape[1]
+                 and 0 <= current_cell[1] < traversable.shape[0])
+                or not traversable[current_cell[1], current_cell[0]]):
+            current_cell = min(
+                candidate_cells,
+                key=lambda cell: (
+                    (cell[0] - current_cell[0]) ** 2
+                    + (cell[1] - current_cell[1]) ** 2),
+            )
+        path_distances = grid_shortest_path_distances(
+            traversable, current_cell, frame.resolution_m)
+        snapped_x, snapped_y = frame.grid_to_world(current_cell)
+        snap_offset_m = math.hypot(
+            snapped_x - current_x, snapped_y - current_y)
         best = None
         for (candidate, heading), visible in visibility.items():
             if candidate in used_candidates:
@@ -315,7 +386,10 @@ def plan_room_visibility_coverage(
             if gain == 0:
                 continue
             world_x, world_y = frame.grid_to_world(candidate)
-            travel_m = math.hypot(world_x - current_x, world_y - current_y)
+            travel_m = float(path_distances[candidate[1], candidate[0]])
+            if not math.isfinite(travel_m):
+                continue
+            travel_m += snap_offset_m
             turn_rad = 0.0 if current_yaw is None else abs(
                 _angle_difference(heading, current_yaw))
             score = coverage_candidate_utility(
