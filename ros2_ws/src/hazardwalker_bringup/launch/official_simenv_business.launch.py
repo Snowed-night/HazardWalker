@@ -611,6 +611,9 @@ def generate_launch_description():
                     'deterministic_room_hold_heading_during_loop': False,
                     'strict_room_inspection_enabled': (
                         strict_room_inspection_parameter),
+                    # 先完成主走廊和房门进入，再允许候选目标短暂接管运动；
+                    # 房间内仍保留主动重观察与严格逐视角采帧。
+                    'reobserve_only_inside_active_room': True,
                     'deterministic_min_scale_tolerance_m': 1.5,
                     'deterministic_blocked_corner_accept_m': 1.0,
                     # 官方生成器公开 footprint width 上限为 20 m；多留 2 m

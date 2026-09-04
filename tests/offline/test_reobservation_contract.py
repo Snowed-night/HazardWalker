@@ -98,6 +98,23 @@ def test_official_returning_reobservation_is_bounded_and_resumes_returning():
     assert "'reobserve_returning_max_attempts_per_target': 2" in launch
 
 
+def test_official_reobservation_cannot_preempt_corridor_or_door_entry():
+    source_path = os.path.join(
+        REPO_ROOT, 'ros2_ws', 'src', 'hazardwalker_nav',
+        'hazardwalker_nav', 'frontier_explorer_node.py',
+    )
+    source = open(source_path, encoding='utf-8').read()
+    assert "'reobserve_only_inside_active_room', False" in source
+    assert "and self._active_room_sector is None" in source
+
+    launch_path = os.path.join(
+        REPO_ROOT, 'ros2_ws', 'src', 'hazardwalker_bringup',
+        'launch', 'official_simenv_business.launch.py',
+    )
+    launch = open(launch_path, encoding='utf-8').read()
+    assert "'reobserve_only_inside_active_room': True" in launch
+
+
 def test_reobservation_motion_requires_clear_relevant_scan_sector():
     ranges = [float('inf')] * 360
     # -180° 起始、1° 分辨率时，0° 正前方在索引 180。

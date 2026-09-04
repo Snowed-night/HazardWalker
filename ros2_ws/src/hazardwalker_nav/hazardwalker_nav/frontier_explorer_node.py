@@ -381,6 +381,10 @@ class FrontierExplorerNode(Node):
             'reobserve_lateral_centering_deadband_ratio', 0.05,
         )
         self.declare_parameter('reobserve_max_attempts_per_target', 4)
+        # 完整任务中，走廊骨架和进门动作优先于候选复查；只有已经进入并
+        # 锁定房间后，感知才可短暂接管运动。否则远处红球会在门外反复触发
+        # 靠近/转向，把机器人从门口带离并阻塞房间覆盖。
+        self.declare_parameter('reobserve_only_inside_active_room', False)
         # 返航途中若目标首次从画面边缘出现，完全忽略会损失识别率；仅允许
         # 两次受激光安全门约束的短复查，随后必须恢复 RETURNING。
         self.declare_parameter('reobserve_during_returning', False)
@@ -827,6 +831,10 @@ class FrontierExplorerNode(Node):
             return
         if self.state == 'REOBSERVING':
             self._update_reobservation_feedback(payload)
+            return
+        if (bool(self.get_parameter(
+                'reobserve_only_inside_active_room').value)
+                and self._active_room_sector is None):
             return
         request = parse_reobservation_request(payload)
         allow_returning = bool(
