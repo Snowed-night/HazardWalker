@@ -14,9 +14,20 @@ if str(NAV_SRC) not in sys.path:
 
 from hazardwalker_nav.room_coverage import (  # noqa: E402
     GridFrame,
+    coverage_candidate_utility,
     plan_room_visibility_coverage,
     visible_room_cells,
 )
+
+
+def test_normalized_utility_can_prefer_near_high_information_view():
+    near = coverage_candidate_utility(
+        80, travel_m=1.0, turn_rad=0.2,
+        travel_cost_weight=0.5, turn_cost_weight=0.2)
+    far = coverage_candidate_utility(
+        100, travel_m=8.0, turn_rad=math.pi,
+        travel_cost_weight=0.5, turn_cost_weight=0.2)
+    assert near > far
 
 
 def _empty_room(width=32, height=24):

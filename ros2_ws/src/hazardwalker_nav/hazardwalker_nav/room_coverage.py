@@ -76,6 +76,26 @@ def _angle_difference(a: float, b: float) -> float:
     return math.atan2(math.sin(a - b), math.cos(a - b))
 
 
+def coverage_candidate_utility(
+        visible_gain_cells: int,
+        travel_m: float,
+        turn_rad: float,
+        travel_cost_weight: float,
+        turn_cost_weight: float,
+) -> float:
+    """计算无量纲覆盖效用，避免“格子数”数量级淹没米/弧度代价。"""
+
+    gain = max(0, int(visible_gain_cells))
+    denominator = (
+        1.0
+        + max(0.0, float(travel_cost_weight))
+        * max(0.0, float(travel_m))
+        + max(0.0, float(turn_cost_weight))
+        * max(0.0, float(turn_rad))
+    )
+    return float(gain) / denominator
+
+
 def _bresenham_cells(start: GridCell, end: GridCell) -> List[GridCell]:
     """返回包含起点和终点的整数栅格直线。"""
 
@@ -298,10 +318,12 @@ def plan_room_visibility_coverage(
             travel_m = math.hypot(world_x - current_x, world_y - current_y)
             turn_rad = 0.0 if current_yaw is None else abs(
                 _angle_difference(heading, current_yaw))
-            score = (
-                float(gain)
-                - max(0.0, float(travel_cost_weight)) * travel_m
-                - max(0.0, float(turn_cost_weight)) * turn_rad
+            score = coverage_candidate_utility(
+                gain,
+                travel_m,
+                turn_rad,
+                travel_cost_weight,
+                turn_cost_weight,
             )
             tie_break = (score, gain, -travel_m, -turn_rad)
             if best is None or tie_break > best[0]:
