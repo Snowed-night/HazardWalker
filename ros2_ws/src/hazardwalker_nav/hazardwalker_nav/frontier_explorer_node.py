@@ -331,7 +331,9 @@ class FrontierExplorerNode(Node):
         self.declare_parameter('strict_room_visibility_coverage_ratio', 0.95)
         self.declare_parameter('strict_room_heading_tolerance_rad', 0.20)
         self.declare_parameter('strict_room_orientation_max_speed', 0.80)
-        self.declare_parameter('strict_room_orientation_min_speed', 0.15)
+        # A1 RL 步态实测低于约 0.5 rad/s 不产生可见转向；0.6 可越过死区，
+        # 又显著低于 DWA 原地转向的约 2.1 rad/s，能在 0.2 rad 容差内收敛。
+        self.declare_parameter('strict_room_orientation_min_speed', 0.60)
         self.declare_parameter('strict_room_capture_timeout_s', 15.0)
         self.declare_parameter(
             'inspection_request_topic',
@@ -2536,7 +2538,11 @@ class FrontierExplorerNode(Node):
 
         phase = self._deterministic_route_phase
         if self.current_target is not None and self.current_path:
-            if self._recover_stalled_deterministic_waypoint(now_ros):
+            pure_inspection_orientation = (
+                self._deterministic_waypoint_label.startswith(
+                    'room_inspect_orient:'))
+            if (not pure_inspection_orientation
+                    and self._recover_stalled_deterministic_waypoint(now_ros)):
                 return cmd
             if phase == 'corridor_outbound':
                 progress, _ = self._deterministic_axis_coordinates(
@@ -2725,7 +2731,9 @@ class FrontierExplorerNode(Node):
                     now_ros,
                     path_override=[(goal.x_m, goal.y_m)],
                 )
-                return cmd if self.current_path == [] else self._follow_path()
+                return (
+                    cmd if self.current_path == []
+                    else self._strict_room_orientation_command())
             if execution.phase == execution.CAPTURE:
                 if self._room_inspection_capture_started_ros is None:
                     self._room_inspection_capture_started_ros = now_ros
