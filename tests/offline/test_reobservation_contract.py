@@ -107,6 +107,11 @@ def test_official_reobservation_cannot_preempt_corridor_or_door_entry():
     assert "'reobserve_only_inside_active_room', False" in source
     assert "and self._active_room_sector is None" in source
     assert "self._deterministic_route_phase == 'room_inspection'" in source
+    hazard_callback = source.split('def on_hazard', 1)[1].split(
+        'def on_inspection_result', 1)[0]
+    assert hazard_callback.index(
+        "strict_room_inspection_enabled').value") < hazard_callback.index(
+            'request = parse_reobservation_request(payload)')
 
     launch_path = os.path.join(
         REPO_ROOT, 'ros2_ws', 'src', 'hazardwalker_bringup',

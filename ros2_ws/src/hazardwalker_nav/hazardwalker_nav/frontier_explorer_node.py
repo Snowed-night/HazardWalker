@@ -840,6 +840,11 @@ class FrontierExplorerNode(Node):
         if self.state == 'REOBSERVING':
             self._update_reobservation_feedback(payload)
             return
+        # 严格房间模式已经按占据图生成少量、可达且带采帧确认的多视角
+        # 路线。旧的候选即时侧移若同时启用，会因候选 ID 变化反复抢占同一
+        # 观察点；两套运动策略必须互斥，检测与跟踪本身仍持续运行。
+        if bool(self.get_parameter('strict_room_inspection_enabled').value):
+            return
         deterministic_room_active = (
             self._deterministic_room_sector is not None
             and self._deterministic_route_phase == 'room_inspection')
