@@ -98,6 +98,7 @@ def extract_room_mask(
     seed_offset_m: float = 0.5,
     door_margin_m: float = 0.25,
     min_room_free_cells: int = 80,
+    restrict_to_inside_half_plane: bool = False,
 ) -> Optional[np.ndarray]:
     """估计房间内部可达 free 连通域，阻断经门洞回流走廊。
 
@@ -116,9 +117,25 @@ def extract_room_mask(
     free = _free_mask(grid)
     walkable = free.copy()
 
-    # ---- 扣除虚拟门板 ----
     ux = np.cos(entry_yaw)
     uy = np.sin(entry_yaw)
+    if restrict_to_inside_half_plane:
+        # 激光占据图中的开放门洞经常比几何门宽更宽，短“门板”不足以切断
+        # 走廊回流。穿门方向已经由实际运动观察得到时，门外半平面本就不属于
+        # 当前房间，可直接从本次 flood 候选中排除；不修改原始占据图。
+        cell_x = (
+            float(grid_msg.info.origin.position.x)
+            + (np.arange(w, dtype=float) + 0.5) * res)
+        cell_y = (
+            float(grid_msg.info.origin.position.y)
+            + (np.arange(h, dtype=float) + 0.5) * res)
+        world_x, world_y = np.meshgrid(cell_x, cell_y)
+        signed_inside = (
+            (world_x - float(entry_wx)) * ux
+            + (world_y - float(entry_wy)) * uy)
+        walkable[signed_inside < -max(0.0, float(door_margin_m))] = False
+
+    # ---- 扣除虚拟门板 ----
     half_door = max(0.1, (door_width_m + door_margin_m) / 2.0)
     plate_depth = max(0.2, 2.0 * res)  # 沿进向的板厚（2 格）
     # 门板只会在入口附近，缩小遍历窗口。

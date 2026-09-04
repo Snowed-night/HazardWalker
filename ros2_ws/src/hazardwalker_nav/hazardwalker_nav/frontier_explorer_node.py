@@ -103,7 +103,8 @@ from hazardwalker_nav.elevator_controller import (
 from hazardwalker_nav.nav_recorder import NavRecorder
 from hazardwalker_nav.room_inspection_planner import (
     RoomInspectionExecution,
-    build_strict_room_inspection_plan,
+    build_room_visibility_inspection_plan,
+    reproject_planar_pose_between_robot_frames,
 )
 
 
@@ -323,6 +324,13 @@ class FrontierExplorerNode(Node):
         self.declare_parameter('strict_room_viewpoint_standoff_m', 0.50)
         self.declare_parameter('strict_room_viewpoint_clearance_m', 0.30)
         self.declare_parameter('strict_room_path_inflation_radius_m', 0.25)
+        self.declare_parameter('strict_room_camera_fov_deg', 87.0)
+        self.declare_parameter('strict_room_camera_range_m', 10.0)
+        self.declare_parameter('strict_room_target_spacing_m', 0.50)
+        self.declare_parameter('strict_room_candidate_spacing_m', 1.00)
+        self.declare_parameter('strict_room_heading_sample_count', 12)
+        self.declare_parameter('strict_room_maximum_viewpoints', 16)
+        self.declare_parameter('strict_room_visibility_coverage_ratio', 0.95)
         self.declare_parameter('strict_room_heading_tolerance_rad', 0.20)
         self.declare_parameter('strict_room_capture_timeout_s', 15.0)
         self.declare_parameter(
@@ -606,6 +614,10 @@ class FrontierExplorerNode(Node):
         self._deterministic_official_loop_samples: List[
             Tuple[float, float]] = []
         self._deterministic_room_hold_yaw: Optional[float] = None
+        self._deterministic_room_door_official_goal: Optional[
+            Tuple[float, float]] = None
+        self._deterministic_room_inside_official_goal: Optional[
+            Tuple[float, float]] = None
         self._room_inspection_execution: Optional[
             RoomInspectionExecution] = None
         self._room_inspection_request_goal_id = ''
@@ -832,9 +844,14 @@ class FrontierExplorerNode(Node):
         if self.state == 'REOBSERVING':
             self._update_reobservation_feedback(payload)
             return
+        deterministic_room_active = (
+            self._deterministic_room_sector is not None
+            and self._deterministic_route_phase in (
+                'room_loop', 'room_inspection', 'room_exit'))
         if (bool(self.get_parameter(
                 'reobserve_only_inside_active_room').value)
-                and self._active_room_sector is None):
+                and self._active_room_sector is None
+                and not deterministic_room_active):
             return
         request = parse_reobservation_request(payload)
         allow_returning = bool(
@@ -965,6 +982,19 @@ class FrontierExplorerNode(Node):
 
         if not self._has_fresh_official_control_odom():
             return None
+        if self._deterministic_waypoint_label.startswith('room_inspect_'):
+            execution = self._room_inspection_execution
+            goal = execution.current_goal if execution is not None else None
+            if goal is None:
+                return None
+            official_x, official_y, official_yaw, _stamp = (
+                self._official_control_odom)
+            return reproject_planar_pose_between_robot_frames(
+                (goal.x_m, goal.y_m),
+                goal.face_yaw_rad,
+                (self.robot_x, self.robot_y, self.robot_yaw),
+                (official_x, official_y, official_yaw),
+            )
         progress, lateral = self._deterministic_axis_coordinates(map_point)
         near_progress, far_progress = (
             self._deterministic_door_progresses())
@@ -1551,6 +1581,8 @@ class FrontierExplorerNode(Node):
         self._deterministic_room_last_official_pose = None
         self._deterministic_official_loop_samples = []
         self._deterministic_room_hold_yaw = None
+        self._deterministic_room_door_official_goal = None
+        self._deterministic_room_inside_official_goal = None
         self._room_inspection_execution = None
         self._room_inspection_request_goal_id = ''
         self._room_inspection_result_goal_id = ''
@@ -2009,7 +2041,7 @@ class FrontierExplorerNode(Node):
             self._deterministic_room_last_official_pose = official_pose
 
     def _prepare_strict_room_inspection(self, now_ros: float) -> bool:
-        """在基础环线展开地图后建立严格逐障碍观察计划。"""
+        """在基础环线展开地图后，按实际穿门证据建立整房视线覆盖计划。"""
 
         sector = self._deterministic_room_sector
         doorway = self._room_sector_candidate_poses.get(sector or '')
@@ -2027,10 +2059,42 @@ class FrontierExplorerNode(Node):
             side_sign * normal_y,
             side_sign * normal_x,
         )
-        plan = build_strict_room_inspection_plan(
+        entry_world = doorway
+        if bool(self.get_parameter(
+                'use_official_odom_for_room_control').value):
+            if (self._deterministic_room_door_official_goal is None
+                    or self._deterministic_room_inside_official_goal is None
+                    or not self._has_fresh_official_control_odom()):
+                self.recorder.record_failure(
+                    now_ros,
+                    'strict_room_entry_evidence_missing',
+                    self.robot_x,
+                    self.robot_y,
+                    detail=f'sector={sector}',
+                )
+                return False
+            door_x, door_y = self._deterministic_room_door_official_goal
+            inside_x, inside_y = (
+                self._deterministic_room_inside_official_goal)
+            physical_entry_yaw = math.atan2(
+                inside_y - door_y,
+                inside_x - door_x,
+            )
+            official_x, official_y, official_yaw, _stamp = (
+                self._official_control_odom)
+            entry_x, entry_y, entry_yaw = (
+                reproject_planar_pose_between_robot_frames(
+                    (door_x, door_y),
+                    physical_entry_yaw,
+                    (official_x, official_y, official_yaw),
+                    (self.robot_x, self.robot_y, self.robot_yaw),
+                )
+            )
+            entry_world = (entry_x, entry_y)
+        plan = build_room_visibility_inspection_plan(
             self.grid,
             self.latest_map,
-            entry_world=doorway,
+            entry_world=entry_world,
             entry_yaw_rad=entry_yaw,
             start_world=(self.robot_x, self.robot_y),
             door_width_m=float(self.get_parameter(
@@ -2053,6 +2117,20 @@ class FrontierExplorerNode(Node):
                 'strict_room_viewpoint_clearance_m').value),
             path_inflation_radius_m=float(self.get_parameter(
                 'strict_room_path_inflation_radius_m').value),
+            camera_fov_rad=math.radians(float(self.get_parameter(
+                'strict_room_camera_fov_deg').value)),
+            camera_range_m=float(self.get_parameter(
+                'strict_room_camera_range_m').value),
+            target_spacing_m=float(self.get_parameter(
+                'strict_room_target_spacing_m').value),
+            candidate_spacing_m=float(self.get_parameter(
+                'strict_room_candidate_spacing_m').value),
+            heading_sample_count=int(self.get_parameter(
+                'strict_room_heading_sample_count').value),
+            maximum_viewpoints=int(self.get_parameter(
+                'strict_room_maximum_viewpoints').value),
+            desired_coverage_ratio=float(self.get_parameter(
+                'strict_room_visibility_coverage_ratio').value),
         )
         self._room_inspection_execution = RoomInspectionExecution(plan)
         self._room_inspection_request_goal_id = ''
@@ -2079,7 +2157,8 @@ class FrontierExplorerNode(Node):
         self.get_logger().info(
             f'Strict room inspection plan ready for {sector}: '
             f'obstacles={plan.obstacle_count}, goals={len(plan.goals)}, '
-            f'room_cells={plan.room_mask_cell_count}.')
+            f'room_cells={plan.room_mask_cell_count}, '
+            f'visibility={plan.visibility_coverage_ratio:.1%}.')
         return True
 
     def _finish_deterministic_room(self, now_ros: float) -> bool:
@@ -2142,6 +2221,18 @@ class FrontierExplorerNode(Node):
         inspection_completed_count = (
             inspection.progress.completed_goal_count
             if inspection is not None else None)
+        visibility_coverage_ratio = (
+            inspection.plan.visibility_coverage_ratio
+            if inspection is not None else None)
+        visibility_target_cell_count = (
+            inspection.plan.visibility_target_cell_count
+            if inspection is not None else None)
+        visibility_covered_cell_count = (
+            inspection.plan.visibility_covered_cell_count
+            if inspection is not None else None)
+        required_visibility_coverage_ratio = (
+            inspection.plan.required_visibility_coverage_ratio
+            if inspection is not None else None)
         if not valid_loop:
             self.recorder.record_room_coverage(
                 now_ros, self._current_floor, sector, 'validation_failed',
@@ -2162,6 +2253,11 @@ class FrontierExplorerNode(Node):
                 obstacle_count=obstacle_count,
                 inspection_goal_count=inspection_goal_count,
                 inspection_completed_count=inspection_completed_count,
+                visibility_coverage_ratio=visibility_coverage_ratio,
+                visibility_target_cell_count=visibility_target_cell_count,
+                visibility_covered_cell_count=visibility_covered_cell_count,
+                required_visibility_coverage_ratio=(
+                    required_visibility_coverage_ratio),
             )
             self.get_logger().error(
                 f'Deterministic room validation failed: {sector}, '
@@ -2180,6 +2276,8 @@ class FrontierExplorerNode(Node):
             self._deterministic_room_physical_path_m = 0.0
             self._deterministic_official_loop_samples = []
             self._deterministic_room_hold_yaw = None
+            self._deterministic_room_door_official_goal = None
+            self._deterministic_room_inside_official_goal = None
             self._room_inspection_execution = None
             self._room_inspection_request_goal_id = ''
             self._room_inspection_result_goal_id = ''
@@ -2206,6 +2304,11 @@ class FrontierExplorerNode(Node):
             obstacle_count=obstacle_count,
             inspection_goal_count=inspection_goal_count,
             inspection_completed_count=inspection_completed_count,
+            visibility_coverage_ratio=visibility_coverage_ratio,
+            visibility_target_cell_count=visibility_target_cell_count,
+            visibility_covered_cell_count=visibility_covered_cell_count,
+            required_visibility_coverage_ratio=(
+                required_visibility_coverage_ratio),
         )
         self.get_logger().info(
             f'Deterministic room complete: {sector}, '
@@ -2227,6 +2330,8 @@ class FrontierExplorerNode(Node):
         self._deterministic_room_physical_path_m = 0.0
         self._deterministic_official_loop_samples = []
         self._deterministic_room_hold_yaw = None
+        self._deterministic_room_door_official_goal = None
+        self._deterministic_room_inside_official_goal = None
         self._room_inspection_execution = None
         self._room_inspection_request_goal_id = ''
         self._room_inspection_result_goal_id = ''
@@ -2420,17 +2525,28 @@ class FrontierExplorerNode(Node):
                 max(far_progresses) if far_progresses else None)
             minimum_corridor_progress, _hard_limit = (
                 self._deterministic_corridor_limits())
+            completion_progress = progress
+            if (bool(self.get_parameter(
+                    'use_official_odom_for_corridor_control').value)
+                    and self._has_fresh_official_control_odom()):
+                completion_progress = self._official_control_odom[1]
+                farthest_door_progress = float(self.get_parameter(
+                    'official_far_room_y_m').value)
+                minimum_corridor_progress = farthest_door_progress
             minimum_outbound_reached = (
-                progress >= minimum_corridor_progress - tolerance)
+                completion_progress
+                >= minimum_corridor_progress - tolerance)
             reached_beyond_farthest_doors = (
                 farthest_door_progress is not None
                 and minimum_outbound_reached
-                and progress >= farthest_door_progress + extra - tolerance
+                and completion_progress
+                >= farthest_door_progress + extra - tolerance
             )
             corridor_stalled_at_end = (
                 farthest_door_progress is not None
                 and minimum_outbound_reached
-                and progress >= farthest_door_progress - tolerance
+                and completion_progress
+                >= farthest_door_progress - tolerance
                 and self._deterministic_corridor_no_forward_count >= 2
                 and len(self._room_sector_candidate_poses) == 4
             )
@@ -2474,6 +2590,9 @@ class FrontierExplorerNode(Node):
                     throttle_duration_sec=5.0)
                 return cmd
             sector = self._deterministic_room_queue[0]
+            if self._deterministic_room_sector != sector:
+                self._deterministic_room_door_official_goal = None
+                self._deterministic_room_inside_official_goal = None
             self._deterministic_room_sector = sector
             doorway = self._room_sector_candidate_poses[sector]
             self._set_deterministic_goal(
@@ -6286,6 +6405,16 @@ class FrontierExplorerNode(Node):
             official_room_goal = self._official_room_goal_from_map(map_target)
             if official_room_goal is None:
                 return False
+            if self._deterministic_waypoint_label.startswith('room_door:'):
+                self._deterministic_room_door_official_goal = (
+                    float(official_room_goal[0]),
+                    float(official_room_goal[1]),
+                )
+            elif self._deterministic_waypoint_label.startswith('room_cross:'):
+                self._deterministic_room_inside_official_goal = (
+                    float(official_room_goal[0]),
+                    float(official_room_goal[1]),
+                )
             outgoing_goal = official_room_goal
             if self._deterministic_waypoint_label.startswith('room_door:'):
                 official_x, official_y, _yaw, _stamp = (

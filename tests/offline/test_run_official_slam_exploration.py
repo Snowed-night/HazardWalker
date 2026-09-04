@@ -155,6 +155,10 @@ def test_navigation_acceptance_requires_all_four_strict_rooms_per_floor():
                     'obstacle_count': 4,
                     'inspection_goal_count': 12,
                     'inspection_completed_count': 12,
+                    'visibility_coverage_ratio': 0.96,
+                    'required_visibility_coverage_ratio': 0.95,
+                    'visibility_target_cell_count': 400,
+                    'visibility_covered_cell_count': 384,
                 })
         (navigation / 'room_coverage.jsonl').write_text(
             ''.join(json.dumps(row) + '\n' for row in rows),
@@ -182,6 +186,10 @@ def test_navigation_acceptance_rejects_missing_room_or_fake_capture():
             'obstacle_count': 4,
             'inspection_goal_count': 12,
             'inspection_completed_count': 12,
+            'visibility_coverage_ratio': 0.96,
+            'required_visibility_coverage_ratio': 0.95,
+            'visibility_target_cell_count': 400,
+            'visibility_covered_cell_count': 384,
         } for sector in ('far_left', 'far_right', 'near_left')]
         (navigation / 'room_coverage.jsonl').write_text(
             ''.join(json.dumps(row) + '\n' for row in rows),
@@ -199,6 +207,10 @@ def test_navigation_acceptance_rejects_missing_room_or_fake_capture():
             'obstacle_count': 4,
             'inspection_goal_count': 12,
             'inspection_completed_count': 11,
+            'visibility_coverage_ratio': 0.96,
+            'required_visibility_coverage_ratio': 0.95,
+            'visibility_target_cell_count': 400,
+            'visibility_covered_cell_count': 384,
         })
         (navigation / 'room_coverage.jsonl').write_text(
             ''.join(json.dumps(row) + '\n' for row in rows),
@@ -294,6 +306,14 @@ def test_pointcloud_save_must_ack_before_launch_shutdown():
             MODULE.save_pointcloud_map()
     finally:
         MODULE.run_ros2_cli = original
+
+    source = SCRIPT.read_text(encoding='utf-8')
+    completion = source.split(
+        "if observer.latest_state in ('FINISHED', 'FAILED'):", 1)[1].split(
+            'if process.poll() is not None:', 1)[0]
+    assert completion.index('if args.enable_3d_map:') < completion.index(
+        'save_pointcloud_map()')
+    assert "'reason': '2d_slam_profile'" in completion
 
 
 def test_runner_marks_ros_context_shutdown_as_interrupted():

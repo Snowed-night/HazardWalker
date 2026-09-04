@@ -14,6 +14,10 @@ from typing import Dict, Iterable, Optional, Sequence, Tuple
 import numpy as np
 
 from hazardwalker_nav.frontier_detector import a_star_path
+from hazardwalker_nav.room_coverage import (
+    GridFrame,
+    plan_room_visibility_coverage,
+)
 from hazardwalker_nav.room_obstacle_profiler import (
     ObstacleCluster,
     ViewPoint,
@@ -53,10 +57,58 @@ class RoomInspectionPlan:
     obstacle_count: int
     uncovered_obstacles: Tuple[UncoveredObstacle, ...]
     room_mask_cell_count: int
+    visibility_coverage_ratio: float = 0.0
+    visibility_covered_cell_count: int = 0
+    visibility_target_cell_count: int = 0
+    required_visibility_coverage_ratio: float = 0.0
 
     @property
     def executable(self) -> bool:
-        return self.room_mask_cell_count > 0 and not self.uncovered_obstacles
+        coverage_required = self.required_visibility_coverage_ratio > 0.0
+        coverage_valid = (
+            not coverage_required
+            or (
+                self.visibility_target_cell_count > 0
+                and self.visibility_coverage_ratio
+                >= self.required_visibility_coverage_ratio
+            )
+        )
+        return (
+            self.room_mask_cell_count > 0
+            and not self.uncovered_obstacles
+            and coverage_valid
+            and (bool(self.goals) or not coverage_required)
+        )
+
+
+def reproject_planar_pose_between_robot_frames(
+        point: Sequence[float],
+        heading_rad: float,
+        source_robot_pose: Sequence[float],
+        target_robot_pose: Sequence[float],
+) -> Tuple[float, float, float]:
+    """以同一时刻的机器人位姿为锚，在两个二维世界坐标系间重投影位姿。"""
+
+    values = tuple(float(value) for value in (
+        point[0], point[1], heading_rad,
+        source_robot_pose[0], source_robot_pose[1], source_robot_pose[2],
+        target_robot_pose[0], target_robot_pose[1], target_robot_pose[2],
+    ))
+    if not all(math.isfinite(value) for value in values):
+        raise ValueError('重投影输入必须为有限数')
+    px, py, heading, sx, sy, source_yaw, tx, ty, target_yaw = values
+    dx, dy = px - sx, py - sy
+    local_x = math.cos(source_yaw) * dx + math.sin(source_yaw) * dy
+    local_y = -math.sin(source_yaw) * dx + math.cos(source_yaw) * dy
+    output_x = tx + math.cos(target_yaw) * local_x - math.sin(
+        target_yaw) * local_y
+    output_y = ty + math.sin(target_yaw) * local_x + math.cos(
+        target_yaw) * local_y
+    output_yaw = math.atan2(
+        math.sin(target_yaw + heading - source_yaw),
+        math.cos(target_yaw + heading - source_yaw),
+    )
+    return float(output_x), float(output_y), float(output_yaw)
 
 
 class InspectionProgress:
@@ -389,4 +441,152 @@ def build_strict_room_inspection_plan(
         obstacle_count=len(obstacles),
         uncovered_obstacles=tuple(uncovered),
         room_mask_cell_count=int(room_mask.sum()),
+    )
+
+
+def build_room_visibility_inspection_plan(
+        grid: np.ndarray,
+        grid_msg,
+        entry_world: Sequence[float],
+        entry_yaw_rad: float,
+        start_world: Sequence[float],
+        door_width_m: float = 1.8,
+        seed_offset_m: float = 0.8,
+        minimum_room_free_cells: int = 120,
+        camera_fov_rad: float = math.radians(87.0),
+        camera_range_m: float = 10.0,
+        robot_clearance_m: float = 0.35,
+        target_spacing_m: float = 0.5,
+        candidate_spacing_m: float = 1.0,
+        heading_sample_count: int = 12,
+        maximum_viewpoints: int = 16,
+        desired_coverage_ratio: float = 0.95,
+        path_inflation_radius_m: float = 0.25,
+        minimum_obstacle_area_m2: float = 0.15,
+        wall_margin_m: float = 0.9,
+) -> RoomInspectionPlan:
+    """按真实入门方向规划整房视线覆盖，并为每个位姿生成可达路径。"""
+
+    occupancy = np.asarray(grid)
+    if occupancy.ndim != 2:
+        raise ValueError('grid 必须是二维占据栅格')
+    entry_x, entry_y = float(entry_world[0]), float(entry_world[1])
+    start_x, start_y = float(start_world[0]), float(start_world[1])
+    values = (entry_x, entry_y, start_x, start_y, float(entry_yaw_rad))
+    if not all(math.isfinite(value) for value in values):
+        raise ValueError('入口、起点和朝向必须是有限数')
+
+    room_mask = extract_room_mask(
+        occupancy,
+        grid_msg,
+        entry_x,
+        entry_y,
+        float(entry_yaw_rad),
+        door_width_m=max(0.2, float(door_width_m)),
+        seed_offset_m=max(0.1, float(seed_offset_m)),
+        min_room_free_cells=max(1, int(minimum_room_free_cells)),
+        restrict_to_inside_half_plane=True,
+    )
+    desired = min(1.0, max(0.01, float(desired_coverage_ratio)))
+    if room_mask is None:
+        return RoomInspectionPlan(
+            goals=tuple(),
+            obstacle_count=0,
+            uncovered_obstacles=(UncoveredObstacle(
+                obstacle_id='room_mask_unavailable',
+                required_direction_count=1,
+                reachable_direction_count=0,
+            ),),
+            room_mask_cell_count=0,
+            required_visibility_coverage_ratio=desired,
+        )
+
+    frame = GridFrame(
+        resolution_m=float(grid_msg.info.resolution),
+        origin_x_m=float(grid_msg.info.origin.position.x),
+        origin_y_m=float(grid_msg.info.origin.position.y),
+    )
+    coverage = plan_room_visibility_coverage(
+        occupancy,
+        room_mask,
+        frame,
+        (start_x, start_y),
+        camera_fov_rad=float(camera_fov_rad),
+        camera_range_m=float(camera_range_m),
+        robot_clearance_m=float(robot_clearance_m),
+        target_spacing_m=float(target_spacing_m),
+        candidate_spacing_m=float(candidate_spacing_m),
+        heading_sample_count=int(heading_sample_count),
+        maximum_viewpoints=int(maximum_viewpoints),
+        desired_coverage_ratio=desired,
+    )
+
+    current_x, current_y = start_x, start_y
+    goals = []
+    for index, pose in enumerate(coverage.observation_poses):
+        path = a_star_path(
+            occupancy,
+            grid_msg,
+            current_x,
+            current_y,
+            pose.x_m,
+            pose.y_m,
+            inflation_radius_m=max(0.0, float(path_inflation_radius_m)),
+            start_search_radius_m=0.45,
+            goal_search_radius_m=0.30,
+        )
+        if not path:
+            return RoomInspectionPlan(
+                goals=tuple(goals),
+                obstacle_count=0,
+                uncovered_obstacles=(UncoveredObstacle(
+                    obstacle_id=f'room_visibility_path_{index}',
+                    required_direction_count=len(
+                        coverage.observation_poses),
+                    reachable_direction_count=len(goals),
+                ),),
+                room_mask_cell_count=int(room_mask.sum()),
+                visibility_coverage_ratio=float(coverage.coverage_ratio),
+                visibility_covered_cell_count=int(
+                    coverage.covered_cell_count),
+                visibility_target_cell_count=int(coverage.target_cell_count),
+                required_visibility_coverage_ratio=desired,
+            )
+        bucket = _direction_bucket(pose.yaw_rad, heading_sample_count)
+        goals.append(InspectionGoal(
+            goal_id=f'room_visibility_{index}_view_{bucket}',
+            obstacle_id='room_visibility',
+            direction_bucket=bucket,
+            x_m=float(pose.x_m),
+            y_m=float(pose.y_m),
+            face_yaw_rad=float(pose.yaw_rad),
+            path=tuple((float(x), float(y)) for x, y in path),
+        ))
+        current_x, current_y = float(pose.x_m), float(pose.y_m)
+
+    uncovered = tuple()
+    if (coverage.target_cell_count <= 0
+            or coverage.coverage_ratio + 1e-9 < desired):
+        uncovered = (UncoveredObstacle(
+            obstacle_id='room_visibility_coverage',
+            required_direction_count=int(round(desired * 1000.0)),
+            reachable_direction_count=int(round(
+                coverage.coverage_ratio * 1000.0)),
+        ),)
+    obstacles = extract_room_obstacles(
+        occupancy,
+        room_mask,
+        grid_msg,
+        min_area_m2=max(0.0, float(minimum_obstacle_area_m2)),
+        wall_margin_m=max(0.0, float(wall_margin_m)),
+    )
+    return RoomInspectionPlan(
+        goals=tuple(goals),
+        obstacle_count=len(obstacles),
+        uncovered_obstacles=uncovered,
+        room_mask_cell_count=int(room_mask.sum()),
+        visibility_coverage_ratio=float(coverage.coverage_ratio),
+        visibility_covered_cell_count=int(coverage.covered_cell_count),
+        visibility_target_cell_count=int(coverage.target_cell_count),
+        required_visibility_coverage_ratio=desired,
     )

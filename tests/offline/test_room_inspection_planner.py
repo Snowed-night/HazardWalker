@@ -2,9 +2,11 @@
 
 from pathlib import Path
 from types import SimpleNamespace
+import math
 import sys
 
 import numpy as np
+import pytest
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -15,7 +17,9 @@ if str(NAV_SRC) not in sys.path:
 from hazardwalker_nav.room_inspection_planner import (  # noqa: E402
     InspectionProgress,
     RoomInspectionExecution,
+    build_room_visibility_inspection_plan,
     build_strict_room_inspection_plan,
+    reproject_planar_pose_between_robot_frames,
 )
 from hazardwalker_nav.room_obstacle_profiler import (  # noqa: E402
     OCCUPIED_THRESHOLD,
@@ -164,3 +168,48 @@ def test_execution_completes_only_after_every_planned_capture():
 
     assert execution.complete
     assert execution.progress.completed_goal_count == len(plan.goals)
+
+
+def test_pose_reprojection_uses_synchronized_robot_anchor_not_fixed_map_offset():
+    projected = reproject_planar_pose_between_robot_frames(
+        point=(3.0, 1.0),
+        heading_rad=0.0,
+        source_robot_pose=(1.0, 1.0, 0.0),
+        target_robot_pose=(10.0, 20.0, math.pi / 2.0),
+    )
+    assert projected[0] == pytest.approx(10.0)
+    assert projected[1] == pytest.approx(22.0)
+    assert projected[2] == pytest.approx(math.pi / 2.0)
+
+
+def test_visibility_plan_covers_open_room_and_requires_physical_captures():
+    grid = _room_with_obstacle()
+    plan = build_room_visibility_inspection_plan(
+        grid,
+        _grid_message(grid),
+        entry_world=(15.0 * 0.25, 24.5 * 0.25),
+        entry_yaw_rad=0.0,
+        start_world=(18.0 * 0.25, 24.5 * 0.25),
+        door_width_m=1.25,
+        seed_offset_m=0.75,
+        minimum_room_free_cells=200,
+        camera_fov_rad=math.radians(90.0),
+        camera_range_m=8.0,
+        target_spacing_m=0.5,
+        candidate_spacing_m=1.0,
+        maximum_viewpoints=12,
+        desired_coverage_ratio=0.90,
+        path_inflation_radius_m=0.15,
+    )
+    assert plan.executable
+    assert plan.visibility_coverage_ratio >= 0.90
+    assert plan.visibility_target_cell_count > 0
+    assert plan.goals
+    execution = RoomInspectionExecution(plan)
+    assert not execution.complete
+    for goal in plan.goals:
+        assert goal.path
+        assert execution.mark_position_reached()
+        assert execution.mark_orientation_reached()
+        assert execution.mark_capture(True)
+    assert execution.complete

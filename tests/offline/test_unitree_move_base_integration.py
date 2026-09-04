@@ -258,3 +258,14 @@ def test_official_profile_reselects_frontier_after_dwa_no_progress():
     assert "'frontier_net_progress_distance_m': 0.20" in source
     assert "'goal_tolerance_m': 0.40" in source
     assert "'deterministic_room_route_enabled': True" in source
+
+
+def test_official_corridor_completion_uses_the_same_control_frame_as_motion():
+    source = (
+        ROOT / 'ros2_ws' / 'src' / 'hazardwalker_nav' /
+        'hazardwalker_nav' / 'frontier_explorer_node.py'
+    ).read_text(encoding='utf-8')
+    assert 'completion_progress = self._official_control_odom[1]' in source
+    assert "'official_far_room_y_m'" in source
+    assert 'build_room_visibility_inspection_plan' in source
+    assert 'reproject_planar_pose_between_robot_frames' in source

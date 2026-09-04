@@ -61,7 +61,11 @@ def test_recorder_writes_structured_room_coverage_evidence():
             35.0, 1, 'far_left', 'completed', 18.1, 2.0,
             path_m=12.3456, duration_s=25.4321, probe_count=4,
             reason='trajectory_loop_closed', obstacle_count=5,
-            inspection_goal_count=15, inspection_completed_count=15)
+            inspection_goal_count=15, inspection_completed_count=15,
+            visibility_coverage_ratio=0.9654,
+            visibility_target_cell_count=458,
+            visibility_covered_cell_count=442,
+            required_visibility_coverage_ratio=0.95)
         recorder.close(36.0, final_state='FINISHED')
 
         rows = _read_jsonl(output / 'room_coverage.jsonl')
@@ -75,3 +79,7 @@ def test_recorder_writes_structured_room_coverage_evidence():
         assert rows[1]['obstacle_count'] == 5
         assert rows[1]['inspection_goal_count'] == 15
         assert rows[1]['inspection_completed_count'] == 15
+        assert rows[1]['visibility_coverage_ratio'] == 0.9654
+        assert rows[1]['visibility_target_cell_count'] == 458
+        assert rows[1]['visibility_covered_cell_count'] == 442
+        assert rows[1]['required_visibility_coverage_ratio'] == 0.95

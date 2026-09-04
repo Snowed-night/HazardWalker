@@ -372,13 +372,21 @@ def validate_navigation_acceptance(
                     raise RuntimeError(
                         f'楼层 {floor} 房间 {row.get("sector")} '
                         '没有严格巡检完成原因')
-                obstacles = int(row.get('obstacle_count', 0))
                 required = int(row.get('inspection_goal_count', 0))
                 captured = int(row.get('inspection_completed_count', 0))
-                if obstacles <= 0 or required <= 0 or captured != required:
+                visibility = float(row.get('visibility_coverage_ratio', 0.0))
+                visibility_required = float(row.get(
+                    'required_visibility_coverage_ratio', 1.0))
+                visibility_targets = int(row.get(
+                    'visibility_target_cell_count', 0))
+                if (required <= 0 or captured != required
+                        or visibility_targets <= 0
+                        or visibility + 1e-9 < visibility_required):
                     raise RuntimeError(
                         f'楼层 {floor} 房间 {row.get("sector")} 巡检证据不足：'
-                        f'obstacles={obstacles}, captures={captured}/{required}')
+                        f'captures={captured}/{required}, '
+                        f'visibility={visibility:.1%}/'
+                        f'{visibility_required:.1%}')
         summary[str(floor)] = {
             'completed_room_count': len(sectors),
             'sectors': sorted(sectors),
@@ -1125,12 +1133,19 @@ def main() -> int:
                         '导航进入 FAILED；检查 navigation/failures.jsonl '
                         '与 room_coverage.jsonl')
                     break
-                try:
-                    manifest['pointcloud_save'] = save_pointcloud_map()
+                if args.enable_3d_map:
+                    try:
+                        manifest['pointcloud_save'] = save_pointcloud_map()
+                        manifest['status'] = 'complete'
+                    except (RuntimeError, subprocess.SubprocessError) as exc:
+                        manifest['status'] = 'failed'
+                        manifest['failure_reason'] = str(exc)
+                else:
+                    manifest['pointcloud_save'] = {
+                        'enabled': False,
+                        'reason': '2d_slam_profile',
+                    }
                     manifest['status'] = 'complete'
-                except (RuntimeError, subprocess.SubprocessError) as exc:
-                    manifest['status'] = 'failed'
-                    manifest['failure_reason'] = str(exc)
                 break
             if process.poll() is not None:
                 manifest['status'] = 'failed'

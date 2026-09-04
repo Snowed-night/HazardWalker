@@ -117,6 +117,27 @@ def test_room_mask_does_not_leak_into_corridor():
     assert mask.sum() >= 80
 
 
+def test_inside_half_plane_blocks_wide_open_doorway_from_rejoining_corridor():
+    grid = np.zeros((20, 30), dtype=np.int8)
+    msg = _grid_message(grid, resolution=0.5)
+    mask = extract_room_mask(
+        grid,
+        msg,
+        entry_wx=5.0,
+        entry_wy=5.0,
+        entry_yaw=0.0,
+        door_width_m=4.0,
+        seed_offset_m=1.0,
+        min_room_free_cells=20,
+        restrict_to_inside_half_plane=True,
+    )
+    assert mask is not None
+    # 即使占据图没有形成窄门，真实穿门方向也能排除门外半平面。
+    # 默认保留门外 0.25 m 数值裕量，因此第 9 列边界格可以保留。
+    assert not mask[:, :9].any()
+    assert mask[:, 12:].any()
+
+
 def test_room_mask_too_small_returns_none():
     # 几乎封闭无空间 → None
     grid = np.full((10, 10), OCCUPIED_THRESHOLD, dtype=np.int8)

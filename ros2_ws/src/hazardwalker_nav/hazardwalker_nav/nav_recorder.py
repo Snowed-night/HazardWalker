@@ -325,6 +325,10 @@ class NavRecorder:
         obstacle_count: Optional[int] = None,
         inspection_goal_count: Optional[int] = None,
         inspection_completed_count: Optional[int] = None,
+        visibility_coverage_ratio: Optional[float] = None,
+        visibility_target_cell_count: Optional[int] = None,
+        visibility_covered_cell_count: Optional[int] = None,
+        required_visibility_coverage_ratio: Optional[float] = None,
     ):
         """记录房间覆盖证据；进入与完成分别写一条，便于自动验收。"""
 
@@ -371,6 +375,19 @@ class NavRecorder:
         if inspection_completed_count is not None:
             record['inspection_completed_count'] = max(
                 0, int(inspection_completed_count))
+        if visibility_coverage_ratio is not None:
+            record['visibility_coverage_ratio'] = round(
+                min(1.0, max(0.0, float(visibility_coverage_ratio))), 4)
+        if visibility_target_cell_count is not None:
+            record['visibility_target_cell_count'] = max(
+                0, int(visibility_target_cell_count))
+        if visibility_covered_cell_count is not None:
+            record['visibility_covered_cell_count'] = max(
+                0, int(visibility_covered_cell_count))
+        if required_visibility_coverage_ratio is not None:
+            record['required_visibility_coverage_ratio'] = round(
+                min(1.0, max(
+                    0.0, float(required_visibility_coverage_ratio))), 4)
         self._write_jsonl(self._room_coverage_fp, record)
 
     def save_map(
