@@ -58,6 +58,7 @@ from hazardwalker_nav.frontier_detector import (
     world_to_grid,
     OCCUPIED,
     FREE_MAX,
+    UNKNOWN,
 )
 from hazardwalker_nav.reobservation_contract import (
     action_has_scan_clearance,
@@ -258,6 +259,14 @@ class FrontierExplorerNode(Node):
         # aspect <= room_trigger_max_aspect 时也尝试进入（enter 有快失败兜底）
         self.declare_parameter('room_trigger_max_aspect', 4.0)
         self.declare_parameter('room_trigger_min_door_m', 1.0)
+        # 真门校验：机器人被 room 型前沿触发进房时，若其实是在走廊/开阔处（没有
+        # 门洞），会在"假房间"里空转巡检。开启后 enter 阶段会用激光校验入口左右
+        # 是否被墙夹成窄口（真门洞特征），不满足则快速放弃，回到正常探索。
+        self.declare_parameter('obstacle_door_check_enabled', True)
+        # 门洞判据：入口左右 ±75°~105° 侧向、2.5m 内都应有墙（横向净空受限），
+        # 才算"从走廊/墙开口进"。开阔处/走廊中段不满足 → 判定为假门。
+        self.declare_parameter('obstacle_door_side_max_clearance_m', 2.5)
+        self.declare_parameter('obstacle_door_check_half_angle_deg', 105.0)
         # 单房间逐障碍巡检（找藏在障碍物后面的红球）：explore 阶段从 OccupancyGrid
         # 提取房内独立家具障碍簇，规划环绕观察点逐一巡检，保证每个障碍四周都被
         # 相机看到，替代"只靠前沿覆盖率"的旧 explore。可整体关闭回退旧行为。
@@ -501,6 +510,9 @@ class FrontierExplorerNode(Node):
         self._obs_vp_start_dist: Optional[float] = None
         self._obs_vp_last_dist: Optional[float] = None
         self._obs_vp_skip_directions: set = set()  # 已放弃的方向桶（key, bucket）
+        # 真门校验：room sweep 触发时是否已确认入口是墙夹窄口（真门洞）。
+        # enter 阶段首个 tick 评估一次，未通过则快速放弃（假门）。
+        self._obs_door_verified: Optional[bool] = None
 
         # floor_index 发布器（发布 Int32，触发 scan_imu_localizer 重置匹配地图）
         self.floor_index_pub = self.create_publisher(
@@ -1129,13 +1141,18 @@ class FrontierExplorerNode(Node):
                     'room_trigger_min_door_m').value))
 
     def _start_room_sweep(self, frontier: Frontier):
-        """启动房间完整探索 enter -> explore -> exit 序列。"""
+        """启动房间完整探索 enter -> explore -> exit 序列。
+
+        进入方向取「frontier 指向房间内部」的方向（frontier 各格未知邻居的重心），
+        而非机器人触发时朝向——机器人常是沿走廊走到门口，朝向是走廊方向，若沿用
+        会导致 enter 沿走廊走而不是走进房间（实测假进房根因）。
+        """
         self._room_sweep_active = True
         self._room_sweep_frontier = frontier
         self._room_sweep_phase = 'enter'
         self._room_sweep_start_time = self._ros_time_sec()
         self._room_sweep_entry_pose = (self.robot_x, self.robot_y)
-        self._room_sweep_yaw_start = self.robot_yaw
+        self._room_sweep_yaw_start = self._room_inner_direction_yaw(frontier)
         self._room_enter_blocked_since_ros = None
         self._room_internal_target = None
         self._room_internal_path = []
@@ -1151,8 +1168,52 @@ class FrontierExplorerNode(Node):
         self.get_logger().info(
             f'Room sweep START for frontier {key} '
             f'at ({frontier.centroid[0]:.1f},{frontier.centroid[1]:.1f}) '
-            f'type={frontier.frontier_type} aspect={frontier.aspect_ratio}'
+            f'type={frontier.frontier_type} aspect={frontier.aspect_ratio} '
+            f'enter_yaw={self._room_sweep_yaw_start:.2f} '
+            f'(was {self.robot_yaw:.2f})'
         )
+
+    def _room_inner_direction_yaw(self, frontier: Frontier) -> float:
+        """frontier 指向房间内部的方向（rad）。
+
+        房间内部 = 该门口前沿相邻的未知格一侧。取所有前沿格四邻未知格的重心
+        相对前沿格重心（或机器人）的方向；地图/前沿异常时回退机器人当前朝向。
+        """
+        if (self.grid is None or self.latest_map is None
+                or not getattr(frontier, 'points', None)):
+            return self.robot_yaw
+        grid = self.grid
+        h, w = grid.shape
+        unknown_neighbors: list = []
+        for (gx, gy) in frontier.points:
+            for ny, nx in ((gy - 1, gx), (gy + 1, gx),
+                           (gy, gx - 1), (gy, gx + 1)):
+                if 0 <= ny < h and 0 <= nx < w and grid[ny, nx] == UNKNOWN:
+                    unknown_neighbors.append((nx, ny))
+        if not unknown_neighbors:
+            # 无未知邻（房间已基本建好）：用前沿格中心指向最远自由边界，近似
+            # 房间纵深方向。退化时用朝向。
+            dxs = [p[0] for p in frontier.points]
+            dys = [p[1] for p in frontier.points]
+            if not dxs:
+                return self.robot_yaw
+            cx = sum(dxs) / len(dxs)
+            cy = sum(dys) / len(dys)
+            # 找离质心最远的前沿格方向（房间内部通常在前沿条带法向）
+            far = max(frontier.points,
+                      key=lambda p: (p[0] - cx) ** 2 + (p[1] - cy) ** 2)
+            fx, fy = far
+            if (fx - cx) ** 2 + (fy - cy) ** 2 < 4:
+                return self.robot_yaw
+            return math.atan2(fy - cy, fx - cx)
+        gx0, gy0 = world_to_grid(
+            self.robot_x, self.robot_y, self.latest_map)
+        mean_ux = sum(p[0] for p in unknown_neighbors) / len(unknown_neighbors)
+        mean_uy = sum(p[1] for p in unknown_neighbors) / len(unknown_neighbors)
+        # 指向未知格重心；若与机器人重叠（贴脸），退化为重心相对前沿质心
+        if math.hypot(mean_ux - gx0, mean_uy - gy0) < 1e-6:
+            mean_ux += 1.0
+        return math.atan2(mean_uy - gy0, mean_ux - gx0)
 
     def _room_refresh_frontiers(self, wall_now: float):
         """房间探索期间刷新前沿。
@@ -1329,10 +1390,64 @@ class FrontierExplorerNode(Node):
         self._obs_vp_start_dist = None
         self._obs_vp_last_dist = None
         self._obs_vp_skip_directions = set()
+        self._obs_door_verified = None
 
     def _obs_inspection_timeout_s(self) -> float:
         return max(
             5.0, float(self.get_parameter('obstacle_inspection_timeout_s').value))
+
+    def _obs_door_check_passes(self) -> bool:
+        """真门校验：入口左右侧有墙夹成窄口，才算从墙开口进房间。
+
+        判据（纯激光，不依赖地图是否建好）：以机器人当前朝向为轴，检查
+        左右各 75°~105° 的扇形内，都存在至少一条近距离(< 阈值)的障碍射线
+        （墙）。机器人若在走廊/开阔处，该两侧扇区通常测不到这么近的墙；
+        真门洞两侧则是门柱/墙，近距离必有回波。
+
+        Returns:
+            True=像真门洞；False=不像（假门）。
+        """
+        if not bool(self.get_parameter('obstacle_door_check_enabled').value):
+            return True
+        scan = self.latest_scan
+        if scan is None:
+            return False  # 无激光无法验证，保守不当作真门
+        side_max = max(
+            0.5, float(self.get_parameter(
+                'obstacle_door_side_max_clearance_m').value))
+        half_deg = max(
+            60.0, min(115.0, float(self.get_parameter(
+                'obstacle_door_check_half_angle_deg').value)))
+        low_rad = math.radians(half_deg - 30.0)
+        high_rad = math.radians(half_deg)
+        # 以触发房间扫描时的朝向为基准（机器人应面向门洞/房间内）
+        front = self._room_sweep_yaw_start
+        if front is None:
+            front = self.robot_yaw
+        left_min = float('inf')
+        right_min = float('inf')
+        for index, value in enumerate(scan.ranges):
+            angle = float(scan.angle_min) + index * float(scan.angle_increment)
+            if value is None:
+                continue
+            try:
+                distance = float(value)
+            except (TypeError, ValueError):
+                continue
+            if not math.isfinite(distance) or distance <= 0.0:
+                continue
+            # 相对入口朝向的夹角（归一化到 [-pi, pi]）
+            rel = math.atan2(math.sin(angle - front),
+                             math.cos(angle - front))
+            abs_rel = abs(rel)
+            if low_rad <= abs_rel <= high_rad:
+                if rel > 0:
+                    left_min = min(left_min, distance)
+                else:
+                    right_min = min(right_min, distance)
+        found_left = left_min < side_max
+        found_right = right_min < side_max
+        return found_left and found_right
 
     def _obs_injected_rect_for(self) -> Optional[Tuple[float, float, float, float]]:
         """若入口落在 room_layout_yaml 注入的房间矩形内，返回该矩形 (x_min,x_max,y_min,y_max)。
@@ -1839,6 +1954,19 @@ class FrontierExplorerNode(Node):
 
         # ---- enter ----
         if self._room_sweep_phase == 'enter':
+            # 真门校验只在刚进入 enter（机器人还在门口/走廊、未深入）时评估一次：
+            # 若入口左右没有墙夹出窄口（= 在开阔/走廊中段触发的假房间），立即放弃
+            # 本次房间扫描，作为普通前沿回到正常探索，避免在"假房间"里空转巡检。
+            if self._obs_door_verified is None:
+                self._obs_door_verified = self._obs_door_check_passes()
+                if not self._obs_door_verified:
+                    self.get_logger().warn(
+                        f'Room entry at ({self._room_sweep_entry_pose[0]:.1f},'
+                        f'{self._room_sweep_entry_pose[1]:.1f}) rejected: '
+                        'no side walls (fake door); back to normal exploration.')
+                    self._finish_room_sweep()
+                    return cmd
+
             dist_entered = math.hypot(
                 self.robot_x - self._room_sweep_entry_pose[0],
                 self.robot_y - self._room_sweep_entry_pose[1])
