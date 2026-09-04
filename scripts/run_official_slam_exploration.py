@@ -20,6 +20,8 @@ import re
 import shutil
 import signal
 import subprocess
+import sys
+import tempfile
 import time
 
 
@@ -50,6 +52,52 @@ RUNTIME_GIT_EXCLUDES = (
     'ros2_ws/src/hazardwalker_platform/generated_building',
     'ros2_ws/src/hazardwalker_platform/results',
 )
+
+
+def ensure_workspace_overlay() -> None:
+    """确保无论从交互终端还是后台任务启动，都使用当前工作树的 ROS2 产物。"""
+
+    install_root = (REPO_ROOT / 'install').resolve()
+    workspace_setup = install_root / 'setup.bash'
+    prefixes = {
+        Path(value).resolve()
+        for value in os.environ.get('AMENT_PREFIX_PATH', '').split(os.pathsep)
+        if value.strip()
+    }
+    if any(
+            prefix == install_root or install_root in prefix.parents
+            for prefix in prefixes):
+        return
+    if not workspace_setup.is_file():
+        raise RuntimeError(
+            f'当前工作树尚未构建：缺少 {workspace_setup}；请先执行 colcon build')
+    if os.environ.get('HAZARDWALKER_OVERLAY_BOOTSTRAPPED') == '1':
+        raise RuntimeError(
+            '已尝试加载当前工作树 ROS2 环境，但 AMENT_PREFIX_PATH 仍未生效')
+
+    ros_distro = os.environ.get('ROS_DISTRO', 'jazzy').strip() or 'jazzy'
+    ros_setup = Path('/opt/ros') / ros_distro / 'setup.bash'
+    if not ros_setup.is_file():
+        raise RuntimeError(f'缺少 ROS2 基础环境：{ros_setup}')
+
+    # bash -lc 的位置参数避免把仓库路径和用户参数拼进 shell 字符串；
+    # 这样后台/nohup、SSH 与普通终端均走同一套可复现环境。
+    environment = os.environ.copy()
+    environment['HAZARDWALKER_OVERLAY_BOOTSTRAPPED'] = '1'
+    command = (
+        'unset COLCON_CURRENT_PREFIX; '
+        'source "$1"; source "$2"; '
+        'exec "$3" "$4" "${@:5}"'
+    )
+    os.execvpe(
+        'bash',
+        [
+            'bash', '-lc', command, 'hazardwalker-runner',
+            str(ros_setup), str(workspace_setup), sys.executable,
+            str(Path(__file__).resolve()), *sys.argv[1:],
+        ],
+        environment,
+    )
 
 
 def utc_now() -> str:
@@ -514,6 +562,14 @@ def stop_first_person_recording(
 def preflight(expected_seed: str, require_pointcloud: bool = False) -> dict:
     """验证公开输入、固定 SEED、唯一控制节点且没有旧业务栈。"""
 
+    perception_executables = set(run_ros2_cli([
+        'pkg', 'executables', 'hazardwalker_perception',
+    ]).splitlines())
+    required_localizer = 'hazardwalker_perception scan_imu_localizer_node'
+    if required_localizer not in perception_executables:
+        raise RuntimeError(
+            '当前 ROS2 工作区找不到入口局部定位器；请重新构建并加载本工作树 '
+            'install/setup.bash')
     topics = set(run_ros2_cli(['topic', 'list']).splitlines())
     required_topics = set(REQUIRED_TOPICS)
     if require_pointcloud:
@@ -679,9 +735,10 @@ def perform_entrance_ingress(
         '-p', 'publish_tf:=false',
         '-p', 'localization_provenance:=lidar_imu_slam',
     ]
+    localizer_log = tempfile.TemporaryFile(mode='w+', encoding='utf-8')
     localizer = subprocess.Popen(
         localizer_command, cwd=REPO_ROOT,
-        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        stdout=localizer_log, stderr=subprocess.STDOUT,
         start_new_session=True,
     )
     rclpy.init()
@@ -766,7 +823,12 @@ def perform_entrance_ingress(
                 start_pose = node.pose
                 break
             if localizer.poll() is not None:
-                raise RuntimeError('入口局部定位器提前退出')
+                localizer_log.flush()
+                localizer_log.seek(0)
+                details = localizer_log.read()[-4000:].strip()
+                raise RuntimeError(
+                    f'入口局部定位器提前退出 (rc={localizer.returncode})：'
+                    f'{details or "未输出错误详情"}')
         if start_pose is None:
             raise RuntimeError('入口阶段未收到激光/IMU里程计')
 
@@ -819,6 +881,7 @@ def perform_entrance_ingress(
             if rclpy.ok():
                 rclpy.shutdown()
             stop_process_group(localizer)
+            localizer_log.close()
 
     return {
         'method': 'public_scan_imu_relative_ingress',
@@ -891,6 +954,7 @@ def write_handoff(output_dir: Path, manifest: dict) -> None:
 
 
 def main() -> int:
+    ensure_workspace_overlay()
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--seed', required=True)
     parser.add_argument('--output-dir', required=True)

@@ -80,6 +80,17 @@ def test_target_floor_parser_preserves_order_and_rejects_duplicates():
         MODULE.parse_target_floors('0,1,1')
 
 
+def test_runner_bootstraps_its_own_ros2_overlay_before_parsing_arguments():
+    source = SCRIPT.read_text(encoding='utf-8')
+    main_source = source.split('def main()', 1)[1]
+    assert main_source.index('ensure_workspace_overlay()') < main_source.index(
+        'argparse.ArgumentParser')
+    assert 'HAZARDWALKER_OVERLAY_BOOTSTRAPPED' in source
+    assert 'source "$1"; source "$2"' in source
+    assert "'pkg', 'executables', 'hazardwalker_perception'" in source
+    assert 'scan_imu_localizer_node' in source
+
+
 def test_git_state_ignores_runtime_products_but_detects_source_changes():
     with tempfile.TemporaryDirectory() as temporary:
         root = Path(temporary)
