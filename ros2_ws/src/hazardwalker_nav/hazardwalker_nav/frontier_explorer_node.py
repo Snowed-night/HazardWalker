@@ -918,7 +918,6 @@ class FrontierExplorerNode(Node):
 
         self._unitree_move_base_cmd = msg
         self._unitree_move_base_cmd_wall = time.monotonic()
-        self._unitree_move_base_cmd_stale_since_wall = None
         if self._unitree_move_base_goal_active:
             self._unitree_move_base_cmd_after_goal = True
 
@@ -6698,7 +6697,18 @@ class FrontierExplorerNode(Node):
             or self._unitree_move_base_cmd_wall is None
             or now_wall - self._unitree_move_base_cmd_wall > timeout
         )
-        if command_stale:
+        # move_base 找不到局部轨迹时可能仍以 10 Hz 发布全零 Twist。通信虽
+        # 新鲜，但执行效果与断流相同；只要活动目标尚未由上层结算，就应
+        # 与断流共用连续计时，超时后切换到已有 A*+激光净空路径跟踪。
+        command_idle = (
+            math.hypot(
+                float(self._unitree_move_base_cmd.linear.x),
+                float(self._unitree_move_base_cmd.linear.y),
+            ) <= 1e-6
+            and abs(float(self._unitree_move_base_cmd.angular.z)) <= 1e-6
+        )
+        command_unusable = command_stale or command_idle
+        if command_unusable:
             fallback_after = max(
                 timeout,
                 float(self.get_parameter(
@@ -6710,13 +6720,14 @@ class FrontierExplorerNode(Node):
                 now_wall - self._unitree_move_base_cmd_stale_since_wall)
             if stale_age >= fallback_after:
                 self.get_logger().warning(
-                    'Unitree move_base produced no fresh command; using '
+                    'Unitree move_base produced no usable command; using '
                     'existing A* path with lidar clearance fallback.',
                     throttle_duration_sec=5.0,
                 )
                 return self._follow_path_with_direct_backend()
             self.get_logger().warning(
-                'Unitree move_base command unavailable or stale; holding zero.',
+                'Unitree move_base command unavailable, stale, or idle; '
+                'holding zero.',
                 throttle_duration_sec=3.0,
             )
             return Twist()

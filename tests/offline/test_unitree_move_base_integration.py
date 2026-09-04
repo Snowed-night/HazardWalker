@@ -128,13 +128,15 @@ def test_frontier_delegates_local_avoidance_to_unitree_move_base():
     assert "self._floor_transition_phase = 'riding'" in source
     assert 'Official elevator exit completed' in source
     assert 'self._cancel_unitree_move_base()' in source
-    assert 'Unitree move_base command unavailable or stale' in source
+    assert 'Unitree move_base command unavailable, stale, or idle' in source
     assert "'unitree_move_base_direct_fallback_s', 12.0" in source
     assert 'existing A* path with lidar clearance fallback' in source
     fallback = source.split(
         'def _follow_path_with_unitree_move_base', 1)[1].split(
             'def _follow_path_with_direct_backend', 1)[0]
     assert '_unitree_move_base_cmd_stale_since_wall' in fallback
+    assert 'command_unusable = command_stale or command_idle' in fallback
+    assert 'math.hypot(' in fallback
     assert 'stale_age >= fallback_after' in fallback
     assert '_unitree_move_base_last_goal_wall' not in fallback
     goal_publish = source.split(
