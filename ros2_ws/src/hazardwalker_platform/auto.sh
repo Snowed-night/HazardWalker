@@ -236,7 +236,11 @@ export LIBGL_ALWAYS_SOFTWARE=1
 echo "Xvfb ready on DISPLAY=$DISPLAY"
 
 echo "Launching Gazebo, Unitree A1 model, sensors, and ROS interfaces..."
-roslaunch unitree_guide multi_floor_gazeboSim.launch \
+python3 "$WORKSPACE_DIR/scripts/bounded_process_logger.py" \
+  --log "$WORKSPACE_DIR/logs/competition_gazebo.log" \
+  --max-bytes "${GAZEBO_LOG_MAX_BYTES:-67108864}" \
+  --backups "${GAZEBO_LOG_BACKUPS:-2}" \
+  -- roslaunch unitree_guide multi_floor_gazeboSim.launch \
   gui:="$GUI" \
   headless:="$GAZEBO_HEADLESS" \
   paused:="$PAUSED" \
@@ -247,8 +251,7 @@ roslaunch unitree_guide multi_floor_gazeboSim.launch \
   robot_x:="$ROBOT_X" \
   robot_y:="$ROBOT_Y" \
   robot_z:="$ROBOT_Z" \
-  robot_yaw:="$ROBOT_YAW" \
-  > "$WORKSPACE_DIR/logs/competition_gazebo.log" 2>&1 &
+  robot_yaw:="$ROBOT_YAW" &
 LAUNCH_PID=$!
 echo "$LAUNCH_PID" > "$WORKSPACE_DIR/logs/competition_gazebo.pid"
 
