@@ -90,6 +90,9 @@ class HsvDetectorNode(Node):
         # 但球面/平面可由单视角 RGB-D 几何直接区分，无需横移复查。
         self.declare_parameter('confirm_distinct_views', 1)
         self.declare_parameter('min_non_spherical_views_to_reject', 1)
+        # 赛场只提交有球面正证据的轨迹；平面/各向异性帧保持未确认即可。
+        # 关闭永久负判，避免遮挡边缘的早期噪声封死后续完整球面帧。
+        self.declare_parameter('reject_non_spherical_tracks', False)
         # 主动横移期间目标可能连续数秒离开视场；150 帧约等于 5 秒@30FPS，
         # 避免候选在抵达第二视角前被删除。
         self.declare_parameter('reject_after_missed_count', 300)
@@ -234,6 +237,9 @@ class HsvDetectorNode(Node):
                 self.get_parameter(
                     'min_non_spherical_views_to_reject'
                 ).value
+            ),
+            reject_non_spherical_tracks=bool(
+                self.get_parameter('reject_non_spherical_tracks').value
             ),
             min_multiview_aspect_ratio=float(self.get_parameter('min_multiview_aspect_ratio').value),
             min_spherical_views_for_confirm=int(

@@ -28,6 +28,7 @@ _DIRECT_SECTIONS = {
         'min_view_bearing_span_deg', 'strong_depth_min_distinct_views',
         'strong_depth_min_view_bearing_span_deg', 'reject_after_missed_count',
         'min_non_spherical_views_to_reject',
+        'reject_non_spherical_tracks',
         'reject_after_missed_sec',
         'merge_distance_m', 'single_track_reacquire_distance_m',
         'single_track_reacquire_diameter_relative_error',

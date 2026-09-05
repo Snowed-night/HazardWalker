@@ -182,6 +182,56 @@ def test_competition_single_view_profile_rejects_red_box_depth_plane():
     assert tracker.tracks[0].evidence_status == 'single_view_flat_or_non_spherical'
 
 
+def test_positive_evidence_profile_recovers_from_early_occlusion_noise():
+    """比赛配置不永久负判；早期平面噪声后同视角三帧球面证据应确认。"""
+    tracker = HazardTracker(HazardTrackerConfig(
+        confirm_observation_count=3,
+        min_distinct_views=1,
+        min_non_spherical_views_to_reject=1,
+        reject_non_spherical_tracks=False,
+        min_spherical_views_for_confirm=1,
+        expected_sphere_diameter_m=0.30,
+    ))
+    for stamp in (1.0, 1.1, 1.2):
+        tracks = tracker.update([HazardObservation(
+            position=(1.0, 2.0, 0.15), confidence=0.75,
+            stamp_sec=stamp, view_id='stable_front',
+            confirmation_eligible=False, depth_shape_status='flat',
+        )])
+    assert tracks[0].status == 'needs_reobservation'
+
+    for stamp in (2.0, 2.1, 2.2):
+        tracks = tracker.update([HazardObservation(
+            position=(1.0, 2.0, 0.15), confidence=0.90,
+            stamp_sec=stamp, view_id='stable_front',
+            confirmation_eligible=True, depth_shape_status='spherical',
+            apparent_diameter_m=0.30, aspect_ratio=0.95,
+            depth_curvature_m=0.06,
+        )])
+
+    assert tracks[0].status == 'confirmed'
+    assert tracks[0].evidence_status == 'single_view_sphere_confirmed'
+
+
+def test_positive_evidence_profile_never_confirms_red_box_without_sphere_evidence():
+    """关闭永久负判不等于放宽上报；持续平面候选始终不能 confirmed。"""
+    tracker = HazardTracker(HazardTrackerConfig(
+        confirm_observation_count=3,
+        min_distinct_views=1,
+        reject_non_spherical_tracks=False,
+        min_spherical_views_for_confirm=1,
+    ))
+    for index in range(20):
+        tracks = tracker.update([HazardObservation(
+            position=(1.0, 2.0, 0.15), confidence=0.90,
+            stamp_sec=float(index), view_id='stable_front',
+            confirmation_eligible=False, depth_shape_status='flat',
+        )])
+
+    assert tracks[0].status == 'needs_reobservation'
+    assert tracker.confirmed_tracks() == []
+
+
 def test_partial_or_unstable_spherical_observations_do_not_supply_confirmation_evidence():
     """局部可见弧段即使深度看似球面，也只能触发复查而不能补齐正证据。"""
     tracker = HazardTracker(HazardTrackerConfig(

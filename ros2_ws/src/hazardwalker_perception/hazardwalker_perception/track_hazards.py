@@ -90,6 +90,9 @@ class HazardTrackerConfig:
     expected_sphere_diameter_m: float = 0.0
     max_sphere_diameter_relative_error: float = 0.35
     min_non_spherical_views_to_reject: int = 2
+    # 通用场景可永久拒绝多次非球面轨迹；比赛配置关闭后改用“仅球面正证据
+    # 才确认”的门控，避免遮挡噪声让真实球体永远无法恢复。
+    reject_non_spherical_tracks: bool = True
     # 正式 RGB-D 模式可设为 2：至少两个独立视角的深度形状都应支持球面。
     # 默认为 0 以兼容不含深度的历史离线纯函数测试；ROS 节点会显式启用该门槛。
     min_spherical_views_for_confirm: int = 0
@@ -349,7 +352,8 @@ class HazardTracker:
                     and normalized_curvature <= self.config.max_median_normalized_depth_curvature
                 )
             )
-            if (flat_views >= self.config.min_non_spherical_views_to_reject
+            if (self.config.reject_non_spherical_tracks
+                    and flat_views >= self.config.min_non_spherical_views_to_reject
                     and flat_views >= eligible_views):
                 track.status = 'rejected_non_spherical'
                 track.evidence_status = (
@@ -371,7 +375,9 @@ class HazardTracker:
                   and normalized_curvature_ok
                   and lateral_parallax_ok
                   and spherical_views >= self.config.min_spherical_views_for_confirm
-                  and (flat_views == 0 or eligible_views >= flat_views + 2)):
+                  and (not self.config.reject_non_spherical_tracks
+                       or flat_views == 0
+                       or eligible_views >= flat_views + 2)):
                 track.status = 'confirmed'
                 track.evidence_status = (
                     'single_view_sphere_confirmed'

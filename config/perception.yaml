@@ -51,6 +51,9 @@ perception:
     min_view_bearing_span_deg: 0.0
     # 红色正方体的稳定深度轮廓为平面，一次明确反证即可拒绝。
     min_non_spherical_views_to_reject: 1
+    # 比赛提交采用“球面正证据门控”：非球面候选保持未确认即可，不能因
+    # 遮挡产生的一帧深度异常永久封死随后到达的球面正证据。
+    reject_non_spherical_tracks: false
     reject_after_missed_count: 300
     merge_distance_m: 0.5
     single_track_reacquire_distance_m: 1.0
