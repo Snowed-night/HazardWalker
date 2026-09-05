@@ -45,11 +45,13 @@ platform_down() {
 }
 
 build_if_needed() {
-  if [[ -f "$ROOT/install/setup.bash" ]]; then
-    return
+  if [[ ! -f "$ROOT/install/setup.bash" ]]; then
+    env -u COLCON_CURRENT_PREFIX bash -lc \
+      "cd '$ROOT' && source /opt/ros/jazzy/setup.bash && colcon build --symlink-install"
   fi
-  env -u COLCON_CURRENT_PREFIX bash -lc \
-    "cd '$ROOT' && source /opt/ros/jazzy/setup.bash && colcon build --symlink-install"
+  if [[ ! -e "$ROOT/ros2_ws/install" ]]; then
+    ln -s ../install "$ROOT/ros2_ws/install"
+  fi
 }
 
 run_foreground() {
@@ -86,6 +88,7 @@ start_background() {
     printf '稳定导航已经运行，PID=%s\n' "$(cat "$PID_FILE")"
     return
   fi
+  build_if_needed
   platform_up
   nohup "$0" run >"$LOG_FILE" 2>&1 < /dev/null &
   printf '%s\n' "$!" > "$PID_FILE"
