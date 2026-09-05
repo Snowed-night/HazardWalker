@@ -69,8 +69,9 @@ perception:
     max_median_normalized_depth_curvature: 0.30
 
   active_reobservation:
-    # 宽松候选只触发换视角，不进入危险源确认轨迹。
-    emit_partial_candidates: true
+    # 当前赛场红色干扰物只有正方体；严格房间观察点会继续覆盖遮挡区，
+    # 不再让局部红色弧段额外接管导航，避免重复靠近和横移拖慢整楼任务。
+    emit_partial_candidates: false
     # 保留约 5% 可见球面的最小红色弧段；输出仅为 reobserve，不可直接确认。
     partial_min_area_px: 20
     partial_min_circularity: 0.18

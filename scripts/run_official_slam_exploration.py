@@ -241,6 +241,12 @@ def build_launch_command(
             'manual_elevator_assist:=true',
             'automatic_elevator_entry:=true',
         ])
+    if strict_room_inspection:
+        # 正式感知验收必须加载仓库内受版本控制的配置。禁止依赖节点默认值，
+        # 否则配置文件、运行参数和结果清单会互相矛盾。
+        command.append(
+            f'perception_parameter_file:={REPO_ROOT / "config" / "perception.yaml"}'
+        )
     return command
 
 

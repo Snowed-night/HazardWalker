@@ -64,6 +64,8 @@ def test_launch_command_uses_unique_managed_control_and_legal_slam_inputs():
     assert 'start_perception:=true' in strict
     assert 'start_evidence_recorder:=true' in strict
     assert 'perception_output_frame:=world' in strict
+    assert 'perception_parameter_file:=' in strict
+    assert strict.endswith('/config/perception.yaml')
     assert 'official_result_path:=/tmp/nav-run/detected_danger.json' in strict
 
     three_dimensional = ' '.join(MODULE.build_launch_command(

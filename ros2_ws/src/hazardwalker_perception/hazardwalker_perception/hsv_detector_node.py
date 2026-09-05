@@ -125,7 +125,9 @@ class HsvDetectorNode(Node):
         self.declare_parameter(
             'track_position_fusion_mode', 'earliest_view_anchor',
         )
-        self.declare_parameter('emit_partial_candidates', True)
+        # 比赛默认只发布可进行 RGB-D 形状判别的完整候选；局部红色弧段
+        # 由严格房间观察计划从其他算法视点再次覆盖，不额外接管导航。
+        self.declare_parameter('emit_partial_candidates', False)
         # 7 月 5 日真实遮挡帧中约 5% 可见球面只剩约 24--28 px 轮廓面积；
         # 该阈值只产出黄色重观察候选，严格球体确认仍使用更高的 min_area_px。
         self.declare_parameter('partial_min_area_px', 20)

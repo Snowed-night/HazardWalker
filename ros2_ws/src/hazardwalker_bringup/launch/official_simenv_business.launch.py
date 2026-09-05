@@ -526,10 +526,12 @@ def generate_launch_description():
                     'exploration_timeout_s': exploration_timeout_parameter,
                     'mission_time_budget_s': mission_time_budget_parameter,
                     'minimum_return_reserve_s': 120.0,
-                    # 返航途中首次看到边缘红球时，最多执行两次短复查；复查
-                    # 完成后恢复 RETURNING，避免为识别完全牺牲返航分。
-                    'reobserve_during_returning': True,
-                    'reobserve_returning_max_attempts_per_target': 2,
+                    # 赛场红色候选只有球体和正方体，单个稳定 RGB-D 视角即可
+                    # 做球面/平面判别。关闭额外运动复查，避免感知抢占房间
+                    # 覆盖路线或返航；通用多视角代码仍保留供其他场景启用。
+                    'reobserve_during_returning': False,
+                    'reobserve_returning_max_attempts_per_target': 0,
+                    'reobserve_max_attempts_per_target': 0,
                     'min_frontier_size': 10,
                     # 宇树 DWA 遇到不可执行局部目标时保持安全停车；官方
                     # profile 不能等待通用默认 30 秒才换目标，否则浪费整层
@@ -611,8 +613,7 @@ def generate_launch_description():
                     'deterministic_room_hold_heading_during_loop': False,
                     'strict_room_inspection_enabled': (
                         strict_room_inspection_parameter),
-                    # 先完成主走廊和房门进入，再允许候选目标短暂接管运动；
-                    # 房间内仍保留主动重观察与严格逐视角采帧。
+                    # 严格逐视角采帧由房间可见性规划负责；感知本身不再接管运动。
                     'reobserve_only_inside_active_room': True,
                     'deterministic_min_scale_tolerance_m': 1.5,
                     'deterministic_blocked_corner_accept_m': 1.0,

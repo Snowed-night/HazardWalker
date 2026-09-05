@@ -110,8 +110,9 @@ def test_official_returning_reobservation_is_bounded_and_resumes_returning():
         'launch', 'official_simenv_business.launch.py',
     )
     launch = open(launch_path, encoding='utf-8').read()
-    assert "'reobserve_during_returning': True" in launch
-    assert "'reobserve_returning_max_attempts_per_target': 2" in launch
+    assert "'reobserve_during_returning': False" in launch
+    assert "'reobserve_returning_max_attempts_per_target': 0" in launch
+    assert "'reobserve_max_attempts_per_target': 0" in launch
 
 
 def test_official_reobservation_cannot_preempt_corridor_or_door_entry():
