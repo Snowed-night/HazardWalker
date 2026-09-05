@@ -57,11 +57,23 @@ run_foreground() {
   local run_id="stable_three_floor_$(date +%Y%m%d_%H%M%S)"
   local work_output="$ROOT/reports/nav/$run_id"
   local final_output="$RESULT_ROOT/$run_id"
+  local runner_pid=''
+  forward_stop() {
+    [[ -n "$runner_pid" ]] && kill -TERM "$runner_pid" 2>/dev/null || true
+  }
+  trap forward_stop TERM INT
   set +e
   env -u COLCON_CURRENT_PREFIX bash -lc \
-    "cd '$ROOT' && export ROS_DOMAIN_ID=43 ROSBRIDGE_PORT=9091 DOCKER_SIMENV_USER=station_cluster OFFICIAL_SIMENV_ROSBRIDGE_URL=ws://127.0.0.1:9091 && source /opt/ros/jazzy/setup.bash && source install/setup.bash && python3 scripts/run_official_slam_exploration.py --seed '${SEED:-20260728}' --output-dir '$work_output' --wall-timeout-sec 18000 --exploration-timeout-sec 1500 --mission-time-budget-sec 1500 --target-floors 0,1,2 --per-floor-exploration-sec 480 --truth-file '$PLATFORM/results/danger_truth.json'"
+    "cd '$ROOT' && export ROS_DOMAIN_ID=43 ROSBRIDGE_PORT=9091 DOCKER_SIMENV_USER=station_cluster OFFICIAL_SIMENV_ROSBRIDGE_URL=ws://127.0.0.1:9091 && source /opt/ros/jazzy/setup.bash && source install/setup.bash && exec python3 scripts/run_official_slam_exploration.py --seed '${SEED:-20260728}' --output-dir '$work_output' --wall-timeout-sec 18000 --exploration-timeout-sec 1500 --mission-time-budget-sec 1500 --target-floors 0,1,2 --per-floor-exploration-sec 480 --truth-file '$PLATFORM/results/danger_truth.json'" &
+  runner_pid="$!"
+  wait "$runner_pid"
   local rc=$?
+  if kill -0 "$runner_pid" 2>/dev/null; then
+    wait "$runner_pid"
+    rc=$?
+  fi
   set -e
+  trap - TERM INT
   if [[ -d "$work_output" ]]; then
     mv "$work_output" "$final_output"
     printf '结果目录：%s\n' "$final_output"
@@ -86,10 +98,14 @@ stop_all() {
     pid="$(cat "$PID_FILE")"
     if kill -0 "$pid" 2>/dev/null; then
       kill -TERM "$pid"
-      for _ in $(seq 1 30); do
+      for _ in $(seq 1 60); do
         kill -0 "$pid" 2>/dev/null || break
         sleep 1
       done
+      if kill -0 "$pid" 2>/dev/null; then
+        printf '导航监督进程仍在清理，请稍后再次执行 stop。\n' >&2
+        return 1
+      fi
     fi
     rm -f "$PID_FILE"
   fi
