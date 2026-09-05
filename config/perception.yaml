@@ -22,7 +22,9 @@ perception:
     min_confidence: 0.5
 
   localization:
-    use_point_cloud: true
+    # 当前正式链路使用同步 RGB + 深度图 + 合法 SLAM TF 定位；本节点尚未
+    # 实现 PointCloud2 定位输入，必须显式关闭，禁止配置声称启用而实际未用。
+    use_point_cloud: false
     max_detection_range_m: 20.0
     # 球面必须同时具有横向和纵向凸曲率；单轴曲面（圆柱侧面、弧形板）只复查。
     min_sphere_depth_curvature_m: 0.008
