@@ -21,7 +21,15 @@ export OFFICIAL_SIMENV_ENABLE_TRUNK_IMU_RELAY=1
 
 mkdir -p "$STATE_DIR" "$RESULT_ROOT"
 
+restore_runtime_git_state() {
+  git -C "$ROOT" restore --worktree -- \
+    ros2_ws/src/hazardwalker_platform/generated_building \
+    ros2_ws/src/hazardwalker_platform/results/danger_truth.json \
+    2>/dev/null || true
+}
+
 platform_up() {
+  restore_runtime_git_state
   cd "$PLATFORM"
   SEED="${SEED:-20260728}" \
   ENABLE_LIDAR=true \
@@ -42,6 +50,7 @@ platform_down() {
   ./auto_docker.sh first_person down || true
   ./auto_docker.sh gui down || true
   ./auto_docker.sh down
+  restore_runtime_git_state
 }
 
 build_if_needed() {
@@ -80,6 +89,7 @@ run_foreground() {
     mv "$work_output" "$final_output"
     printf '结果目录：%s\n' "$final_output"
   fi
+  restore_runtime_git_state
   return "$rc"
 }
 
