@@ -146,6 +146,23 @@ class AnchoredInspectionGoalProjector:
     def clear(self) -> None:
         self._goals.clear()
 
+    def prime(
+            self,
+            goals: Sequence[InspectionGoal],
+            source_robot_pose: Sequence[float],
+            target_robot_pose: Sequence[float],
+    ) -> None:
+        """用同一同步锚点一次冻结整组观察目标的物理坐标。"""
+
+        for goal in goals:
+            self.resolve(
+                goal.goal_id,
+                (goal.x_m, goal.y_m),
+                goal.face_yaw_rad,
+                source_robot_pose,
+                target_robot_pose,
+            )
+
     def resolve(
             self,
             goal_id: str,

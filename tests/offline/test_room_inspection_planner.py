@@ -49,6 +49,31 @@ def test_physical_goal_is_frozen_while_slam_pose_changes():
     assert next_goal != first
 
 
+def test_entire_room_plan_is_frozen_from_one_synchronized_anchor():
+    projector = AnchoredInspectionGoalProjector()
+    goals = (
+        InspectionGoal('view-1', 'room', 0, 5.0, 1.0, 0.0, tuple()),
+        InspectionGoal('view-2', 'room', 1, 7.0, 2.0, 0.5, tuple()),
+    )
+    projector.prime(
+        goals,
+        source_robot_pose=(4.0, 1.0, 0.0),
+        target_robot_pose=(10.0, 20.0, 0.0),
+    )
+
+    first = projector.resolve(
+        'view-1', (5.0, 1.0), 0.0,
+        (40.0, -10.0, 1.5), (-5.0, 3.0, -1.0),
+    )
+    second = projector.resolve(
+        'view-2', (7.0, 2.0), 0.5,
+        (40.0, -10.0, 1.5), (-5.0, 3.0, -1.0),
+    )
+
+    assert first == pytest.approx((11.0, 20.0, 0.0))
+    assert second == pytest.approx((13.0, 21.0, 0.5))
+
+
 def test_goal_progress_watchdog_ignores_motion_without_distance_gain():
     watchdog = GoalDistanceProgressWatchdog(minimum_improvement_m=0.12)
     watchdog.reset(10.0, 3.0)

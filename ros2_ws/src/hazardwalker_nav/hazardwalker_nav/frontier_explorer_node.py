@@ -2356,6 +2356,19 @@ class FrontierExplorerNode(Node):
                 f'Strict room inspection plan failed for {sector}: '
                 f'{details}. Room will not be counted complete.')
             return False
+        if (bool(self.get_parameter(
+                'use_official_odom_for_room_control').value)
+                and self._has_fresh_official_control_odom()):
+            # 整组 map 观察点必须在计划生成时使用同一同步锚点一次性转换到
+            # 物理控制坐标。若等到逐点执行才转换，后续 SLAM 回环/漂移会把
+            # 同一房间的物理路线撕裂到走廊甚至大厅。
+            official_x, official_y, official_yaw, _stamp = (
+                self._official_control_odom)
+            self._room_inspection_goal_projector.prime(
+                plan.goals,
+                (self.robot_x, self.robot_y, self.robot_yaw),
+                (official_x, official_y, official_yaw),
+            )
         self.get_logger().info(
             f'Strict room inspection plan ready for {sector}: '
             f'obstacles={plan.obstacle_count}, goals={len(plan.goals)}, '
