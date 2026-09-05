@@ -179,6 +179,37 @@ def test_depth_shape_accepts_spherical_curvature():
     assert evidence.curvature_m is not None and evidence.curvature_m > 0.02
 
 
+def test_depth_shape_ignores_one_gross_negative_edge_axis_for_sphere():
+    """球体一个对角扇区采到近处遮挡边缘时，另外三轴仍可给出球面正证据。"""
+    depth_image = [[0.0 for _x in range(41)] for _y in range(41)]
+    for y in range(5, 36):
+        for x in range(5, 36):
+            dx = (x - 20) / 15.5
+            dy = (y - 20) / 15.5
+            radial = math.sqrt(dx * dx + dy * dy)
+            if radial <= 0.90:
+                depth = 2.00 + 0.08 * radial * radial
+                # 只污染正对角方向的外环，模拟障碍边缘落入窄扇区。
+                if (0.60 <= radial <= 0.88
+                        and abs(dy - dx) <= 0.28 * radial):
+                    depth = 0.80
+                depth_image[y][x] = depth
+
+    evidence = evaluate_sphere_depth_shape(
+        depth_image, {'x_min': 5, 'y_min': 5, 'x_max': 35, 'y_max': 35},
+        min_points_per_region=8, min_curvature_m=0.008,
+        min_axis_points=4, min_axis_curvature_ratio=0.35,
+    )
+
+    assert evidence.status == 'spherical'
+    assert evidence.diagonal_positive_curvature_m is not None
+    assert evidence.diagonal_positive_curvature_m < -0.5
+    assert evidence.horizontal_curvature_m is not None
+    assert evidence.horizontal_curvature_m > 0.02
+    assert evidence.vertical_curvature_m is not None
+    assert evidence.vertical_curvature_m > 0.02
+
+
 """验证红色圆柱端面等近似平面会被明确抑制，而非作为已确认红球。"""
 def test_depth_shape_marks_flat_surface_as_non_spherical():
     depth_image = [[2.0 for _x in range(41)] for _y in range(41)]

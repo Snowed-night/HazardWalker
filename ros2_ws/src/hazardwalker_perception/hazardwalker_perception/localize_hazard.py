@@ -280,7 +280,9 @@ def evaluate_sphere_depth_shape(depth_image, bbox, max_depth_m=20.0,
 
     1. 中心和外环近似等深时为 ``flat``；
     2. 外环有凸曲率、但四个采样方向中存在近似平坦方向时为 ``anisotropic``；
-    3. 四个方向均有曲率且比例足够接近时才为 ``spherical``；
+    3. 四个方向均有曲率且比例足够接近时为 ``spherical``；若恰有一个方向
+       出现远大于球体曲率的负跳变，视为该窄扇区采到前景/背景边缘，只用
+       其余三个方向做鲁棒判定；
     4. 遮挡、过小目标或轴向采样不足时为 ``unknown``，只触发主动复查。
 
     这比单一中心—外环差更能抑制圆柱侧面、弧形板和条状曲面误报，同时对
@@ -374,13 +376,30 @@ def evaluate_sphere_depth_shape(depth_image, bbox, max_depth_m=20.0,
     )
     horizontal_curvature, vertical_curvature = directional_curvatures[:2]
     diagonal_positive_curvature, diagonal_negative_curvature = directional_curvatures[2:]
-    maximum_axis_curvature = max(directional_curvatures)
+    # 单个对角窄扇区可能跨过遮挡边缘，外环中位深度会突然比球心近很多；
+    # 这不是“平坦轴”，而是与另外三个方向量级完全不同的深度污染。
+    # 仅允许剔除一个显著负跳变。圆柱的平坦轴接近 0 而不是巨大负值，仍会
+    # 留在判定集合里并被 anisotropic 门槛拒绝。
+    gross_negative_limit = -max(0.05, abs(curvature) * 4.0)
+    corrupted_indices = [
+        index for index, value in enumerate(directional_curvatures)
+        if value < gross_negative_limit
+    ]
+    usable_curvatures = directional_curvatures
+    if len(corrupted_indices) == 1:
+        corrupted_index = corrupted_indices[0]
+        usable_curvatures = tuple(
+            value for index, value in enumerate(directional_curvatures)
+            if index != corrupted_index
+        )
+    maximum_axis_curvature = max(usable_curvatures)
     isotropy_ratio = (
-        max(0.0, min(directional_curvatures))
+        max(0.0, min(usable_curvatures))
         / max(maximum_axis_curvature, 1e-9)
     )
     axis_is_spherical = (
-        min(directional_curvatures) >= float(min_curvature_m)
+        len(usable_curvatures) >= 3
+        and min(usable_curvatures) >= float(min_curvature_m)
         and isotropy_ratio >= float(min_axis_curvature_ratio)
     )
     status = 'spherical' if axis_is_spherical else 'anisotropic'
