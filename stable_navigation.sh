@@ -153,9 +153,8 @@ case "${1:-}" in
   status) show_status ;;
   stop) stop_all ;;
   gui) cd "$PLATFORM" && ./auto_docker.sh gui up ;;
-  first-person) cd "$PLATFORM" && ./auto_docker.sh first_person up ;;
   *)
-    printf '用法：%s {start|status|stop|gui|first-person}\n' "$0"
+    printf '用法：%s {start|status|stop|gui}\n' "$0"
     exit 2
     ;;
 esac
