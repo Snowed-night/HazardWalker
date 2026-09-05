@@ -50,16 +50,18 @@ def test_continue_or_unknown_action_never_interrupts_exploration():
     }) is None
 
 
-def test_strict_room_reobservation_only_runs_at_algorithmic_capture_pose():
+def test_strict_room_reobservation_runs_only_during_stable_inspection():
     assert strict_room_reobservation_allowed(False, 'corridor_outbound', '')
     assert strict_room_reobservation_allowed(
         True, 'room_inspection', 'CAPTURE', camera_stable=True)
     assert not strict_room_reobservation_allowed(
         True, 'room_inspection', 'CAPTURE', camera_stable=False)
+    assert strict_room_reobservation_allowed(
+        True, 'room_inspection', 'MOVE', camera_stable=True)
+    assert strict_room_reobservation_allowed(
+        True, 'room_inspection', 'ORIENT', camera_stable=True)
     assert not strict_room_reobservation_allowed(
-        True, 'room_inspection', 'MOVE')
-    assert not strict_room_reobservation_allowed(
-        True, 'room_inspection', 'ORIENT')
+        True, 'room_inspection', 'MOVE', camera_stable=False)
     assert not strict_room_reobservation_allowed(
         True, 'room_cross', 'CAPTURE')
     assert parse_reobservation_request({
