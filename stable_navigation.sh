@@ -2,6 +2,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_PATH="$ROOT/stable_navigation.sh"
 PLATFORM="$ROOT/ros2_ws/src/hazardwalker_platform"
 STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/hazardwalker-stable"
 PID_FILE="$STATE_DIR/navigation.pid"
@@ -47,7 +48,9 @@ platform_up() {
 
 platform_down() {
   cd "$PLATFORM"
-  ./auto_docker.sh first_person down || true
+  if [[ -x "$PLATFORM/docker/first_person_client.sh" ]]; then
+    ./auto_docker.sh first_person down || true
+  fi
   ./auto_docker.sh gui down || true
   ./auto_docker.sh down
   restore_runtime_git_state
@@ -100,7 +103,7 @@ start_background() {
   fi
   build_if_needed
   platform_up
-  nohup "$0" run >"$LOG_FILE" 2>&1 < /dev/null &
+  nohup "$SCRIPT_PATH" run >"$LOG_FILE" 2>&1 < /dev/null &
   printf '%s\n' "$!" > "$PID_FILE"
   printf '稳定三层导航已启动，PID=%s，日志=%s\n' "$!" "$LOG_FILE"
 }
