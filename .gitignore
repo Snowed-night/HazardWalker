@@ -275,3 +275,4 @@ scripts/deploy_audit_layer2.sh
 /reports/nav/stable_three_floor_*/
 /ros2_ws/src/hazardwalker_platform/.ros1_catkin_ws/
 /ros2_ws/src/hazardwalker_platform/logs/
+/ros2_ws/install
