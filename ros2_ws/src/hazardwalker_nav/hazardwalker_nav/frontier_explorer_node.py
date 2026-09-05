@@ -109,6 +109,7 @@ from hazardwalker_nav.room_inspection_planner import (
     RoomInspectionExecution,
     bounded_inspection_turn_rate,
     build_room_visibility_inspection_plan,
+    inspection_goal_visibility_preserved,
     physical_pose_has_progressed,
     reproject_planar_pose_between_robot_frames,
 )
@@ -1991,6 +1992,32 @@ class FrontierExplorerNode(Node):
             goal = execution.current_goal if execution is not None else None
             if goal is None:
                 return False
+            if (progress_timed_out
+                    and self._has_fresh_official_control_odom()
+                    and inspection_goal_visibility_preserved(
+                        self.grid,
+                        self.latest_map,
+                        goal,
+                        (self.robot_x, self.robot_y),
+                        math.radians(float(self.get_parameter(
+                            'strict_room_camera_fov_deg').value)),
+                        float(self.get_parameter(
+                            'strict_room_camera_range_m').value),
+                    )):
+                official_x, official_y, official_yaw, _stamp = (
+                    self._official_control_odom)
+                self._room_inspection_goal_projector.reanchor(
+                    goal.goal_id,
+                    (self.robot_x, self.robot_y),
+                    goal.face_yaw_rad,
+                    (self.robot_x, self.robot_y, self.robot_yaw),
+                    (official_x, official_y, official_yaw),
+                )
+                self.get_logger().warning(
+                    'Inspection ideal coordinate is locally unreachable; '
+                    'current pose preserves its planned visibility gain and '
+                    f'will be used instead: {goal.goal_id}.')
+                return self._complete_current_deterministic_waypoint()
             # 房内地图在前几个观察点持续更新，初始 A* 路径可能已过时。
             # 停滞时从当前合法 SLAM 位姿对同一观察目标重算最短路；目标和
             # 采帧要求保持不变，不缩点、不跳过，也不写入场景坐标。

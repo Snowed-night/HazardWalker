@@ -22,6 +22,8 @@ from hazardwalker_nav.room_inspection_planner import (  # noqa: E402
     bounded_inspection_turn_rate,
     build_room_visibility_inspection_plan,
     build_strict_room_inspection_plan,
+    inspection_goal_visibility_preserved,
+    InspectionGoal,
     physical_pose_has_progressed,
     reproject_planar_pose_between_robot_frames,
     visibility_coverage_requirement_met,
@@ -57,6 +59,28 @@ def test_goal_progress_watchdog_ignores_motion_without_distance_gain():
 
     assert watchdog.observe(2.80, 41.0)
     assert not watchdog.timed_out(60.0, 30.0)
+
+
+def test_reachable_nearby_pose_can_replace_ideal_only_with_same_visibility():
+    grid = np.zeros((24, 24), dtype=np.int16)
+    msg = _grid_message(grid, resolution=0.5)
+    goal = InspectionGoal(
+        goal_id='view-1',
+        obstacle_id='room_visibility',
+        direction_bucket=0,
+        x_m=4.0,
+        y_m=4.0,
+        face_yaw_rad=0.0,
+        path=((4.0, 4.0),),
+        required_visible_world_points=((6.0, 4.0), (7.0, 4.0)),
+    )
+
+    assert inspection_goal_visibility_preserved(
+        grid, msg, goal, (3.5, 4.0), math.radians(87.0), 10.0)
+    grid[8, 10] = OCCUPIED_THRESHOLD
+    assert not inspection_goal_visibility_preserved(
+        grid, msg, goal, (3.5, 4.0), math.radians(87.0), 10.0,
+        quantization_tolerance_cells=0)
 
 
 def test_physical_progress_accepts_detour_translation_or_in_place_rotation():

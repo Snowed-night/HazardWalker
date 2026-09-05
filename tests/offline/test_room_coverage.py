@@ -66,6 +66,9 @@ def test_open_room_reaches_requested_visibility_without_building_coordinates():
     assert plan.coverage_ratio >= 0.92
     assert 1 <= len(plan.observation_poses) <= 12
     assert all(pose.newly_visible_cells > 0 for pose in plan.observation_poses)
+    assert all(
+        len(pose.newly_visible_world_points) == pose.newly_visible_cells
+        for pose in plan.observation_poses)
 
 
 def test_central_obstacle_requires_observations_from_multiple_sides():

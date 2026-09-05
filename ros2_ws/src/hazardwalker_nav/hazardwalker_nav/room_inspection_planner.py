@@ -17,6 +17,7 @@ from hazardwalker_nav.frontier_detector import a_star_path
 from hazardwalker_nav.room_coverage import (
     GridFrame,
     plan_room_visibility_coverage,
+    visible_room_cells,
 )
 from hazardwalker_nav.room_obstacle_profiler import (
     ObstacleCluster,
@@ -38,6 +39,7 @@ class InspectionGoal:
     y_m: float
     face_yaw_rad: float
     path: Tuple[Tuple[float, float], ...]
+    required_visible_world_points: Tuple[Tuple[float, float], ...] = tuple()
 
 
 @dataclass(frozen=True)
@@ -163,6 +165,68 @@ class AnchoredInspectionGoalProjector:
                 target_robot_pose,
             )
         return self._goals[key]
+
+    def reanchor(
+            self,
+            goal_id: str,
+            point: Sequence[float],
+            heading_rad: float,
+            source_robot_pose: Sequence[float],
+            target_robot_pose: Sequence[float],
+    ) -> Tuple[float, float, float]:
+        """用已验证的替代观察位覆盖同一目标的物理锚点。"""
+
+        key = str(goal_id).strip()
+        if not key:
+            raise ValueError('goal_id 不能为空')
+        self._goals[key] = reproject_planar_pose_between_robot_frames(
+            point,
+            heading_rad,
+            source_robot_pose,
+            target_robot_pose,
+        )
+        return self._goals[key]
+
+
+def inspection_goal_visibility_preserved(
+        occupancy_grid: np.ndarray,
+        grid_msg,
+        goal: InspectionGoal,
+        observer_world: Sequence[float],
+        camera_fov_rad: float,
+        camera_range_m: float,
+        quantization_tolerance_cells: int = 1,
+) -> bool:
+    """判断当前位置能否替代理想坐标而不损失该观察点的新增视线覆盖。"""
+
+    required_world = tuple(goal.required_visible_world_points)
+    if not required_world:
+        return False
+    grid = np.asarray(occupancy_grid)
+    if grid.ndim != 2:
+        return False
+    frame = GridFrame(
+        resolution_m=float(grid_msg.info.resolution),
+        origin_x_m=float(grid_msg.info.origin.position.x),
+        origin_y_m=float(grid_msg.info.origin.position.y),
+    )
+    target_cells = tuple(frame.world_to_grid(point) for point in required_world)
+    visible = visible_room_cells(
+        grid,
+        np.ones_like(grid, dtype=bool),
+        frame,
+        frame.world_to_grid(observer_world),
+        goal.face_yaw_rad,
+        target_cells,
+        float(camera_fov_rad),
+        float(camera_range_m),
+    )
+    return visibility_coverage_requirement_met(
+        len(visible),
+        len(set(target_cells)),
+        1.0,
+        quantization_tolerance_cells=quantization_tolerance_cells,
+    )
 
 
 class GoalDistanceProgressWatchdog:
@@ -721,6 +785,10 @@ def build_room_visibility_inspection_plan(
             y_m=float(pose.y_m),
             face_yaw_rad=float(pose.yaw_rad),
             path=tuple((float(x), float(y)) for x, y in path),
+            required_visible_world_points=tuple(
+                (float(x), float(y))
+                for x, y in pose.newly_visible_world_points
+            ),
         ))
         current_x, current_y = float(pose.x_m), float(pose.y_m)
 

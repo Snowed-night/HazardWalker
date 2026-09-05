@@ -57,6 +57,7 @@ class ObservationPose:
     y_m: float
     yaw_rad: float
     newly_visible_cells: int
+    newly_visible_world_points: Tuple[Tuple[float, float], ...] = tuple()
 
 
 @dataclass(frozen=True)
@@ -413,6 +414,10 @@ def plan_room_visibility_coverage(
             y_m=world_y,
             yaw_rad=float(heading),
             newly_visible_cells=len(gain_cells),
+            newly_visible_world_points=tuple(
+                frame.grid_to_world(cell)
+                for cell in sorted(gain_cells)
+            ),
         ))
         uncovered.difference_update(gain_cells)
         used_candidates.add(candidate)
