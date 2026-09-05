@@ -165,6 +165,49 @@ class AnchoredInspectionGoalProjector:
         return self._goals[key]
 
 
+class GoalDistanceProgressWatchdog:
+    """按目标净距离而不是“身体是否在动”判断长期无进展。"""
+
+    def __init__(self, minimum_improvement_m: float = 0.12):
+        self.minimum_improvement_m = max(
+            0.0, float(minimum_improvement_m))
+        self.best_distance_m = None
+        self.last_progress_sec = None
+
+    def reset(self, now_sec: float, distance_m=None) -> None:
+        now = float(now_sec)
+        distance = None if distance_m is None else float(distance_m)
+        if not math.isfinite(now) or (
+                distance is not None and not math.isfinite(distance)):
+            raise ValueError('进展监视器输入必须为有限数')
+        self.best_distance_m = distance
+        self.last_progress_sec = now
+
+    def observe(self, distance_m: float, now_sec: float) -> bool:
+        distance = float(distance_m)
+        now = float(now_sec)
+        if not math.isfinite(distance) or not math.isfinite(now):
+            raise ValueError('进展监视器输入必须为有限数')
+        progressed = (
+            self.best_distance_m is None
+            or distance <= self.best_distance_m - self.minimum_improvement_m
+        )
+        if progressed:
+            self.best_distance_m = distance
+            self.last_progress_sec = now
+        return progressed
+
+    def timed_out(self, now_sec: float, timeout_sec: float) -> bool:
+        now = float(now_sec)
+        timeout = max(0.0, float(timeout_sec))
+        if not math.isfinite(now) or not math.isfinite(timeout):
+            raise ValueError('进展监视器输入必须为有限数')
+        return (
+            self.last_progress_sec is not None
+            and now - self.last_progress_sec >= timeout
+        )
+
+
 def bounded_inspection_turn_rate(
         heading_error_rad: float,
         tolerance_rad: float,

@@ -104,6 +104,7 @@ from hazardwalker_nav.elevator_controller import (
 from hazardwalker_nav.nav_recorder import NavRecorder
 from hazardwalker_nav.room_inspection_planner import (
     AnchoredInspectionGoalProjector,
+    GoalDistanceProgressWatchdog,
     RoomInspectionExecution,
     bounded_inspection_turn_rate,
     build_room_visibility_inspection_plan,
@@ -317,6 +318,9 @@ class FrontierExplorerNode(Node):
         self.declare_parameter('deterministic_room_loop_corner_radius_m', 0.35)
         self.declare_parameter('deterministic_waypoint_stall_s', 30.0)
         self.declare_parameter('official_room_waypoint_stall_s', 8.0)
+        # 局部绕障可暂时远离目标，但持续运动不能无限掩盖无效徘徊。该超时只
+        # 触发对同一算法观察位重算路径，不跳点、不缩小覆盖范围。
+        self.declare_parameter('strict_room_goal_progress_timeout_s', 30.0)
         self.declare_parameter('deterministic_room_min_physical_path_m', 4.0)
         self.declare_parameter('deterministic_room_min_loop_area_m2', 0.8)
         self.declare_parameter(
@@ -639,6 +643,8 @@ class FrontierExplorerNode(Node):
             RoomInspectionExecution] = None
         self._room_inspection_goal_projector = (
             AnchoredInspectionGoalProjector())
+        self._room_inspection_goal_progress = (
+            GoalDistanceProgressWatchdog())
         self._room_inspection_request_goal_id = ''
         self._room_inspection_result_goal_id = ''
         self._room_inspection_capture_started_ros: Optional[float] = None
@@ -1873,6 +1879,8 @@ class FrontierExplorerNode(Node):
             and self._has_fresh_official_control_odom()
             else None
         )
+        if label.startswith('room_inspect_move:'):
+            self._room_inspection_goal_progress.reset(now_ros)
         self.get_logger().info(
             f'Deterministic waypoint: {label} -> '
             f'({resolved_goal[0]:.2f}, {resolved_goal[1]:.2f}), '
@@ -1912,6 +1920,8 @@ class FrontierExplorerNode(Node):
             label.startswith('room_inspect_move:')
             and official_goal is not None)
         if inspection_motion_evidence:
+            distance_progressed = self._room_inspection_goal_progress.observe(
+                distance, now_ros)
             current_motion_pose = (
                 official_x, official_y, self._official_control_odom[2])
             anchor = self._deterministic_waypoint_motion_anchor_official
@@ -1921,12 +1931,19 @@ class FrontierExplorerNode(Node):
                 yaw_threshold_rad=0.20,
             )
             if moved:
-                # 房内绕障允许先远离目标；只要物理位置或朝向产生净进展，
-                # 就不能用直线目标距离误判为停滞并打断 DWA 正常轨迹。
+                # 短时绕障允许先远离目标，因此身体运动仍重置局部“完全卡住”
+                # 计时；但只有目标距离真实下降才重置独立净进展监视器。
                 self._deterministic_waypoint_motion_anchor_official = (
                     current_motion_pose)
-                self._deterministic_waypoint_best_distance = distance
                 self._deterministic_waypoint_started_ros = now_ros
+            progress_timed_out = self._room_inspection_goal_progress.timed_out(
+                now_ros,
+                float(self.get_parameter(
+                    'strict_room_goal_progress_timeout_s').value),
+            )
+            if distance_progressed:
+                self._deterministic_waypoint_best_distance = distance
+            if (moved or distance_progressed) and not progress_timed_out:
                 return False
         elif (self._deterministic_waypoint_best_distance is None
               or distance
@@ -1977,6 +1994,7 @@ class FrontierExplorerNode(Node):
                 # 周期重复失败。
                 self._deterministic_waypoint_started_ros = now_ros
                 self._deterministic_waypoint_best_distance = distance
+                self._room_inspection_goal_progress.reset(now_ros, distance)
                 if self._has_fresh_official_control_odom():
                     self._deterministic_waypoint_motion_anchor_official = (
                         self._official_control_odom[:3])
@@ -1989,6 +2007,7 @@ class FrontierExplorerNode(Node):
             self.path_index = 0
             self._deterministic_waypoint_started_ros = now_ros
             self._deterministic_waypoint_best_distance = distance
+            self._room_inspection_goal_progress.reset(now_ros, distance)
             if self._has_fresh_official_control_odom():
                 self._deterministic_waypoint_motion_anchor_official = (
                     self._official_control_odom[:3])

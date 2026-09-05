@@ -332,4 +332,7 @@ def test_official_corridor_completion_uses_the_same_control_frame_as_motion():
     assert 'path; keeping target pending' in stall_recovery
     assert '_deterministic_waypoint_motion_anchor_official' in stall_recovery
     assert 'physical_pose_has_progressed(' in stall_recovery
+    assert 'GoalDistanceProgressWatchdog' in source
+    assert "'strict_room_goal_progress_timeout_s', 30.0" in source
+    assert 'progress_timed_out' in stall_recovery
     assert "'strict_room_path_inflation_radius_m'" in stall_recovery

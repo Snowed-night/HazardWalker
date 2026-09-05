@@ -16,6 +16,7 @@ if str(NAV_SRC) not in sys.path:
 
 from hazardwalker_nav.room_inspection_planner import (  # noqa: E402
     AnchoredInspectionGoalProjector,
+    GoalDistanceProgressWatchdog,
     InspectionProgress,
     RoomInspectionExecution,
     bounded_inspection_turn_rate,
@@ -44,6 +45,18 @@ def test_physical_goal_is_frozen_while_slam_pose_changes():
 
     assert first == drifted
     assert next_goal != first
+
+
+def test_goal_progress_watchdog_ignores_motion_without_distance_gain():
+    watchdog = GoalDistanceProgressWatchdog(minimum_improvement_m=0.12)
+    watchdog.reset(10.0, 3.0)
+
+    assert not watchdog.observe(3.4, 15.0)
+    assert not watchdog.observe(2.93, 20.0)
+    assert watchdog.timed_out(40.0, 30.0)
+
+    assert watchdog.observe(2.80, 41.0)
+    assert not watchdog.timed_out(60.0, 30.0)
 
 
 def test_physical_progress_accepts_detour_translation_or_in_place_rotation():
