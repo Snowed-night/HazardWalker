@@ -335,7 +335,10 @@ class FrontierExplorerNode(Node):
         self.declare_parameter('strict_room_wall_margin_m', 0.90)
         self.declare_parameter('strict_room_seed_offset_m', 0.50)
         self.declare_parameter('strict_room_door_width_m', 1.80)
-        self.declare_parameter('strict_room_path_inflation_radius_m', 0.25)
+        # ROS1 move_base 当前 A1 footprint 的最大半径约 0.59 m。房间观察点
+        # 候选和 A* 必须使用同一保守净空，否则栅格规划会选择 DWA 无法让
+        # 真实机体到达的家具夹缝，表现为在最后一个观察点长期绕行。
+        self.declare_parameter('strict_room_path_inflation_radius_m', 0.60)
         self.declare_parameter('strict_room_camera_fov_deg', 87.0)
         self.declare_parameter('strict_room_camera_range_m', 10.0)
         self.declare_parameter('strict_room_target_spacing_m', 0.50)
@@ -2305,6 +2308,8 @@ class FrontierExplorerNode(Node):
                 'strict_room_seed_offset_m').value),
             minimum_room_free_cells=int(self.get_parameter(
                 'strict_room_min_free_cells').value),
+            robot_clearance_m=float(self.get_parameter(
+                'strict_room_path_inflation_radius_m').value),
             minimum_obstacle_area_m2=float(self.get_parameter(
                 'strict_room_min_obstacle_area_m2').value),
             wall_margin_m=float(self.get_parameter(

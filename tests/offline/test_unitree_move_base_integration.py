@@ -334,6 +334,8 @@ def test_official_corridor_completion_uses_the_same_control_frame_as_motion():
     assert 'physical_pose_has_progressed(' in stall_recovery
     assert 'GoalDistanceProgressWatchdog' in source
     assert "'strict_room_goal_progress_timeout_s', 30.0" in source
+    assert "'strict_room_path_inflation_radius_m', 0.60" in source
+    assert 'robot_clearance_m=float(self.get_parameter(' in source
     assert 'progress_timed_out' in stall_recovery
     assert 'if (not progress_timed_out' in stall_recovery
     assert 'inspection_goal_visibility_preserved(' in stall_recovery
