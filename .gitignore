@@ -267,3 +267,6 @@ docs/远程桌面使用指南.md
 scripts/deploy_grd_remote_login.sh
 scripts/deploy_sftp_audit_layer1.sh
 scripts/deploy_audit_layer2.sh
+
+# Official SimEnv bounded runtime logs
+/ros2_ws/src/hazardwalker_platform/logs/
