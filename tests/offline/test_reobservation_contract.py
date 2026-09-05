@@ -18,6 +18,7 @@ from hazardwalker_nav.reobservation_contract import (
     parse_reobservation_request,
     reobservation_actions_conflict,
     reobservation_request_is_eligible,
+    select_followup_reobservation_request,
     select_live_reobservation_update,
     strict_room_reobservation_allowed,
     target_centered_in_image,
@@ -463,6 +464,23 @@ def test_live_recommendation_cannot_switch_target_or_repeat_action():
     ) is None
 
 
+def test_followup_request_allows_same_action_only_for_same_target_alias():
+    payload = {
+        'view_recommendation': {
+            'action': 'move_left',
+            'target_id': '1',
+        },
+        'detections_2d': [{
+            'track_id': '1',
+            'candidate_aliases': ['candidate-10'],
+        }],
+    }
+    assert select_followup_reobservation_request(
+        payload, 'candidate-10')['action'] == 'move_left'
+    assert select_followup_reobservation_request(
+        payload, 'unrelated-track') is None
+
+
 def test_invalid_or_continue_live_recommendation_never_changes_action():
     for action in ('teleport', 'continue_exploring'):
         assert select_live_reobservation_update(
@@ -505,6 +523,9 @@ def test_reobservation_uses_sim_time_and_has_feedback_bounded_lateral_motion():
     assert 'target_centered_in_image(' in source
     assert 'reobservation_actions_conflict(' in source
     assert 'select_live_reobservation_update(' in source
+    assert 'select_followup_reobservation_request(' in source
+    assert 'starting the next bounded segment for the same target' in source
+    assert 'resume_state=resume_state' in source
     assert 'Reobservation action updated for target=' in source
     assert 'self.reobserve_end_time =' not in source.split(
         'def _update_active_reobservation_action', 1,

@@ -87,6 +87,7 @@ from hazardwalker_nav.reobservation_contract import (
     parse_reobservation_request,
     reobservation_actions_conflict,
     reobservation_request_is_eligible,
+    select_followup_reobservation_request,
     select_live_reobservation_update,
     strict_room_reobservation_allowed,
     target_centered_in_image,
@@ -695,6 +696,7 @@ class FrontierExplorerNode(Node):
         self._reobserve_target_center_error_ratio: Optional[float] = None
         self._reobserve_last_target_seen_ros: Optional[float] = None
         self._reobserve_allow_untracked_upgrade = False
+        self._reobserve_followup_request: Optional[dict] = None
         self._reobserve_attempts: dict = {}
         self._reobserve_resume_state: str = 'EXPLORING'
 
@@ -1138,13 +1140,15 @@ class FrontierExplorerNode(Node):
         self.get_logger().info(response.message)
         return response
 
-    def _trigger_reobservation(self, request: dict):
+    def _trigger_reobservation(
+            self, request: dict, resume_state: Optional[str] = None):
         """执行感知侧已经判定的明确复查动作。"""
 
         now = self._ros_time_sec()
         self._reobserve_resume_state = (
-            'RETURNING' if self.state == 'RETURNING' else 'EXPLORING'
-        )
+            str(resume_state)
+            if resume_state is not None
+            else 'RETURNING' if self.state == 'RETURNING' else 'EXPLORING')
         action = str(request['action'])
         motion_duration = self._reobservation_motion_duration(action)
         maximum_motion_duration = max(
@@ -1178,6 +1182,7 @@ class FrontierExplorerNode(Node):
         self._reobserve_allow_untracked_upgrade = bool(
             request.get('target_was_untracked', False)
         )
+        self._reobserve_followup_request = None
         self._reobserve_attempts[self.reobserve_target_id] = (
             int(self._reobserve_attempts.get(self.reobserve_target_id, 0)) + 1
         )
@@ -1208,7 +1213,12 @@ class FrontierExplorerNode(Node):
             self.get_logger().info(
                 f'Reobservation target {self.reobserve_target_id} resolved: {status}.'
             )
+            self._reobserve_followup_request = None
             return
+        followup_request = select_followup_reobservation_request(
+            payload, self.reobserve_target_id)
+        if followup_request is not None:
+            self._reobserve_followup_request = followup_request
         if self._reobserve_motion_stop_latched:
             return
         detection = find_target_detection(
@@ -1240,6 +1250,14 @@ class FrontierExplorerNode(Node):
                 and not detection_track_id.startswith('untracked:')):
             # 首帧未跟踪候选一旦升级为正式轨迹，后续只能消费精确 track_id。
             self._reobserve_allow_untracked_upgrade = False
+            if detection_track_id != self.reobserve_target_id:
+                attempts = max(
+                    int(self._reobserve_attempts.get(
+                        self.reobserve_target_id, 0)),
+                    int(self._reobserve_attempts.get(detection_track_id, 0)),
+                )
+                self._reobserve_attempts[detection_track_id] = attempts
+                self.reobserve_target_id = detection_track_id
 
         live_request = select_live_reobservation_update(
             payload, self.reobserve_target_id, self.reobserve_action,
@@ -3167,6 +3185,25 @@ class FrontierExplorerNode(Node):
                     else None  # bearing_change recorded live by _update_reobservation_feedback
                 ),
             )
+            followup_request = self._reobserve_followup_request
+            maximum_attempts = (
+                self.get_parameter(
+                    'reobserve_returning_max_attempts_per_target').value
+                if resume_state == 'RETURNING'
+                else self.get_parameter(
+                    'reobserve_max_attempts_per_target').value)
+            if reobservation_request_is_eligible(
+                    followup_request,
+                    resume_state,
+                    self._reobserve_attempts,
+                    maximum_attempts,
+                    allow_returning=(resume_state == 'RETURNING')):
+                self.get_logger().info(
+                    'Reobservation still lacks independent view evidence; '
+                    'starting the next bounded segment for the same target.')
+                self._trigger_reobservation(
+                    followup_request, resume_state=resume_state)
+                return cmd
             self.reobserve_action = None
             self.reobserve_target_id = ''
             self.reobserve_baseline_bearing_deg = None
@@ -3177,6 +3214,7 @@ class FrontierExplorerNode(Node):
             self._reobserve_target_center_error_ratio = None
             self._reobserve_last_target_seen_ros = None
             self._reobserve_allow_untracked_upgrade = False
+            self._reobserve_followup_request = None
             # 强制重规划
             self.current_target = None
             self.current_path = []

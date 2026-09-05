@@ -340,6 +340,24 @@ def select_live_reobservation_update(
     return request
 
 
+def select_followup_reobservation_request(payload, active_target_id):
+    """选择同一轨迹在稳定观察后的下一段复查请求。
+
+    与实时动作更新不同，这里允许动作保持不变，因为远目标可能需要多个受限
+    侧移段才能达到球体确认所需的视差；目标不一致且没有显式候选别名关联时
+    仍然拒绝，防止另一个红色物体劫持当前复查预算。
+    """
+
+    request = parse_reobservation_request(payload)
+    if request is None:
+        return None
+    if (_same_target_id(request.get('target_id'), active_target_id)
+            or _payload_links_target_aliases(
+                payload, request.get('target_id'), active_target_id)):
+        return request
+    return None
+
+
 def _payload_links_target_aliases(payload, left_target_id, right_target_id):
     """只在同一检测框显式列出轨迹与候选别名时连接两个目标 ID。"""
 
