@@ -314,9 +314,17 @@ def test_visibility_plan_covers_open_room_and_requires_physical_captures():
     assert plan.visibility_coverage_ratio >= 0.90
     assert plan.visibility_target_cell_count > 0
     assert plan.goals
-    assert all(
+    assert any(
         goal.goal_id.startswith('floor_2_near_left_room_visibility_')
         for goal in plan.goals)
+    shadow_goals = [
+        goal for goal in plan.goals
+        if '_shadow_obstacle_' in goal.goal_id
+    ]
+    assert len(shadow_goals) == plan.obstacle_count
+    assert all(goal.path for goal in shadow_goals)
+    # 门在障碍左侧，遮挡揭示点应选择障碍右侧而不是入口同侧的近路。
+    assert shadow_goals[0].x_m > 40.0 * 0.25
     execution = RoomInspectionExecution(plan)
     assert not execution.complete
     for goal in plan.goals:

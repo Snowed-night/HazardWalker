@@ -560,6 +560,81 @@ def _select_reachable_views(
     return tuple(selected), len(selected_buckets)
 
 
+def _select_shadow_reveal_view(
+        grid: np.ndarray,
+        grid_msg,
+        cluster: ObstacleCluster,
+        room_mask: np.ndarray,
+        entrance_world: Sequence[float],
+        start_world: Sequence[float],
+        robot_clearance_m: float,
+        inflation_radius_m: float,
+        direction_bucket_count: int,
+        goal_id_prefix: str,
+) -> Optional[InspectionGoal]:
+    """选择障碍物背向入口一侧的可达视点，揭开家具后的视觉盲区。"""
+
+    candidates = plan_obstacle_viewpoints(
+        grid,
+        grid_msg,
+        cluster,
+        room_mask,
+        count=max(8, int(direction_bucket_count)),
+        standoff_m=max(0.6, float(robot_clearance_m)),
+        clearance_m=max(0.0, float(robot_clearance_m)),
+    )
+    entrance_bearing = math.atan2(
+        float(entrance_world[1]) - cluster.centroid[1],
+        float(entrance_world[0]) - cluster.centroid[0],
+    )
+    viable = []
+    for viewpoint in candidates:
+        path = a_star_path(
+            grid,
+            grid_msg,
+            float(start_world[0]),
+            float(start_world[1]),
+            viewpoint.wx,
+            viewpoint.wy,
+            inflation_radius_m=max(0.0, float(inflation_radius_m)),
+            start_search_radius_m=0.45,
+            goal_search_radius_m=0.30,
+        )
+        if not path:
+            continue
+        candidate_bearing = math.atan2(
+            viewpoint.wy - cluster.centroid[1],
+            viewpoint.wx - cluster.centroid[0],
+        )
+        entrance_separation = abs(math.atan2(
+            math.sin(candidate_bearing - entrance_bearing),
+            math.cos(candidate_bearing - entrance_bearing),
+        ))
+        viable.append((
+            -entrance_separation,
+            _path_length(path),
+            _direction_bucket(
+                viewpoint.face_yaw, direction_bucket_count),
+            viewpoint,
+            tuple((float(x), float(y)) for x, y in path),
+        ))
+    if not viable:
+        return None
+    # 首选与入口视线相反的一侧；同等遮挡揭示能力选择更短路径。
+    viable.sort(key=lambda item: (item[0], item[1], item[2]))
+    _separation, _length, bucket, viewpoint, path = viable[0]
+    obstacle_id = _obstacle_id(cluster)
+    return InspectionGoal(
+        goal_id=f'{goal_id_prefix}shadow_{obstacle_id}_view_{bucket}',
+        obstacle_id=obstacle_id,
+        direction_bucket=bucket,
+        x_m=float(viewpoint.wx),
+        y_m=float(viewpoint.wy),
+        face_yaw_rad=float(viewpoint.face_yaw),
+        path=path,
+    )
+
+
 def build_strict_room_inspection_plan(
         grid: np.ndarray,
         grid_msg,
@@ -828,6 +903,39 @@ def build_room_visibility_inspection_plan(
         min_area_m2=max(0.0, float(minimum_obstacle_area_m2)),
         wall_margin_m=max(0.0, float(wall_margin_m)),
     )
+    # 自由空间覆盖率不能代表障碍背面可见。对每个在线检测到的家具簇，
+    # 在总视点预算内追加一个背向入口的可达观察位；这直接针对遮挡阴影，
+    # 不使用危险源真值、房间尺寸或固定大楼坐标。
+    current_world = (
+        (goals[-1].x_m, goals[-1].y_m)
+        if goals else (start_x, start_y)
+    )
+    pending_obstacles = sorted(
+        obstacles,
+        key=lambda cluster: math.hypot(
+            cluster.centroid[0] - current_world[0],
+            cluster.centroid[1] - current_world[1],
+        ),
+    )
+    for cluster in pending_obstacles:
+        if len(goals) >= max(1, int(maximum_viewpoints)):
+            break
+        shadow_goal = _select_shadow_reveal_view(
+            occupancy,
+            grid_msg,
+            cluster,
+            room_mask,
+            (entry_x, entry_y),
+            current_world,
+            robot_clearance_m=float(robot_clearance_m),
+            inflation_radius_m=float(path_inflation_radius_m),
+            direction_bucket_count=int(heading_sample_count),
+            goal_id_prefix=prefix,
+        )
+        if shadow_goal is None:
+            continue
+        goals.append(shadow_goal)
+        current_world = (shadow_goal.x_m, shadow_goal.y_m)
     return RoomInspectionPlan(
         goals=tuple(goals),
         obstacle_count=len(obstacles),
