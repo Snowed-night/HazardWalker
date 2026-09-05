@@ -59,14 +59,62 @@ def test_launch_command_uses_unique_managed_control_and_legal_slam_inputs():
 
     strict = ' '.join(MODULE.build_launch_command(
         Path('/tmp/nav-run'), scenario_seed='20260823', code_version='abc',
-        strict_room_inspection=True))
+        strict_room_inspection=True,
+        world_from_map=(0.0, 1.403, math.pi / 2.0)))
     assert 'strict_room_inspection:=true' in strict
     assert 'start_perception:=true' in strict
     assert 'start_evidence_recorder:=true' in strict
-    assert 'perception_output_frame:=world' in strict
+    assert 'perception_output_frame:=map' in strict
     assert 'perception_parameter_file:=' in strict
-    assert strict.endswith('/config/perception.yaml')
+    assert '/config/perception.yaml' in strict
+    assert 'official_hazard_source_frame:=map' in strict
+    assert 'official_world_from_map_y:=1.403000' in strict
+    assert 'official_world_from_map_yaw:=1.570796' in strict
+    assert 'official_floor_height_m:=2.600000' in strict
+    assert 'official_sphere_center_height_m:=0.150000' in strict
+    assert 'strict_room_clearance_m:=0.600000' in strict
     assert 'official_result_path:=/tmp/nav-run/detected_danger.json' in strict
+
+
+def test_map_origin_uses_actual_public_ingress_before_slam_start():
+    origin = MODULE.map_origin_after_straight_ingress(
+        0.0, -2.2, math.pi / 2.0, 3.603)
+    assert origin[0] == pytest.approx(0.0, abs=1e-9)
+    assert origin[1] == pytest.approx(1.403, abs=1e-9)
+    assert origin[2] == pytest.approx(math.pi / 2.0)
+    with pytest.raises(ValueError, match='不得为负'):
+        MODULE.map_origin_after_straight_ingress(0.0, -2.2, 0.0, -0.1)
+
+
+def test_preflight_loads_real_perception_yaml_before_motion():
+    contract = MODULE.validate_perception_mission_config(
+        ROOT / 'config' / 'perception.yaml')
+    assert contract['parameters'] == {
+        'confirm_distinct_views': 1,
+        'min_spherical_views_for_confirm': 1,
+        'reject_non_spherical_tracks': False,
+        'emit_partial_candidates': True,
+    }
+    assert len(contract['sha256']) == 64
+
+
+def test_preflight_rejects_clearance_smaller_than_runtime_a1_footprint():
+    original_run = MODULE.subprocess.run
+    MODULE.subprocess.run = lambda *args, **kwargs: SimpleNamespace(
+        returncode=0,
+        stdout="'[[0.42,0.38],[0.42,-0.38],"
+               "[-0.45,-0.38],[-0.45,0.38]]'\n",
+        stderr='')
+    try:
+        contract = MODULE.validate_navigation_clearance_contract(
+            'simenv_ros1_test', 0.60)
+        assert contract['footprint_radius_m'] == pytest.approx(
+            math.hypot(0.45, 0.38))
+        with pytest.raises(RuntimeError, match='小于 A1 footprint'):
+            MODULE.validate_navigation_clearance_contract(
+                'simenv_ros1_test', 0.50)
+    finally:
+        MODULE.subprocess.run = original_run
 
     three_dimensional = ' '.join(MODULE.build_launch_command(
         Path('/tmp/nav-run'), scenario_seed='20260823', code_version='abc',
@@ -342,6 +390,10 @@ def test_entrance_ingress_precedes_slam_and_uses_only_public_inputs():
     assert "'/hazardwalker/slam/odometry'" in ingress
     assert "'/hw/odom'" not in ingress
     main_source = source.split('def main()', 1)[1]
+    assert main_source.index('validate_perception_mission_config(') < main_source.index(
+        'open_main_entrance(container)')
+    assert main_source.index('validate_navigation_clearance_contract(') < main_source.index(
+        'open_main_entrance(container)')
     assert main_source.index('open_main_entrance(container)') < main_source.index(
         'perform_entrance_ingress(')
     assert main_source.index('perform_entrance_ingress(') < main_source.index(

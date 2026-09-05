@@ -672,6 +672,30 @@ def test_official_perception_world_export_requires_explicit_legal_slam_contract(
     assert 'flatten_perception_config' in source
 
 
+def test_official_result_contract_uses_map_origin_and_single_view_sphere_gate():
+    """正式导出必须转换 post-ingress map，并校验球面正证据而非旧多视角门。"""
+    decision = (REPO_ROOT / 'ros2_ws' / 'src' / 'hazardwalker_decision' /
+                'hazardwalker_decision' / 'mission_state_machine_node.py').read_text(
+                    encoding='utf-8')
+    business = (REPO_ROOT / 'ros2_ws' / 'src' / 'hazardwalker_bringup' /
+                'launch' / 'official_simenv_business.launch.py').read_text(
+                    encoding='utf-8')
+    control = (REPO_ROOT / 'ros2_ws' / 'src' / 'hazardwalker_bringup' /
+               'launch' / 'official_simenv_control_interface.launch.py').read_text(
+                   encoding='utf-8')
+
+    assert "require_sphere_evidence=True" in decision
+    assert "require_multiview_sphere_evidence=False" in decision
+    assert "'official_hazard_source_frame', 'map'" in decision
+    for source in (business, control):
+        assert "official_world_from_map_x" in source
+        assert "official_world_from_map_y" in source
+        assert "official_world_from_map_yaw" in source
+        assert "official_sphere_center_height_m" in source
+        assert "strict_room_clearance_m" in source
+    assert "'strict_room_inspection': LaunchConfiguration(" in control
+
+
 def test_scan_imu_localizer_publishes_configured_runtime_provenance():
     source = (
         REPO_ROOT / 'ros2_ws' / 'src' / 'hazardwalker_perception' /

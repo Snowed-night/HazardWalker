@@ -233,6 +233,8 @@ def generate_launch_description():
         'automatic_elevator_entry')
     strict_room_inspection = LaunchConfiguration(
         'strict_room_inspection')
+    strict_room_clearance_m = ParameterValue(
+        LaunchConfiguration('strict_room_clearance_m'), value_type=float)
     simenv_container = LaunchConfiguration('simenv_container')
     nav_record_dir = LaunchConfiguration('nav_record_dir')
     perception_output_frame = LaunchConfiguration('perception_output_frame')
@@ -284,6 +286,18 @@ def generate_launch_description():
         value_type=bool,
     )
     official_result_path = LaunchConfiguration('official_result_path')
+    official_hazard_source_frame = LaunchConfiguration(
+        'official_hazard_source_frame')
+    official_world_from_map_x = ParameterValue(
+        LaunchConfiguration('official_world_from_map_x'), value_type=float)
+    official_world_from_map_y = ParameterValue(
+        LaunchConfiguration('official_world_from_map_y'), value_type=float)
+    official_world_from_map_yaw = ParameterValue(
+        LaunchConfiguration('official_world_from_map_yaw'), value_type=float)
+    official_floor_height_m = ParameterValue(
+        LaunchConfiguration('official_floor_height_m'), value_type=float)
+    official_sphere_center_height_m = ParameterValue(
+        LaunchConfiguration('official_sphere_center_height_m'), value_type=float)
 
     nav_pkg = get_package_share_directory('hazardwalker_nav')
     slam_config = os.path.join(nav_pkg, 'config', 'slam_toolbox_online_async.yaml')
@@ -334,6 +348,7 @@ def generate_launch_description():
         # 默认关闭以复现已验收三层基线；单房巡检和完整任务验收显式开启。
         DeclareLaunchArgument(
             'strict_room_inspection', default_value='false'),
+        DeclareLaunchArgument('strict_room_clearance_m', default_value='0.60'),
         DeclareLaunchArgument(
             'simenv_container', default_value='simenv_ros1_hazard_platform'),
         DeclareLaunchArgument('nav_record_dir', default_value=''),
@@ -365,6 +380,13 @@ def generate_launch_description():
         DeclareLaunchArgument(
             'official_result_path', default_value='results/detected_danger.json',
         ),
+        DeclareLaunchArgument('official_hazard_source_frame', default_value='map'),
+        DeclareLaunchArgument('official_world_from_map_x', default_value='0.0'),
+        DeclareLaunchArgument('official_world_from_map_y', default_value='0.0'),
+        DeclareLaunchArgument('official_world_from_map_yaw', default_value='0.0'),
+        DeclareLaunchArgument('official_floor_height_m', default_value='2.6'),
+        DeclareLaunchArgument(
+            'official_sphere_center_height_m', default_value='0.15'),
 
         # ---- 合法 scan/IMU 里程计（绝不读取 /hw/odom/Gazebo 真值） ----
         Node(
@@ -484,6 +506,13 @@ def generate_launch_description():
             output='screen',
             parameters=[{
                 'official_result_path': official_result_path,
+                'official_hazard_source_frame': official_hazard_source_frame,
+                'official_world_from_map_x': official_world_from_map_x,
+                'official_world_from_map_y': official_world_from_map_y,
+                'official_world_from_map_yaw': official_world_from_map_yaw,
+                'official_floor_height_m': official_floor_height_m,
+                'official_sphere_center_height_m': (
+                    official_sphere_center_height_m),
                 'official_require_frontier_sequence': True,
                 'use_sim_time': sim_time_parameter,
             }],
@@ -613,6 +642,8 @@ def generate_launch_description():
                     'deterministic_room_hold_heading_during_loop': False,
                     'strict_room_inspection_enabled': (
                         strict_room_inspection_parameter),
+                    'strict_room_path_inflation_radius_m': (
+                        strict_room_clearance_m),
                     # 只允许在当前房间内做遮挡脱离，不得抢占走廊和穿门阶段。
                     'reobserve_only_inside_active_room': True,
                     'deterministic_min_scale_tolerance_m': 1.5,

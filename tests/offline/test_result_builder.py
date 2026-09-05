@@ -15,6 +15,7 @@
 """
 import os
 import inspect
+import math
 import sys
 
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
@@ -153,6 +154,85 @@ def test_official_result_can_require_multiview_sphere_evidence():
     )
 
     assert result['detected_danger_sources'] == [{'position': [2.0, 2.0, 0.3]}]
+
+
+def test_official_result_accepts_verified_single_view_sphere_evidence():
+    """比赛简化配置仍必须有同一稳定视角三帧球面正证据。"""
+    evidence = {
+        'source': 'hsv_depth_tf',
+        'evidence_status': 'single_view_sphere_confirmed',
+        'distinct_view_count': 1,
+        'eligible_observation_count': 3,
+        'eligible_view_ids': ['stable_front'],
+        'spherical_view_ids': ['stable_front'],
+        'required_min_eligible_observations': 3,
+        'required_min_distinct_views': 1,
+        'required_min_spherical_views': 1,
+    }
+    result = build_official_detected_danger_result(
+        hazards=[{
+            'id': 1, 'status': 'confirmed',
+            'position_frame_id': 'world', 'position': [1.0, 2.0, 0.15],
+            'confidence': 0.95, **evidence,
+        }],
+        exploration_time_sec=12.0,
+        require_sphere_evidence=True,
+    )
+    assert result['detected_danger_sources'] == [
+        {'position': [1.0, 2.0, 0.15]}]
+
+    evidence['eligible_observation_count'] = 2
+    rejected = build_official_detected_danger_result(
+        hazards=[{
+            'id': 1, 'status': 'confirmed',
+            'position_frame_id': 'world', 'position': [1.0, 2.0, 0.15],
+            'confidence': 0.95, **evidence,
+        }],
+        exploration_time_sec=12.0,
+        require_sphere_evidence=True,
+    )
+    assert rejected['detected_danger_sources'] == []
+
+
+def test_post_ingress_map_transform_and_floor_height_meet_official_meter_gate():
+    """真实回放坐标经合法入门原点和球心高度恢复后应进入 1 m 匹配门。"""
+    # 此 map 坐标由既有正式帧和旧出生点静态别名反解，不在运行期读取真值。
+    map_position = [22.3925, 3.5312, -0.2354]
+    ingress_distance = 3.603
+    world_from_map = (
+        math.cos(math.pi / 2.0) * ingress_distance,
+        -2.2 + math.sin(math.pi / 2.0) * ingress_distance,
+        math.pi / 2.0,
+    )
+    evidence = {
+        'source': 'hsv_depth_tf',
+        'evidence_status': 'single_view_sphere_confirmed',
+        'distinct_view_count': 1,
+        'eligible_observation_count': 3,
+        'eligible_view_ids': ['stable_front'],
+        'spherical_view_ids': ['stable_front'],
+        'required_min_eligible_observations': 3,
+        'required_min_distinct_views': 1,
+        'required_min_spherical_views': 1,
+    }
+    result = build_official_detected_danger_result(
+        hazards=[{
+            'id': 1, 'status': 'confirmed', 'position_frame_id': 'map',
+            'position': map_position, 'confidence': 0.81, **evidence,
+        }],
+        exploration_time_sec=12.0,
+        source_frame='map',
+        world_from_source=world_from_map,
+        snap_sphere_height_to_floor=True,
+        floor_height_m=2.6,
+        sphere_center_height_m=0.15,
+        require_sphere_evidence=True,
+    )
+    detected = result['detected_danger_sources'][0]['position']
+    truth = (-4.098, 22.984, 0.15)
+    error = math.sqrt(sum(
+        (detected[index] - truth[index]) ** 2 for index in range(3)))
+    assert error < 1.0
 
 
 def test_official_result_rejects_forged_multiview_evidence_label():

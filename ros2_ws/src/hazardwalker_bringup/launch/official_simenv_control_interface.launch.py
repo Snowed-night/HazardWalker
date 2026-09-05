@@ -58,6 +58,9 @@ def generate_launch_description():
         DeclareLaunchArgument(
             'automatic_elevator_entry', default_value='true'),
         DeclareLaunchArgument(
+            'strict_room_inspection', default_value='false'),
+        DeclareLaunchArgument('strict_room_clearance_m', default_value='0.60'),
+        DeclareLaunchArgument(
             'simenv_container', default_value='simenv_ros1_hazard_platform'),
         DeclareLaunchArgument('evidence_output_dir', default_value=''),
         DeclareLaunchArgument('nav_record_dir', default_value=''),
@@ -69,6 +72,13 @@ def generate_launch_description():
         DeclareLaunchArgument('code_version', default_value=''),
         DeclareLaunchArgument(
             'official_result_path', default_value='results/detected_danger.json'),
+        DeclareLaunchArgument('official_hazard_source_frame', default_value='map'),
+        DeclareLaunchArgument('official_world_from_map_x', default_value='0.0'),
+        DeclareLaunchArgument('official_world_from_map_y', default_value='0.0'),
+        DeclareLaunchArgument('official_world_from_map_yaw', default_value='0.0'),
+        DeclareLaunchArgument('official_floor_height_m', default_value='2.6'),
+        DeclareLaunchArgument(
+            'official_sphere_center_height_m', default_value='0.15'),
 
         Node(
             package='hazardwalker_platform',
@@ -140,6 +150,10 @@ def generate_launch_description():
                     'manual_elevator_assist'),
                 'automatic_elevator_entry': LaunchConfiguration(
                     'automatic_elevator_entry'),
+                'strict_room_inspection': LaunchConfiguration(
+                    'strict_room_inspection'),
+                'strict_room_clearance_m': LaunchConfiguration(
+                    'strict_room_clearance_m'),
                 'simenv_container': LaunchConfiguration('simenv_container'),
                 'evidence_output_dir': LaunchConfiguration(
                     'evidence_output_dir'),
@@ -155,6 +169,18 @@ def generate_launch_description():
                 'code_version': LaunchConfiguration('code_version'),
                 'official_result_path': LaunchConfiguration(
                     'official_result_path'),
+                'official_hazard_source_frame': LaunchConfiguration(
+                    'official_hazard_source_frame'),
+                'official_world_from_map_x': LaunchConfiguration(
+                    'official_world_from_map_x'),
+                'official_world_from_map_y': LaunchConfiguration(
+                    'official_world_from_map_y'),
+                'official_world_from_map_yaw': LaunchConfiguration(
+                    'official_world_from_map_yaw'),
+                'official_floor_height_m': LaunchConfiguration(
+                    'official_floor_height_m'),
+                'official_sphere_center_height_m': LaunchConfiguration(
+                    'official_sphere_center_height_m'),
                 'navigation_cmd_vel_topic': (
                     '/hw/control/navigation_cmd_vel'),
             }.items(),

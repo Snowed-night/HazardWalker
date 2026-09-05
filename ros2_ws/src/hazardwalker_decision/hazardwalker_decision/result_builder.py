@@ -62,8 +62,14 @@ def build_official_detected_danger_result(
     hazards,
     exploration_time_sec,
     expected_frame='world',
+    source_frame=None,
+    world_from_source=None,
+    snap_sphere_height_to_floor=False,
+    floor_height_m=2.6,
+    sphere_center_height_m=0.15,
     dedup_distance_m=0.30,
     require_legal_localization=False,
+    require_sphere_evidence=False,
     require_multiview_sphere_evidence=False,
     allowed_localization_provenance=(
         'lidar_imu_slam',
@@ -113,7 +119,15 @@ def build_official_detected_danger_result(
                 and str(hazard.get('localization_provenance', 'unverified'))
                 not in set(allowed_localization_provenance)):
             continue
-        if (require_multiview_sphere_evidence
+        if (require_sphere_evidence
+                and not _has_valid_sphere_evidence(
+                    hazard,
+                    allowed_detection_sources=allowed_detection_sources,
+                    require_multiview=require_multiview_sphere_evidence,
+                )):
+            continue
+        if (not require_sphere_evidence
+                and require_multiview_sphere_evidence
                 and not _has_valid_multiview_sphere_evidence(
                     hazard,
                     allowed_detection_sources=allowed_detection_sources,
@@ -121,12 +135,24 @@ def build_official_detected_danger_result(
             continue
         # 坐标系必须由上游明确声明；字段缺失不能默认为 world。
         frame_id = str(hazard.get('position_frame_id', ''))
-        if frame_id != str(expected_frame):
-            # `start` 坐标不能直接冒充 `world` 坐标提交；调用层必须完成 TF/起点变换。
+        transform = _validated_planar_transform(world_from_source)
+        required_source_frame = (
+            str(source_frame) if source_frame is not None
+            else str(expected_frame)
+        )
+        if frame_id != required_source_frame:
             continue
         position = _validated_position(hazard.get('position'))
         if position is None:
             continue
+        if transform is not None:
+            position = _transform_planar_position(position, transform)
+        if snap_sphere_height_to_floor:
+            position = _snap_sphere_height(
+                position,
+                floor_height_m=float(floor_height_m),
+                sphere_center_height_m=float(sphere_center_height_m),
+            )
         confirmed.append((
             -float(hazard.get('confidence', 0.0)),
             str(hazard.get('id', '')),
@@ -145,6 +171,50 @@ def build_official_detected_danger_result(
         'exploration_time': round(duration, 3),
         'detected_danger_sources': exported,
     }
+
+
+def _has_valid_sphere_evidence(
+        hazard, allowed_detection_sources, require_multiview=False):
+    """复核球面正证据；比赛单视角配置仍要求同一稳定视角至少三帧。"""
+
+    if require_multiview:
+        return _has_valid_multiview_sphere_evidence(
+            hazard, allowed_detection_sources)
+    if str(hazard.get('evidence_status', '')) not in (
+            'single_view_sphere_confirmed',
+            'multi_view_sphere_consistent'):
+        return False
+    if str(hazard.get('source', '')) not in set(allowed_detection_sources):
+        return False
+    eligible_view_ids = _unique_nonempty_strings(
+        hazard.get('eligible_view_ids'))
+    spherical_view_ids = _unique_nonempty_strings(
+        hazard.get('spherical_view_ids'))
+    if eligible_view_ids is None or spherical_view_ids is None:
+        return False
+    if not set(spherical_view_ids).issubset(set(eligible_view_ids)):
+        return False
+    distinct_view_count = _validated_integer(
+        hazard.get('distinct_view_count'))
+    eligible_observation_count = _validated_integer(
+        hazard.get('eligible_observation_count'))
+    required_observations = _validated_integer(
+        hazard.get('required_min_eligible_observations'))
+    required_distinct_views = _validated_integer(
+        hazard.get('required_min_distinct_views'))
+    required_spherical_views = _validated_integer(
+        hazard.get('required_min_spherical_views'))
+    if any(value is None for value in (
+            distinct_view_count, eligible_observation_count,
+            required_observations, required_distinct_views,
+            required_spherical_views)):
+        return False
+    return (
+        distinct_view_count == len(eligible_view_ids)
+        and distinct_view_count >= max(1, required_distinct_views)
+        and eligible_observation_count >= max(3, required_observations)
+        and len(spherical_view_ids) >= max(1, required_spherical_views)
+    )
 
 
 def formal_navigation_sequence_completed(states):
@@ -263,6 +333,52 @@ def _validated_position(value):
     except (TypeError, ValueError):
         return None
     return position if all(math.isfinite(item) for item in position) else None
+
+
+def _validated_planar_transform(value):
+    """校验 ``(world_x, world_y, world_yaw)``；未配置时返回 None。"""
+
+    if value is None:
+        return None
+    if not isinstance(value, (list, tuple)) or len(value) != 3:
+        raise ValueError('world_from_source must contain x, y and yaw.')
+    try:
+        transform = tuple(float(item) for item in value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError('world_from_source must be numeric.') from exc
+    if not all(math.isfinite(item) for item in transform):
+        raise ValueError('world_from_source must be finite.')
+    return transform
+
+
+def _transform_planar_position(position, transform):
+    """把 source/map 平面坐标转换到 world；z 暂保持原值。"""
+
+    origin_x, origin_y, origin_yaw = transform
+    cosine = math.cos(origin_yaw)
+    sine = math.sin(origin_yaw)
+    source_x, source_y, source_z = position
+    return (
+        origin_x + cosine * source_x - sine * source_y,
+        origin_y + sine * source_x + cosine * source_y,
+        source_z,
+    )
+
+
+def _snap_sphere_height(position, floor_height_m, sphere_center_height_m):
+    """用公开楼层高度和目标半径恢复球心 z，消除二维 SLAM 高度漂移。"""
+
+    if (not math.isfinite(floor_height_m) or floor_height_m <= 0.0
+            or not math.isfinite(sphere_center_height_m)
+            or sphere_center_height_m < 0.0):
+        raise ValueError('floor and sphere heights must be finite and valid.')
+    source_x, source_y, source_z = position
+    floor_index = max(0, int(round(source_z / floor_height_m)))
+    return (
+        source_x,
+        source_y,
+        floor_index * floor_height_m + sphere_center_height_m,
+    )
 
 
 def _distance_m(first, second):

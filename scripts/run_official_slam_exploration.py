@@ -12,6 +12,8 @@ from __future__ import annotations
 import argparse
 import csv
 from datetime import datetime, timezone
+import hashlib
+import importlib.util
 import json
 import math
 import os
@@ -186,6 +188,10 @@ def build_launch_command(
         simenv_container: str = 'simenv_ros1_hazard_platform',
         strict_room_inspection: bool = False,
         enable_3d_map: bool = False,
+        world_from_map: tuple[float, float, float] = (0.0, 0.0, 0.0),
+        floor_height_m: float = 2.6,
+        sphere_center_height_m: float = 0.15,
+        room_clearance_m: float = 0.60,
 ) -> list[str]:
     """构造唯一业务 launch；平台 adapter/mux 继续由平台生命周期管理。"""
 
@@ -212,8 +218,9 @@ def build_launch_command(
         'start_decision:=true',
         'start_evidence_recorder:='
         + ('true' if strict_room_inspection else 'false'),
-        'perception_output_frame:='
-        + ('world' if strict_room_inspection else 'map'),
+        # SLAM 在公开入门动作之后启动，感知必须保留 map 坐标；结果层再用
+        # 本轮实测入门距离恢复 world，不能套用出生点的静态 world→map。
+        'perception_output_frame:=map',
         f'localization_provenance:={localization_provenance}',
         'use_sim_time:=true',
         'navigation_linear_speed:=2.00',
@@ -223,6 +230,7 @@ def build_launch_command(
         f'simenv_container:={simenv_container}',
         'strict_room_inspection:='
         + ('true' if strict_room_inspection else 'false'),
+        f'strict_room_clearance_m:={float(room_clearance_m):.6f}',
         f'nav_record_dir:={output_dir / "navigation"}',
         f'evidence_output_dir:={output_dir / "perception"}',
         f'test_record_dir:={output_dir / "test_records"}',
@@ -244,10 +252,120 @@ def build_launch_command(
     if strict_room_inspection:
         # 正式感知验收必须加载仓库内受版本控制的配置。禁止依赖节点默认值，
         # 否则配置文件、运行参数和结果清单会互相矛盾。
-        command.append(
-            f'perception_parameter_file:={REPO_ROOT / "config" / "perception.yaml"}'
-        )
+        command.extend([
+            f'perception_parameter_file:={REPO_ROOT / "config" / "perception.yaml"}',
+            'official_hazard_source_frame:=map',
+            f'official_world_from_map_x:={float(world_from_map[0]):.6f}',
+            f'official_world_from_map_y:={float(world_from_map[1]):.6f}',
+            f'official_world_from_map_yaw:={float(world_from_map[2]):.6f}',
+            f'official_floor_height_m:={float(floor_height_m):.6f}',
+            'official_sphere_center_height_m:='
+            f'{float(sphere_center_height_m):.6f}',
+        ])
     return command
+
+
+def map_origin_after_straight_ingress(
+        start_world_x: float,
+        start_world_y: float,
+        start_world_yaw: float,
+        distance_m: float,
+) -> tuple[float, float, float]:
+    """由公开出生位姿和合法入门里程计算 SLAM 启动时的 map 原点。"""
+
+    values = (
+        float(start_world_x), float(start_world_y),
+        float(start_world_yaw), float(distance_m),
+    )
+    if not all(math.isfinite(value) for value in values) or values[3] < 0.0:
+        raise ValueError('出生位姿和入门距离必须为有限值，距离不得为负')
+    return (
+        values[0] + math.cos(values[2]) * values[3],
+        values[1] + math.sin(values[2]) * values[3],
+        values[2],
+    )
+
+
+def validate_perception_mission_config(path: Path) -> dict:
+    """在机器人移动前加载真实 YAML，并核对本次单视角比赛合同。"""
+
+    import yaml
+    module_path = (
+        REPO_ROOT / 'ros2_ws' / 'src' / 'hazardwalker_perception'
+        / 'hazardwalker_perception' / 'perception_config.py'
+    )
+    spec = importlib.util.spec_from_file_location(
+        'hazardwalker_perception_config_contract', module_path)
+    if spec is None or spec.loader is None:
+        raise RuntimeError('无法加载感知配置校验器')
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    config_path = Path(path).resolve()
+    document = yaml.safe_load(config_path.read_text(encoding='utf-8'))
+    parameters = module.flatten_perception_config(document)
+    localization = document['perception'].get('localization', {})
+    expected = {
+        'confirm_distinct_views': 1,
+        'min_spherical_views_for_confirm': 1,
+        'reject_non_spherical_tracks': False,
+        'emit_partial_candidates': True,
+    }
+    mismatches = {
+        key: {'expected': value, 'actual': parameters.get(key)}
+        for key, value in expected.items()
+        if parameters.get(key) != value
+    }
+    if bool(localization.get('use_point_cloud', False)):
+        mismatches['use_point_cloud'] = {
+            'expected': False, 'actual': True}
+    if mismatches:
+        raise RuntimeError(
+            '感知配置不符合正式单视角合同：'
+            + json.dumps(mismatches, ensure_ascii=False, sort_keys=True))
+    return {
+        'path': str(config_path),
+        'sha256': hashlib.sha256(config_path.read_bytes()).hexdigest(),
+        'parameters': expected,
+        'use_point_cloud': False,
+    }
+
+
+def validate_navigation_clearance_contract(
+        container: str, configured_clearance_m: float) -> dict:
+    """在移动前核对 A* 规划净空不小于 ROS1 DWA 的真实 A1 footprint。"""
+
+    command = [
+        'docker', 'exec', str(container), 'bash', '-lc',
+        'source /opt/ros/noetic/setup.bash; '
+        'rosparam get /move_base/local_costmap/footprint',
+    ]
+    completed = subprocess.run(
+        command, text=True, stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE, timeout=15.0,
+    )
+    if completed.returncode != 0:
+        raise RuntimeError(
+            '无法读取 Unitree move_base footprint：'
+            + completed.stderr.strip())
+    try:
+        import yaml
+        points = yaml.safe_load(completed.stdout)
+        if isinstance(points, str):
+            points = yaml.safe_load(points)
+        radius = max(math.hypot(float(x), float(y)) for x, y in points)
+    except (ValueError, TypeError, SyntaxError) as exc:
+        raise RuntimeError('Unitree footprint 格式无效') from exc
+    clearance = float(configured_clearance_m)
+    if not math.isfinite(clearance) or clearance + 1e-6 < radius:
+        raise RuntimeError(
+            f'房间规划净空 {clearance:.3f}m 小于 A1 footprint '
+            f'外接半径 {radius:.3f}m')
+    return {
+        'configured_clearance_m': clearance,
+        'footprint_radius_m': radius,
+        'footprint': points,
+    }
 
 
 def parse_target_floors(value: str) -> tuple[int, ...]:
@@ -991,6 +1109,12 @@ def main() -> int:
     # 物理位置不一致；进入主走廊后 Frontier 仍使用 0.60 m/s。
     parser.add_argument('--entrance-speed-mps', type=float, default=0.45)
     parser.add_argument('--entrance-wall-timeout-sec', type=float, default=360.0)
+    parser.add_argument('--public-start-world-x', type=float, default=0.0)
+    parser.add_argument('--public-start-world-y', type=float, default=-2.2)
+    parser.add_argument('--public-start-world-yaw', type=float, default=1.5708)
+    parser.add_argument('--floor-height-m', type=float, default=2.6)
+    parser.add_argument('--sphere-center-height-m', type=float, default=0.15)
+    parser.add_argument('--room-clearance-m', type=float, default=0.60)
     parser.add_argument('--allow-dirty-diagnostic', action='store_true')
     parser.add_argument(
         '--strict-room-inspection', action='store_true',
@@ -1011,7 +1135,10 @@ def main() -> int:
     if (args.wall_timeout_sec <= 0.0 or args.exploration_timeout_sec <= 0.0
             or args.mission_time_budget_sec <= 0.0
             or args.per_floor_exploration_sec <= 0.0
-            or args.expected_rooms_per_floor <= 0):
+            or args.expected_rooms_per_floor <= 0
+            or args.floor_height_m <= 0.0
+            or args.sphere_center_height_m < 0.0
+            or args.room_clearance_m <= 0.0):
         raise SystemExit('运行及逐层探索超时必须为正数')
     try:
         target_floors = parse_target_floors(args.target_floors)
@@ -1031,12 +1158,31 @@ def main() -> int:
         container = str(
             preflight_payload['adapter_status'].get('lifecycle_container')
             or '').strip()
+        if args.strict_room_inspection:
+            preflight_payload['perception_contract'] = (
+                validate_perception_mission_config(
+                    REPO_ROOT / 'config' / 'perception.yaml'))
+            preflight_payload['navigation_clearance_contract'] = (
+                validate_navigation_clearance_contract(
+                    container, args.room_clearance_m))
         preflight_payload['main_entrance'] = open_main_entrance(container)
         preflight_payload['entrance_ingress'] = perform_entrance_ingress(
             distance_m=float(args.entrance_distance_m),
             speed_mps=float(args.entrance_speed_mps),
             wall_timeout_sec=float(args.entrance_wall_timeout_sec),
         )
+        world_from_map = map_origin_after_straight_ingress(
+            args.public_start_world_x,
+            args.public_start_world_y,
+            args.public_start_world_yaw,
+            float(preflight_payload['entrance_ingress']['distance_reached_m']),
+        )
+        preflight_payload['world_from_map'] = {
+            'x': world_from_map[0],
+            'y': world_from_map[1],
+            'yaw': world_from_map[2],
+            'source': 'public_start_pose+public_scan_imu_ingress',
+        }
     except (ValueError, RuntimeError, subprocess.SubprocessError) as exc:
         raise SystemExit(str(exc)) from exc
 
@@ -1054,6 +1200,10 @@ def main() -> int:
         simenv_container=container,
         strict_room_inspection=bool(args.strict_room_inspection),
         enable_3d_map=bool(args.enable_3d_map),
+        world_from_map=world_from_map,
+        floor_height_m=float(args.floor_height_m),
+        sphere_center_height_m=float(args.sphere_center_height_m),
+        room_clearance_m=float(args.room_clearance_m),
     )
     manifest = {
         'schema': 'hazardwalker_slam_exploration_run_v1',

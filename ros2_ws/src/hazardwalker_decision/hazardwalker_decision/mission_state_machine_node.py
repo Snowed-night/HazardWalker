@@ -46,6 +46,14 @@ class MissionStateMachineNode(Node):
         # 合法 SLAM 的 world 坐标；Gazebo /Odometry_gazebo 与 ground_truth 均不得使用。
         self.declare_parameter('official_result_path', 'results/detected_danger.json')
         self.declare_parameter('official_result_frame', 'world')
+        # 正式任务在门外完成入门后才启动 SLAM，因此感知保留 map 坐标，
+        # 结果层用本轮公开入门里程计算出的 map 原点一次性转换到 world。
+        self.declare_parameter('official_hazard_source_frame', 'map')
+        self.declare_parameter('official_world_from_map_x', 0.0)
+        self.declare_parameter('official_world_from_map_y', 0.0)
+        self.declare_parameter('official_world_from_map_yaw', 0.0)
+        self.declare_parameter('official_floor_height_m', 2.6)
+        self.declare_parameter('official_sphere_center_height_m', 0.15)
         self.declare_parameter('official_result_dedup_distance_m', 0.30)
         self.declare_parameter('official_require_legal_localization', True)
         self.declare_parameter('official_require_frontier_sequence', True)
@@ -153,13 +161,29 @@ class MissionStateMachineNode(Node):
             result['hazards'],
             result['metrics']['duration_sec'],
             expected_frame=self.get_parameter('official_result_frame').value,
+            source_frame=self.get_parameter(
+                'official_hazard_source_frame').value,
+            world_from_source=(
+                float(self.get_parameter(
+                    'official_world_from_map_x').value),
+                float(self.get_parameter(
+                    'official_world_from_map_y').value),
+                float(self.get_parameter(
+                    'official_world_from_map_yaw').value),
+            ),
+            snap_sphere_height_to_floor=True,
+            floor_height_m=float(self.get_parameter(
+                'official_floor_height_m').value),
+            sphere_center_height_m=float(self.get_parameter(
+                'official_sphere_center_height_m').value),
             dedup_distance_m=float(
                 self.get_parameter('official_result_dedup_distance_m').value
             ),
             require_legal_localization=bool(
                 self.get_parameter('official_require_legal_localization').value
             ),
-            require_multiview_sphere_evidence=True,
+            require_sphere_evidence=True,
+            require_multiview_sphere_evidence=False,
         )
         official_value = self.get_parameter('official_result_path').value
         official_path = Path(official_value)
