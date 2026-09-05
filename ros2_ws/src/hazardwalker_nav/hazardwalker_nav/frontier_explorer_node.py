@@ -1919,6 +1919,7 @@ class FrontierExplorerNode(Node):
         inspection_motion_evidence = (
             label.startswith('room_inspect_move:')
             and official_goal is not None)
+        progress_timed_out = False
         if inspection_motion_evidence:
             distance_progressed = self._room_inspection_goal_progress.observe(
                 distance, now_ros)
@@ -1963,7 +1964,9 @@ class FrontierExplorerNode(Node):
             5.0,
             float(self.get_parameter(stall_parameter).value),
         )
-        if now_ros - self._deterministic_waypoint_started_ros < stall_s:
+        if (not progress_timed_out
+                and now_ros - self._deterministic_waypoint_started_ros
+                < stall_s):
             return False
         if label.startswith('room_inspect_move:'):
             execution = self._room_inspection_execution

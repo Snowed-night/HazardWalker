@@ -335,4 +335,5 @@ def test_official_corridor_completion_uses_the_same_control_frame_as_motion():
     assert 'GoalDistanceProgressWatchdog' in source
     assert "'strict_room_goal_progress_timeout_s', 30.0" in source
     assert 'progress_timed_out' in stall_recovery
+    assert 'if (not progress_timed_out' in stall_recovery
     assert "'strict_room_path_inflation_radius_m'" in stall_recovery
