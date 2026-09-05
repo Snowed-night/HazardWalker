@@ -71,9 +71,9 @@ perception:
     max_median_normalized_depth_curvature: 0.30
 
   active_reobservation:
-    # 当前赛场红色干扰物只有正方体；严格房间观察点会继续覆盖遮挡区，
-    # 不再让局部红色弧段额外接管导航，避免重复靠近和横移拖慢整楼任务。
-    emit_partial_candidates: false
+    # 多视角证据门槛已关闭；这里仅保留被家具遮挡时的短距离视角获取，
+    # 目标是一张可做球面/平面判别的完整 RGB-D 帧，而不是累计多视角确认。
+    emit_partial_candidates: true
     # 保留约 5% 可见球面的最小红色弧段；输出仅为 reobserve，不可直接确认。
     partial_min_area_px: 20
     partial_min_circularity: 0.18

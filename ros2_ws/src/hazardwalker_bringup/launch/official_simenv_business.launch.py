@@ -526,12 +526,12 @@ def generate_launch_description():
                     'exploration_timeout_s': exploration_timeout_parameter,
                     'mission_time_budget_s': mission_time_budget_parameter,
                     'minimum_return_reserve_s': 120.0,
-                    # 赛场红色候选只有球体和正方体，单个稳定 RGB-D 视角即可
-                    # 做球面/平面判别。关闭额外运动复查，避免感知抢占房间
-                    # 覆盖路线或返航；通用多视角代码仍保留供其他场景启用。
+                    # 赛场红色候选只有球体和正方体，确认只需一个稳定 RGB-D
+                    # 视角；但货架遮挡时仍允许有限靠近/横移以取得这一个完整
+                    # 视角。返航阶段禁用，避免影响按时回家。
                     'reobserve_during_returning': False,
                     'reobserve_returning_max_attempts_per_target': 0,
-                    'reobserve_max_attempts_per_target': 0,
+                    'reobserve_max_attempts_per_target': 4,
                     'min_frontier_size': 10,
                     # 宇树 DWA 遇到不可执行局部目标时保持安全停车；官方
                     # profile 不能等待通用默认 30 秒才换目标，否则浪费整层
@@ -613,7 +613,7 @@ def generate_launch_description():
                     'deterministic_room_hold_heading_during_loop': False,
                     'strict_room_inspection_enabled': (
                         strict_room_inspection_parameter),
-                    # 严格逐视角采帧由房间可见性规划负责；感知本身不再接管运动。
+                    # 只允许在当前房间内做遮挡脱离，不得抢占走廊和穿门阶段。
                     'reobserve_only_inside_active_room': True,
                     'deterministic_min_scale_tolerance_m': 1.5,
                     'deterministic_blocked_corner_accept_m': 1.0,
