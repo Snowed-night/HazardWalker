@@ -4,8 +4,9 @@
 文件作用：
 把每帧三维定位结果合并成稳定危险源列表，降低重复上报和单帧误检。
 当前实现边界：
-按三维欧氏距离做最近邻合并，并同时检查真实离散视角、深度形状反证和
-目标三维尺寸稳定性。只有多视角证据一致时才标记为 confirmed。
+按三维欧氏距离做最近邻合并，并同时检查深度形状反证、目标三维尺寸
+稳定性和可配置的离散视角门槛。赛场仅有红色正方体干扰时可启用单视角
+RGB-D 球面确认；存在圆柱或圆盘干扰时仍可恢复多视角门槛。
 暂不做卡尔曼滤波或跨相机重识别，后续可在保持输出字段稳定的前提下升级。
 验证方式：
 使用 tests/offline/test_track_hazards.py 构造多帧观测，验证合并、确认、missed 计数和新目标创建。
@@ -351,7 +352,11 @@ class HazardTracker:
             if (flat_views >= self.config.min_non_spherical_views_to_reject
                     and flat_views >= eligible_views):
                 track.status = 'rejected_non_spherical'
-                track.evidence_status = 'multi_view_flat_or_non_spherical'
+                track.evidence_status = (
+                    'single_view_flat_or_non_spherical'
+                    if flat_views == 1
+                    else 'multi_view_flat_or_non_spherical'
+                )
             elif flat_views > 0 and eligible_views == 0:
                 # 第一帧就取得平面深度时，尚不足以把圆柱/圆盘永久拒绝，
                 # 但也不能继续显示为普通 tentative；必须明确要求换到侧视。
@@ -368,7 +373,11 @@ class HazardTracker:
                   and spherical_views >= self.config.min_spherical_views_for_confirm
                   and (flat_views == 0 or eligible_views >= flat_views + 2)):
                 track.status = 'confirmed'
-                track.evidence_status = 'multi_view_sphere_consistent'
+                track.evidence_status = (
+                    'single_view_sphere_confirmed'
+                    if eligible_views == 1
+                    else 'multi_view_sphere_consistent'
+                )
             elif (eligible_views >= self.config.min_distinct_views
                   and (diameter_cv > self.config.max_apparent_diameter_cv
                        or not diameter_prior_ok

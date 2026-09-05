@@ -43,11 +43,12 @@ perception:
 
   tracking:
     confirm_observation_count: 3
-    # 正式确认要求三个稳定停靠视角，避免正面+靠近被误算成充分侧视证据。
-    confirm_distinct_views: 3
-    # 三个停靠点还必须让“相机 -> 目标”的水平视线至少跨越 25°。
-    # 只从正面前后靠近无法排除圆柱、圆锥或圆盘端面。
-    min_view_bearing_span_deg: 25.0
+    # 赛场干扰物仅有红/绿色正方体和绿色球体：红色候选可由单个稳定
+    # RGB-D 视角的球面/平面几何直接区分，不再强制机器人横移获取视差。
+    confirm_distinct_views: 1
+    min_view_bearing_span_deg: 0.0
+    # 红色正方体的稳定深度轮廓为平面，一次明确反证即可拒绝。
+    min_non_spherical_views_to_reject: 1
     reject_after_missed_count: 300
     merge_distance_m: 0.5
     single_track_reacquire_distance_m: 1.0
@@ -58,10 +59,10 @@ perception:
     # 官方目标直径 0.30 m；保持一定裕量以覆盖 RGB-D 投影/深度噪声。
     expected_sphere_diameter_m: 0.30
     max_sphere_diameter_relative_error: 0.35
-    # 至少一个侧视轮廓低于该比例即保留为待复查，不能用正面帧中位数掩盖。
+    # 单视角仍要求轮廓不过度拉长，防止把遮挡边缘误判成完整球体。
     min_multiview_aspect_ratio: 0.82
-    # 只有至少两个独立视角产生 RGB-D 球面正证据，轨迹才允许 confirmed。
-    min_spherical_views_for_confirm: 2
+    # 一个稳定视角产生球面深度正证据即可确认；连续 3 帧门槛仍负责抗噪。
+    min_spherical_views_for_confirm: 1
     max_depth_curvature_cv: 0.65
     # 球体深度曲率/表观直径的三视角中位数有效区间。
     min_normalized_depth_curvature: 0.10

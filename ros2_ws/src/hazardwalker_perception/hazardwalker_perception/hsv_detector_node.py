@@ -86,7 +86,10 @@ class HsvDetectorNode(Node):
         self.declare_parameter('output_frame', 'map')
         self.declare_parameter('localization_provenance', 'unverified')
         self.declare_parameter('confirm_observation_count', 3)
-        self.declare_parameter('confirm_distinct_views', 3)
+        # 赛场红色干扰物只有正方体。保留同一稳定视角的连续三帧抗噪，
+        # 但球面/平面可由单视角 RGB-D 几何直接区分，无需横移复查。
+        self.declare_parameter('confirm_distinct_views', 1)
+        self.declare_parameter('min_non_spherical_views_to_reject', 1)
         # 主动横移期间目标可能连续数秒离开视场；150 帧约等于 5 秒@30FPS，
         # 避免候选在抵达第二视角前被删除。
         self.declare_parameter('reject_after_missed_count', 300)
@@ -110,17 +113,13 @@ class HsvDetectorNode(Node):
         self.declare_parameter('expected_sphere_diameter_m', 0.30)
         self.declare_parameter('max_sphere_diameter_relative_error', 0.35)
         # 官方真实 RGB 中完整球体会因透视/低分辨率落在约 0.85；0.82 以下才视为
-        # 明显拉长。深度平面和横向多视角仍是确认的强制门，不能放宽为单帧确认。
+        # 明显拉长。深度球面正证据仍是确认的强制门。
         self.declare_parameter('min_multiview_aspect_ratio', 0.82)
-        # 最终确认至少要有两个不同视角的 RGB-D 球面正证据；未知深度不能把
-        # 圆柱端面或圆盘升级为危险源。
-        self.declare_parameter('min_spherical_views_for_confirm', 2)
+        self.declare_parameter('min_spherical_views_for_confirm', 1)
         self.declare_parameter('max_depth_curvature_cv', 0.65)
         self.declare_parameter('min_normalized_depth_curvature', 0.10)
         self.declare_parameter('max_median_normalized_depth_curvature', 0.30)
-        # 只在同一正面方向的前后移动无法排除圆柱/圆锥端面；正式确认至少需要
-        # 目标相对相机的水平视线改变 25 度，促使机器人获得侧面反证。
-        self.declare_parameter('min_view_bearing_span_deg', 25.0)
+        self.declare_parameter('min_view_bearing_span_deg', 0.0)
         # 当前官方 SLAM 在长距离侧移时可能产生单向漂移；用首个完整球面视角
         # 锚定静态危险源位置，后续视角只用于确认/反证，避免帧数把坐标拖走。
         self.declare_parameter(
@@ -228,6 +227,11 @@ class HsvDetectorNode(Node):
             ),
             max_sphere_diameter_relative_error=float(
                 self.get_parameter('max_sphere_diameter_relative_error').value
+            ),
+            min_non_spherical_views_to_reject=int(
+                self.get_parameter(
+                    'min_non_spherical_views_to_reject'
+                ).value
             ),
             min_multiview_aspect_ratio=float(self.get_parameter('min_multiview_aspect_ratio').value),
             min_spherical_views_for_confirm=int(

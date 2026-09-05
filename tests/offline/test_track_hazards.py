@@ -139,6 +139,49 @@ def test_official_rgbd_profile_requires_two_spherical_depth_views_before_confirm
     assert tracks[0].status == 'confirmed'
 
 
+def test_competition_single_view_profile_confirms_sphere_after_stable_frames():
+    """赛场仅有红方块干扰时，一个稳定 RGB-D 球面视角即可确认。"""
+    tracker = HazardTracker(HazardTrackerConfig(
+        confirm_observation_count=3,
+        min_distinct_views=1,
+        min_spherical_views_for_confirm=1,
+        min_view_bearing_span_deg=0.0,
+        expected_sphere_diameter_m=0.30,
+    ))
+
+    for stamp in (1.0, 1.1, 1.2):
+        tracks = tracker.update([HazardObservation(
+            position=(1.0, 0.0, 0.15), confidence=0.92,
+            stamp_sec=stamp, view_id='stable_front',
+            confirmation_eligible=True, depth_shape_status='spherical',
+            apparent_diameter_m=0.30, aspect_ratio=0.94,
+            depth_curvature_m=0.06,
+        )])
+
+    assert tracks[0].status == 'confirmed'
+    assert tracks[0].evidence_status == 'single_view_sphere_confirmed'
+
+
+def test_competition_single_view_profile_rejects_red_box_depth_plane():
+    """红色正方体的单视角平面深度反证应直接拒绝，不能触发横移复查。"""
+    tracker = HazardTracker(HazardTrackerConfig(
+        confirm_observation_count=3,
+        min_distinct_views=1,
+        min_non_spherical_views_to_reject=1,
+        min_spherical_views_for_confirm=1,
+    ))
+
+    tracks = tracker.update([HazardObservation(
+        position=(1.0, 0.0, 0.15), confidence=0.90,
+        stamp_sec=1.0, view_id='stable_front',
+        confirmation_eligible=False, depth_shape_status='flat',
+    )])
+
+    assert tracks == []
+    assert tracker.tracks[0].status == 'rejected_non_spherical'
+    assert tracker.tracks[0].evidence_status == 'single_view_flat_or_non_spherical'
+
+
 def test_partial_or_unstable_spherical_observations_do_not_supply_confirmation_evidence():
     """局部可见弧段即使深度看似球面，也只能触发复查而不能补齐正证据。"""
     tracker = HazardTracker(HazardTrackerConfig(
