@@ -267,3 +267,9 @@ docs/远程桌面使用指南.md
 scripts/deploy_grd_remote_login.sh
 scripts/deploy_sftp_audit_layer1.sh
 scripts/deploy_audit_layer2.sh
+
+# Stable navigation local build and run products
+/build/
+/install/
+/log/
+/reports/nav/stable_three_floor_*/
