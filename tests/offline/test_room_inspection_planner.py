@@ -15,6 +15,7 @@ if str(NAV_SRC) not in sys.path:
     sys.path.insert(0, str(NAV_SRC))
 
 from hazardwalker_nav.room_inspection_planner import (  # noqa: E402
+    AnchoredInspectionGoalProjector,
     InspectionProgress,
     RoomInspectionExecution,
     bounded_inspection_turn_rate,
@@ -24,6 +25,25 @@ from hazardwalker_nav.room_inspection_planner import (  # noqa: E402
     reproject_planar_pose_between_robot_frames,
     visibility_coverage_requirement_met,
 )
+
+
+def test_physical_goal_is_frozen_while_slam_pose_changes():
+    projector = AnchoredInspectionGoalProjector()
+    first = projector.resolve(
+        'view-1', (5.0, 1.0), 0.4,
+        (4.0, 1.0, 0.0), (10.0, 20.0, 0.0),
+    )
+    drifted = projector.resolve(
+        'view-1', (5.0, 1.0), 0.4,
+        (4.8, 1.2, 0.2), (10.7, 20.1, 0.1),
+    )
+    next_goal = projector.resolve(
+        'view-2', (6.0, 1.0), 0.4,
+        (4.8, 1.2, 0.2), (10.7, 20.1, 0.1),
+    )
+
+    assert first == drifted
+    assert next_goal != first
 
 
 def test_physical_progress_accepts_detour_translation_or_in_place_rotation():

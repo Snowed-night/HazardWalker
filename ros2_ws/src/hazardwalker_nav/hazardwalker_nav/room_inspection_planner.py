@@ -129,6 +129,42 @@ def reproject_planar_pose_between_robot_frames(
     return float(output_x), float(output_y), float(output_yaw)
 
 
+class AnchoredInspectionGoalProjector:
+    """把每个算法观察位一次性锚定到物理控制坐标系。
+
+    SLAM 在长走廊和房内转向时会发生小幅连续修正。若每个控制周期都用当前
+    机器人位姿重投影同一个地图目标，物理目标会随机器人一起漂移，形成永远
+    追不上的“移动终点”。本类按 ``goal_id`` 缓存首次合法投影；下一观察位
+    仍使用当时最新的两坐标系锚点，因此不会把整场任务锁死在旧变换上。
+    """
+
+    def __init__(self):
+        self._goals = {}
+
+    def clear(self) -> None:
+        self._goals.clear()
+
+    def resolve(
+            self,
+            goal_id: str,
+            point: Sequence[float],
+            heading_rad: float,
+            source_robot_pose: Sequence[float],
+            target_robot_pose: Sequence[float],
+    ) -> Tuple[float, float, float]:
+        key = str(goal_id).strip()
+        if not key:
+            raise ValueError('goal_id 不能为空')
+        if key not in self._goals:
+            self._goals[key] = reproject_planar_pose_between_robot_frames(
+                point,
+                heading_rad,
+                source_robot_pose,
+                target_robot_pose,
+            )
+        return self._goals[key]
+
+
 def bounded_inspection_turn_rate(
         heading_error_rad: float,
         tolerance_rad: float,

@@ -103,6 +103,7 @@ from hazardwalker_nav.elevator_controller import (
 )
 from hazardwalker_nav.nav_recorder import NavRecorder
 from hazardwalker_nav.room_inspection_planner import (
+    AnchoredInspectionGoalProjector,
     RoomInspectionExecution,
     bounded_inspection_turn_rate,
     build_room_visibility_inspection_plan,
@@ -636,6 +637,8 @@ class FrontierExplorerNode(Node):
             Tuple[float, float]] = None
         self._room_inspection_execution: Optional[
             RoomInspectionExecution] = None
+        self._room_inspection_goal_projector = (
+            AnchoredInspectionGoalProjector())
         self._room_inspection_request_goal_id = ''
         self._room_inspection_result_goal_id = ''
         self._room_inspection_capture_started_ros: Optional[float] = None
@@ -869,7 +872,8 @@ class FrontierExplorerNode(Node):
         if not strict_room_reobservation_allowed(
                 self.get_parameter('strict_room_inspection_enabled').value,
                 self._deterministic_route_phase,
-                inspection_phase):
+                inspection_phase,
+                payload.get('camera_stable', False)):
             return
         deterministic_room_active = (
             self._deterministic_room_sector is not None
@@ -1015,7 +1019,8 @@ class FrontierExplorerNode(Node):
                 return None
             official_x, official_y, official_yaw, _stamp = (
                 self._official_control_odom)
-            return reproject_planar_pose_between_robot_frames(
+            return self._room_inspection_goal_projector.resolve(
+                goal.goal_id,
                 (goal.x_m, goal.y_m),
                 goal.face_yaw_rad,
                 (self.robot_x, self.robot_y, self.robot_yaw),
@@ -2256,6 +2261,7 @@ class FrontierExplorerNode(Node):
             neighbor_entries_world=neighbor_entries_world,
             goal_id_prefix=f'floor_{self._current_floor}_{sector}',
         )
+        self._room_inspection_goal_projector.clear()
         self._room_inspection_execution = RoomInspectionExecution(plan)
         self._room_inspection_request_goal_id = ''
         self._room_inspection_result_goal_id = ''

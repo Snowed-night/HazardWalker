@@ -21,7 +21,8 @@ SUPPORTED_REOBSERVATION_ACTIONS = {
 def strict_room_reobservation_allowed(
         strict_room_inspection_enabled,
         deterministic_route_phase,
-        inspection_phase):
+        inspection_phase,
+        camera_stable=True):
     """判断候选复查是否可在严格房间巡检期间接管运动。
 
     普通探索继续沿用原有复查行为；严格房间模式只允许在算法选中的观察位
@@ -34,6 +35,7 @@ def strict_room_reobservation_allowed(
     return (
         str(deterministic_route_phase) == 'room_inspection'
         and str(inspection_phase).upper() == 'CAPTURE'
+        and bool(camera_stable)
     )
 
 

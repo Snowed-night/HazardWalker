@@ -52,7 +52,9 @@ def test_continue_or_unknown_action_never_interrupts_exploration():
 def test_strict_room_reobservation_only_runs_at_algorithmic_capture_pose():
     assert strict_room_reobservation_allowed(False, 'corridor_outbound', '')
     assert strict_room_reobservation_allowed(
-        True, 'room_inspection', 'CAPTURE')
+        True, 'room_inspection', 'CAPTURE', camera_stable=True)
+    assert not strict_room_reobservation_allowed(
+        True, 'room_inspection', 'CAPTURE', camera_stable=False)
     assert not strict_room_reobservation_allowed(
         True, 'room_inspection', 'MOVE')
     assert not strict_room_reobservation_allowed(
@@ -124,6 +126,7 @@ def test_official_reobservation_cannot_preempt_corridor_or_door_entry():
         'def on_inspection_result', 1)[0]
     assert 'strict_room_reobservation_allowed(' in hazard_callback
     assert 'inspection_phase = execution.phase' in hazard_callback
+    assert "payload.get('camera_stable', False)" in hazard_callback
     assert hazard_callback.index(
         "strict_room_inspection_enabled').value") < hazard_callback.index(
             'request = parse_reobservation_request(payload)')
