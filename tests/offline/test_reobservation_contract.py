@@ -19,6 +19,7 @@ from hazardwalker_nav.reobservation_contract import (
     reobservation_actions_conflict,
     reobservation_request_is_eligible,
     select_live_reobservation_update,
+    strict_room_reobservation_allowed,
     target_centered_in_image,
     target_horizontal_error_ratio,
 )
@@ -46,6 +47,18 @@ def test_continue_or_unknown_action_never_interrupts_exploration():
     assert parse_reobservation_request({
         'view_recommendation': {'action': 'continue_exploring'},
     }) is None
+
+
+def test_strict_room_reobservation_only_runs_at_algorithmic_capture_pose():
+    assert strict_room_reobservation_allowed(False, 'corridor_outbound', '')
+    assert strict_room_reobservation_allowed(
+        True, 'room_inspection', 'CAPTURE')
+    assert not strict_room_reobservation_allowed(
+        True, 'room_inspection', 'MOVE')
+    assert not strict_room_reobservation_allowed(
+        True, 'room_inspection', 'ORIENT')
+    assert not strict_room_reobservation_allowed(
+        True, 'room_cross', 'CAPTURE')
     assert parse_reobservation_request({
         'view_recommendation': {'action': 'teleport', 'target_id': '1'},
     }) is None
@@ -109,6 +122,8 @@ def test_official_reobservation_cannot_preempt_corridor_or_door_entry():
     assert "self._deterministic_route_phase == 'room_inspection'" in source
     hazard_callback = source.split('def on_hazard', 1)[1].split(
         'def on_inspection_result', 1)[0]
+    assert 'strict_room_reobservation_allowed(' in hazard_callback
+    assert 'inspection_phase = execution.phase' in hazard_callback
     assert hazard_callback.index(
         "strict_room_inspection_enabled').value") < hazard_callback.index(
             'request = parse_reobservation_request(payload)')
@@ -478,7 +493,7 @@ def test_reobservation_uses_sim_time_and_has_feedback_bounded_lateral_motion():
     assert "declare_parameter('reobserve_target_loss_timeout_s', 0.40)" in source
     assert "declare_parameter('reobserve_lateral_speed', 0.45)" in source
     assert "declare_parameter('reobserve_lateral_centering_gain', 0.80)" in source
-    assert "declare_parameter('reobserve_forward_speed', 0.30)" in source
+    assert "declare_parameter('reobserve_forward_speed', 0.45)" in source
     assert 'now = self._ros_time_sec()' in trigger
     assert 'time.monotonic()' not in trigger
     assert 'now = self._ros_time_sec()' in handler

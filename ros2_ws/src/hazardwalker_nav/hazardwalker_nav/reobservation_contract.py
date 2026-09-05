@@ -18,6 +18,25 @@ SUPPORTED_REOBSERVATION_ACTIONS = {
 }
 
 
+def strict_room_reobservation_allowed(
+        strict_room_inspection_enabled,
+        deterministic_route_phase,
+        inspection_phase):
+    """判断候选复查是否可在严格房间巡检期间接管运动。
+
+    普通探索继续沿用原有复查行为；严格房间模式只允许在算法选中的观察位
+    已经到达、朝向完成并进入 ``CAPTURE`` 后复查。这样候选可触发靠近或侧视，
+    但不会在走廊、穿门或前往下一个观察位时抢占导航。
+    """
+
+    if not bool(strict_room_inspection_enabled):
+        return True
+    return (
+        str(deterministic_route_phase) == 'room_inspection'
+        and str(inspection_phase).upper() == 'CAPTURE'
+    )
+
+
 def parse_reobservation_request(payload):
     """返回规范化复查请求；无请求或不安全动作返回 ``None``。"""
 

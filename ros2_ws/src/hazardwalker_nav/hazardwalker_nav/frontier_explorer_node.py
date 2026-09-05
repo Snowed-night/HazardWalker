@@ -88,6 +88,7 @@ from hazardwalker_nav.reobservation_contract import (
     reobservation_actions_conflict,
     reobservation_request_is_eligible,
     select_live_reobservation_update,
+    strict_room_reobservation_allowed,
     target_centered_in_image,
     target_horizontal_error_ratio,
 )
@@ -387,7 +388,9 @@ class FrontierExplorerNode(Node):
         # 平移复查使用与正式导航相同量级的有效指令，并继续由激光门禁及 25°
         # 视线变化反馈提前停车，避免盲走完整 10 秒。
         self.declare_parameter('reobserve_lateral_speed', 0.45)
-        self.declare_parameter('reobserve_forward_speed', 0.30)
+        # 官方 A1 RL 步态的平移有效死区约为 0.45 m/s。该值是执行器物理约束，
+        # 复查方向和是否前进仍由实时 RGB-D 质量与视角收益算法决定。
+        self.declare_parameter('reobserve_forward_speed', 0.45)
         self.declare_parameter('reobserve_turn_speed', 0.60)
         # 侧移时同步转向把目标保持在图像中央，形成绕目标的弧线视差；否则
         # 0.8 m 纯横移会把远球推到反侧边缘，重复复查又反向走回原视角。
@@ -859,10 +862,14 @@ class FrontierExplorerNode(Node):
         if self.state == 'REOBSERVING':
             self._update_reobservation_feedback(payload)
             return
-        # 严格房间模式已经按占据图生成少量、可达且带采帧确认的多视角
-        # 路线。旧的候选即时侧移若同时启用，会因候选 ID 变化反复抢占同一
-        # 观察点；两套运动策略必须互斥，检测与跟踪本身仍持续运行。
-        if bool(self.get_parameter('strict_room_inspection_enabled').value):
+        # 严格房间模式只允许在算法选中的观察位完成移动和朝向后，由红球候选
+        # 短暂触发主动复查。走廊、穿门和观察位之间的移动阶段禁止抢占导航。
+        execution = self._room_inspection_execution
+        inspection_phase = execution.phase if execution is not None else ''
+        if not strict_room_reobservation_allowed(
+                self.get_parameter('strict_room_inspection_enabled').value,
+                self._deterministic_route_phase,
+                inspection_phase):
             return
         deterministic_room_active = (
             self._deterministic_room_sector is not None
