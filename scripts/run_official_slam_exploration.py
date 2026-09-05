@@ -186,6 +186,7 @@ def build_launch_command(
         target_floors: tuple[int, ...] = (),
         per_floor_exploration_s: float = 120.0,
         simenv_container: str = 'simenv_ros1_hazard_platform',
+        enable_perception: bool = False,
         strict_room_inspection: bool = False,
         enable_3d_map: bool = False,
         world_from_map: tuple[float, float, float] = (0.0, 0.0, 0.0),
@@ -198,6 +199,7 @@ def build_launch_command(
     localization_provenance = (
         'lidar_imu_slam+public_floor_action'
         if target_floors else 'lidar_imu_slam')
+    perception_enabled = bool(enable_perception or strict_room_inspection)
     command = [
         'ros2', 'launch', 'hazardwalker_bringup',
         'official_simenv_control_interface.launch.py',
@@ -214,10 +216,10 @@ def build_launch_command(
         'nav_mode:=frontier',
         'local_planner_backend:=unitree_move_base',
         'start_perception:='
-        + ('true' if strict_room_inspection else 'false'),
+        + ('true' if perception_enabled else 'false'),
         'start_decision:=true',
         'start_evidence_recorder:='
-        + ('true' if strict_room_inspection else 'false'),
+        + ('true' if perception_enabled else 'false'),
         # SLAM 在公开入门动作之后启动，感知必须保留 map 坐标；结果层再用
         # 本轮实测入门距离恢复 world，不能套用出生点的静态 world→map。
         'perception_output_frame:=map',
@@ -249,7 +251,7 @@ def build_launch_command(
             'manual_elevator_assist:=true',
             'automatic_elevator_entry:=true',
         ])
-    if strict_room_inspection:
+    if perception_enabled:
         # 正式感知验收必须加载仓库内受版本控制的配置。禁止依赖节点默认值，
         # 否则配置文件、运行参数和结果清单会互相矛盾。
         command.extend([
@@ -1117,6 +1119,9 @@ def main() -> int:
     parser.add_argument('--room-clearance-m', type=float, default=0.60)
     parser.add_argument('--allow-dirty-diagnostic', action='store_true')
     parser.add_argument(
+        '--enable-perception', action='store_true',
+        help='在已验收导航环线上运行感知和正式记录，不启用额外 map 视点。')
+    parser.add_argument(
         '--strict-room-inspection', action='store_true',
         help='在已验收基础环线后执行严格逐障碍观察；无采帧确认不得完成房间。')
     parser.add_argument(
@@ -1158,7 +1163,9 @@ def main() -> int:
         container = str(
             preflight_payload['adapter_status'].get('lifecycle_container')
             or '').strip()
-        if args.strict_room_inspection:
+        perception_enabled = bool(
+            args.enable_perception or args.strict_room_inspection)
+        if perception_enabled:
             preflight_payload['perception_contract'] = (
                 validate_perception_mission_config(
                     REPO_ROOT / 'config' / 'perception.yaml'))
@@ -1198,6 +1205,7 @@ def main() -> int:
         target_floors=target_floors,
         per_floor_exploration_s=args.per_floor_exploration_sec,
         simenv_container=container,
+        enable_perception=perception_enabled,
         strict_room_inspection=bool(args.strict_room_inspection),
         enable_3d_map=bool(args.enable_3d_map),
         world_from_map=world_from_map,
@@ -1224,6 +1232,7 @@ def main() -> int:
         'first_person_video': None,
         'target_floors': list(target_floors),
         'strict_room_inspection': bool(args.strict_room_inspection),
+        'perception_enabled': perception_enabled,
         'enable_3d_map': bool(args.enable_3d_map),
         'evaluation': None,
         'navigation_acceptance': None,
@@ -1362,7 +1371,7 @@ def main() -> int:
             except RuntimeError as exc:
                 manifest['status'] = 'failed'
                 manifest['failure_reason'] = str(exc)
-        if manifest['status'] == 'complete' and args.strict_room_inspection:
+        if manifest['status'] == 'complete' and perception_enabled:
             try:
                 manifest['evaluation'] = evaluate_completed_run(
                     Path(args.truth_file).expanduser().resolve(),

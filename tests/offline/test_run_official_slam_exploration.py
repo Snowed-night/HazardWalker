@@ -75,6 +75,17 @@ def test_launch_command_uses_unique_managed_control_and_legal_slam_inputs():
     assert 'strict_room_clearance_m:=0.600000' in strict
     assert 'official_result_path:=/tmp/nav-run/detected_danger.json' in strict
 
+    perception_only = ' '.join(MODULE.build_launch_command(
+        Path('/tmp/nav-run'), scenario_seed='20260823', code_version='abc',
+        enable_perception=True,
+        strict_room_inspection=False,
+        world_from_map=(0.0, 1.403, math.pi / 2.0)))
+    assert 'start_perception:=true' in perception_only
+    assert 'start_evidence_recorder:=true' in perception_only
+    assert 'strict_room_inspection:=false' in perception_only
+    assert 'perception_parameter_file:=' in perception_only
+    assert 'official_hazard_source_frame:=map' in perception_only
+
 
 def test_map_origin_uses_actual_public_ingress_before_slam_start():
     origin = MODULE.map_origin_after_straight_ingress(
@@ -398,6 +409,8 @@ def test_entrance_ingress_precedes_slam_and_uses_only_public_inputs():
         'perform_entrance_ingress(')
     assert main_source.index('perform_entrance_ingress(') < main_source.index(
         'command = build_launch_command(')
+    assert "args.enable_perception or args.strict_room_inspection" in main_source
+    assert "manifest['status'] == 'complete' and perception_enabled" in main_source
 
     with pytest.raises(ValueError, match='必须为正数'):
         MODULE.perform_entrance_ingress(distance_m=0.0)
