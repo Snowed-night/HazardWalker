@@ -29,6 +29,13 @@ restore_runtime_git_state() {
     2>/dev/null || true
 }
 
+clear_platform_logs() {
+  docker run --rm \
+    -v "$PLATFORM/logs:/cleanup_logs" \
+    simenv_ros1:noetic-focal \
+    bash -lc 'find /cleanup_logs -mindepth 1 -maxdepth 1 -type f -delete'
+}
+
 platform_up() {
   restore_runtime_git_state
   cd "$PLATFORM"
@@ -53,6 +60,7 @@ platform_down() {
   fi
   ./auto_docker.sh gui down || true
   ./auto_docker.sh down
+  clear_platform_logs
   restore_runtime_git_state
 }
 
