@@ -767,6 +767,8 @@ def test_scan_imu_localizer_publishes_configured_runtime_provenance():
         in source
     )
     assert 'String(data=self.localization_provenance)' in source
+    assert 'publish_stamp = self.get_clock().now().to_msg()' in source
+    assert 'message.header.stamp = publish_stamp' in source
     assert "'visual_inertial_slam'" not in source
 
 

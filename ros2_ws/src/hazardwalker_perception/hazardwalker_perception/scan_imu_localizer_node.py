@@ -270,14 +270,18 @@ class ScanImuLocalizerNode(Node):
         )
         self.publish_pose(result, message.header.stamp)
 
-    def publish_pose(self, result, stamp):
+    def publish_pose(self, result, _stamp):
         pose = result.pose
+        # scan 与 odom 若使用完全相同时间戳，Cartographer 同步队列会一直
+        # 等待“下一条 odom”而不消费当前 scan。估计在本回调完成时才有效，
+        # 因此用节点当前仿真时钟发布，既保持因果顺序，也不引入墙钟。
+        publish_stamp = self.get_clock().now().to_msg()
         half_yaw = pose.yaw * 0.5
         quaternion_z = math.sin(half_yaw)
         quaternion_w = math.cos(half_yaw)
 
         transform = TransformStamped()
-        transform.header.stamp = stamp
+        transform.header.stamp = publish_stamp
         transform.header.frame_id = self.odom_frame
         transform.child_frame_id = self.base_frame
         transform.transform.translation.x = pose.x
@@ -289,7 +293,7 @@ class ScanImuLocalizerNode(Node):
             self.tf_broadcaster.sendTransform(transform)
 
         message = Odometry()
-        message.header.stamp = stamp
+        message.header.stamp = publish_stamp
         message.header.frame_id = self.odom_frame
         message.child_frame_id = self.base_frame
         message.pose.pose.position.x = pose.x
