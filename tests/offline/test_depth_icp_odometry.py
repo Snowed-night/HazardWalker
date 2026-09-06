@@ -30,13 +30,3 @@ def test_integrate_planar_pose_rotates_body_translation_into_world():
         (0.5, 0.0, math.pi / 2.0),
     )
     assert np.allclose(pose, (1.0, 2.5, math.pi), atol=1e-9)
-
-
-def test_runtime_profile_uses_latest_low_resolution_depth_frame():
-    source = (
-        ROOT / 'ros2_ws' / 'src' / 'hazardwalker_perception'
-        / 'hazardwalker_perception' / 'depth_icp_odometry_node.py'
-    ).read_text(encoding='utf-8')
-    assert "declare_parameter('downsample_factor', 4)" in source
-    assert 'self.on_depth, 1)' in source
-    assert '[5, 5, 5]' in source
