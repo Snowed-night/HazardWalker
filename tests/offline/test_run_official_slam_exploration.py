@@ -54,7 +54,7 @@ def test_launch_command_uses_unique_managed_control_and_legal_slam_inputs():
     assert 'target_floors:=[0,1,2]' in multifloor
     assert 'per_floor_exploration_s:=120.000' in multifloor
     assert 'mission_time_budget_s:=900.000' in multifloor
-    assert 'manual_elevator_assist:=true' in multifloor
+    assert 'manual_elevator_assist:=false' in multifloor
     assert 'automatic_elevator_entry:=true' in multifloor
     assert 'localization_provenance:=lidar_imu_slam+public_floor_action' in multifloor
     assert 'simenv_container:=simenv_ros1_test' in multifloor

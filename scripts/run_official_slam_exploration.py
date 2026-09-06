@@ -251,7 +251,9 @@ def build_launch_command(
             'target_floors:=' + json.dumps(
                 list(target_floors), separators=(',', ':')),
             f'per_floor_exploration_s:={float(per_floor_exploration_s):.3f}',
-            'manual_elevator_assist:=true',
+            # 正式整场必须走平台公开电梯服务与 official odom 控制分支；
+            # manual 分支会等待/回放人工轨迹，不能作为无人自主任务默认值。
+            'manual_elevator_assist:=false',
             'automatic_elevator_entry:=true',
         ])
     if perception_enabled:
