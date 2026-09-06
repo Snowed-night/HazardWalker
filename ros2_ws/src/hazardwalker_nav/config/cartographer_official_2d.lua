@@ -14,9 +14,11 @@ options = {
   provide_odom_frame = true,
   publish_frame_projected_to_2d = true,
   use_pose_extrapolator = true,
-  -- 合法里程计只积分本系统已下发 cmd_vel，并由扫描做毫米级校正；它用于约束
-  -- 长直墙/单墙场景的平移退化，不读取 /Odometry_gazebo 或任何场景真值。
-  use_odometry = true,
+  -- 失败轮证据表明自写 scan/IMU 里程计会在重复长走廊中与物理位置分离，
+  -- Cartographer 若继续融合该 odom，会把同一错误带入整张地图。二维正式
+  -- 模式改为直接由 LaserScan + IMU 的相关性匹配估计轨迹；自写 odom 仅保留
+  -- 为赛后诊断，不参与 Cartographer 优化。
+  use_odometry = false,
   use_nav_sat = false,
   use_landmarks = false,
   -- 正式地图只融合 360° 水平雷达。旧的 RGB-D 中部竖带投影会把地面、
@@ -31,7 +33,7 @@ options = {
   pose_publish_period_sec = 0.01,
   trajectory_publish_period_sec = 0.03,
   rangefinder_sampling_ratio = 1.0,
-  odometry_sampling_ratio = 1.0,
+  odometry_sampling_ratio = 0.0,
   fixed_frame_pose_sampling_ratio = 1.0,
   imu_sampling_ratio = 1.0,
   landmarks_sampling_ratio = 1.0,

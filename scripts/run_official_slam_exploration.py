@@ -454,6 +454,41 @@ def _read_jsonl(path: Path) -> list[dict]:
     return rows
 
 
+def evaluate_slam_physical_alignment(
+        trajectory_file: Path,
+        output_file: Path,
+        p95_limit_m: float = 1.0,
+        max_limit_m: float = 2.0,
+) -> dict:
+    """赛后用公开物理里程验收 SLAM；该结果绝不反馈给在线导航。"""
+
+    module_path = (
+        REPO_ROOT / 'ros2_ws' / 'src' / 'hazardwalker_nav'
+        / 'hazardwalker_nav' / 'slam_alignment.py'
+    )
+    spec = importlib.util.spec_from_file_location(
+        'hazardwalker_slam_alignment_contract', module_path)
+    if spec is None or spec.loader is None:
+        raise RuntimeError('无法加载 SLAM 物理对齐验收器')
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    try:
+        metrics = module.evaluate_map_physical_alignment(
+            _read_jsonl(Path(trajectory_file)))
+    except (OSError, ValueError) as exc:
+        raise RuntimeError(f'SLAM 物理对齐验收失败：{exc}') from exc
+    metrics['p95_limit_m'] = float(p95_limit_m)
+    metrics['max_limit_m'] = float(max_limit_m)
+    metrics['accepted'] = module.alignment_is_acceptable(
+        metrics,
+        p95_limit_m=float(p95_limit_m),
+        max_limit_m=float(max_limit_m),
+    )
+    write_json(Path(output_file), metrics)
+    return metrics
+
+
 def validate_navigation_acceptance(
         output_dir: Path,
         target_floors: tuple[int, ...],
@@ -1117,6 +1152,12 @@ def main() -> int:
     parser.add_argument('--floor-height-m', type=float, default=2.6)
     parser.add_argument('--sphere-center-height-m', type=float, default=0.15)
     parser.add_argument('--room-clearance-m', type=float, default=0.60)
+    parser.add_argument(
+        '--slam-alignment-p95-limit-m', type=float, default=1.0,
+        help='赛后 SLAM 与公开物理里程对齐误差 P95 上限，不参与在线导航。')
+    parser.add_argument(
+        '--slam-alignment-max-limit-m', type=float, default=2.0,
+        help='赛后 SLAM 与公开物理里程最大误差上限，不参与在线导航。')
     parser.add_argument('--allow-dirty-diagnostic', action='store_true')
     parser.add_argument(
         '--enable-perception', action='store_true',
@@ -1141,9 +1182,11 @@ def main() -> int:
             or args.mission_time_budget_sec <= 0.0
             or args.per_floor_exploration_sec <= 0.0
             or args.expected_rooms_per_floor <= 0
-            or args.floor_height_m <= 0.0
-            or args.sphere_center_height_m < 0.0
-            or args.room_clearance_m <= 0.0):
+             or args.floor_height_m <= 0.0
+             or args.sphere_center_height_m < 0.0
+             or args.room_clearance_m <= 0.0
+             or args.slam_alignment_p95_limit_m <= 0.0
+             or args.slam_alignment_max_limit_m <= 0.0):
         raise SystemExit('运行及逐层探索超时必须为正数')
     try:
         target_floors = parse_target_floors(args.target_floors)
@@ -1236,6 +1279,7 @@ def main() -> int:
         'enable_3d_map': bool(args.enable_3d_map),
         'evaluation': None,
         'navigation_acceptance': None,
+        'slam_physical_alignment': None,
     }
     manifest_path = output_dir / 'run_manifest.json'
     write_json(manifest_path, manifest)
@@ -1356,6 +1400,30 @@ def main() -> int:
         manifest['finished_at_utc'] = utc_now()
         manifest['wall_duration_sec'] = round(
             time.monotonic() - started, 3)
+        try:
+            manifest['slam_physical_alignment'] = (
+                evaluate_slam_physical_alignment(
+                    output_dir / 'navigation' / 'trajectory.jsonl',
+                    output_dir / 'slam' / 'physical_alignment.json',
+                    p95_limit_m=args.slam_alignment_p95_limit_m,
+                    max_limit_m=args.slam_alignment_max_limit_m,
+                )
+            )
+            if (manifest['status'] == 'complete'
+                    and not manifest['slam_physical_alignment']['accepted']):
+                manifest['status'] = 'failed'
+                manifest['failure_reason'] = (
+                    'SLAM 与物理位置分离：'
+                    f'P95={manifest["slam_physical_alignment"]["p95_error_m"]:.3f}m，'
+                    f'MAX={manifest["slam_physical_alignment"]["max_error_m"]:.3f}m')
+        except RuntimeError as exc:
+            manifest['slam_physical_alignment'] = {
+                'accepted': False,
+                'error': str(exc),
+            }
+            if manifest['status'] == 'complete':
+                manifest['status'] = 'failed'
+                manifest['failure_reason'] = str(exc)
         if manifest['status'] == 'complete':
             try:
                 manifest['navigation_acceptance'] = (

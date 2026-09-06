@@ -456,3 +456,34 @@ def test_entrance_structure_detector_distinguishes_lobby_and_door_frame():
         seen, streak = MODULE.update_entrance_structure_state(
             seen, streak, 6.0, False)
     assert seen is True and streak == 3
+
+
+def test_runner_writes_and_enforces_post_run_slam_physical_alignment():
+    with tempfile.TemporaryDirectory() as temporary:
+        root = Path(temporary)
+        trajectory = root / 'trajectory.jsonl'
+        rows = []
+        for index in range(20):
+            rows.append({
+                'ros_sec': float(index),
+                'x': index * 0.2,
+                'y': 0.0,
+                'yaw_deg': 0.0,
+                'official_x': 3.0 + index * 0.2,
+                'official_y': -2.0,
+                'official_yaw_deg': 0.0,
+            })
+        trajectory.write_text(
+            ''.join(json.dumps(row) + '\n' for row in rows),
+            encoding='utf-8')
+        output = root / 'slam' / 'physical_alignment.json'
+        metrics = MODULE.evaluate_slam_physical_alignment(
+            trajectory, output, p95_limit_m=0.1, max_limit_m=0.2)
+        assert metrics['accepted'] is True
+        assert metrics['max_error_m'] == pytest.approx(0.0, abs=1e-9)
+        assert json.loads(output.read_text(encoding='utf-8'))['accepted'] is True
+
+    source = SCRIPT.read_text(encoding='utf-8')
+    assert "'slam_physical_alignment': None" in source
+    assert "output_dir / 'slam' / 'physical_alignment.json'" in source
+    assert "not manifest['slam_physical_alignment']['accepted']" in source

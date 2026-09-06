@@ -550,6 +550,29 @@ def test_cartographer_3d_profile_fuses_public_lidar_imu_and_legal_prior():
     assert 'ground_truth' not in source
 
 
+def test_cartographer_2d_does_not_fuse_the_divergent_custom_odometry():
+    """二维正式 SLAM 必须由 scan+IMU 自主估计，不能再被自写 odom 拖走。"""
+    source = (
+        REPO_ROOT / 'ros2_ws' / 'src' / 'hazardwalker_nav' / 'config' /
+        'cartographer_official_2d.lua'
+    ).read_text(encoding='utf-8')
+
+    assert 'num_laser_scans = 1' in source
+    assert 'TRAJECTORY_BUILDER_2D.use_imu_data = true' in source
+    assert 'use_odometry = false' in source
+    assert 'use_odometry = true' not in source
+    assert 'odometry_sampling_ratio = 0.0' in source
+    launch = (
+        REPO_ROOT / 'ros2_ws' / 'src' / 'hazardwalker_bringup' / 'launch' /
+        'official_simenv_business.launch.py'
+    ).read_text(encoding='utf-8')
+    two_dimensional_remaps = launch.split(
+        "] if dimension == '3d' else [", 1)[1].split(']),', 1)[0]
+    assert "('scan', '/hw/scan')" in two_dimensional_remaps
+    assert "('imu', '/hw/trunk_imu')" in two_dimensional_remaps
+    assert "('odom', '/hazardwalker/slam/odometry')" not in two_dimensional_remaps
+
+
 def test_livox_3d_profile_is_explicit_and_keeps_2d_default_compatible():
     platform = REPO_ROOT / 'ros2_ws' / 'src' / 'hazardwalker_platform'
     robot = (platform / 'src' / 'unitree_guide' / 'unitree_ros' / 'robots' /
