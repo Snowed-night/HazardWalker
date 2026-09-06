@@ -260,6 +260,31 @@ def test_partial_or_unstable_spherical_observations_do_not_supply_confirmation_e
     assert tracks[0].evidence_status == 'insufficient_multiview_spherical_depth'
 
 
+def test_positive_partial_sphere_confirms_without_unreliable_bbox_size():
+    """半球被家具遮挡时，连续球面深度正证据可确认且不套残缺框尺寸门。"""
+    tracker = HazardTracker(HazardTrackerConfig(
+        confirm_observation_count=3,
+        min_distinct_views=1,
+        min_spherical_views_for_confirm=1,
+        expected_sphere_diameter_m=0.30,
+        min_multiview_aspect_ratio=0.82,
+    ))
+    for index in range(3):
+        tracks = tracker.update([HazardObservation(
+            position=(2.0, 1.0, 0.15), confidence=0.88,
+            stamp_sec=1.0 + index * 0.1,
+            view_id='moving_partial_view',
+            confirmation_eligible=True,
+            depth_shape_status='spherical',
+            apparent_diameter_m=None,
+            aspect_ratio=None,
+            depth_curvature_m=0.04,
+        )])
+
+    assert tracks[0].status == 'confirmed'
+    assert tracks[0].evidence_status == 'single_view_sphere_confirmed'
+
+
 def test_ineligible_partial_observations_cannot_drift_a_confirmed_world_position():
     """纵使上游误传 partial 的表面点，跟踪器也必须保持完整观测的世界中心。"""
 

@@ -157,8 +157,8 @@ def test_reobservation_motion_requires_clear_relevant_scan_sector():
     ) is True
 
 
-def test_ineligible_partial_box_stays_reobserve_and_archive_uses_real_views():
-    """黄色复查候选不能冒充已确认目标，证据也不能伪造多视角字段。"""
+def test_partial_box_stays_reobserve_but_partial_sphere_can_be_tracked():
+    """平面 partial 仍复查；只有 RGB-D 球面正证据可进入三维轨迹。"""
 
     detector_path = os.path.join(
         REPO_ROOT,
@@ -172,7 +172,8 @@ def test_ineligible_partial_box_stays_reobserve_and_archive_uses_real_views():
         detector = handle.read()
     assert 'or not confirmation_eligible' in detector
     assert 'shape_complete_for_3d_tracking' in detector
-    assert 'if localization and shape_complete_for_3d_tracking' in detector
+    assert "depth_shape_status == 'spherical'" in detector
+    assert 'or positive_partial_sphere' in detector
 
     capture_path = os.path.join(
         REPO_ROOT,

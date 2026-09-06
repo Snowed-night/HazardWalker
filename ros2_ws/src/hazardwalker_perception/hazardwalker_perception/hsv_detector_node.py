@@ -466,12 +466,24 @@ class HsvDetectorNode(Node):
                     min_points=int(self.get_parameter('min_depth_points_in_roi').value),
                 )
             depth_shape_status = depth_shape.status if depth_shape else 'unknown'
+            # 家具遮挡时只露出半个球，轮廓宽高比不再代表完整圆，但 RGB-D
+            # 若仍给出各向同性凸曲率，就已经是红立方体不可能产生的球面正证据。
+            # 允许这类候选直接进入三维跟踪；定位只沿视线补一个已知球半径，
+            # 不用残缺 bbox 的投影直径反推深度。
+            positive_partial_sphere = (
+                not shape_complete_for_3d_tracking
+                and depth_shape_status == 'spherical'
+            )
             # 圆柱端面、立方体/平板等在单帧可能都有近圆形红色投影。只有深度明确
             # 显示平面或轮廓明显非圆时才抑制正证据；unknown 保留给多视角策略。
             # 非圆视角仍进入轨迹用于复查，但不能污染后续完整球视角的尺寸/圆度统计。
             confirmation_eligible = (
-                shape_complete_for_3d_tracking
-                and depth_shape_status not in ('flat', 'anisotropic', 'non_spherical')
+                positive_partial_sphere
+                or (
+                    shape_complete_for_3d_tracking
+                    and depth_shape_status not in (
+                        'flat', 'anisotropic', 'non_spherical')
+                )
             )
             if self.camera_intrinsics and depth_synchronized and camera_to_output:
                 localization = localize_bbox_from_depth_image(
@@ -490,7 +502,8 @@ class HsvDetectorNode(Node):
                     min_points=int(self.get_parameter('min_depth_points_in_roi').value),
                     sphere_radius_m=(
                         float(self.get_parameter('sphere_radius_m').value)
-                        if shape_complete_for_3d_tracking else 0.0
+                        if (shape_complete_for_3d_tracking
+                            or positive_partial_sphere) else 0.0
                     ),
                     use_sphere_projection_geometry=(
                         shape_complete_for_3d_tracking
@@ -529,9 +542,12 @@ class HsvDetectorNode(Node):
                 'red_pixel_count': detection_2d.red_pixel_count,
                 'is_partial': detection_2d.is_partial,
                 'requires_reobservation': (
-                    detection_2d.requires_reobservation
-                    or not shape_complete_for_3d_tracking
-                    or not confirmation_eligible
+                    not positive_partial_sphere
+                    and (
+                        detection_2d.requires_reobservation
+                        or not shape_complete_for_3d_tracking
+                        or not confirmation_eligible
+                    )
                 ),
                 'may_be_merged': detection_2d.may_be_merged,
                 'from_merged_split': detection_2d.from_merged_split,
@@ -604,10 +620,11 @@ class HsvDetectorNode(Node):
                 'detector_backend': self.detector_backend.name,
             })
 
-            # partial/粘连/贴边框的 bbox 会把完整球半径先验放大为错误世界坐标，
-            # 因而只能保留二维复查语义，不能创建或更新三维轨迹。完整严格框的
-            # flat/anisotropic 深度反证仍可进入轨迹，用于跨视角拒绝非球体。
-            if localization and shape_complete_for_3d_tracking:
+            # 普通 partial/粘连框仍只保留二维语义；唯一例外是深度已明确给出
+            # 球面正证据的遮挡候选，此时可用表面深度+标准半径定位球心。
+            if localization and (
+                    shape_complete_for_3d_tracking
+                    or positive_partial_sphere):
                 observations.append(HazardObservation(
                     position=(
                         localization.position.x,
@@ -623,7 +640,11 @@ class HsvDetectorNode(Node):
                     apparent_diameter_m=apparent_diameter_m,
                     # 贴边框被图像裁切，长宽比不代表真实轮廓，不能拿来否决球体。
                     aspect_ratio=(
-                        None if _bbox_touches_image_edge(bbox, msg.width, msg.height)
+                        None if (
+                            positive_partial_sphere
+                            or _bbox_touches_image_edge(
+                                bbox, msg.width, msg.height)
+                        )
                         else detection_2d.aspect_ratio
                     ),
                     depth_curvature_m=(depth_shape.curvature_m if depth_shape else None),
@@ -633,7 +654,7 @@ class HsvDetectorNode(Node):
         detections_2d_payload = self.candidate_memory.annotate(
             detections_2d_payload, stamp_sec,
         )
-        if camera_stable and observations and self.tracker.tracks:
+        if observations and self.tracker.tracks:
             # 先用上一时刻轨迹投影关联当前二维框。合法 SLAM 长距离漂移会让同一
             # 静态球的世界坐标超过 merge_distance_m，但其旧轨迹投影仍可与当前
             # 图像框唯一重合；把这个非真值提示交给三维跟踪器可避免拆成重复目标。
@@ -683,8 +704,9 @@ class HsvDetectorNode(Node):
         for item in detections_2d_payload:
             item.pop('_source_id', None)
 
-        if camera_stable:
-            self.tracker.update(observations, stamp_sec=stamp_sec)
+        # 跟踪使用同步 RGB-D + TF 的世界坐标，不应被“完全静止”门禁阻断。
+        # 三帧球面证据仍负责抗噪；这样机器人边走边看时也能及时记录目标。
+        self.tracker.update(observations, stamp_sec=stamp_sec)
         tracks_to_publish = (
             self.tracker.published_tracks()
             if camera_stable else self.tracker.active_tracks()

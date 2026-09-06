@@ -331,10 +331,15 @@ class HazardTracker:
             representative_diameter_m = _median(
                 _view_medians(track.diameters_by_view), default=0.0,
             )
-            diameter_prior_ok = _matches_expected_diameter(
-                representative_diameter_m,
-                self.config.expected_sphere_diameter_m,
-                self.config.max_sphere_diameter_relative_error,
+            # 遮挡球只有球面深度而没有可靠完整直径时，不能用残缺 bbox 的
+            # 尺寸否决正证据；完整候选仍严格执行 0.30 m 直径先验。
+            diameter_prior_ok = (
+                (not track.diameters_by_view and spherical_views > 0)
+                or _matches_expected_diameter(
+                    representative_diameter_m,
+                    self.config.expected_sphere_diameter_m,
+                    self.config.max_sphere_diameter_relative_error,
+                )
             )
             representative_aspect_ratio = min(_view_medians(track.aspects_by_view), default=1.0)
             curvature_cv = _coefficient_of_variation(_view_medians(track.curvatures_by_view))
