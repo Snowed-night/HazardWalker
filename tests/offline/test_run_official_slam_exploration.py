@@ -38,7 +38,7 @@ def test_launch_command_uses_unique_managed_control_and_legal_slam_inputs():
     assert 'strict_room_inspection:=false' in joined
     assert 'start_perception:=false' in joined
     assert 'start_evidence_recorder:=false' in joined
-    assert 'perception_output_frame:=map' in joined
+    assert 'perception_output_frame:=odom' in joined
     assert 'nav_record_dir:=/tmp/nav-run/navigation' in joined
     assert 'slam_monitor_output_dir:=/tmp/nav-run/slam' in joined
     assert 'pointcloud_map_output_dir:=/tmp/nav-run/slam_3d' in joined
@@ -66,10 +66,10 @@ def test_launch_command_uses_unique_managed_control_and_legal_slam_inputs():
     assert 'strict_room_inspection:=true' in strict
     assert 'start_perception:=true' in strict
     assert 'start_evidence_recorder:=true' in strict
-    assert 'perception_output_frame:=map' in strict
+    assert 'perception_output_frame:=odom' in strict
     assert 'perception_parameter_file:=' in strict
     assert '/config/perception.yaml' in strict
-    assert 'official_hazard_source_frame:=map' in strict
+    assert 'official_hazard_source_frame:=odom' in strict
     assert 'official_world_from_map_y:=1.403000' in strict
     assert 'official_world_from_map_yaw:=1.570796' in strict
     assert 'official_floor_height_m:=2.600000' in strict
@@ -86,7 +86,7 @@ def test_launch_command_uses_unique_managed_control_and_legal_slam_inputs():
     assert 'start_evidence_recorder:=true' in perception_only
     assert 'strict_room_inspection:=false' in perception_only
     assert 'perception_parameter_file:=' in perception_only
-    assert 'official_hazard_source_frame:=map' in perception_only
+    assert 'official_hazard_source_frame:=odom' in perception_only
 
 
 def test_map_origin_uses_actual_public_ingress_before_slam_start():

@@ -278,13 +278,10 @@ def generate_launch_description():
         automatic_elevator_entry, value_type=bool)
     strict_room_inspection_parameter = ParameterValue(
         strict_room_inspection, value_type=bool)
-    # Cartographer 融合模式需要合法前端只发布 Odometry；否则由该前端直接拥有
-    # odom→base。表达式同时考虑 start_slam=false 的安全默认启动。
+    # 合法前端始终独占 odom→base；二维 Cartographer 仅发布 map→odom。
+    # 这使感知可在稳定 odom 中记录目标，不受地图回环修正影响。
     publish_legal_tf_parameter = ParameterValue(
-        PythonExpression([
-            "not ('", start_slam, "'.lower() in ('true', '1', 'yes') and '",
-            slam_backend, "' == 'cartographer')",
-        ]),
+        start_legal_localization,
         value_type=bool,
     )
     official_result_path = LaunchConfiguration('official_result_path')

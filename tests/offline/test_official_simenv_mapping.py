@@ -458,6 +458,7 @@ def test_official_business_launch_never_starts_fake_platform_by_default():
     assert "('points2', '/hw/lidar/points')" in three_d_remaps
     assert "('odom', '/hazardwalker/slam/odometry')" not in three_d_remaps
     assert "'publish_tf': publish_legal_tf_parameter" in source
+    assert 'publish_legal_tf_parameter = ParameterValue(\n        start_legal_localization' in source
     assert 'OpaqueFunction(' in source
     assert "get_package_share_directory('cartographer_ros')" in source
     assert 'except PackageNotFoundError as exc:' in source
@@ -563,6 +564,13 @@ def test_cartographer_3d_profile_fuses_public_lidar_imu_and_legal_prior():
     assert 'ceres_scan_matcher.rotation_weight = 40.0' in source
     assert '/Odometry_gazebo' not in source
     assert 'ground_truth' not in source
+
+    two_d = (
+        REPO_ROOT / 'ros2_ws' / 'src' / 'hazardwalker_nav' / 'config' /
+        'cartographer_official_2d.lua'
+    ).read_text(encoding='utf-8')
+    assert 'published_frame = "odom"' in two_d
+    assert 'provide_odom_frame = false' in two_d
 
 
 def test_cartographer_2d_fuses_only_speed_bounded_scan_imu_odometry():

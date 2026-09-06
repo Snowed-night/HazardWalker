@@ -9,9 +9,11 @@ options = {
   trajectory_builder = TRAJECTORY_BUILDER,
   map_frame = "map",
   tracking_frame = "imu_link",
-  published_frame = "base",
+  -- 标准 TF 分工：合法 scan/IMU 前端发布 odom→base，Cartographer 只发布
+  -- map→odom。危险源保留在稳定 odom，地图回环不会改写已观测目标坐标。
+  published_frame = "odom",
   odom_frame = "odom",
-  provide_odom_frame = true,
+  provide_odom_frame = false,
   publish_frame_projected_to_2d = true,
   use_pose_extrapolator = true,
   -- 重复长走廊仅靠二维扫描无法观测纵向平移，因此融合 scan/IMU 前端的
