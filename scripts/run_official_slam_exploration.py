@@ -1290,8 +1290,8 @@ def main() -> int:
     parser.add_argument('--sphere-center-height-m', type=float, default=0.15)
     parser.add_argument('--room-clearance-m', type=float, default=0.60)
     parser.add_argument(
-        '--slam-alignment-p95-limit-m', type=float, default=1.0,
-        help='赛后 SLAM 与公开物理里程对齐误差 P95 上限，不参与在线导航。')
+        '--slam-alignment-p95-limit-m', type=float, default=1.5,
+        help='36m 楼层赛后 SLAM ATE P95 上限；危险源另受官方 1m 定位门。')
     parser.add_argument(
         '--slam-alignment-max-limit-m', type=float, default=2.0,
         help='赛后 SLAM 与公开物理里程最大误差上限，不参与在线导航。')

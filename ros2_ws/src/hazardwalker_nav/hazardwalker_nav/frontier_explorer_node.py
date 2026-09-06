@@ -3414,24 +3414,27 @@ class FrontierExplorerNode(Node):
             )
         )
 
-    def _official_return_target(self) -> Tuple[float, float, float]:
-        """多层任务最后一层返回电梯大厅；0 层仍返回楼外出生点。"""
-
+    def _official_final_return_target(self) -> Tuple[float, float, float]:
+        """返回真正的任务终点，不包含房间退回走廊的临时目标。"""
         if (self._target_floors
                 and self._current_floor == self._target_floors[-1]
                 and self._current_floor > 0):
-            final_goal = (
+            return (
                 float(self.get_parameter(
                     'official_elevator_lobby_x_m').value),
                 float(self.get_parameter('official_elevator_y_m').value),
                 math.pi,
             )
-        else:
-            final_goal = (
-                float(self.get_parameter('official_home_x_m').value),
-                float(self.get_parameter('official_home_y_m').value),
-                float(self.get_parameter('official_home_yaw_rad').value),
-            )
+        return (
+            float(self.get_parameter('official_home_x_m').value),
+            float(self.get_parameter('official_home_y_m').value),
+            float(self.get_parameter('official_home_yaw_rad').value),
+        )
+
+    def _official_return_target(self) -> Tuple[float, float, float]:
+        """房间内先回走廊中线，随后才指向真正任务终点。"""
+
+        final_goal = self._official_final_return_target()
         if self._has_fresh_official_control_odom():
             official_x, official_y, _yaw, _stamp = (
                 self._official_control_odom)
@@ -3459,7 +3462,8 @@ class FrontierExplorerNode(Node):
         if use_official_return:
             official_x, official_y, _yaw, _stamp = (
                 self._official_control_odom)
-            home_x, home_y, _home_yaw = self._official_return_target()
+            home_x, home_y, _home_yaw = (
+                self._official_final_return_target())
             official_distance = math.hypot(
                 home_x - official_x, home_y - official_y)
             if official_distance <= max(

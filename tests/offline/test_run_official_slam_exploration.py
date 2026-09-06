@@ -506,6 +506,7 @@ def test_runner_writes_and_enforces_post_run_slam_physical_alignment():
     assert "'slam_physical_alignment': None" in source
     assert "output_dir / 'slam' / 'physical_alignment.json'" in source
     assert "not manifest['slam_physical_alignment']['accepted']" in source
+    assert "'--slam-alignment-p95-limit-m', type=float, default=1.5" in source
 
 
 def test_runner_waits_for_perception_result_before_stopping_launch():

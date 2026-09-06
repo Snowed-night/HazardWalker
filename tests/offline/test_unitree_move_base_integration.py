@@ -342,3 +342,15 @@ def test_official_corridor_completion_uses_the_same_control_frame_as_motion():
     assert '_room_inspection_goal_projector.reanchor(' in stall_recovery
     assert "'strict_room_path_inflation_radius_m'" in stall_recovery
     assert '_room_inspection_goal_projector.prime(' in source
+
+
+def test_return_intermediate_corridor_target_cannot_finish_mission():
+    source = (
+        ROOT / 'ros2_ws' / 'src' / 'hazardwalker_nav' /
+        'hazardwalker_nav' / 'frontier_explorer_node.py'
+    ).read_text(encoding='utf-8')
+    returning = source.split('def _handle_returning', 1)[1].split(
+        'def _return_recovery_command_for_now', 1)[0]
+    assert 'self._official_final_return_target()' in returning
+    assert 'self._official_return_target()' not in returning
+    assert 'official_distance <=' in returning
