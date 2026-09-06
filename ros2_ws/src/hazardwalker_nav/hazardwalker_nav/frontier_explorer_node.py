@@ -35,7 +35,7 @@ from rclpy.exceptions import ParameterUninitializedException
 from rclpy.node import Node
 from rclpy.parameter import Parameter
 from sensor_msgs.msg import Imu, LaserScan
-from std_msgs.msg import Int32, String
+from std_msgs.msg import Bool, Int32, String
 from std_srvs.srv import Trigger
 
 from hazardwalker_nav.frontier_detector import (
@@ -141,6 +141,11 @@ class FrontierExplorerNode(Node):
         self.declare_parameter(
             'control_mode_request_topic', '/hw/control/mode_request')
         self.declare_parameter('control_mode_value', 'navigation')
+        # 正式运行先在公开出生位姿启动 SLAM，再由运行器完成入门并释放探索。
+        # 这样 map 原点稳定绑定 world，不再事后猜测入门曲线和航向。
+        self.declare_parameter('start_paused', False)
+        self.declare_parameter(
+            'start_release_topic', '/hw/navigation/start')
         # 局部运动默认保持既有直接控制。官方 SimEnv profile 显式选择
         # unitree_move_base 后，Frontier 只发布 odom 目标，门框/障碍规避由赛事
         # 仓库随附的宇树 move_base + TrajectoryPlannerROS(DWA) 完成。
@@ -605,6 +610,8 @@ class FrontierExplorerNode(Node):
         self._frontier_progress_reference_distance: Optional[float] = None
         self._current_target_was_ingress = False
         self._visited_room_sectors: set[str] = set()
+        self._start_released = not bool(
+            self.get_parameter('start_paused').value)
         self._attempted_room_sectors: set[str] = set()
         self._room_sector_doorway_poses: dict[str, Tuple[float, float]] = {}
         self._room_sector_candidate_poses: dict[str, Tuple[float, float]] = {}
@@ -781,6 +788,12 @@ class FrontierExplorerNode(Node):
             10,
         )
         self.state_pub = self.create_publisher(String, '/hw/nav/state', 10)
+        self.start_release_sub = self.create_subscription(
+            Bool,
+            str(self.get_parameter('start_release_topic').value),
+            self.on_start_release,
+            10,
+        )
         self.mode_request_pub = self.create_publisher(
             String,
             str(self.get_parameter('control_mode_request_topic').value),
@@ -1476,9 +1489,25 @@ class FrontierExplorerNode(Node):
         message.data = str(mode).strip().lower()
         self.mode_request_pub.publish(message)
 
+    def on_start_release(self, message: Bool) -> None:
+        """只接受显式 true；重复释放保持幂等。"""
+
+        if bool(message.data) and not self._start_released:
+            self._start_released = True
+            self.get_logger().info(
+                'Navigation released after SLAM-anchored entrance ingress.')
+
     def on_timer(self):
         """10Hz 主循环。"""
         self._unitree_move_base_selected_this_cycle = False
+        if not self._start_released:
+            state_msg = String()
+            state_msg.data = self.state
+            self.state_pub.publish(state_msg)
+            self._ensure_control_mode()
+            self._cancel_unitree_move_base()
+            self.cmd_pub.publish(Twist())
+            return
         now_ros = self._ros_time_sec()
         if self._mission_start_ros_sec is None and now_ros > 0.0:
             # 从官方 /clock 第一条有效消息开始计总预算，INIT 建图/开门耗时也

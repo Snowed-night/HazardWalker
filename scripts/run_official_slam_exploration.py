@@ -228,6 +228,7 @@ def build_launch_command(
         'use_sim_time:=true',
         'navigation_linear_speed:=0.45',
         'navigation_minimum_linear_speed:=0.30',
+        'navigation_start_paused:=true',
         f'localization_command_motion_scale:={A1_EXECUTION_SCALE:.2f}',
         f'exploration_timeout_s:={float(exploration_timeout_s):.3f}',
         f'mission_time_budget_s:={float(mission_time_budget_s):.3f}',
@@ -663,6 +664,64 @@ def run_ros2_cli(arguments: list[str], timeout_sec: float = 10.0) -> str:
     return result.stdout
 
 
+def read_absolute_trunk_imu_yaw(timeout_sec: float = 10.0) -> float:
+    """读取公开机体 IMU 的绝对航向，绑定 SLAM 初始 map 与 world 朝向。"""
+
+    import rclpy
+    from rclpy.node import Node
+    from sensor_msgs.msg import Imu
+
+    rclpy.init()
+    node = Node('hazardwalker_initial_imu_probe')
+    yaw = None
+
+    def on_imu(message):
+        nonlocal yaw
+        orientation = message.orientation
+        siny = 2.0 * (
+            orientation.w * orientation.z
+            + orientation.x * orientation.y)
+        cosy = 1.0 - 2.0 * (
+            orientation.y * orientation.y
+            + orientation.z * orientation.z)
+        yaw = math.atan2(siny, cosy)
+
+    node.create_subscription(Imu, '/hw/trunk_imu', on_imu, 10)
+    deadline = time.monotonic() + max(0.1, float(timeout_sec))
+    try:
+        while yaw is None and time.monotonic() < deadline:
+            rclpy.spin_once(node, timeout_sec=0.1)
+    finally:
+        node.destroy_node()
+        if rclpy.ok():
+            rclpy.shutdown()
+    if yaw is None:
+        raise RuntimeError('启动前未收到公开 trunk IMU 绝对航向')
+    return float(yaw)
+
+
+def wait_for_slam_bootstrap(timeout_sec: float = 60.0) -> dict:
+    """等待出生点启动的 Cartographer 产生第一张 map，再允许入门。"""
+
+    output = run_ros2_cli([
+        'topic', 'echo', '--once', '/map',
+        'nav_msgs/msg/OccupancyGrid', '--field', 'header.frame_id',
+    ], timeout_sec=timeout_sec)
+    if 'map' not in output:
+        raise RuntimeError('Cartographer 已启动但未发布 map 帧')
+    return {'map_ready': True, 'frame_id': 'map'}
+
+
+def release_navigation_after_ingress() -> dict:
+    """在 SLAM 连续记录完入门轨迹后，显式释放 Frontier。"""
+
+    run_ros2_cli([
+        'topic', 'pub', '--once', '/hw/navigation/start',
+        'std_msgs/msg/Bool', '{data: true}',
+    ], timeout_sec=10.0)
+    return {'topic': '/hw/navigation/start', 'released': True}
+
+
 def save_pointcloud_map() -> dict:
     """在停止 launch 前显式等待三维地图服务完成，避免 SIGINT 打断封存。"""
 
@@ -928,7 +987,8 @@ def stop_process_group(process: subprocess.Popen) -> int:
 
 def perform_entrance_ingress(
         *, distance_m: float = 3.6, speed_mps: float = 0.45,
-        wall_timeout_sec: float = 360.0) -> dict:
+        wall_timeout_sec: float = 360.0,
+        start_temporary_localizer: bool = True) -> dict:
     """仅用公开激光、IMU和控制接口穿过大门，再把室内位置作为SLAM原点。"""
 
     if distance_m <= 0.0 or speed_mps <= 0.0 or wall_timeout_sec <= 0.0:
@@ -950,12 +1010,15 @@ def perform_entrance_ingress(
         '-p', 'localization_provenance:=lidar_imu_slam',
         '-p', f'command_motion_scale:={A1_EXECUTION_SCALE:.2f}',
     ]
-    localizer_log = tempfile.TemporaryFile(mode='w+', encoding='utf-8')
-    localizer = subprocess.Popen(
-        localizer_command, cwd=REPO_ROOT,
-        stdout=localizer_log, stderr=subprocess.STDOUT,
-        start_new_session=True,
-    )
+    localizer_log = None
+    localizer = None
+    if start_temporary_localizer:
+        localizer_log = tempfile.TemporaryFile(mode='w+', encoding='utf-8')
+        localizer = subprocess.Popen(
+            localizer_command, cwd=REPO_ROOT,
+            stdout=localizer_log, stderr=subprocess.STDOUT,
+            start_new_session=True,
+        )
     rclpy.init()
 
     class IngressNode(Node):
@@ -1038,7 +1101,7 @@ def perform_entrance_ingress(
             if node.pose is not None:
                 start_pose = node.pose
                 break
-            if localizer.poll() is not None:
+            if localizer is not None and localizer.poll() is not None:
                 localizer_log.flush()
                 localizer_log.seek(0)
                 details = localizer_log.read()[-4000:].strip()
@@ -1097,8 +1160,10 @@ def perform_entrance_ingress(
             node.destroy_node()
             if rclpy.ok():
                 rclpy.shutdown()
-            stop_process_group(localizer)
-            localizer_log.close()
+            if localizer is not None:
+                stop_process_group(localizer)
+            if localizer_log is not None:
+                localizer_log.close()
 
     if final_pose is None:
         raise RuntimeError('入口阶段未形成最终合法位姿')
@@ -1272,25 +1337,19 @@ def main() -> int:
                 validate_navigation_clearance_contract(
                     container, args.room_clearance_m))
         preflight_payload['main_entrance'] = open_main_entrance(container)
-        preflight_payload['entrance_ingress'] = perform_entrance_ingress(
-            distance_m=float(args.entrance_distance_m),
-            speed_mps=float(args.entrance_speed_mps),
-            wall_timeout_sec=float(args.entrance_wall_timeout_sec),
-        )
-        ingress = preflight_payload['entrance_ingress']
-        world_from_map = map_origin_after_relative_ingress(
-            args.public_start_world_x,
-            args.public_start_world_y,
-            args.public_start_world_yaw,
-            float(ingress['relative_displacement_m'][0]),
-            float(ingress['relative_displacement_m'][1]),
-            float(ingress['relative_heading_rad']),
+        initial_imu_yaw = read_absolute_trunk_imu_yaw()
+        # Cartographer 在机器人移动前启动，因此 map 原点就是公开出生位置；
+        # 朝向取机体当前公开 IMU，吸收控制器站立阶段产生的实际航向偏移。
+        world_from_map = (
+            float(args.public_start_world_x),
+            float(args.public_start_world_y),
+            float(initial_imu_yaw),
         )
         preflight_payload['world_from_map'] = {
             'x': world_from_map[0],
             'y': world_from_map[1],
             'yaw': world_from_map[2],
-            'source': 'public_start_pose+public_scan_imu_relative_pose',
+            'source': 'public_start_position+public_trunk_imu_before_motion',
         }
     except (ValueError, RuntimeError, subprocess.SubprocessError) as exc:
         raise SystemExit(str(exc)) from exc
@@ -1379,6 +1438,7 @@ def main() -> int:
 
     log_handle = (output_dir / 'launch.log').open(
         'w', encoding='utf-8', buffering=1)
+    started = time.monotonic()
     process = subprocess.Popen(
         command,
         cwd=REPO_ROOT,
@@ -1387,9 +1447,36 @@ def main() -> int:
         text=True,
         start_new_session=True,
     )
+    try:
+        preflight_payload['slam_bootstrap'] = wait_for_slam_bootstrap()
+        preflight_payload['entrance_ingress'] = perform_entrance_ingress(
+            distance_m=float(args.entrance_distance_m),
+            speed_mps=float(args.entrance_speed_mps),
+            wall_timeout_sec=float(args.entrance_wall_timeout_sec),
+            start_temporary_localizer=False,
+        )
+        preflight_payload['navigation_release'] = (
+            release_navigation_after_ingress())
+        manifest['preflight'] = preflight_payload
+        write_json(manifest_path, manifest)
+    except (RuntimeError, subprocess.SubprocessError) as exc:
+        manifest['status'] = 'failed'
+        manifest['failure_reason'] = f'SLAM 锚定入门失败：{exc}'
+        manifest['launch_exit_code'] = stop_process_group(process)
+        log_handle.close()
+        try:
+            manifest['first_person_video'] = stop_first_person_recording(
+                first_person_capture, output_dir)
+        except (RuntimeError, subprocess.SubprocessError) as video_exc:
+            manifest['failure_reason'] += f'; {video_exc}'
+        manifest['finished_at_utc'] = utc_now()
+        manifest['wall_duration_sec'] = round(
+            time.monotonic() - started, 3)
+        write_json(manifest_path, manifest)
+        write_handoff(output_dir, manifest)
+        return 1
     rclpy.init()
     observer = StateObserver()
-    started = time.monotonic()
     try:
         while True:
             rclpy.spin_once(observer, timeout_sec=0.2)

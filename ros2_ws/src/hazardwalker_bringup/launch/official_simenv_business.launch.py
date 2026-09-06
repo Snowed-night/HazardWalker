@@ -141,7 +141,7 @@ def _launch_cartographer(context, nav_pkg):
             ] if dimension == '3d' else [
                 ('scan', '/hw/scan'),
                 ('imu', '/hw/trunk_imu'),
-                ('odom', '/hazardwalker/slam/odometry'),
+                ('odom', '/hazardwalker/depth_icp/odometry'),
             ]),
         )
     if dimension == '3d':
@@ -342,6 +342,7 @@ def generate_launch_description():
         DeclareLaunchArgument('navigation_linear_speed', default_value='0.45'),
         DeclareLaunchArgument(
             'navigation_minimum_linear_speed', default_value='0.30'),
+        DeclareLaunchArgument('navigation_start_paused', default_value='false'),
         DeclareLaunchArgument(
             'localization_command_motion_scale', default_value='0.88'),
         DeclareLaunchArgument('target_floors', default_value='[]'),
@@ -414,6 +415,23 @@ def generate_launch_description():
                 'use_sim_time': sim_time_parameter,
             }],
             condition=IfCondition(start_legal_localization),
+        ),
+
+        # ---- RealSense 深度 ICP 里程计：几何成功优先，控制先验仅补失败帧 ----
+        Node(
+            package='hazardwalker_perception',
+            executable='depth_icp_odometry_node',
+            name='hazardwalker_depth_icp_odometry',
+            output='screen',
+            parameters=[{
+                'depth_topic': '/hw/camera/depth_image',
+                'camera_info_topic': '/hw/camera/depth_camera_info',
+                'cmd_vel_topic': '/hw/cmd_vel',
+                'output_topic': '/hazardwalker/depth_icp/odometry',
+                'command_motion_scale': localization_command_motion_scale,
+                'use_sim_time': sim_time_parameter,
+            }],
+            condition=IfCondition(start_slam),
         ),
 
         # ---- SLAM Toolbox (在线异步建图) ----
@@ -665,6 +683,9 @@ def generate_launch_description():
                     'linear_speed': navigation_linear_speed_parameter,
                     'minimum_linear_speed': (
                         navigation_minimum_linear_speed_parameter),
+                    'start_paused': ParameterValue(
+                        LaunchConfiguration('navigation_start_paused'),
+                        value_type=bool),
                     # 骨架阶段不在每个小前沿原地转圈；房间闭环期间连续追踪
                     # 房间内前沿，仅在确认耗尽时做一次 360° RGB-D 验证。
                     # 确定性房间单圈本身连续改变视角，不再额外原地大角度扫转。

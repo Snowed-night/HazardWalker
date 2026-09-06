@@ -65,7 +65,7 @@ class MissionStateMachineNode(Node):
         self.finished = False
         self.nav_state_history = []
         self.invalid_completion_reported = False
-        self.start_time = self.get_clock().now()
+        self.start_time = None
 
         # 导航状态来自导航组；危险源 JSON 来自感知组。
         self.nav_sub = self.create_subscription(String, '/hw/nav/state', self.on_nav_state, 10)
@@ -81,6 +81,9 @@ class MissionStateMachineNode(Node):
 
     def on_nav_state(self, msg: String):
         self.nav_state = msg.data
+        if self.nav_state == 'EXPLORING' and self.start_time is None:
+            # SLAM 可以在门外预热，但官方探索用时从入门后释放导航开始计算。
+            self.start_time = self.get_clock().now()
         if not self.nav_state_history or self.nav_state_history[-1] != self.nav_state:
             self.nav_state_history.append(self.nav_state)
 
@@ -132,7 +135,8 @@ class MissionStateMachineNode(Node):
     def build_result(self):
         # 生成与当前文档约定一致的结果结构。
         now = self.get_clock().now()
-        duration = (now - self.start_time).nanoseconds / 1e9
+        started = self.start_time if self.start_time is not None else now
+        duration = (now - started).nanoseconds / 1e9
         return build_mission_result(
             mission_id=self.get_parameter('mission_id').value,
             status='FINISHED',

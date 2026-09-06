@@ -32,6 +32,7 @@ def test_launch_command_uses_unique_managed_control_and_legal_slam_inputs():
     assert 'localization_provenance:=lidar_imu_slam' in joined
     assert 'navigation_linear_speed:=0.45' in joined
     assert 'navigation_minimum_linear_speed:=0.30' in joined
+    assert 'navigation_start_paused:=true' in joined
     assert 'localization_command_motion_scale:=0.88' in joined
     assert 'mission_time_budget_s:=600.000' in joined
     assert 'strict_room_inspection:=false' in joined
@@ -402,7 +403,7 @@ def test_first_person_recording_is_container_local_and_converted_to_mp4():
     assert MODULE._safe_run_slug('测试 run/01') == 'run_01'
 
 
-def test_entrance_ingress_precedes_slam_and_uses_only_public_inputs():
+def test_slam_starts_at_public_spawn_before_ingress_and_navigation_release():
     source = SCRIPT.read_text(encoding='utf-8')
     ingress = source.split('def perform_entrance_ingress', 1)[1].split(
         'def write_handoff', 1)[0]
@@ -415,12 +416,17 @@ def test_entrance_ingress_precedes_slam_and_uses_only_public_inputs():
         'open_main_entrance(container)')
     assert main_source.index('validate_navigation_clearance_contract(') < main_source.index(
         'open_main_entrance(container)')
-    assert main_source.index('open_main_entrance(container)') < main_source.index(
+    assert main_source.index('read_absolute_trunk_imu_yaw()') < main_source.index(
+        'command = build_launch_command(')
+    assert main_source.index('command = build_launch_command(') < main_source.index(
+        'process = subprocess.Popen(')
+    assert main_source.index('process = subprocess.Popen(') < main_source.index(
+        'wait_for_slam_bootstrap()')
+    assert main_source.index('wait_for_slam_bootstrap()') < main_source.index(
         'perform_entrance_ingress(')
     assert main_source.index('perform_entrance_ingress(') < main_source.index(
-        'command = build_launch_command(')
-    assert "ingress['relative_displacement_m'][0]" in main_source
-    assert "ingress['relative_heading_rad']" in main_source
+        'release_navigation_after_ingress()')
+    assert 'start_temporary_localizer=False' in main_source
     assert "args.enable_perception or args.strict_room_inspection" in main_source
     assert "manifest['status'] == 'complete' and perception_enabled" in main_source
     assert "f'command_motion_scale:={A1_EXECUTION_SCALE:.2f}'" in source
