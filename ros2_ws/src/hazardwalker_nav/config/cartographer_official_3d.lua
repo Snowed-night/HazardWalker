@@ -14,9 +14,10 @@ options = {
   provide_odom_frame = true,
   publish_frame_projected_to_2d = false,
   use_pose_extrapolator = true,
-  -- 走廊纵向退化时使用IMU绝对航向+限幅控制平移先验；三维点云负责
-  -- 侧向、结构特征和回环校正。该先验不读取Gazebo里程计或场景真值。
-  use_odometry = true,
+  -- 三维点云和 IMU 直接构成激光惯性前端。失败证据证明自写 scan/IMU
+  -- 里程计在重复长走廊中会产生数十米纵向漂移，因此不能再作为外部 odom
+  -- 注入 Cartographer；真实平移必须由连续三维点云配准约束。
+  use_odometry = false,
   use_nav_sat = false,
   use_landmarks = false,
   num_laser_scans = 0,
@@ -28,7 +29,7 @@ options = {
   pose_publish_period_sec = 0.01,
   trajectory_publish_period_sec = 0.03,
   rangefinder_sampling_ratio = 1.0,
-  odometry_sampling_ratio = 1.0,
+  odometry_sampling_ratio = 0.0,
   fixed_frame_pose_sampling_ratio = 1.0,
   imu_sampling_ratio = 1.0,
   landmarks_sampling_ratio = 1.0,

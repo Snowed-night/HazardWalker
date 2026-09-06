@@ -439,11 +439,11 @@ def test_official_business_launch_never_starts_fake_platform_by_default():
     assert "('scan', '/hw/scan')" in source
     assert "('scan_1', '/hw/scan')" not in source
     assert "('scan_2', '/hw/depth_scan')" not in source
-    assert "('odom', '/hazardwalker/slam/odometry')" in source
+    assert "('odom', '/hazardwalker/slam/odometry')" not in source
     three_d_remaps = source.split('remappings=([', 1)[1].split(
         "] if dimension == '3d'", 1)[0]
     assert "('points2', '/hw/lidar/points')" in three_d_remaps
-    assert "('odom', '/hazardwalker/slam/odometry')" in three_d_remaps
+    assert "('odom', '/hazardwalker/slam/odometry')" not in three_d_remaps
     assert "'publish_tf': publish_legal_tf_parameter" in source
     assert 'OpaqueFunction(' in source
     assert "get_package_share_directory('cartographer_ros')" in source
@@ -542,7 +542,9 @@ def test_cartographer_3d_profile_fuses_public_lidar_imu_and_legal_prior():
     assert 'POSE_GRAPH.optimize_every_n_nodes = 180' in source
     assert 'POSE_GRAPH.constraint_builder.sampling_ratio = 0.03' in source
     assert 'num_point_clouds = 1' in source
-    assert 'use_odometry = true' in source
+    assert 'use_odometry = false' in source
+    assert 'use_odometry = true' not in source
+    assert 'odometry_sampling_ratio = 0.0' in source
     assert 'use_online_correlative_scan_matching = false' in source
     assert 'ceres_scan_matcher.translation_weight = 5.0' in source
     assert 'ceres_scan_matcher.rotation_weight = 40.0' in source
@@ -571,6 +573,19 @@ def test_cartographer_2d_does_not_fuse_the_divergent_custom_odometry():
     assert "('scan', '/hw/scan')" in two_dimensional_remaps
     assert "('imu', '/hw/trunk_imu')" in two_dimensional_remaps
     assert "('odom', '/hazardwalker/slam/odometry')" not in two_dimensional_remaps
+
+
+def test_cartographer_3d_uses_native_pointcloud_imu_without_custom_odometry():
+    """三维回退必须让点云/IMU 自己约束平移，不能复用已证伪的外部里程计。"""
+    launch = (
+        REPO_ROOT / 'ros2_ws' / 'src' / 'hazardwalker_bringup' / 'launch' /
+        'official_simenv_business.launch.py'
+    ).read_text(encoding='utf-8')
+    three_dimensional_remaps = launch.split(
+        'remappings=([', 1)[1].split("] if dimension == '3d'", 1)[0]
+    assert "('points2', '/hw/lidar/points')" in three_dimensional_remaps
+    assert "('imu', '/hw/trunk_imu')" in three_dimensional_remaps
+    assert "('odom', '/hazardwalker/slam/odometry')" not in three_dimensional_remaps
 
 
 def test_livox_3d_profile_is_explicit_and_keeps_2d_default_compatible():

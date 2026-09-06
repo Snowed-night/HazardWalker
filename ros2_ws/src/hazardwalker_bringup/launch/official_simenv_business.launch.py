@@ -138,7 +138,6 @@ def _launch_cartographer(context, nav_pkg):
             remappings=([
                 ('points2', '/hw/lidar/points'),
                 ('imu', '/hw/trunk_imu'),
-                ('odom', '/hazardwalker/slam/odometry'),
             ] if dimension == '3d' else [
                 ('scan', '/hw/scan'),
                 ('imu', '/hw/trunk_imu'),
