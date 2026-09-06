@@ -30,7 +30,6 @@ setup(
         'console_scripts': [
             'hsv_detector_node = hazardwalker_perception.hsv_detector_node:main',
             'scan_imu_localizer_node = hazardwalker_perception.scan_imu_localizer_node:main',
-            'depth_icp_odometry_node = hazardwalker_perception.depth_icp_odometry_node:main',
             'depth_to_scan_node = hazardwalker_perception.depth_to_scan_node:main',
             'dynamic_detection_recorder_node = hazardwalker_perception.dynamic_detection_recorder_node:main',
             'patrol_coverage_node = hazardwalker_perception.patrol_coverage_node:main',
