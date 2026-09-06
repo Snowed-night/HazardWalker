@@ -64,6 +64,7 @@ def build_official_detected_danger_result(
     expected_frame='world',
     source_frame=None,
     world_from_source=None,
+    world_from_source_by_floor=None,
     snap_sphere_height_to_floor=False,
     floor_height_m=2.6,
     sphere_center_height_m=0.15,
@@ -135,7 +136,6 @@ def build_official_detected_danger_result(
             continue
         # 坐标系必须由上游明确声明；字段缺失不能默认为 world。
         frame_id = str(hazard.get('position_frame_id', ''))
-        transform = _validated_planar_transform(world_from_source)
         required_source_frame = (
             str(source_frame) if source_frame is not None
             else str(expected_frame)
@@ -145,6 +145,14 @@ def build_official_detected_danger_result(
         position = _validated_position(hazard.get('position'))
         if position is None:
             continue
+        transform = _validated_planar_transform(world_from_source)
+        floor_transform = _floor_transform_for_position(
+            position,
+            world_from_source_by_floor,
+            floor_height_m=float(floor_height_m),
+        )
+        if floor_transform is not None:
+            transform = floor_transform
         if transform is not None:
             position = _transform_planar_position(position, transform)
         if snap_sphere_height_to_floor:
@@ -349,6 +357,23 @@ def _validated_planar_transform(value):
     if not all(math.isfinite(item) for item in transform):
         raise ValueError('world_from_source must be finite.')
     return transform
+
+
+def _floor_transform_for_position(
+        position, transforms_by_floor, floor_height_m):
+    """按原始 SLAM 高度选择当前楼层锚点；缺失时由调用方使用全局回退。"""
+
+    if transforms_by_floor is None:
+        return None
+    if not isinstance(transforms_by_floor, dict):
+        raise ValueError('world_from_source_by_floor must be a dict.')
+    height = float(floor_height_m)
+    if not math.isfinite(height) or height <= 0.0:
+        raise ValueError('floor_height_m must be positive and finite.')
+    floor_index = max(0, int(round(float(position[2]) / height)))
+    value = transforms_by_floor.get(
+        floor_index, transforms_by_floor.get(str(floor_index)))
+    return _validated_planar_transform(value)
 
 
 def _transform_planar_position(position, transform):

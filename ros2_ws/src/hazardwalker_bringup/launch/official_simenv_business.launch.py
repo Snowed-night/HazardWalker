@@ -480,6 +480,27 @@ def generate_launch_description():
             condition=IfCondition(start_slam_video),
         ),
 
+        # ---- 每层 SLAM map 的公开 world 锚点 ----
+        # 只使用起点/电梯动作、IMU 和 map→base，不读取 Gazebo odom 或真值。
+        Node(
+            package='hazardwalker_perception',
+            executable='floor_map_anchor_node',
+            name='hazardwalker_floor_map_anchor',
+            output='screen',
+            parameters=[{
+                'floor_index_topic': '/hazardwalker/navigation/floor_index',
+                'anchor_topic': '/hazardwalker/slam/floor_anchors',
+                'imu_topic': '/hw/trunk_imu',
+                'map_frame': 'map',
+                'base_frame': 'base',
+                'initial_floor_index': 0,
+                'official_elevator_cabin_x_m': 2.70,
+                'official_elevator_y_m': 2.60,
+                'use_sim_time': sim_time_parameter,
+            }],
+            condition=IfCondition(start_perception),
+        ),
+
         # ---- 感知: HSV 红色危险源检测 ----
         OpaqueFunction(function=_launch_perception),
 

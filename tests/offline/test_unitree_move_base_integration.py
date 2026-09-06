@@ -120,7 +120,10 @@ def test_frontier_delegates_local_avoidance_to_unitree_move_base():
     assert 'self._official_room_door_center_y = official_y' in source
     assert "'use_official_odom_for_return_control', False" in source
     assert "'official_home_y_m', -2.2" in source
+    assert "'official_return_lookahead_m', 3.0" in source
     assert 'use_official_return_goal' in source
+    assert '_direct_official_return_command' in source
+    assert 'staged_corridor_goal(' in source
     assert 'Arrived at official physical home.' in source
     assert "'use_official_odom_for_elevator_control', False" in source
     assert "'official_elevator_cabin_x_m', 2.70" in source
@@ -141,6 +144,7 @@ def test_frontier_delegates_local_avoidance_to_unitree_move_base():
     assert "'unitree_move_base_effective_linear_threshold').value" in fallback
     assert "self.get_parameter('minimum_turn_speed').value" in fallback
     assert 'stale_age >= fallback_after' in fallback
+    assert 'self._direct_official_return_command()' in fallback
     assert '_unitree_move_base_last_goal_wall' not in fallback
     goal_publish = source.split(
         'def _publish_unitree_move_base_goal', 1)[1].split(

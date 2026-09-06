@@ -21,7 +21,7 @@ def test_floor_change_records_distinct_source_and_destination():
     source = _frontier_source()
 
     assert 'previous_floor = self._current_floor' in source
-    assert 'now_ros, previous_floor, next_floor' in source
+    assert 'previous_floor, int(next_floor)' in source
     assert 'now_ros, self._current_floor, next_floor' not in source
 
 
@@ -144,3 +144,21 @@ def test_multifloor_time_slice_and_layer_switch_are_explicit():
     assert "self.state in ('EXPLORING', 'REOBSERVING')" in source
     assert 'append_loop_erased_history(' in source
     assert 'def _verified_reverse_return_path(' in source
+
+
+def test_final_floor_returns_by_elevator_before_home():
+    source = _frontier_source()
+
+    floor_complete = source.split(
+        'def _handle_floor_complete', 1)[1].split(
+        'def _start_elevator_request', 1)[0]
+    assert "'official_return_floor_index'" in floor_complete
+    assert 'returning_home=True' in floor_complete
+    assert 'def _start_floor_transition(' in floor_complete
+    assert "'return_elevator' if returning_home else 'elevator'" in floor_complete
+    begin_floor = source.split(
+        'def _begin_new_floor_exploration', 1)[1].split(
+        'def _handle_manual_floor_transition', 1)[0]
+    assert 'if self._return_after_floor_transition:' in begin_floor
+    assert "self._transition('RETURNING')" in begin_floor
+    assert 'continuing to the official task home' in begin_floor

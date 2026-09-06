@@ -21,6 +21,7 @@
 - 再在最小 demo 中检查 `/hw/mission/state`、`/hw/mission/result` 和 JSON 文件是否同步。
 """
 import json
+import math
 import os
 from datetime import datetime
 from pathlib import Path
@@ -28,6 +29,7 @@ from pathlib import Path
 import rclpy
 from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
+from rclpy.qos import DurabilityPolicy, QoSProfile
 from std_msgs.msg import String
 
 from hazardwalker_decision.result_builder import (
@@ -57,6 +59,8 @@ class MissionStateMachineNode(Node):
         self.declare_parameter('official_result_dedup_distance_m', 0.30)
         self.declare_parameter('official_require_legal_localization', True)
         self.declare_parameter('official_require_frontier_sequence', True)
+        self.declare_parameter(
+            'floor_map_anchor_topic', '/hazardwalker/slam/floor_anchors')
 
         # nav_state 保存导航组当前状态；hazards 用字典按 id 去重保存候选危险源。
         # 当前版本只做简单覆盖，后续要替换为多帧确认和状态管理。
@@ -66,11 +70,20 @@ class MissionStateMachineNode(Node):
         self.nav_state_history = []
         self.invalid_completion_reported = False
         self.start_time = None
+        self.floor_world_from_map = {}
 
         # 导航状态来自导航组；危险源 JSON 来自感知组。
         self.nav_sub = self.create_subscription(String, '/hw/nav/state', self.on_nav_state, 10)
         self.hazard_sub = self.create_subscription(
             String, '/hw/perception/hazard_detections', self.on_hazards, 10
+        )
+        floor_anchor_qos = QoSProfile(depth=8)
+        floor_anchor_qos.durability = DurabilityPolicy.TRANSIENT_LOCAL
+        self.floor_anchor_sub = self.create_subscription(
+            String,
+            str(self.get_parameter('floor_map_anchor_topic').value),
+            self.on_floor_anchor,
+            floor_anchor_qos,
         )
         # mission/state 给其他模块和测试组观察；mission/result 用于发布最终结果 JSON。
         self.state_pub = self.create_publisher(String, '/hw/mission/state', 10)
@@ -100,6 +113,37 @@ class MissionStateMachineNode(Node):
             # 用 id 作为 key 做最简单的去重。后续应根据空间距离和观测次数融合。
             hazard_id = str(hazard.get('id', len(self.hazards) + 1))
             self.hazards[hazard_id] = hazard
+
+    def on_floor_anchor(self, msg: String):
+        """保存每层首次公开锚点，返程重访 0 层时不得覆盖历史变换。"""
+
+        try:
+            payload = json.loads(msg.data)
+            floor = int(payload['floor'])
+            transform = tuple(float(value) for value in payload[
+                'world_from_map'])
+        except (KeyError, TypeError, ValueError, json.JSONDecodeError):
+            self.get_logger().warning(
+                'Rejected malformed floor map anchor.',
+                throttle_duration_sec=5.0)
+            return
+        if (payload.get('schema') != 'hazardwalker_floor_map_anchor_v1'
+                or floor < 0
+                or len(transform) != 3
+                or not all(math.isfinite(value) for value in transform)
+                or payload.get('source') not in {
+                    'lidar_imu_slam+public_start',
+                    'lidar_imu_slam+public_elevator_arrival',
+                }):
+            self.get_logger().warning(
+                'Rejected untrusted floor map anchor.',
+                throttle_duration_sec=5.0)
+            return
+        if floor in self.floor_world_from_map:
+            return
+        self.floor_world_from_map[floor] = transform
+        self.get_logger().info(
+            f'Accepted floor {floor} SLAM map anchor: {transform}')
 
     def on_timer(self):
         # 将导航状态转发为任务状态。当前最小版暂时没有独立决策逻辑。
@@ -175,6 +219,7 @@ class MissionStateMachineNode(Node):
                 float(self.get_parameter(
                     'official_world_from_map_yaw').value),
             ),
+            world_from_source_by_floor=self.floor_world_from_map,
             snap_sphere_height_to_floor=True,
             floor_height_m=float(self.get_parameter(
                 'official_floor_height_m').value),
@@ -199,6 +244,28 @@ class MissionStateMachineNode(Node):
             json.dumps(official, ensure_ascii=False, indent=2) + '\n', encoding='utf-8',
         )
         temporary_path.replace(official_path)
+        anchors_path = official_path.parent / 'floor_map_anchors.json'
+        anchors_payload = {
+            'schema': 'hazardwalker_floor_map_anchor_set_v1',
+            'anchors': {
+                str(floor): [round(value, 9) for value in transform]
+                for floor, transform in sorted(
+                    self.floor_world_from_map.items())
+            },
+            'floor_0_fallback': [
+                float(self.get_parameter('official_world_from_map_x').value),
+                float(self.get_parameter('official_world_from_map_y').value),
+                float(self.get_parameter('official_world_from_map_yaw').value),
+            ],
+            'source': 'lidar_imu_slam+public_start/elevator_action',
+        }
+        anchors_temporary = anchors_path.with_suffix(
+            anchors_path.suffix + '.tmp')
+        anchors_temporary.write_text(
+            json.dumps(anchors_payload, ensure_ascii=False, indent=2) + '\n',
+            encoding='utf-8',
+        )
+        anchors_temporary.replace(anchors_path)
         self.get_logger().info(
             f'Official danger result written: {official_path} '
             f'({len(official["detected_danger_sources"])} confirmed world-frame sources).'

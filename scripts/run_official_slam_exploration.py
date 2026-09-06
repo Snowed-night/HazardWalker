@@ -221,9 +221,10 @@ def build_launch_command(
         'start_decision:=true',
         'start_evidence_recorder:='
         + ('true' if perception_enabled else 'false'),
-        # SLAM 在公开入门动作之后启动，感知必须保留 map 坐标；结果层再用
-        # 本轮实测入门距离恢复 world，不能套用出生点的静态 world→map。
-        'perception_output_frame:=odom',
+        # SLAM 在入门前已经锚定。危险源必须使用 Cartographer 的 map 位姿，
+        # 让扫描闭环修正参与定位；保存到累计漂移 odom 会在三层任务中产生
+        # 数米误差，并把同一红球拆成多个轨迹。
+        'perception_output_frame:=map',
         f'localization_provenance:={localization_provenance}',
         'use_sim_time:=true',
         'navigation_linear_speed:=0.45',
@@ -261,7 +262,7 @@ def build_launch_command(
         # 否则配置文件、运行参数和结果清单会互相矛盾。
         command.extend([
             f'perception_parameter_file:={REPO_ROOT / "config" / "perception.yaml"}',
-            'official_hazard_source_frame:=odom',
+            'official_hazard_source_frame:=map',
             f'official_world_from_map_x:={float(world_from_map[0]):.6f}',
             f'official_world_from_map_y:={float(world_from_map[1]):.6f}',
             f'official_world_from_map_yaw:={float(world_from_map[2]):.6f}',

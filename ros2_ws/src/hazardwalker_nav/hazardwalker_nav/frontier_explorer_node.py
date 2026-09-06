@@ -34,6 +34,7 @@ from rclpy.executors import ExternalShutdownException
 from rclpy.exceptions import ParameterUninitializedException
 from rclpy.node import Node
 from rclpy.parameter import Parameter
+from rclpy.qos import DurabilityPolicy, QoSProfile
 from sensor_msgs.msg import Imu, LaserScan
 from std_msgs.msg import Bool, Int32, String
 from std_srvs.srv import Trigger
@@ -103,6 +104,10 @@ from hazardwalker_nav.elevator_controller import (
     set_robot_floor,
 )
 from hazardwalker_nav.nav_recorder import NavRecorder
+from hazardwalker_nav.official_return import (
+    planar_velocity_to_goal,
+    staged_corridor_goal,
+)
 from hazardwalker_nav.room_inspection_planner import (
     AnchoredInspectionGoalProjector,
     GoalDistanceProgressWatchdog,
@@ -197,6 +202,7 @@ class FrontierExplorerNode(Node):
         self.declare_parameter('official_home_yaw_rad', math.pi / 2.0)
         self.declare_parameter('official_home_tolerance_m', 0.60)
         self.declare_parameter('official_return_floor_index', 0)
+        self.declare_parameter('official_return_lookahead_m', 3.0)
         self.declare_parameter('use_official_odom_for_elevator_control', False)
         self.declare_parameter('official_elevator_lobby_x_m', 0.80)
         self.declare_parameter('official_elevator_cabin_x_m', 2.70)
@@ -820,6 +826,7 @@ class FrontierExplorerNode(Node):
         self._elevator_floor_reached: bool = False
         self._floor_complete_since_ros: Optional[float] = None
         self._floor_transition_phase: str = ''  # navigating | calling | waiting | entering | exiting
+        self._return_after_floor_transition: bool = False
         self._floor_transition_start_ros: Optional[float] = None
         # Docker/ROS1 电梯服务可能等待数十秒，不能在 10 Hz 控制定时器中
         # 同步调用，否则会中断速度心跳。单线程执行器保证请求仍按顺序执行。
@@ -862,8 +869,10 @@ class FrontierExplorerNode(Node):
         self._manual_mode_last_request_wall: float = 0.0
 
         # floor_index 发布器（发布 Int32，触发 scan_imu_localizer 重置匹配地图）
+        floor_index_qos = QoSProfile(depth=1)
+        floor_index_qos.durability = DurabilityPolicy.TRANSIENT_LOCAL
         self.floor_index_pub = self.create_publisher(
-            Int32, '/hazardwalker/navigation/floor_index', 10)
+            Int32, '/hazardwalker/navigation/floor_index', floor_index_qos)
         self.create_service(
             Trigger, '/hazardwalker/navigation/elevator_ready',
             self.on_manual_elevator_ready)
@@ -2749,7 +2758,7 @@ class FrontierExplorerNode(Node):
             self.get_logger().info(
                 f'Deterministic floor {self._current_floor} completed all '
                 'four counterclockwise room loops.')
-            if self._target_floors and self._next_floor() is not None:
+            if self._target_floors:
                 self._transition('FLOOR_COMPLETE')
             else:
                 self._transition('RETURNING')
@@ -3163,7 +3172,7 @@ class FrontierExplorerNode(Node):
                     )
                 return cmd
             self.get_logger().info('No frontiers remaining.')
-            if self._target_floors and self._next_floor() is not None:
+            if self._target_floors:
                 self._transition('FLOOR_COMPLETE')
             else:
                 self._transition('RETURNING')
@@ -3432,22 +3441,67 @@ class FrontierExplorerNode(Node):
         )
 
     def _official_return_target(self) -> Tuple[float, float, float]:
-        """房间内先回走廊中线，随后才指向真正任务终点。"""
+        """生成滚动代价地图可处理的分段返航目标。"""
 
         final_goal = self._official_final_return_target()
         if self._has_fresh_official_control_odom():
             official_x, official_y, _yaw, _stamp = (
                 self._official_control_odom)
-            if (abs(official_y - final_goal[1]) > 1.0
-                    and abs(official_x) > 0.55):
-                # 房间内不能向楼外/电梯画对角线穿墙。先退回当前门排中心
-                # 线，再沿直走廊高速返程。
-                return (
-                    0.0,
-                    official_y,
-                    math.atan2(0.0, -official_x),
-                )
+            return staged_corridor_goal(
+                official_x,
+                official_y,
+                final_goal[0],
+                final_goal[1],
+                final_goal[2],
+                corridor_center_x=float(self.get_parameter(
+                    'official_corridor_center_x_m').value),
+                lookahead_m=float(self.get_parameter(
+                    'official_return_lookahead_m').value),
+            )
         return final_goal
+
+    def _direct_official_return_command(self) -> Twist:
+        """DWA短时无速度时，沿同一官方分段目标执行带激光门禁的回退。"""
+
+        command = Twist()
+        if not self._official_return_control_active():
+            return command
+        official_x, official_y, official_yaw, _stamp = (
+            self._official_control_odom)
+        target_x, target_y, _target_yaw = self._official_return_target()
+        velocity = planar_velocity_to_goal(
+            official_x,
+            official_y,
+            official_yaw,
+            target_x,
+            target_y,
+            linear_speed=float(self.get_parameter(
+                'return_linear_speed').value),
+            minimum_linear_speed=float(self.get_parameter(
+                'return_minimum_linear_speed').value),
+            angular_speed=float(self.get_parameter(
+                'return_angular_speed').value),
+            minimum_turn_speed=float(self.get_parameter(
+                'return_minimum_turn_speed').value),
+            heading_tolerance_rad=float(self.get_parameter(
+                'heading_tolerance_rad').value),
+        )
+        command.linear.x = velocity.linear_x
+        command.angular.z = velocity.angular_z
+        if (command.linear.x > 0.0
+                and not self._scan_allows_action(
+                    'move_forward',
+                    float(self.get_parameter(
+                        'return_min_clearance_m').value))):
+            command.linear.x = 0.0
+        if command.angular.z != 0.0:
+            action = 'turn_left' if command.angular.z > 0.0 else 'turn_right'
+            if not self._scan_allows_action(
+                    action,
+                    float(self.get_parameter(
+                        'return_rotation_min_clearance_m').value)):
+                command.angular.z = 0.0
+        return command
 
     def _handle_returning(self) -> Twist:
         """RETURNING: 优先逆序回放实走轨迹返航到起点。"""
@@ -3804,13 +3858,31 @@ class FrontierExplorerNode(Node):
             return cmd
         next_floor = self._next_floor()
         if next_floor is None:
-            self.get_logger().info(
-                'All target floors explored. Preparing to return home.')
-            self._transition('RETURNING')
+            return_floor = int(self.get_parameter(
+                'official_return_floor_index').value)
+            if self._current_floor != return_floor:
+                self.get_logger().info(
+                    'All target floors explored. Returning by elevator '
+                    f'to floor {return_floor} before going home.')
+                self._start_floor_transition(
+                    return_floor, returning_home=True)
+            else:
+                self.get_logger().info(
+                    'All target floors explored. Preparing to return home.')
+                self._transition('RETURNING')
             return cmd
+        self._start_floor_transition(next_floor, returning_home=False)
+        return cmd
+
+    def _start_floor_transition(
+            self, next_floor: int, *, returning_home: bool) -> None:
+        """集中初始化一次电梯换层，探索换层和最终返航共用。"""
+
+        now_ros = self._ros_time_sec()
         previous_floor = self._current_floor
-        self._current_floor = next_floor
+        self._current_floor = int(next_floor)
         self._transition_from_floor = previous_floor
+        self._return_after_floor_transition = bool(returning_home)
         self._floor_complete_since_ros = None
         self._elevator_initiated = False
         self._elevator_floor_reached = False
@@ -3858,12 +3930,13 @@ class FrontierExplorerNode(Node):
         self._elevator_odom_path = []
         self._elevator_odom_path_index = 0
         self.recorder.record_floor_change(
-            now_ros, previous_floor, next_floor, 'elevator')
+            self._ros_time_sec(), previous_floor, int(next_floor),
+            'return_elevator' if returning_home else 'elevator')
         self.get_logger().info(
             f'Floor {previous_floor} complete. '
-            f'Transitioning to floor {next_floor}.')
+            f'Transitioning to floor {next_floor}'
+            f'{" for final return" if returning_home else ""}.')
         self._transition('FLOOR_TRANSITION')
-        return cmd
 
     def _start_elevator_request(
         self,
@@ -3960,6 +4033,23 @@ class FrontierExplorerNode(Node):
     def _begin_new_floor_exploration(self) -> None:
         """切换分层地图并清理上一层前沿状态。"""
 
+        if self._return_after_floor_transition:
+            # 最后一层结束后，电梯只负责把机器人送回指定返航楼层；
+            # 不能再次进入探索，也不能把该层电梯口覆盖成新的 home。
+            self._return_after_floor_transition = False
+            self._floor_transition_phase = ''
+            self._transition_from_floor = None
+            self._floor_transition_start_z = None
+            self.current_target = None
+            self.current_path = []
+            self.path_index = 0
+            self._publish_floor_index(self._current_floor)
+            self.get_logger().info(
+                f'Return elevator completed on floor {self._current_floor}; '
+                'continuing to the official task home.')
+            self._transition('RETURNING')
+            return
+
         self.get_logger().info(
             f'Beginning exploration on floor {self._current_floor}')
         # 每层以电梯落点建立独立返梯锚点。跨层后的map→odom会因高度和
@@ -3994,6 +4084,7 @@ class FrontierExplorerNode(Node):
             height, width = self.grid.shape
             self._coverage = CoverageGrid(height, width)
         self._floor_transition_phase = ''
+        self._return_after_floor_transition = False
         self._floor_started_ros = self._ros_time_sec()
         self._manual_elevator_ready = False
         self._transition_from_floor = None
@@ -6969,6 +7060,15 @@ class FrontierExplorerNode(Node):
             stale_age = (
                 now_wall - self._unitree_move_base_cmd_stale_since_wall)
             if stale_age >= fallback_after:
+                if (self.state == 'RETURNING'
+                        and self._official_return_control_active()):
+                    self.get_logger().warning(
+                        'Unitree move_base produced no usable return command; '
+                        'following the same staged official goal with the '
+                        'lidar-gated direct controller.',
+                        throttle_duration_sec=5.0,
+                    )
+                    return self._direct_official_return_command()
                 self.get_logger().warning(
                     'Unitree move_base produced no usable command; using '
                     'existing A* path with lidar clearance fallback.',

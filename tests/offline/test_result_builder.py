@@ -79,6 +79,31 @@ def test_official_result_only_exports_confirmed_world_frame_unique_sources():
     }
 
 
+def test_official_result_uses_independent_floor_map_anchors():
+    result = build_official_detected_danger_result(
+        hazards=[
+            {'id': 1, 'status': 'confirmed', 'position_frame_id': 'map',
+             'position': [1.0, 2.0, 0.0], 'confidence': 0.9},
+            {'id': 2, 'status': 'confirmed', 'position_frame_id': 'map',
+             'position': [1.0, 2.0, 2.6], 'confidence': 0.8},
+        ],
+        exploration_time_sec=20.0,
+        expected_frame='world',
+        source_frame='map',
+        world_from_source=(99.0, 99.0, 0.0),
+        world_from_source_by_floor={
+            0: (0.0, 0.0, 0.0),
+            1: (10.0, 0.0, math.pi / 2.0),
+        },
+        snap_sphere_height_to_floor=True,
+    )
+
+    assert result['detected_danger_sources'] == [
+        {'position': [1.0, 2.0, 0.15]},
+        {'position': [8.0, 1.0, 2.75]},
+    ]
+
+
 def test_official_result_can_require_legal_slam_provenance():
     """比赛模式不得把未验证/Gazebo 真值定位的 confirmed 轨迹写入提交文件。"""
     result = build_official_detected_danger_result(
