@@ -16,6 +16,7 @@ from nav_msgs.msg import Odometry
 from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
 from rclpy.qos import DurabilityPolicy, QoSProfile, qos_profile_sensor_data
+from rclpy.time import Time
 from sensor_msgs.msg import Imu, LaserScan
 from std_msgs.msg import Int32, String
 from tf2_ros import TransformBroadcaster
@@ -65,7 +66,6 @@ class ScanImuLocalizerNode(Node):
         self.declare_parameter('min_effective_linear_speed_mps', 0.30)
         self.declare_parameter('command_fresh_timeout_s', 0.5)
         self.declare_parameter('max_scan_dt_s', 0.25)
-        self.declare_parameter('odom_publish_period_s', 0.02)
         self.declare_parameter('minimum_command_progress_ratio', 0.85)
         self.declare_parameter('max_degenerate_prior_step_m', 0.25)
         # 与官方控制器安全检查一致：机体倾斜超过 60° 时冻结平移，避免倒地后
@@ -103,7 +103,6 @@ class ScanImuLocalizerNode(Node):
         self.latest_command = Twist()
         self._last_command_monotonic = None
         self._last_scan_time_sec = None
-        self._latest_result = None
         self.tf_broadcaster = (
             TransformBroadcaster(self)
             if bool(self.get_parameter('publish_tf').value)
@@ -147,11 +146,6 @@ class ScanImuLocalizerNode(Node):
             str(self.get_parameter('cmd_vel_topic').value),
             self.on_cmd_vel,
             10,
-        )
-        self.odom_timer = self.create_timer(
-            max(0.005, float(
-                self.get_parameter('odom_publish_period_s').value)),
-            self.publish_latest_pose,
         )
         self.create_subscription(
             Int32,
@@ -277,13 +271,15 @@ class ScanImuLocalizerNode(Node):
         )
         self.publish_pose(result, message.header.stamp)
 
-    def publish_pose(self, result, _stamp):
-        self._latest_result = result
+    def publish_pose(self, result, stamp):
         pose = result.pose
-        # scan 与 odom 若使用完全相同时间戳，Cartographer 同步队列会一直
-        # 等待“下一条 odom”而不消费当前 scan。估计在本回调完成时才有效，
-        # 因此用节点当前仿真时钟发布，既保持因果顺序，也不引入墙钟。
-        publish_stamp = self.get_clock().now().to_msg()
+        # scan 与 odom 若使用完全相同时间戳，Cartographer 同步队列会等待
+        # “比当前 scan 更新的 odom”。估计由该 scan 计算完成，明确标成其后
+        # 1 ms；不能使用经 rosbridge 延迟的 /clock，否则反而落后约 0.2 s。
+        source_nanoseconds = (
+            int(stamp.sec) * 1_000_000_000 + int(stamp.nanosec))
+        publish_stamp = Time(
+            nanoseconds=source_nanoseconds + 1_000_000).to_msg()
         half_yaw = pose.yaw * 0.5
         quaternion_z = math.sin(half_yaw)
         quaternion_w = math.cos(half_yaw)
@@ -318,11 +314,6 @@ class ScanImuLocalizerNode(Node):
         message.pose.covariance[35] = variance
         self.odom_pub.publish(message)
 
-    def publish_latest_pose(self):
-        """独立推进 odom 队列，避免 scan 回调顺序锁死 Cartographer。"""
-
-        if self._latest_result is not None:
-            self.publish_pose(self._latest_result, None)
 
 
 def main():
