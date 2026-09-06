@@ -402,9 +402,9 @@ def generate_launch_description():
                 'publish_tf': publish_legal_tf_parameter,
                 # 重复长走廊缺少纵向扫描约束；用实际下发速度提供短时平移
                 # 初值，IMU绝对航向和三维点云在出现结构特征后继续纠偏。
-                # A1 在正式 RL 步态下对 0.45 m/s 命令能近似一比一执行；更高
-                # 命令会进入策略饱和区，实际速度反而下降并破坏积分里程。
-                'command_motion_scale': 1.0,
+                # 固定种子长走廊 A/B 的累计物理/命令位移比为约 0.92；该比例
+                # 只描述 A1 RL 步态执行器，不含任何大楼坐标或危险源真值。
+                'command_motion_scale': 0.92,
                 'min_effective_linear_speed_mps': 0.30,
                 'use_sim_time': sim_time_parameter,
             }],

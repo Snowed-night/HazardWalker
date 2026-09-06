@@ -572,7 +572,7 @@ def test_cartographer_2d_fuses_only_speed_bounded_scan_imu_odometry():
     assert "('scan', '/hw/scan')" in two_dimensional_remaps
     assert "('imu', '/hw/trunk_imu')" in two_dimensional_remaps
     assert "('odom', '/hazardwalker/slam/odometry')" in two_dimensional_remaps
-    assert "'command_motion_scale': 1.0" in launch
+    assert "'command_motion_scale': 0.92" in launch
 
 
 def test_cartographer_3d_uses_native_pointcloud_imu_without_custom_odometry():
