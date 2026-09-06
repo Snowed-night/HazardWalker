@@ -843,6 +843,18 @@ def write_json(path: Path, payload: dict) -> None:
     temporary.replace(path)
 
 
+def wait_for_nonempty_file(path: Path, timeout_sec: float = 30.0) -> dict:
+    """等待业务节点完成原子结果封存，避免 FINISHED 后立刻杀掉消费者。"""
+
+    target = Path(path)
+    deadline = time.monotonic() + max(0.1, float(timeout_sec))
+    while time.monotonic() < deadline:
+        if target.is_file() and target.stat().st_size > 0:
+            return {'path': str(target), 'size_bytes': target.stat().st_size}
+        time.sleep(0.1)
+    raise RuntimeError(f'任务完成后未生成结果文件：{target}')
+
+
 def stop_process_group(process: subprocess.Popen) -> int:
     """分级停止本轮 launch 进程组，不触碰平台容器或生命周期管理器。"""
 
@@ -1362,6 +1374,17 @@ def main() -> int:
                         'reason': '2d_slam_profile',
                     }
                     manifest['status'] = 'complete'
+                if manifest['status'] == 'complete' and perception_enabled:
+                    try:
+                        manifest['perception_result_ready'] = (
+                            wait_for_nonempty_file(
+                                output_dir / 'detected_danger.json',
+                                timeout_sec=30.0,
+                            )
+                        )
+                    except RuntimeError as exc:
+                        manifest['status'] = 'failed'
+                        manifest['failure_reason'] = str(exc)
                 break
             if process.poll() is not None:
                 manifest['status'] = 'failed'

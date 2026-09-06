@@ -12,6 +12,7 @@
 
 import csv
 import json
+import signal
 import shutil
 import time
 from pathlib import Path
@@ -122,6 +123,7 @@ class DynamicDetectionRecorderNode(Node):
         self.mission_completed = False
         self.last_context_save_sec = float('-inf')
         self.context_evidence_count = 0
+        self.saved_confirmation_ids = set()
 
         self.image_sub = self.create_subscription(
             Image, str(self.get_parameter('image_topic').value), self.on_image, 10,
@@ -386,8 +388,16 @@ class DynamicDetectionRecorderNode(Node):
     def _save_evidence_image(self, stamp_sec, detections, hazards, recommendation):
         """保存叠加检测框和当前重观察建议的展示帧。"""
 
-        has_confirmed_hazard = any(item.get('status') == 'confirmed' for item in hazards)
-        is_context_frame = not detections and not has_confirmed_hazard
+        confirmed_ids = {
+            str(item.get('id')) for item in hazards
+            if item.get('status') == 'confirmed'
+        }
+        has_new_confirmation = bool(
+            confirmed_ids - self.saved_confirmation_ids)
+        # confirmed 轨迹会在后续每帧持续发布；它不是每帧都重新获得的证据。
+        # 只保存真正含候选的帧和每个目标首次确认帧，避免数百次重复写入
+        # 1.2 MB 深度数组拖慢 SLAM。无候选画面按低频上下文策略保存。
+        is_context_frame = not detections and not has_new_confirmation
         if is_context_frame:
             if self.context_evidence_count >= int(
                     self.get_parameter('max_context_evidence_count').value):
@@ -452,12 +462,16 @@ class DynamicDetectionRecorderNode(Node):
             self.get_logger().warn(f'标注 RGB 证据写入失败：{path}')
             raw_path.unlink(missing_ok=True)
             return '', '', ''
-        depth_path = self._save_depth_evidence(f'{stem}.png')
+        depth_path = (
+            '' if is_context_frame
+            else self._save_depth_evidence(f'{stem}.png')
+        )
         if is_context_frame:
             self.last_context_save_sec = stamp_sec
             self.context_evidence_count += 1
         else:
             self.last_image_save_sec = stamp_sec
+        self.saved_confirmation_ids.update(confirmed_ids)
         return (
             str(raw_path.relative_to(self.output_dir).as_posix()),
             str(path.relative_to(self.output_dir).as_posix()),
@@ -591,6 +605,10 @@ def main():
         # 仍需在外部关闭后落盘 frames/summary，随后跳过已失效上下文的 rclpy.shutdown。
         pass
     finally:
+        # ros2 launch 会在进程组 SIGINT 后再次向子进程转发信号。封存阶段忽略
+        # 重复终止信号，避免 summary/result 在写到一半时再次 KeyboardInterrupt。
+        signal.signal(signal.SIGINT, signal.SIG_IGN)
+        signal.signal(signal.SIGTERM, signal.SIG_IGN)
         node.close()
         if rclpy.ok():
             node.destroy_node()

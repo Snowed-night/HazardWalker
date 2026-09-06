@@ -317,6 +317,14 @@ def test_rosbridge_fragment_contract_is_bounded_and_adapter_keeps_image_bytes():
     assert 'or positive_partial_sphere' in detector
     assert 'self.tracker.update(observations, stamp_sec=stamp_sec)' in detector
     assert "if camera_stable:\n            self.tracker.update(observations" not in detector
+    recorder = (
+        REPO_ROOT / 'ros2_ws' / 'src' / 'hazardwalker_perception'
+        / 'hazardwalker_perception' / 'dynamic_detection_recorder_node.py'
+    ).read_text(encoding='utf-8')
+    assert 'self.saved_confirmation_ids = set()' in recorder
+    assert 'confirmed_ids - self.saved_confirmation_ids' in recorder
+    assert "'' if is_context_frame" in recorder
+    assert 'signal.signal(signal.SIGINT, signal.SIG_IGN)' in recorder
 def test_official_full_stack_requires_an_exclusive_simenv_session():
     preflight = (REPO_ROOT / 'scripts' / 'check_official_simenv_exclusive_session.sh').read_text(encoding='utf-8')
     stack = (REPO_ROOT / 'scripts' / 'run_official_simenv_ros1_ros2_stack.sh').read_text(encoding='utf-8')

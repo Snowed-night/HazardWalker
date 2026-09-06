@@ -489,3 +489,18 @@ def test_runner_writes_and_enforces_post_run_slam_physical_alignment():
     assert "'slam_physical_alignment': None" in source
     assert "output_dir / 'slam' / 'physical_alignment.json'" in source
     assert "not manifest['slam_physical_alignment']['accepted']" in source
+
+
+def test_runner_waits_for_perception_result_before_stopping_launch():
+    source = SCRIPT.read_text(encoding='utf-8')
+    completion = source.split(
+        "if observer.latest_state in ('FINISHED', 'FAILED'):", 1)[1].split(
+            'if process.poll() is not None:', 1)[0]
+    assert "output_dir / 'detected_danger.json'" in completion
+    assert completion.index('wait_for_nonempty_file(') < completion.rindex('break')
+
+    with tempfile.TemporaryDirectory() as temporary:
+        target = Path(temporary) / 'detected.json'
+        target.write_text('{}\n', encoding='utf-8')
+        evidence = MODULE.wait_for_nonempty_file(target, timeout_sec=0.2)
+        assert evidence['size_bytes'] > 0
