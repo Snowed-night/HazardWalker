@@ -175,7 +175,7 @@ def build_official_detected_danger_result(
 
 def _has_valid_sphere_evidence(
         hazard, allowed_detection_sources, require_multiview=False):
-    """复核球面正证据；比赛单视角配置仍要求同一稳定视角至少三帧。"""
+    """按轨迹随附的正式门槛复核球面正证据，不再私自写死三帧。"""
 
     if require_multiview:
         return _has_valid_multiview_sphere_evidence(
@@ -212,7 +212,7 @@ def _has_valid_sphere_evidence(
     return (
         distinct_view_count == len(eligible_view_ids)
         and distinct_view_count >= max(1, required_distinct_views)
-        and eligible_observation_count >= max(3, required_observations)
+        and eligible_observation_count >= max(1, required_observations)
         and len(spherical_view_ids) >= max(1, required_spherical_views)
     )
 

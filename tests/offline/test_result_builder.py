@@ -157,15 +157,15 @@ def test_official_result_can_require_multiview_sphere_evidence():
 
 
 def test_official_result_accepts_verified_single_view_sphere_evidence():
-    """比赛简化配置仍必须有同一稳定视角三帧球面正证据。"""
+    """比赛简化配置按上游合同接受单帧球面正证据，仍拒绝零证据。"""
     evidence = {
         'source': 'hsv_depth_tf',
         'evidence_status': 'single_view_sphere_confirmed',
         'distinct_view_count': 1,
-        'eligible_observation_count': 3,
+        'eligible_observation_count': 1,
         'eligible_view_ids': ['stable_front'],
         'spherical_view_ids': ['stable_front'],
-        'required_min_eligible_observations': 3,
+        'required_min_eligible_observations': 1,
         'required_min_distinct_views': 1,
         'required_min_spherical_views': 1,
     }
@@ -181,7 +181,7 @@ def test_official_result_accepts_verified_single_view_sphere_evidence():
     assert result['detected_danger_sources'] == [
         {'position': [1.0, 2.0, 0.15]}]
 
-    evidence['eligible_observation_count'] = 2
+    evidence['eligible_observation_count'] = 0
     rejected = build_official_detected_danger_result(
         hazards=[{
             'id': 1, 'status': 'confirmed',
