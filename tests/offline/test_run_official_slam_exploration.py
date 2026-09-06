@@ -32,6 +32,7 @@ def test_launch_command_uses_unique_managed_control_and_legal_slam_inputs():
     assert 'localization_provenance:=lidar_imu_slam' in joined
     assert 'navigation_linear_speed:=0.45' in joined
     assert 'navigation_minimum_linear_speed:=0.30' in joined
+    assert 'localization_command_motion_scale:=0.92' in joined
     assert 'mission_time_budget_s:=600.000' in joined
     assert 'strict_room_inspection:=false' in joined
     assert 'start_perception:=false' in joined
@@ -411,6 +412,7 @@ def test_entrance_ingress_precedes_slam_and_uses_only_public_inputs():
         'command = build_launch_command(')
     assert "args.enable_perception or args.strict_room_inspection" in main_source
     assert "manifest['status'] == 'complete' and perception_enabled" in main_source
+    assert "f'command_motion_scale:={A1_EXECUTION_SCALE:.2f}'" in source
 
     with pytest.raises(ValueError, match='必须为正数'):
         MODULE.perform_entrance_ingress(distance_m=0.0)

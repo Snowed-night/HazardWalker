@@ -225,6 +225,9 @@ def generate_launch_description():
         'navigation_linear_speed')
     navigation_minimum_linear_speed = LaunchConfiguration(
         'navigation_minimum_linear_speed')
+    localization_command_motion_scale = ParameterValue(
+        LaunchConfiguration('localization_command_motion_scale'),
+        value_type=float)
     target_floors = LaunchConfiguration('target_floors')
     per_floor_exploration_s = LaunchConfiguration('per_floor_exploration_s')
     manual_elevator_assist = LaunchConfiguration('manual_elevator_assist')
@@ -339,6 +342,8 @@ def generate_launch_description():
         DeclareLaunchArgument('navigation_linear_speed', default_value='0.45'),
         DeclareLaunchArgument(
             'navigation_minimum_linear_speed', default_value='0.30'),
+        DeclareLaunchArgument(
+            'localization_command_motion_scale', default_value='0.92'),
         DeclareLaunchArgument('target_floors', default_value='[]'),
         DeclareLaunchArgument('per_floor_exploration_s', default_value='120.0'),
         DeclareLaunchArgument('manual_elevator_assist', default_value='true'),
@@ -402,9 +407,9 @@ def generate_launch_description():
                 'publish_tf': publish_legal_tf_parameter,
                 # 重复长走廊缺少纵向扫描约束；用实际下发速度提供短时平移
                 # 初值，IMU绝对航向和三维点云在出现结构特征后继续纠偏。
-                # 固定种子长走廊 A/B 的累计物理/命令位移比为约 0.92；该比例
-                # 只描述 A1 RL 步态执行器，不含任何大楼坐标或危险源真值。
-                'command_motion_scale': 0.92,
+                # 固定种子长走廊 A/B 的累计物理/命令位移比为约 0.92；由正式
+                # 运行器同时传给入门和业务局部器，禁止两个阶段各用一套比例。
+                'command_motion_scale': localization_command_motion_scale,
                 'min_effective_linear_speed_mps': 0.30,
                 'use_sim_time': sim_time_parameter,
             }],

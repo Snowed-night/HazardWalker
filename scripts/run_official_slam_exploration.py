@@ -54,6 +54,7 @@ RUNTIME_GIT_EXCLUDES = (
     'ros2_ws/src/hazardwalker_platform/generated_building',
     'ros2_ws/src/hazardwalker_platform/results',
 )
+A1_EXECUTION_SCALE = 0.92
 
 
 def ensure_workspace_overlay() -> None:
@@ -227,6 +228,7 @@ def build_launch_command(
         'use_sim_time:=true',
         'navigation_linear_speed:=0.45',
         'navigation_minimum_linear_speed:=0.30',
+        f'localization_command_motion_scale:={A1_EXECUTION_SCALE:.2f}',
         f'exploration_timeout_s:={float(exploration_timeout_s):.3f}',
         f'mission_time_budget_s:={float(mission_time_budget_s):.3f}',
         f'simenv_container:={simenv_container}',
@@ -907,6 +909,7 @@ def perform_entrance_ingress(
         '-p', 'use_sim_time:=true',
         '-p', 'publish_tf:=false',
         '-p', 'localization_provenance:=lidar_imu_slam',
+        '-p', f'command_motion_scale:={A1_EXECUTION_SCALE:.2f}',
     ]
     localizer_log = tempfile.TemporaryFile(mode='w+', encoding='utf-8')
     localizer = subprocess.Popen(
