@@ -769,6 +769,8 @@ def test_scan_imu_localizer_publishes_configured_runtime_provenance():
     assert 'String(data=self.localization_provenance)' in source
     assert 'publish_stamp = self.get_clock().now().to_msg()' in source
     assert 'message.header.stamp = publish_stamp' in source
+    assert "declare_parameter('odom_publish_period_s', 0.02)" in source
+    assert 'self.publish_latest_pose' in source
     assert "'visual_inertial_slam'" not in source
 
 
