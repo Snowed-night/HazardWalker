@@ -97,6 +97,14 @@ def test_map_origin_uses_actual_public_ingress_before_slam_start():
     with pytest.raises(ValueError, match='不得为负'):
         MODULE.map_origin_after_straight_ingress(0.0, -2.2, 0.0, -0.1)
 
+    curved = MODULE.map_origin_after_relative_ingress(
+        0.0, -2.2, math.pi / 2.0,
+        3.5, -0.4, math.radians(7.5),
+    )
+    assert curved[0] == pytest.approx(0.4, abs=1e-9)
+    assert curved[1] == pytest.approx(1.3, abs=1e-9)
+    assert curved[2] == pytest.approx(math.radians(97.5), abs=1e-9)
+
 
 def test_preflight_loads_real_perception_yaml_before_motion():
     contract = MODULE.validate_perception_mission_config(
@@ -411,6 +419,8 @@ def test_entrance_ingress_precedes_slam_and_uses_only_public_inputs():
         'perform_entrance_ingress(')
     assert main_source.index('perform_entrance_ingress(') < main_source.index(
         'command = build_launch_command(')
+    assert "ingress['relative_displacement_m'][0]" in main_source
+    assert "ingress['relative_heading_rad']" in main_source
     assert "args.enable_perception or args.strict_room_inspection" in main_source
     assert "manifest['status'] == 'complete' and perception_enabled" in main_source
     assert "f'command_motion_scale:={A1_EXECUTION_SCALE:.2f}'" in source

@@ -283,10 +283,36 @@ def map_origin_after_straight_ingress(
     )
     if not all(math.isfinite(value) for value in values) or values[3] < 0.0:
         raise ValueError('出生位姿和入门距离必须为有限值，距离不得为负')
+    return map_origin_after_relative_ingress(
+        values[0], values[1], values[2], values[3], 0.0, 0.0,
+    )
+
+
+def map_origin_after_relative_ingress(
+        start_world_x: float,
+        start_world_y: float,
+        start_world_yaw: float,
+        relative_x: float,
+        relative_y: float,
+        relative_yaw: float,
+) -> tuple[float, float, float]:
+    """把合法 scan/IMU 入门位姿增量变换到公开 world 起点。"""
+
+    values = tuple(map(float, (
+        start_world_x, start_world_y, start_world_yaw,
+        relative_x, relative_y, relative_yaw,
+    )))
+    if not all(math.isfinite(value) for value in values):
+        raise ValueError('公开起点和入门位姿增量必须为有限数值')
+    cosine = math.cos(values[2])
+    sine = math.sin(values[2])
     return (
-        values[0] + math.cos(values[2]) * values[3],
-        values[1] + math.sin(values[2]) * values[3],
-        values[2],
+        values[0] + cosine * values[3] - sine * values[4],
+        values[1] + sine * values[3] + cosine * values[4],
+        math.atan2(
+            math.sin(values[2] + values[5]),
+            math.cos(values[2] + values[5]),
+        ),
     )
 
 
@@ -1004,6 +1030,7 @@ def perform_entrance_ingress(
     node = IngressNode()
     started = time.monotonic()
     start_pose = None
+    final_pose = None
     travelled = 0.0
     try:
         while time.monotonic() - started < min(60.0, wall_timeout_sec):
@@ -1029,6 +1056,7 @@ def perform_entrance_ingress(
             if time.monotonic() - node.pose_wall_time > 2.0:
                 raise RuntimeError('入口阶段里程计话题中断')
             x, y, yaw = node.pose
+            final_pose = node.pose
             travelled = math.hypot(x - start_x, y - start_y)
             # 大厅结构证明已经过门，合法相对里程保证完整 A1 footprint 也
             # 离开门框代价区；二者必须同时满足，不能刚看到大厅就停在门槛。
@@ -1072,10 +1100,22 @@ def perform_entrance_ingress(
             stop_process_group(localizer)
             localizer_log.close()
 
+    if final_pose is None:
+        raise RuntimeError('入口阶段未形成最终合法位姿')
+    final_x, final_y, final_yaw = final_pose
+    relative_x = final_x - start_x
+    relative_y = final_y - start_y
+    relative_yaw = math.atan2(
+        math.sin(final_yaw - start_yaw),
+        math.cos(final_yaw - start_yaw),
+    )
     return {
         'method': 'public_scan_imu_relative_ingress',
         'distance_target_m': round(float(distance_m), 3),
         'distance_reached_m': round(float(travelled), 3),
+        'relative_displacement_m': [
+            round(relative_x, 6), round(relative_y, 6)],
+        'relative_heading_rad': round(relative_yaw, 9),
         'lobby_structure_confirmed': bool(
             node.lobby_structure_confirmed),
         'distance_clearance_fallback': bool(
@@ -1237,17 +1277,20 @@ def main() -> int:
             speed_mps=float(args.entrance_speed_mps),
             wall_timeout_sec=float(args.entrance_wall_timeout_sec),
         )
-        world_from_map = map_origin_after_straight_ingress(
+        ingress = preflight_payload['entrance_ingress']
+        world_from_map = map_origin_after_relative_ingress(
             args.public_start_world_x,
             args.public_start_world_y,
             args.public_start_world_yaw,
-            float(preflight_payload['entrance_ingress']['distance_reached_m']),
+            float(ingress['relative_displacement_m'][0]),
+            float(ingress['relative_displacement_m'][1]),
+            float(ingress['relative_heading_rad']),
         )
         preflight_payload['world_from_map'] = {
             'x': world_from_map[0],
             'y': world_from_map[1],
             'yaw': world_from_map[2],
-            'source': 'public_start_pose+public_scan_imu_ingress',
+            'source': 'public_start_pose+public_scan_imu_relative_pose',
         }
     except (ValueError, RuntimeError, subprocess.SubprocessError) as exc:
         raise SystemExit(str(exc)) from exc
