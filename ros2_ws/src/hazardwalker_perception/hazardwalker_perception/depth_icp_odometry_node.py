@@ -52,11 +52,13 @@ class DepthIcpOdometryNode(Node):
         self.declare_parameter('output_topic', '/hazardwalker/depth_icp/odometry')
         self.declare_parameter('command_motion_scale', 0.88)
         self.declare_parameter('minimum_frame_interval_s', 0.18)
-        self.declare_parameter('downsample_factor', 2)
+        # 160×120 在官方 640×480 深度流上可稳定达到数 Hz；320×240 实测
+        # 只有约 0.8 Hz，会积压旧帧并失去作为短时里程计的意义。
+        self.declare_parameter('downsample_factor', 4)
         self.declare_parameter('min_depth_m', 0.10)
         self.declare_parameter('max_depth_m', 8.0)
         self.declare_parameter('max_depth_difference_m', 0.20)
-        self.declare_parameter('maximum_translation_per_frame_m', 0.50)
+        self.declare_parameter('maximum_translation_per_frame_m', 0.80)
         self.declare_parameter('maximum_rotation_per_frame_rad', 0.60)
         self.declare_parameter('cmd_fresh_timeout_s', 1.0)
 
@@ -86,7 +88,7 @@ class DepthIcpOdometryNode(Node):
             self.on_camera_info, 10)
         self.create_subscription(
             Image, str(self.get_parameter('depth_topic').value),
-            self.on_depth, 10)
+            self.on_depth, 1)
         self.create_subscription(
             Twist, str(self.get_parameter('cmd_vel_topic').value),
             self.on_command, 20)
@@ -107,7 +109,7 @@ class DepthIcpOdometryNode(Node):
             float(self.get_parameter('max_depth_m').value),
             float(self.get_parameter('max_depth_difference_m').value),
             0.20,
-            [7, 7, 7],
+            [5, 5, 5],
         )
 
     def on_command(self, message):
