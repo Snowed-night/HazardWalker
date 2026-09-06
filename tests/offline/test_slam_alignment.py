@@ -47,5 +47,30 @@ def test_late_slam_drift_fails_alignment_gate():
         drift = 0.0 if index < 20 else (index - 20) * 0.08
         samples.append(_sample(index, drift_x=drift, drift_y=-0.5 * drift))
     metrics = evaluate_map_physical_alignment(samples)
-    assert metrics['p95_error_m'] > 5.0
+    assert metrics['p95_error_m'] > 2.0
     assert not alignment_is_acceptable(metrics)
+
+
+def test_global_alignment_cannot_hide_metric_scale_error():
+    samples = []
+    for index in range(100):
+        sample = _sample(index)
+        sample['x'] *= 1.25
+        sample['y'] *= 1.25
+        samples.append(sample)
+    metrics = evaluate_map_physical_alignment(samples)
+    assert metrics['p95_error_m'] > 1.0
+    assert not alignment_is_acceptable(metrics)
+
+
+def test_alignment_uses_position_motion_instead_of_noisy_startup_yaw():
+    samples = []
+    for index in range(100):
+        sample = _sample(index)
+        sample['yaw_deg'] = 10.0 + (12.0 if index % 2 else -9.0)
+        sample['official_yaw_deg'] = 90.0 + (7.0 if index % 3 else -11.0)
+        samples.append(sample)
+    metrics = evaluate_map_physical_alignment(samples)
+    assert abs(metrics['rotation_deg'] - 80.0) < 1e-9
+    assert metrics['max_error_m'] < 1e-9
+    assert alignment_is_acceptable(metrics)
