@@ -44,7 +44,7 @@
         <sensor name="imu_sensor" type="imu">
             <always_on>true</always_on>
             <update_rate>1000</update_rate>
-            <visualize>true</visualize>
+            <visualize>false</visualize>
             <topic>__default_topic__</topic>
             <plugin filename="libgazebo_ros_imu_sensor.so" name="imu_plugin">
                 <topicName>trunk_imu</topicName>
@@ -350,7 +350,9 @@
             <!-- laser_livox 链路俯仰约 +45°；反向补偿后 ray 扫描面保持水平。 -->
             <pose>0 0 0 0 -0.785 0</pose>
             <visualize>true</visualize>
-            <update_rate>10</update_rate>
+            <!-- 5 Hz × 1200 条非重复射线足够连续三维配准，并将 Gazebo
+                 射线计算量降到旧配置的约 1/20，避免控制器因传感器过载倒地。 -->
+            <update_rate>5</update_rate>
             <!-- ray 是 sensor 的 SDF 子元素，不能嵌在 ROS plugin 内；错误嵌套
                  会退回 640 个全 inf、量程和角度均为 0 的无效默认扫描。 -->
             <ray>
@@ -394,13 +396,13 @@
                 <ray>
                     <scan>
                         <horizontal>
-                            <samples>100</samples>
+                            <samples>20</samples>
                             <resolution>1</resolution>
                             <min_angle>0</min_angle>
                             <max_angle>${2*M_PI}</max_angle>
                         </horizontal>
                         <vertical>
-                            <samples>360</samples>
+                            <samples>30</samples>
                             <resolution>1</resolution>
                             <min_angle>${-3.22/180*M_PI}</min_angle>
                             <max_angle>${56.22/180*M_PI}</max_angle>
@@ -417,9 +419,9 @@
                         <stddev>0.005</stddev>
                     </noise>
                 </ray>
-                <!-- Mid-360 真机约 20 万点/秒。仿真保留约 1.2 万条射线/帧，
-                     让非重复扫描在室内平面上仍有足够重叠供 LIO 配准。 -->
-                <samples>24000</samples>
+                <!-- 仿真每帧保留 1200 条非重复射线；Cartographer 累积三帧，
+                     单次匹配仍有约 3600 点，同时不再挤占 A1 的 250 Hz 控制。 -->
+                <samples>2400</samples>
                 <downsample>2</downsample>
                 <repeat_pattern>true</repeat_pattern>
                 <csv_file_name>package://livox_laser_simulation/scan_mode/mid360.csv</csv_file_name>
