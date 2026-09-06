@@ -14,11 +14,11 @@ options = {
   provide_odom_frame = true,
   publish_frame_projected_to_2d = true,
   use_pose_extrapolator = true,
-  -- 失败轮证据表明自写 scan/IMU 里程计会在重复长走廊中与物理位置分离，
-  -- Cartographer 若继续融合该 odom，会把同一错误带入整张地图。二维正式
-  -- 模式改为直接由 LaserScan + IMU 的相关性匹配估计轨迹；自写 odom 仅保留
-  -- 为赛后诊断，不参与 Cartographer 优化。
-  use_odometry = false,
+  -- 重复长走廊仅靠二维扫描无法观测纵向平移，因此融合 scan/IMU 前端的
+  -- 短时控制先验。正式启动把控制速度限制为 A1 实测可执行的 0.45 m/s，
+  -- 避免旧版以 2.0 m/s 命令积分、而物理机体只走约 0.45 m/s 的系统性漂移。
+  -- 该里程计不读取 /Odometry_gazebo、/hw/odom 或任何场景真值。
+  use_odometry = true,
   use_nav_sat = false,
   use_landmarks = false,
   -- 正式地图只融合 360° 水平雷达。旧的 RGB-D 中部竖带投影会把地面、
@@ -33,7 +33,7 @@ options = {
   pose_publish_period_sec = 0.01,
   trajectory_publish_period_sec = 0.03,
   rangefinder_sampling_ratio = 1.0,
-  odometry_sampling_ratio = 0.0,
+  odometry_sampling_ratio = 1.0,
   fixed_frame_pose_sampling_ratio = 1.0,
   imu_sampling_ratio = 1.0,
   landmarks_sampling_ratio = 1.0,

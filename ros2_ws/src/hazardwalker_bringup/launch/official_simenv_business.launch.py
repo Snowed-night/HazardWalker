@@ -141,6 +141,7 @@ def _launch_cartographer(context, nav_pkg):
             ] if dimension == '3d' else [
                 ('scan', '/hw/scan'),
                 ('imu', '/hw/trunk_imu'),
+                ('odom', '/hazardwalker/slam/odometry'),
             ]),
         )
     if dimension == '3d':
@@ -335,9 +336,9 @@ def generate_launch_description():
         # /hw/control/navigation_cmd_vel，再由 command_mux_node 唯一输出。
         DeclareLaunchArgument(
             'navigation_cmd_vel_topic', default_value='/hw/cmd_vel'),
-        DeclareLaunchArgument('navigation_linear_speed', default_value='2.00'),
+        DeclareLaunchArgument('navigation_linear_speed', default_value='0.45'),
         DeclareLaunchArgument(
-            'navigation_minimum_linear_speed', default_value='1.20'),
+            'navigation_minimum_linear_speed', default_value='0.30'),
         DeclareLaunchArgument('target_floors', default_value='[]'),
         DeclareLaunchArgument('per_floor_exploration_s', default_value='120.0'),
         DeclareLaunchArgument('manual_elevator_assist', default_value='true'),
@@ -401,7 +402,9 @@ def generate_launch_description():
                 'publish_tf': publish_legal_tf_parameter,
                 # 重复长走廊缺少纵向扫描约束；用实际下发速度提供短时平移
                 # 初值，IMU绝对航向和三维点云在出现结构特征后继续纠偏。
-                'command_motion_scale': 0.92,
+                # A1 在正式 RL 步态下对 0.45 m/s 命令能近似一比一执行；更高
+                # 命令会进入策略饱和区，实际速度反而下降并破坏积分里程。
+                'command_motion_scale': 1.0,
                 'min_effective_linear_speed_mps': 0.30,
                 'use_sim_time': sim_time_parameter,
             }],

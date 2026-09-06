@@ -360,8 +360,8 @@ def test_official_business_launch_never_starts_fake_platform_by_default():
     source = (REPO_ROOT / 'ros2_ws' / 'src' / 'hazardwalker_bringup' / 'launch' /
               'official_simenv_business.launch.py').read_text(encoding='utf-8')
     assert "DeclareLaunchArgument('start_navigation', default_value='false')" in source
-    assert "DeclareLaunchArgument('navigation_linear_speed', default_value='2.00')" in source
-    assert "'navigation_minimum_linear_speed', default_value='1.20'" in source
+    assert "DeclareLaunchArgument('navigation_linear_speed', default_value='0.45')" in source
+    assert "'navigation_minimum_linear_speed', default_value='0.30'" in source
     assert "DeclareLaunchArgument('nav_record_dir', default_value='')" in source
     assert "DeclareLaunchArgument('slam_monitor_output_dir', default_value='')" in source
     assert "DeclareLaunchArgument('start_slam', default_value='false')" in source
@@ -439,7 +439,7 @@ def test_official_business_launch_never_starts_fake_platform_by_default():
     assert "('scan', '/hw/scan')" in source
     assert "('scan_1', '/hw/scan')" not in source
     assert "('scan_2', '/hw/depth_scan')" not in source
-    assert "('odom', '/hazardwalker/slam/odometry')" not in source
+    assert "('odom', '/hazardwalker/slam/odometry')" in source
     three_d_remaps = source.split('remappings=([', 1)[1].split(
         "] if dimension == '3d'", 1)[0]
     assert "('points2', '/hw/lidar/points')" in three_d_remaps
@@ -461,8 +461,8 @@ def test_official_business_launch_never_starts_fake_platform_by_default():
     assert "DeclareLaunchArgument('use_sim_time', default_value='true')" in source
     assert "'navigation_cmd_vel_topic', default_value='/hw/cmd_vel'" in source
     assert source.count("'cmd_vel_topic': navigation_cmd_vel_topic") == 2
-    assert "DeclareLaunchArgument('navigation_linear_speed', default_value='2.00')" in source
-    assert "'navigation_minimum_linear_speed', default_value='1.20'" in source
+    assert "DeclareLaunchArgument('navigation_linear_speed', default_value='0.45')" in source
+    assert "'navigation_minimum_linear_speed', default_value='0.30'" in source
     assert "DeclareLaunchArgument('nav_record_dir', default_value='')" in source
     assert "'linear_speed': navigation_linear_speed_parameter" in source
     assert "'nav_record_dir': nav_record_dir" in source
@@ -552,8 +552,8 @@ def test_cartographer_3d_profile_fuses_public_lidar_imu_and_legal_prior():
     assert 'ground_truth' not in source
 
 
-def test_cartographer_2d_does_not_fuse_the_divergent_custom_odometry():
-    """二维正式 SLAM 必须由 scan+IMU 自主估计，不能再被自写 odom 拖走。"""
+def test_cartographer_2d_fuses_only_speed_bounded_scan_imu_odometry():
+    """二维走廊使用合法控制先验，但速度合同必须等于 A1 可执行范围。"""
     source = (
         REPO_ROOT / 'ros2_ws' / 'src' / 'hazardwalker_nav' / 'config' /
         'cartographer_official_2d.lua'
@@ -561,9 +561,8 @@ def test_cartographer_2d_does_not_fuse_the_divergent_custom_odometry():
 
     assert 'num_laser_scans = 1' in source
     assert 'TRAJECTORY_BUILDER_2D.use_imu_data = true' in source
-    assert 'use_odometry = false' in source
-    assert 'use_odometry = true' not in source
-    assert 'odometry_sampling_ratio = 0.0' in source
+    assert 'use_odometry = true' in source
+    assert 'odometry_sampling_ratio = 1.0' in source
     launch = (
         REPO_ROOT / 'ros2_ws' / 'src' / 'hazardwalker_bringup' / 'launch' /
         'official_simenv_business.launch.py'
@@ -572,7 +571,8 @@ def test_cartographer_2d_does_not_fuse_the_divergent_custom_odometry():
         "] if dimension == '3d' else [", 1)[1].split(']),', 1)[0]
     assert "('scan', '/hw/scan')" in two_dimensional_remaps
     assert "('imu', '/hw/trunk_imu')" in two_dimensional_remaps
-    assert "('odom', '/hazardwalker/slam/odometry')" not in two_dimensional_remaps
+    assert "('odom', '/hazardwalker/slam/odometry')" in two_dimensional_remaps
+    assert "'command_motion_scale': 1.0" in launch
 
 
 def test_cartographer_3d_uses_native_pointcloud_imu_without_custom_odometry():
