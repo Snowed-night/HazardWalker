@@ -141,7 +141,7 @@ def _launch_cartographer(context, nav_pkg):
             ] if dimension == '3d' else [
                 ('scan', '/hw/scan'),
                 ('imu', '/hw/trunk_imu'),
-                ('odom', '/hazardwalker/slam/odometry'),
+                ('odom', '/hazardwalker/depth_icp/odometry'),
             ]),
         )
     if dimension == '3d':
@@ -414,6 +414,23 @@ def generate_launch_description():
                 'use_sim_time': sim_time_parameter,
             }],
             condition=IfCondition(start_legal_localization),
+        ),
+
+        # ---- RealSense 深度 ICP 里程计：几何成功优先，控制先验仅补失败帧 ----
+        Node(
+            package='hazardwalker_perception',
+            executable='depth_icp_odometry_node',
+            name='hazardwalker_depth_icp_odometry',
+            output='screen',
+            parameters=[{
+                'depth_topic': '/hw/camera/depth_image',
+                'camera_info_topic': '/hw/camera/depth_camera_info',
+                'cmd_vel_topic': '/hw/cmd_vel',
+                'output_topic': '/hazardwalker/depth_icp/odometry',
+                'command_motion_scale': localization_command_motion_scale,
+                'use_sim_time': sim_time_parameter,
+            }],
+            condition=IfCondition(start_slam),
         ),
 
         # ---- SLAM Toolbox (在线异步建图) ----

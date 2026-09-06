@@ -451,7 +451,7 @@ def test_official_business_launch_never_starts_fake_platform_by_default():
     assert "('scan', '/hw/scan')" in source
     assert "('scan_1', '/hw/scan')" not in source
     assert "('scan_2', '/hw/depth_scan')" not in source
-    assert "('odom', '/hazardwalker/slam/odometry')" in source
+    assert "('odom', '/hazardwalker/depth_icp/odometry')" in source
     three_d_remaps = source.split('remappings=([', 1)[1].split(
         "] if dimension == '3d'", 1)[0]
     assert "('points2', '/hw/lidar/points')" in three_d_remaps
@@ -583,7 +583,8 @@ def test_cartographer_2d_fuses_only_speed_bounded_scan_imu_odometry():
         "] if dimension == '3d' else [", 1)[1].split(']),', 1)[0]
     assert "('scan', '/hw/scan')" in two_dimensional_remaps
     assert "('imu', '/hw/trunk_imu')" in two_dimensional_remaps
-    assert "('odom', '/hazardwalker/slam/odometry')" in two_dimensional_remaps
+    assert "('odom', '/hazardwalker/slam/odometry')" not in two_dimensional_remaps
+    assert "('odom', '/hazardwalker/depth_icp/odometry')" in two_dimensional_remaps
     assert "'command_motion_scale': localization_command_motion_scale" in launch
     assert "'localization_command_motion_scale', default_value='0.88'" in launch
 
