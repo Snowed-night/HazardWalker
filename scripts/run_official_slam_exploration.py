@@ -701,15 +701,31 @@ def read_absolute_trunk_imu_yaw(timeout_sec: float = 10.0) -> float:
 
 
 def wait_for_slam_bootstrap(timeout_sec: float = 60.0) -> dict:
-    """等待出生点启动的 Cartographer 产生第一张 map，再允许入门。"""
+    """等待 Cartographer 与合法里程前端在线，再允许入门运动。"""
 
+    deadline = time.monotonic() + max(0.1, float(timeout_sec))
+    required_nodes = {
+        '/hazardwalker_cartographer',
+        '/hazardwalker_scan_imu_localizer',
+    }
+    nodes = set()
+    while time.monotonic() < deadline:
+        nodes = set(run_ros2_cli(['node', 'list'], timeout_sec=5.0).splitlines())
+        if required_nodes.issubset(nodes):
+            break
+        time.sleep(0.2)
+    else:
+        raise RuntimeError(
+            f'SLAM 启动节点未就绪：{sorted(required_nodes - nodes)}')
     output = run_ros2_cli([
-        'topic', 'echo', '--once', '/map',
-        'nav_msgs/msg/OccupancyGrid', '--field', 'header.frame_id',
-    ], timeout_sec=timeout_sec)
-    if 'map' not in output:
-        raise RuntimeError('Cartographer 已启动但未发布 map 帧')
-    return {'map_ready': True, 'frame_id': 'map'}
+        'topic', 'echo', '--once', '/hazardwalker/slam/odometry',
+        'nav_msgs/msg/Odometry', '--field', 'header.frame_id',
+    ], timeout_sec=max(0.1, deadline - time.monotonic()))
+    if 'odom' not in output:
+        raise RuntimeError('合法 scan/IMU 里程前端未发布 odom 帧')
+    # Cartographer 静止时可能尚未插入首个子图；不能把 /map 缺失误判为失败。
+    # 入门运动开始后第一批 scan 自然形成 submap。
+    return {'nodes_ready': sorted(required_nodes), 'odometry_frame': 'odom'}
 
 
 def release_navigation_after_ingress() -> dict:
