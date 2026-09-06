@@ -102,6 +102,7 @@ def test_preflight_loads_real_perception_yaml_before_motion():
     contract = MODULE.validate_perception_mission_config(
         ROOT / 'config' / 'perception.yaml')
     assert contract['parameters'] == {
+        'confirm_observation_count': 1,
         'confirm_distinct_views': 1,
         'min_spherical_views_for_confirm': 1,
         'reject_non_spherical_tracks': False,

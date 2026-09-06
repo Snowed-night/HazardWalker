@@ -44,7 +44,9 @@ perception:
     output_frame: start
 
   tracking:
-    confirm_observation_count: 3
+    # 赛场红色干扰仅为立方体；一帧同步 RGB-D 已给出各向同性球面曲率时
+    # 即可确认。unknown/flat/anisotropic 均不能借此上报。
+    confirm_observation_count: 1
     # 赛场干扰物仅有红/绿色正方体和绿色球体：红色候选可由单个稳定
     # RGB-D 视角的球面/平面几何直接区分，不再强制机器人横移获取视差。
     confirm_distinct_views: 1
@@ -66,7 +68,7 @@ perception:
     max_sphere_diameter_relative_error: 0.35
     # 单视角仍要求轮廓不过度拉长，防止把遮挡边缘误判成完整球体。
     min_multiview_aspect_ratio: 0.82
-    # 一个稳定视角产生球面深度正证据即可确认；连续 3 帧门槛仍负责抗噪。
+    # 一个同步视角产生球面深度正证据即可确认。
     min_spherical_views_for_confirm: 1
     max_depth_curvature_cv: 0.65
     # 球体深度曲率/表观直径的三视角中位数有效区间。

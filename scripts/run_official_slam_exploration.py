@@ -310,6 +310,7 @@ def validate_perception_mission_config(path: Path) -> dict:
     parameters = module.flatten_perception_config(document)
     localization = document['perception'].get('localization', {})
     expected = {
+        'confirm_observation_count': 1,
         'confirm_distinct_views': 1,
         'min_spherical_views_for_confirm': 1,
         'reject_non_spherical_tracks': False,
