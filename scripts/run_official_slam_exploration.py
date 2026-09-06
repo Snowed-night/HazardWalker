@@ -54,7 +54,7 @@ RUNTIME_GIT_EXCLUDES = (
     'ros2_ws/src/hazardwalker_platform/generated_building',
     'ros2_ws/src/hazardwalker_platform/results',
 )
-A1_EXECUTION_SCALE = 0.92
+A1_EXECUTION_SCALE = 0.88
 
 
 def ensure_workspace_overlay() -> None:

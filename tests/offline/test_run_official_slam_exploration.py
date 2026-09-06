@@ -32,7 +32,7 @@ def test_launch_command_uses_unique_managed_control_and_legal_slam_inputs():
     assert 'localization_provenance:=lidar_imu_slam' in joined
     assert 'navigation_linear_speed:=0.45' in joined
     assert 'navigation_minimum_linear_speed:=0.30' in joined
-    assert 'localization_command_motion_scale:=0.92' in joined
+    assert 'localization_command_motion_scale:=0.88' in joined
     assert 'mission_time_budget_s:=600.000' in joined
     assert 'strict_room_inspection:=false' in joined
     assert 'start_perception:=false' in joined
