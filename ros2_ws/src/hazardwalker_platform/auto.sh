@@ -77,6 +77,7 @@ CONTROLLER_PROBE_MIN_DISPLACEMENT_M="${CONTROLLER_PROBE_MIN_DISPLACEMENT_M:-0.01
 CONTROLLER_PROBE_MAX_DISPLACEMENT_M="${CONTROLLER_PROBE_MAX_DISPLACEMENT_M:-1.00}"
 CONTROLLER_PROBE_MIN_BASE_HEIGHT_M="${CONTROLLER_PROBE_MIN_BASE_HEIGHT_M:-0.30}"
 CONTROLLER_STAND_SETTLE_SEC="${CONTROLLER_STAND_SETTLE_SEC:-6.0}"
+CONTROLLER_STAND_STABLE_SAMPLES="${CONTROLLER_STAND_STABLE_SAMPLES:-3}"
 # 等仿真时钟稳定后再启动 rosbridge，避免新客户端收到启动期陈旧队列。
 ROSBRIDGE_START_AFTER_SIM_TIME_SEC="${ROSBRIDGE_START_AFTER_SIM_TIME_SEC:-1}"
 ROBOT_X="${ROBOT_X:-0.0}"
@@ -414,20 +415,36 @@ if [ "$START_CONTROLLER" = "1" ] && [ "$SIMENV_HEADLESS_MODE" = "move_base" ]; t
     fi
     sleep 0.2
   done
-  # 状态切换日志不等于真的站稳。等待关节插值结束后用官方诊断里程计只做
+  # 状态切换日志不等于真的站稳。高负载三维雷达会显著降低实时倍率，固定
+  # 墙钟等待不能代表关节已经经历足够仿真时间，因此先保留最短等待，再持续
+  # 采样机体高度，直到连续多帧达标或统一启动超时。官方诊断里程计只用于
   # 平台健康门禁；该真值不进入感知、SLAM、导航或比赛结果。
   sleep "$CONTROLLER_STAND_SETTLE_SEC"
-  controller_base_z="$(
-    timeout 10 rostopic echo -n 1 /Odometry_gazebo 2>/dev/null |
-      awk '/^    position:/{in_position=1; next} in_position && /^      z:/{print $2; exit}' \
-      || true
-  )"
-  if [ -z "$controller_base_z" ] || ! python3 -c '
+  controller_stand_deadline=$((SECONDS + CONTROLLER_READY_TIMEOUT_SEC))
+  controller_stable_samples=0
+  controller_base_z=''
+  while [ "$SECONDS" -lt "$controller_stand_deadline" ]; do
+    controller_base_z="$(
+      timeout 10 rostopic echo -n 1 /Odometry_gazebo 2>/dev/null |
+        awk '/^    position:/{in_position=1; next} in_position && /^      z:/{print $2; exit}' \
+        || true
+    )"
+    if [ -n "$controller_base_z" ] && python3 -c '
 import math, sys
 height, minimum = map(float, sys.argv[1:])
 raise SystemExit(0 if math.isfinite(height) and height >= minimum else 1)
 ' "$controller_base_z" "$CONTROLLER_PROBE_MIN_BASE_HEIGHT_M"; then
-    echo "Controller fixed-stand posture failed: base_z=${controller_base_z:-missing}m." >&2
+      controller_stable_samples=$((controller_stable_samples + 1))
+      if [ "$controller_stable_samples" -ge "$CONTROLLER_STAND_STABLE_SAMPLES" ]; then
+        break
+      fi
+    else
+      controller_stable_samples=0
+    fi
+    sleep 0.5
+  done
+  if [ "$controller_stable_samples" -lt "$CONTROLLER_STAND_STABLE_SAMPLES" ]; then
+    echo "Controller fixed-stand posture timed out: base_z=${controller_base_z:-missing}m." >&2
     exit 1
   fi
   echo "junior_ctrl fixed stand is physically upright: base_z=${controller_base_z}m."

@@ -884,7 +884,9 @@ def test_compose_starts_the_complete_official_ros1_entry():
     assert 'CONTROLLER_PROBE_MIN_DISPLACEMENT_M="${CONTROLLER_PROBE_MIN_DISPLACEMENT_M:-0.01}"' in entry
     assert 'CONTROLLER_PROBE_MAX_DISPLACEMENT_M' in entry
     assert 'CONTROLLER_PROBE_MIN_BASE_HEIGHT_M' in entry
-    assert 'Controller fixed-stand posture failed:' in entry
+    assert 'CONTROLLER_STAND_STABLE_SAMPLES' in entry
+    assert 'controller_stable_samples=$((controller_stable_samples + 1))' in entry
+    assert 'Controller fixed-stand posture timed out:' in entry
     assert 'junior_ctrl fixed stand is physically upright:' in entry
     assert 'physical motion probe was not requested' in entry
     assert 'Headless RL state and physical /cmd_vel response were verified.' not in entry
