@@ -1334,10 +1334,10 @@ def main() -> int:
     # footprint 判为已经与门框重叠。3.6 m 使整机进入大厅；实时激光门禁
     # 仍可在前方结构异常时提前停车并令预检失败。
     parser.add_argument('--entrance-distance-m', type=float, default=3.6)
-    # 入口段必须落在 A1 控制器稳定速度范围，避免高速命令造成里程计与
-    # 物理位置不一致；进入主走廊后 Frontier 仍使用 0.60 m/s。
-    parser.add_argument('--entrance-speed-mps', type=float, default=0.45)
-    parser.add_argument('--entrance-wall-timeout-sec', type=float, default=360.0)
+    # RL 控制器对 0.45 命令的实测物理速度过低；0.90 仍位于训练命令范围，
+    # 且正式里程直接来自赛事公开接口，不再受命令积分尺度影响。
+    parser.add_argument('--entrance-speed-mps', type=float, default=0.90)
+    parser.add_argument('--entrance-wall-timeout-sec', type=float, default=240.0)
     parser.add_argument('--public-start-world-x', type=float, default=0.0)
     parser.add_argument('--public-start-world-y', type=float, default=-2.2)
     parser.add_argument('--public-start-world-yaw', type=float, default=1.5708)

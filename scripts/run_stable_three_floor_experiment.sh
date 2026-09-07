@@ -86,6 +86,8 @@ python3 scripts/run_official_slam_exploration.py \
   --wall-timeout-sec 7200 \
   --exploration-timeout-sec 1200 \
   --mission-time-budget-sec 1200 \
+  --entrance-speed-mps 0.90 \
+  --entrance-wall-timeout-sec 240 \
   --target-floors 0,1,2 \
   --per-floor-exploration-sec 480 \
   --enable-perception \

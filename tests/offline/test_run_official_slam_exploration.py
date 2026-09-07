@@ -423,6 +423,8 @@ def test_runtime_outputs_do_not_make_a_committed_run_look_dirty():
 def test_stable_three_floor_entry_is_exclusive_and_self_cleaning():
     source = STABLE_THREE_FLOOR_SCRIPT.read_text(encoding='utf-8')
     assert '--target-floors 0,1,2' in source
+    assert '--entrance-speed-mps 0.90' in source
+    assert '--entrance-wall-timeout-sec 240' in source
     assert '--enable-perception' in source
     assert "docker ps --format '{{.Names}}'" in source
     assert '正式实验拒绝并行' in source
