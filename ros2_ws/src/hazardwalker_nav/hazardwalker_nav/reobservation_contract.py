@@ -195,6 +195,34 @@ def find_target_detection(
     )
 
 
+def find_best_unresolved_detection(payload):
+    """停稳会话中候选ID变化时，接续当前最高置信度未确认红色候选。"""
+
+    if not isinstance(payload, dict):
+        return None
+    detections = payload.get('detections_2d')
+    if not isinstance(detections, list):
+        return None
+    candidates = [
+        item for item in detections
+        if isinstance(item, dict)
+        and item.get('track_status') not in (
+            'confirmed', 'rejected', 'rejected_non_spherical')
+        and str(
+            item.get('track_id')
+            or item.get('candidate_id')
+            or item.get('id')
+            or ''
+        ).strip()
+    ]
+    if not candidates:
+        return None
+    return max(
+        candidates,
+        key=lambda item: float(item.get('confidence', 0.0)),
+    )
+
+
 def target_centered_in_image(
         detection, image_width, center_tolerance_ratio=0.18):
     """目标框进入图像中央带时返回真，供转向视觉伺服提前停车。"""

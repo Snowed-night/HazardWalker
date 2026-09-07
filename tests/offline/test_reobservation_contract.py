@@ -12,6 +12,7 @@ from hazardwalker_nav.reobservation_contract import (
     bearing_change_deg,
     bounded_planar_pose_increment,
     find_target_detection,
+    find_best_unresolved_detection,
     find_target_status,
     lateral_centering_angular_velocity,
     live_reobservation_action_update_allowed,
@@ -42,6 +43,22 @@ def test_directional_lateral_action_reaches_navigation_unchanged():
         'priority': 94,
         'target_id': 'track-3',
     }
+
+
+def test_hold_session_can_follow_replacement_unresolved_candidate():
+    replacement = find_best_unresolved_detection({
+        'detections_2d': [
+            {'candidate_id': 'old', 'track_status': 'confirmed',
+             'confidence': 0.99},
+            {'candidate_id': 'candidate-9', 'track_status': 'untracked',
+             'confidence': 0.72},
+            {'candidate_id': 'candidate-8', 'track_status': 'untracked',
+             'confidence': 0.55},
+        ],
+    })
+
+    assert replacement['candidate_id'] == 'candidate-9'
+    assert find_best_unresolved_detection({'detections_2d': []}) is None
 
 
 def test_continue_or_unknown_action_never_interrupts_exploration():
@@ -515,7 +532,8 @@ def test_reobservation_uses_sim_time_and_has_feedback_bounded_lateral_motion():
     assert "declare_parameter('reobserve_lateral_motion_duration_s', 3.0)" in source
     assert "declare_parameter('reobserve_lateral_max_distance_m', 0.80)" in source
     assert "declare_parameter('reobserve_pose_jump_reject_m', 0.30)" in source
-    assert "declare_parameter('reobserve_target_loss_timeout_s', 0.40)" in source
+    assert "declare_parameter('reobserve_target_loss_timeout_s', 2.0)" in source
+    assert 'find_best_unresolved_detection(payload)' in source
     assert "declare_parameter('reobserve_lateral_speed', 0.45)" in source
     assert "declare_parameter('reobserve_lateral_centering_gain', 0.80)" in source
     assert "declare_parameter('reobserve_forward_speed', 0.45)" in source

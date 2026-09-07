@@ -83,6 +83,7 @@ from hazardwalker_nav.reobservation_contract import (
     bounded_planar_pose_increment,
     find_target_detection,
     find_target_status,
+    find_best_unresolved_detection,
     lateral_centering_angular_velocity,
     live_reobservation_action_update_allowed,
     parse_reobservation_request,
@@ -404,7 +405,7 @@ class FrontierExplorerNode(Node):
         # map->base 受 SLAM 闭环影响可能瞬时跳变。10 Hz 控制下单帧真实位移
         # 不可能达到 0.30 m，超过该值只重置累计锚点，不作为横移距离。
         self.declare_parameter('reobserve_pose_jump_reject_m', 0.30)
-        self.declare_parameter('reobserve_target_loss_timeout_s', 0.40)
+        self.declare_parameter('reobserve_target_loss_timeout_s', 2.0)
         self.declare_parameter('reobserve_center_tolerance_ratio', 0.18)
         self.declare_parameter('reobserve_settle_duration_s', 1.0)
         self.declare_parameter('reobserve_observe_duration_s', 1.5)
@@ -1270,6 +1271,20 @@ class FrontierExplorerNode(Node):
             self.reobserve_target_id,
             allow_untracked_upgrade=self._reobserve_allow_untracked_upgrade,
         )
+        if (detection is None
+                and self.reobserve_action == 'hold_observation'):
+            replacement = find_best_unresolved_detection(payload)
+            if replacement is not None:
+                replacement_id = str(
+                    replacement.get('track_id')
+                    or replacement.get('candidate_id')
+                    or replacement.get('id')
+                    or ''
+                ).strip()
+                if replacement_id:
+                    self.reobserve_target_id = replacement_id
+                    self._reobserve_allow_untracked_upgrade = True
+                    detection = replacement
         if detection is None:
             self._reobserve_target_center_error_ratio = None
             loss_timeout = max(
