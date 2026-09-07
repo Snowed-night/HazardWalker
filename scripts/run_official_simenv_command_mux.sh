@@ -11,7 +11,20 @@ unset AMENT_PREFIX_PATH COLCON_PREFIX_PATH COLCON_CURRENT_PREFIX \
   ROS_DISTRO ROS_VERSION ROS_PYTHON_VERSION ROS_PACKAGE_PATH
 set +u
 source "${OFFICIAL_SIMENV_ROS2_SETUP:-/opt/ros/jazzy/setup.bash}"
-source "$ROOT/ros2_ws/install/setup.bash"
+WORKSPACE_SETUP="${OFFICIAL_SIMENV_WORKSPACE_SETUP:-}"
+if [[ -z "$WORKSPACE_SETUP" ]]; then
+  for candidate in "$ROOT/install/setup.bash" "$ROOT/ros2_ws/install/setup.bash"; do
+    if [[ -f "$candidate" ]]; then
+      WORKSPACE_SETUP="$candidate"
+      break
+    fi
+  done
+fi
+if [[ ! -f "$WORKSPACE_SETUP" ]]; then
+  echo "ERROR: 找不到当前工作树 ROS2 安装环境；请先运行 colcon build。" >&2
+  exit 1
+fi
+source "$WORKSPACE_SETUP"
 set -u
 
 exec python3 -m hazardwalker_platform.command_mux_node --ros-args \

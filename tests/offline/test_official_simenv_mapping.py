@@ -1035,6 +1035,14 @@ def test_compose_starts_the_complete_official_ros1_entry():
     assert 'mode {keyboard|navigation|assist|stopped}' in control_manager
     assert 'kill -TERM "$pid"' in control_manager
 
+    control_runner = (
+        REPO_ROOT / 'scripts' / 'run_official_simenv_command_mux.sh'
+    ).read_text(encoding='utf-8')
+    assert 'OFFICIAL_SIMENV_WORKSPACE_SETUP' in control_runner
+    assert '"$ROOT/install/setup.bash"' in control_runner
+    assert '"$ROOT/ros2_ws/install/setup.bash"' in control_runner
+    assert 'source "$WORKSPACE_SETUP"' in control_runner
+
     lifecycle_test = (
         REPO_ROOT / 'tests' / 'runtime' /
         'verify_official_simenv_adapter_lifecycle.sh'
