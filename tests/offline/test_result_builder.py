@@ -241,6 +241,8 @@ def test_official_result_legal_localization_default_allowlist_is_exact():
         'lidar_imu_slam+public_floor_action',
         'lidar_imu_proprio_slam',
         'lidar_imu_proprio_slam+public_floor_action',
+        'official_simenv_odometry',
+        'official_simenv_odometry+public_floor_action',
         'visual_inertial_slam',
     }
 

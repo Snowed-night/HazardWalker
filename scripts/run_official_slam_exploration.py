@@ -33,7 +33,7 @@ REQUIRED_TOPICS = {
     '/clock',
     '/hw/scan',
     '/hw/trunk_imu',
-    '/hw/proprio_odom',
+    '/hw/odom',
     '/hw/cmd_vel',
     '/hw/control/status',
     '/hw/platform/official_simenv_adapter_status',
@@ -44,7 +44,7 @@ BUSINESS_NODE_NAMES = {
     '/hazardwalker_cartographer_occupancy_grid',
     '/hazardwalker_multifloor_occupancy_mapper',
     '/hazardwalker_floor_slam_session_manager',
-    '/hazardwalker_scan_imu_localizer',
+    '/hazardwalker_official_odometry_localizer',
     '/hazardwalker_slam_monitor',
     '/hazardwalker_pointcloud_map',
 }
@@ -57,12 +57,6 @@ RUNTIME_GIT_EXCLUDES = (
     'ros2_ws/src/hazardwalker_platform/generated_building/**',
     'ros2_ws/src/hazardwalker_platform/results/**',
 )
-# 仅供显式诊断回退使用；正式运行固定关闭 cmd_vel 位移积分，短时运动先验
-# 由宇树 Estimator 的 /hw/proprio_odom 提供。
-A1_EXECUTION_SCALE = 0.80
-A1_LATERAL_EXECUTION_SCALE = 0.0
-
-
 def ensure_workspace_overlay() -> None:
     """确保无论从交互终端还是后台任务启动，都使用当前工作树的 ROS2 产物。"""
 
@@ -204,8 +198,8 @@ def build_launch_command(
     """构造唯一业务 launch；平台 adapter/mux 继续由平台生命周期管理。"""
 
     localization_provenance = (
-        'lidar_imu_proprio_slam+public_floor_action'
-        if target_floors else 'lidar_imu_proprio_slam')
+        'official_simenv_odometry+public_floor_action'
+        if target_floors else 'official_simenv_odometry')
     perception_enabled = bool(enable_perception or strict_room_inspection)
     command = [
         'ros2', 'launch', 'hazardwalker_bringup',
@@ -239,10 +233,6 @@ def build_launch_command(
         # 平台已托管唯一 command_mux；业务导航只能写仲裁输入，绝不能与
         # command_mux 同时直接发布 /hw/cmd_vel。
         'navigation_cmd_vel_topic:=/hw/control/navigation_cmd_vel',
-        f'localization_command_motion_scale:={A1_EXECUTION_SCALE:.2f}',
-        'localization_command_lateral_motion_scale:='
-        f'{A1_LATERAL_EXECUTION_SCALE:.2f}',
-        'localization_use_command_motion_fallback:=false',
         f'exploration_timeout_s:={float(exploration_timeout_s):.3f}',
         f'mission_time_budget_s:={float(mission_time_budget_s):.3f}',
         f'simenv_container:={simenv_container}',
@@ -733,12 +723,12 @@ def read_absolute_trunk_imu_yaw(timeout_sec: float = 10.0) -> float:
 
 
 def wait_for_slam_bootstrap(timeout_sec: float = 60.0) -> dict:
-    """等待 Cartographer 与合法里程前端在线，再允许入门运动。"""
+    """等待 Cartographer 与赛事公开里程前端在线，再允许入门运动。"""
 
     deadline = time.monotonic() + max(0.1, float(timeout_sec))
     required_nodes = {
         '/hazardwalker_cartographer',
-        '/hazardwalker_scan_imu_localizer',
+        '/hazardwalker_official_odometry_localizer',
     }
     nodes = set()
     while time.monotonic() < deadline:
@@ -754,7 +744,7 @@ def wait_for_slam_bootstrap(timeout_sec: float = 60.0) -> dict:
         'nav_msgs/msg/Odometry', '--field', 'header.frame_id',
     ], timeout_sec=max(0.1, deadline - time.monotonic()))
     if 'odom' not in output:
-        raise RuntimeError('合法 scan/IMU 里程前端未发布 odom 帧')
+        raise RuntimeError('赛事公开里程前端未发布 odom 帧')
     # Cartographer 静止时可能尚未插入首个子图；不能把 /map 缺失误判为失败。
     # 入门运动开始后第一批 scan 自然形成 submap。
     return {'nodes_ready': sorted(required_nodes), 'odometry_frame': 'odom'}
@@ -898,10 +888,11 @@ def preflight(expected_seed: str, require_pointcloud: bool = False) -> dict:
     perception_executables = set(run_ros2_cli([
         'pkg', 'executables', 'hazardwalker_perception',
     ]).splitlines())
-    required_localizer = 'hazardwalker_perception scan_imu_localizer_node'
+    required_localizer = (
+        'hazardwalker_perception official_odometry_localizer_node')
     if required_localizer not in perception_executables:
         raise RuntimeError(
-            '当前 ROS2 工作区找不到入口局部定位器；请重新构建并加载本工作树 '
+            '当前 ROS2 工作区找不到赛事公开里程定位器；请重新构建并加载本工作树 '
             'install/setup.bash')
     topics = set(run_ros2_cli(['topic', 'list']).splitlines())
     required_topics = set(REQUIRED_TOPICS)
@@ -931,21 +922,17 @@ def preflight(expected_seed: str, require_pointcloud: bool = False) -> dict:
         raise RuntimeError('平台适配器未启用控制转发')
     if adapter.get('enable_odom_relay') is not True:
         raise RuntimeError(
-            '赛事 DWA 控制要求平台转发只读 /hw/odom；该话题不得接入 '
-            'Cartographer 或危险源定位')
+            '正式定位和赛事 DWA 都要求平台转发公开 /hw/odom')
     if adapter.get('enable_odom_tf_relay') is not False:
         raise RuntimeError(
-            '禁止平台把 Gazebo odom 转发为 odom→base TF；SLAM 与感知必须 '
-            '继续使用合法 scan+IMU 位姿树')
-    if adapter.get('enable_proprio_odom_relay') is not True:
+            '禁止平台直接转发 odom→base TF；必须由起点归一化节点独占该 TF')
+    if (adapter.get('sources') or {}).get(
+            'official_odom') != '/Odometry_gazebo':
         raise RuntimeError(
-            '正式定位要求平台转发宇树 Estimator /odom 到 '
-            '/hw/proprio_odom；禁止回退为 cmd_vel 积分')
-    if (adapter.get('sources') or {}).get('proprio_odom') != '/odom':
-        raise RuntimeError('宇树本体里程计源必须为容器公开 /odom')
-    if int((adapter.get('received') or {}).get('/odom', 0)) <= 0:
-        raise RuntimeError(
-            '适配器尚未收到宇树本体里程计；禁止在只有话题名、没有数据时启动')
+            '赛事公开里程计源必须为 scene_manifest 声明的 /Odometry_gazebo')
+    if int((adapter.get('received') or {}).get(
+            '/Odometry_gazebo', 0)) <= 0:
+        raise RuntimeError('适配器尚未收到赛事公开里程计数据')
     if (require_pointcloud
             and adapter.get('enable_pointcloud_relay') is not True):
         raise RuntimeError('三维 SLAM 成果要求平台启用 Mid-360 点云转发')
@@ -1070,7 +1057,7 @@ def perform_entrance_ingress(
         *, distance_m: float = 3.6, speed_mps: float = 0.45,
         wall_timeout_sec: float = 360.0,
         start_temporary_localizer: bool = True) -> dict:
-    """仅用公开激光、IMU和控制接口穿过大门，再把室内位置作为SLAM原点。"""
+    """用赛事公开里程计和控制接口穿过大门，再释放自主探索。"""
 
     if distance_m <= 0.0 or speed_mps <= 0.0 or wall_timeout_sec <= 0.0:
         raise ValueError('入口行驶距离、速度和超时必须为正数')
@@ -1084,14 +1071,12 @@ def perform_entrance_ingress(
 
     localizer_command = [
         'ros2', 'run', 'hazardwalker_perception',
-        'scan_imu_localizer_node', '--ros-args',
+        'official_odometry_localizer_node', '--ros-args',
         '-r', '__node:=hazardwalker_ingress_localizer',
         '-p', 'use_sim_time:=true',
         '-p', 'publish_tf:=false',
-        '-p', 'localization_provenance:=lidar_imu_proprio_slam',
-        '-p', 'proprio_odom_topic:=/hw/proprio_odom',
-        '-p', 'use_command_motion_fallback:=false',
-        '-p', f'command_motion_scale:={A1_EXECUTION_SCALE:.2f}',
+        '-p', 'localization_provenance:=official_simenv_odometry',
+        '-p', 'input_topic:=/hw/odom',
     ]
     localizer_log = None
     localizer = None
@@ -1261,7 +1246,7 @@ def perform_entrance_ingress(
         math.cos(final_yaw - start_yaw),
     )
     return {
-        'method': 'public_scan_imu_relative_ingress',
+        'method': 'official_simenv_odometry_relative_ingress',
         'distance_target_m': round(float(distance_m), 3),
         'distance_reached_m': round(float(travelled), 3),
         'relative_displacement_m': [

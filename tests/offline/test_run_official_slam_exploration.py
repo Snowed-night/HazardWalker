@@ -31,15 +31,13 @@ def test_launch_command_uses_unique_managed_control_and_legal_slam_inputs():
     assert 'start_navigation:=true' in joined
     assert 'slam_backend:=cartographer' in joined
     assert 'slam_dimension:=2d' in joined
-    assert 'localization_provenance:=lidar_imu_proprio_slam' in joined
+    assert 'localization_provenance:=official_simenv_odometry' in joined
     assert 'navigation_linear_speed:=0.45' in joined
     assert 'navigation_minimum_linear_speed:=0.30' in joined
     assert 'navigation_start_paused:=true' in joined
     assert (
         'navigation_cmd_vel_topic:=/hw/control/navigation_cmd_vel' in joined)
-    assert 'localization_command_motion_scale:=0.80' in joined
-    assert 'localization_command_lateral_motion_scale:=0.00' in joined
-    assert 'localization_use_command_motion_fallback:=false' in joined
+    assert 'localization_command_motion_scale:=' not in joined
     assert 'mission_time_budget_s:=600.000' in joined
     assert 'strict_room_inspection:=false' in joined
     assert 'start_perception:=false' in joined
@@ -63,7 +61,7 @@ def test_launch_command_uses_unique_managed_control_and_legal_slam_inputs():
     assert 'mission_time_budget_s:=900.000' in multifloor
     assert 'manual_elevator_assist:=false' in multifloor
     assert 'automatic_elevator_entry:=true' in multifloor
-    assert 'localization_provenance:=lidar_imu_proprio_slam+public_floor_action' in multifloor
+    assert 'localization_provenance:=official_simenv_odometry+public_floor_action' in multifloor
     assert 'simenv_container:=simenv_ros1_test' in multifloor
 
     strict = ' '.join(MODULE.build_launch_command(
@@ -94,13 +92,6 @@ def test_launch_command_uses_unique_managed_control_and_legal_slam_inputs():
     assert 'strict_room_inspection:=false' in perception_only
     assert 'perception_parameter_file:=' in perception_only
     assert 'official_hazard_source_frame:=odom' in perception_only
-
-
-def test_long_corridor_runtime_scale_places_floor_zero_ball_inside_meter_gate():
-    """把本轮27.6601m命令积分校准到真值相对起点25.184m。"""
-
-    calibrated_forward = 27.6601 * (MODULE.A1_EXECUTION_SCALE / 0.88)
-    assert abs(calibrated_forward - 25.184) < 0.10
 
 
 def test_map_origin_uses_actual_public_ingress_before_slam_start():
@@ -174,7 +165,7 @@ def test_runner_bootstraps_its_own_ros2_overlay_before_parsing_arguments():
     assert 'HAZARDWALKER_OVERLAY_BOOTSTRAPPED' in source
     assert 'source "$1"; source "$2"' in source
     assert "'pkg', 'executables', 'hazardwalker_perception'" in source
-    assert 'scan_imu_localizer_node' in source
+    assert 'official_odometry_localizer_node' in source
 
 
 def test_git_state_ignores_runtime_products_but_detects_source_changes():
@@ -340,12 +331,10 @@ def test_adapter_status_parser_and_output_contract_fail_closed():
 def test_preflight_allows_control_odom_but_rejects_ground_truth_tf():
     source = SCRIPT.read_text(encoding='utf-8')
     assert "adapter.get('enable_odom_relay') is not True" in source
-    assert '赛事 DWA 控制要求平台转发只读 /hw/odom' in source
+    assert '正式定位和赛事 DWA 都要求平台转发公开 /hw/odom' in source
     assert "adapter.get('enable_odom_tf_relay') is not False" in source
-    assert '禁止平台把 Gazebo odom 转发为 odom→base TF' in source
-    assert "adapter.get('enable_proprio_odom_relay') is not True" in source
-    assert "'/hw/proprio_odom'" in source
-    assert "get('/odom', 0)" in source
+    assert '禁止平台直接转发 odom→base TF' in source
+    assert "'/Odometry_gazebo', 0" in source
     assert "adapter.get('enable_pointcloud_relay') is not True" in source
 
 
@@ -472,7 +461,7 @@ def test_slam_starts_at_public_spawn_before_ingress_and_navigation_release():
     assert "'{data: navigation}'" in source
     assert "args.enable_perception or args.strict_room_inspection" in main_source
     assert "manifest['status'] == 'complete' and perception_enabled" in main_source
-    assert "f'command_motion_scale:={A1_EXECUTION_SCALE:.2f}'" in source
+    assert "'official_odometry_localizer_node'" in source
 
     with pytest.raises(ValueError, match='必须为正数'):
         MODULE.perform_entrance_ingress(distance_m=0.0)

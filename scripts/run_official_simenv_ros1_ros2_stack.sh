@@ -150,7 +150,7 @@ if [[ "$NAVIGATION_REQUESTED" == 1 ]]; then
     exit 1
   fi
   case "$LOCALIZATION_PROVENANCE" in
-    lidar_imu_slam|visual_inertial_slam|lidar_imu_slam+public_floor_action|lidar_imu_proprio_slam|lidar_imu_proprio_slam+public_floor_action) ;;
+    lidar_imu_slam|visual_inertial_slam|lidar_imu_slam+public_floor_action|lidar_imu_proprio_slam|lidar_imu_proprio_slam+public_floor_action|official_simenv_odometry|official_simenv_odometry+public_floor_action) ;;
     *)
       echo '[stack] 正式结果要求白名单内的合法 SLAM localization_provenance。' >&2
       exit 1

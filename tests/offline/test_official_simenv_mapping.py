@@ -480,7 +480,7 @@ def test_official_business_launch_never_starts_fake_platform_by_default():
     assert "'deterministic_room_loop_half_length_m': 1.5" in source
     assert "'entry_forward_half_angle_deg': 15.0" in source
     assert "'entry_ingress_relaxed_half_angle_deg': 35.0" in source
-    assert "executable='scan_imu_localizer_node'" in source
+    assert "executable='official_odometry_localizer_node'" in source
     assert "'localization_provenance': localization_provenance" in source
     assert "package='hazardwalker_platform'" not in source
     assert "'online_async_launch.py'" in source
@@ -627,7 +627,7 @@ def test_cartographer_3d_profile_fuses_public_lidar_imu_and_legal_prior():
     assert 'provide_odom_frame = false' in two_d
 
 
-def test_cartographer_2d_fuses_only_speed_bounded_scan_imu_odometry():
+def test_cartographer_2d_fuses_metric_official_competition_odometry():
     """二维走廊使用合法控制先验，但速度合同必须等于 A1 可执行范围。"""
     source = (
         REPO_ROOT / 'ros2_ws' / 'src' / 'hazardwalker_nav' / 'config' /
@@ -648,16 +648,10 @@ def test_cartographer_2d_fuses_only_speed_bounded_scan_imu_odometry():
     assert "('imu', '/hw/trunk_imu')" in two_dimensional_remaps
     assert "('odom', '/hazardwalker/slam/odometry')" in two_dimensional_remaps
     assert "('odom', '/hazardwalker/depth_icp/odometry')" not in two_dimensional_remaps
-    assert "'command_motion_scale': localization_command_motion_scale" in launch
-    assert "'command_lateral_motion_scale': (" in launch
-    assert "'minimum_command_progress_ratio': 0.0" in launch
-    assert "'proprio_odom_topic': '/hw/proprio_odom'" in launch
-    assert "'use_command_motion_fallback': (" in launch
-    assert "'localization_command_motion_scale', default_value='0.80'" in launch
-    assert (
-        "'localization_command_lateral_motion_scale', default_value='0.0'"
-        in launch
-    )
+    assert "executable='official_odometry_localizer_node'" in launch
+    assert "'input_topic': '/hw/odom'" in launch
+    assert "'output_topic': '/hazardwalker/slam/odometry'" in launch
+    assert 'scene_manifest.competition_interfaces' in launch
 
 
 def test_cartographer_3d_uses_native_pointcloud_imu_without_custom_odometry():

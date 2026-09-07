@@ -17,6 +17,8 @@ _ALLOWED_LOCALIZATION_PROVENANCE = {
     'lidar_imu_slam+public_floor_action',
     'lidar_imu_proprio_slam',
     'lidar_imu_proprio_slam+public_floor_action',
+    'official_simenv_odometry',
+    'official_simenv_odometry+public_floor_action',
     'visual_inertial_slam',
 }
 _FORBIDDEN_POSE_TOPIC_PARTS = (
