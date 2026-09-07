@@ -279,10 +279,9 @@ def choose_stable_localization_hold(detections, camera_stable):
     candidates = [
         item for item in detections
         if isinstance(item, dict)
-        and bool(item.get('confirmation_eligible'))
         and bool(item.get('depth_synchronized'))
         and bool(item.get('tf_synchronized'))
-        and item.get('localization_status') == 'localized'
+        and isinstance(item.get('localized_position'), (list, tuple))
         and item.get('track_status') not in (
             'confirmed', 'rejected', 'rejected_non_spherical')
     ]
@@ -300,7 +299,7 @@ def choose_stable_localization_hold(detections, camera_stable):
     )
     return ViewRecommendation(
         'hold_observation',
-        '运动中已发现红球球面证据；先停稳并用同步 RGB-D/TF 帧确认三维位置。',
+        '运动中已发现可定位红色候选；先停稳，再用同步 RGB-D/TF 判断球体并确认位置。',
         100,
         target_id,
     )
@@ -325,18 +324,22 @@ def _urgent_target_action(target, image_width, image_height, policy):
     if edge_action:
         return edge_action
     if target['depth_shape_status'] in ('flat', 'anisotropic', 'non_spherical'):
-        return _lateral_action(
-            target, image_width, 94,
-            '深度轮廓为平面或单轴曲面，疑似红色非球体；从侧面复查轮廓变化后再决定是否丢弃。',
+        return ViewRecommendation(
+            'continue_exploring',
+            '停稳后深度轮廓仍为平面或单轴曲面，按赛场红色方块处理，不再横移复查。',
+            0,
+            target['id'],
         )
     if target['normalized_depth_curvature'] is not None and not (
         policy.min_normalized_depth_curvature
         <= target['normalized_depth_curvature']
         <= policy.max_normalized_depth_curvature
     ):
-        return _lateral_action(
-            target, image_width, 93,
-            '深度曲率不在球体稳定区间，疑似圆锥端面、扁平物或深度异常；必须侧向复查。',
+        return ViewRecommendation(
+            'continue_exploring',
+            '停稳后深度曲率不在球体区间，按非球体处理，不再横移复查。',
+            0,
+            target['id'],
         )
     if target['requires_reobservation']:
         # 极小/远距离局部弧段直接横移容易立刻丢出视场，而且可用视差仍不足。

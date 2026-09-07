@@ -51,6 +51,7 @@ def test_moving_spherical_candidate_requests_stable_localization_hold():
         'depth_synchronized': True,
         'tf_synchronized': True,
         'localization_status': 'localized',
+        'localized_position': [1.0, 2.0, 0.1],
         'track_status': 'untracked',
     })
 
@@ -61,6 +62,24 @@ def test_moving_spherical_candidate_requests_stable_localization_hold():
     assert action.target_id == 'candidate-7'
 
 
+def test_moving_anisotropic_red_candidate_still_stops_before_classification():
+    candidate = _detection(identifier='candidate-8')
+    candidate.update({
+        'candidate_id': 'candidate-8',
+        'confirmation_eligible': False,
+        'depth_synchronized': True,
+        'tf_synchronized': True,
+        'localization_status': 'suppressed_non_spherical_depth_shape',
+        'localized_position': [1.0, 2.0, 0.1],
+        'track_status': 'untracked',
+    })
+
+    action = choose_stable_localization_hold([candidate], camera_stable=False)
+
+    assert action.action == 'hold_observation'
+    assert action.target_id == 'candidate-8'
+
+
 def test_stable_or_already_confirmed_sphere_does_not_request_hold():
     candidate = _detection(identifier='candidate-7')
     candidate.update({
@@ -69,6 +88,7 @@ def test_stable_or_already_confirmed_sphere_does_not_request_hold():
         'depth_synchronized': True,
         'tf_synchronized': True,
         'localization_status': 'localized',
+        'localized_position': [1.0, 2.0, 0.1],
         'track_status': 'untracked',
     })
     assert choose_stable_localization_hold(
@@ -374,16 +394,16 @@ def test_stable_candidate_requests_independent_side_view_before_confirmation():
     assert '圆柱' in action.reason
 
 
-def test_excessive_normalized_depth_curvature_prioritizes_side_view():
+def test_excessive_normalized_depth_curvature_continues_without_side_view():
     candidate = _detection()
     candidate['apparent_diameter_m'] = 0.30
     candidate['depth_shape'] = {'status': 'spherical', 'curvature_m': 0.15}
 
     action = choose_active_view_action([candidate], 640, 480)
 
-    assert action.action == 'move_left'
-    assert action.priority == 93
-    assert '曲率' in action.reason
+    assert action.action == 'continue_exploring'
+    assert action.priority == 0
+    assert '不再横移复查' in action.reason
 
 
 def test_bbox_iou_returns_overlap_ratio():
@@ -393,18 +413,18 @@ def test_bbox_iou_returns_overlap_ratio():
 
 
 """深度近似平面的红色圆形候选必须优先侧向复查，避免单视角圆柱误确认。"""
-def test_flat_depth_candidate_requests_lateral_shape_recheck():
+def test_flat_depth_candidate_continues_without_multiview_recheck():
     candidate = _detection(identifier='cylinder_like', x_min=200, y_min=150, x_max=300, y_max=250)
     candidate['depth_shape'] = {'status': 'flat'}
 
     action = choose_active_view_action([candidate], 640, 480)
 
-    assert action.action == 'move_left'
-    assert '非球体' in action.reason
+    assert action.action == 'continue_exploring'
+    assert '红色方块' in action.reason
 
 
 """单轴曲率候选疑似圆柱侧面，必须优先获取独立侧视。"""
-def test_anisotropic_depth_candidate_requests_lateral_shape_recheck():
+def test_anisotropic_depth_candidate_continues_without_multiview_recheck():
     candidate = _detection(
         identifier='cylinder_side', x_min=200, y_min=150, x_max=300, y_max=250,
     )
@@ -412,19 +432,19 @@ def test_anisotropic_depth_candidate_requests_lateral_shape_recheck():
 
     action = choose_active_view_action([candidate], 640, 480)
 
-    assert action.action == 'move_left'
-    assert action.priority == 94
+    assert action.action == 'continue_exploring'
+    assert action.priority == 0
     assert '单轴曲面' in action.reason
 
 
-def test_lateral_recheck_chooses_right_for_right_side_candidate():
+def test_non_spherical_candidate_does_not_start_directional_motion():
     candidate = _detection(identifier='right', x_min=430, y_min=150, x_max=530, y_max=250)
     candidate['depth_shape'] = {'status': 'flat'}
 
     action = choose_active_view_action([candidate], 640, 480)
 
-    assert action.action == 'move_right'
-    assert '向右横移' in action.reason
+    assert action.action == 'continue_exploring'
+    assert '不再横移复查' in action.reason
 
 
 def test_detection_uses_stable_track_id_and_preserves_rejected_status():
