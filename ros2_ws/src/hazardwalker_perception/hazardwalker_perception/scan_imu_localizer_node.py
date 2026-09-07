@@ -69,6 +69,8 @@ class ScanImuLocalizerNode(Node):
         self.declare_parameter('proprio_fresh_timeout_s', 0.5)
         self.declare_parameter('proprio_max_interval_s', 0.25)
         self.declare_parameter('proprio_max_step_m', 0.25)
+        self.declare_parameter('proprio_motion_gate_m', 0.001)
+        self.declare_parameter('proprio_motion_hold_s', 0.25)
         self.declare_parameter('use_command_motion_fallback', False)
         # 仅为非正式兼容模式保留命令积分回退；正式入口固定关闭。
         self.declare_parameter('command_motion_scale', 1.0)
@@ -76,7 +78,9 @@ class ScanImuLocalizerNode(Node):
         self.declare_parameter('min_effective_linear_speed_mps', 0.30)
         self.declare_parameter('command_fresh_timeout_s', 0.5)
         self.declare_parameter('max_scan_dt_s', 0.25)
-        self.declare_parameter('minimum_command_progress_ratio', 0.85)
+        # 扫描证据必须能把先验完全拉回原位；否则机器狗顶住墙仍会按命令
+        # 虚增里程。长直走廊证据退化时才由下游 motion_prior_only 保留先验。
+        self.declare_parameter('minimum_command_progress_ratio', 0.0)
         self.declare_parameter('max_degenerate_prior_step_m', 0.25)
         # 与官方控制器安全检查一致：机体倾斜超过 60° 时冻结平移，避免倒地后
         # 的畸变扫描和仍在发布的 cmd_vel 伪造巡检覆盖或危险源位置。
@@ -115,6 +119,7 @@ class ScanImuLocalizerNode(Node):
         self.latest_proprio_pose = None
         self._last_proprio_monotonic = None
         self._last_consumed_proprio_pose = None
+        self._last_proprio_motion_monotonic = None
         self._last_scan_time_sec = None
         self.tf_broadcaster = (
             TransformBroadcaster(self)
@@ -233,6 +238,7 @@ class ScanImuLocalizerNode(Node):
         self.localizer.reset_matching_map()
         # 电梯运动不属于任一楼层的平面扫描匹配；新楼层首帧重新建立短时基线。
         self._last_consumed_proprio_pose = None
+        self._last_proprio_motion_monotonic = None
         self.get_logger().info(
             '楼层切换到 %d，合法相对高度 %.3f m；已隔离旧楼层扫描地图。'
             % (self.floor_index, self.floor_elevation_m)
@@ -281,8 +287,9 @@ class ScanImuLocalizerNode(Node):
             and time.monotonic() - self._last_command_monotonic
             <= float(self.get_parameter('command_fresh_timeout_s').value)
         )
-        motion_prior = (0.0, 0.0)
-        translation_expected = False
+        command_x = 0.0
+        command_y = 0.0
+        command_requests_translation = False
         if command_fresh and dt_sec > 0.0:
             command_x = float(self.latest_command.linear.x)
             command_y = float(self.latest_command.linear.y)
@@ -293,7 +300,9 @@ class ScanImuLocalizerNode(Node):
                 command_x = 0.0
             if abs(command_y) < min_effective_speed:
                 command_y = 0.0
-            translation_expected = bool(command_x or command_y)
+            command_requests_translation = bool(command_x or command_y)
+        motion_prior = (0.0, 0.0)
+        translation_expected = False
         proprio_fresh = (
             self.latest_proprio_pose is not None
             and self._last_proprio_monotonic is not None
@@ -301,8 +310,9 @@ class ScanImuLocalizerNode(Node):
             <= float(self.get_parameter('proprio_fresh_timeout_s').value)
         )
         if proprio_fresh:
+            proprio_delta = (0.0, 0.0)
             if self._last_consumed_proprio_pose is not None:
-                motion_prior = proprioceptive_planar_delta(
+                proprio_delta = proprioceptive_planar_delta(
                     self._last_consumed_proprio_pose,
                     self.latest_proprio_pose,
                     max_step_m=float(
@@ -311,6 +321,28 @@ class ScanImuLocalizerNode(Node):
                         self.get_parameter('proprio_max_interval_s').value),
                 )
             self._last_consumed_proprio_pose = self.latest_proprio_pose
+            if math.hypot(*proprio_delta) >= float(
+                    self.get_parameter('proprio_motion_gate_m').value):
+                self._last_proprio_motion_monotonic = time.monotonic()
+            proprio_motion_confirmed = (
+                self._last_proprio_motion_monotonic is not None
+                and time.monotonic() - self._last_proprio_motion_monotonic
+                <= float(self.get_parameter('proprio_motion_hold_s').value)
+            )
+            translation_expected = bool(
+                command_requests_translation and proprio_motion_confirmed)
+            if translation_expected:
+                # Estimator 的累计距离在 A1 仿真中明显低估，但它能证明足端
+                # 是否真的产生了位移。距离尺度继续取已标定命令先验，扫描证据
+                # 可完整纠正；顶墙时本体运动门禁会在短保持窗后关闭。
+                forward_scale = float(
+                    self.get_parameter('command_motion_scale').value)
+                lateral_scale = float(
+                    self.get_parameter('command_lateral_motion_scale').value)
+                motion_prior = (
+                    command_x * dt_sec * forward_scale,
+                    command_y * dt_sec * lateral_scale,
+                )
         elif bool(self.get_parameter('use_command_motion_fallback').value):
             # 诊断兼容分支。正式三层入口关闭该分支，缺失本体里程计时宁可
             # 只靠扫描证据，也不能重新把“想走多远”冒充“实际走了多远”。
@@ -318,6 +350,7 @@ class ScanImuLocalizerNode(Node):
                 self.get_parameter('command_motion_scale').value)
             lateral_scale = float(
                 self.get_parameter('command_lateral_motion_scale').value)
+            translation_expected = command_requests_translation
             motion_prior = (
                 command_x * dt_sec * forward_scale,
                 command_y * dt_sec * lateral_scale,

@@ -44,6 +44,8 @@ def test_online_localizer_can_publish_odometry_without_competing_tf():
     assert 'if self.tf_broadcaster is not None:' in source
     assert "declare_parameter('proprio_odom_topic', '/hw/proprio_odom')" in source
     assert "declare_parameter('use_command_motion_fallback', False)" in source
+    assert "declare_parameter('proprio_motion_gate_m', 0.001)" in source
+    assert "declare_parameter('minimum_command_progress_ratio', 0.0)" in source
     assert "declare_parameter('command_motion_scale', 1.0)" in source
     assert "declare_parameter('command_lateral_motion_scale', 0.0)" in source
     assert "declare_parameter('min_effective_linear_speed_mps', 0.30)" in source
@@ -84,6 +86,31 @@ def test_proprioceptive_delta_rejects_reconnect_gap_and_clamps_spike():
         max_step_m=0.25,
     )
     assert abs(math.hypot(forward, left) - 0.25) < 1e-9
+
+
+def test_scan_evidence_can_cancel_motion_prior_when_robot_is_blocked():
+    """有稳定几何证据时，先验不能强迫静止机器人产生虚假位移。"""
+
+    localizer = ScanImuLocalizer(ScanImuLocalizerConfig(
+        laser_offset_x_m=0.0,
+        laser_offset_y_m=0.0,
+        occupancy_resolution_m=0.04,
+        min_match_count=3,
+        minimum_command_progress_ratio=0.0,
+    ))
+    landmarks = [
+        (1.2, 0.4), (2.5, -0.8), (-1.3, 1.9), (-2.2, -0.5), (0.3, 3.1),
+    ]
+    localizer.update_points(landmarks, imu_yaw_rad=0.0)
+    result = localizer.update_points(
+        landmarks,
+        imu_yaw_rad=0.0,
+        motion_prior_base=(0.08, 0.0),
+    )
+
+    assert result.status == 'tracking'
+    assert abs(result.pose.x) < 0.01
+    assert abs(result.pose.y) < 0.01
 
 
 def test_livox_point_cloud_uses_public_pitch_and_height_filter():

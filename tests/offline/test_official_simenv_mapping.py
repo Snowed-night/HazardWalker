@@ -639,6 +639,7 @@ def test_cartographer_2d_fuses_only_speed_bounded_scan_imu_odometry():
     assert "('odom', '/hazardwalker/depth_icp/odometry')" not in two_dimensional_remaps
     assert "'command_motion_scale': localization_command_motion_scale" in launch
     assert "'command_lateral_motion_scale': (" in launch
+    assert "'minimum_command_progress_ratio': 0.0" in launch
     assert "'proprio_odom_topic': '/hw/proprio_odom'" in launch
     assert "'use_command_motion_fallback': (" in launch
     assert "'localization_command_motion_scale', default_value='0.80'" in launch

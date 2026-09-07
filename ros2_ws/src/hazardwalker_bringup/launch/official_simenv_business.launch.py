@@ -438,6 +438,7 @@ def generate_launch_description():
                 'command_lateral_motion_scale': (
                     localization_command_lateral_motion_scale),
                 'min_effective_linear_speed_mps': 0.30,
+                'minimum_command_progress_ratio': 0.0,
                 'use_sim_time': sim_time_parameter,
             }],
             condition=IfCondition(start_legal_localization),
