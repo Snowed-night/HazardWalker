@@ -545,6 +545,10 @@ def test_reobservation_uses_sim_time_and_has_feedback_bounded_lateral_motion():
     assert 'target_centered_in_image(' in source
     assert 'reobservation_actions_conflict(' in source
     assert 'select_live_reobservation_update(' in source
+    assert "bool(payload.get('stable_localization_required'))" in source
+    assert "live_request.get('action') == 'hold_observation'" in source
+    assert "and self.reobserve_action in (" in source
+    assert 'live_request = None' in source
     assert 'select_followup_reobservation_request(' in source
     assert 'starting the next bounded segment for the same target' in source
     assert 'resume_state=resume_state' in source

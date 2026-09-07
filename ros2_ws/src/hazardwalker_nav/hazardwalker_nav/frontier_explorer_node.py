@@ -1321,6 +1321,17 @@ class FrontierExplorerNode(Node):
         live_request = select_live_reobservation_update(
             payload, self.reobserve_target_id, self.reobserve_action,
         )
+        if (live_request is not None
+                and bool(payload.get('stable_localization_required'))
+                and live_request.get('action') == 'hold_observation'
+                and self.reobserve_action in (
+                    'move_forward', 'move_left', 'move_right',
+                    'turn_left', 'turn_right')):
+            # 初次发现时必须停车；但停稳后由同一会话计划的有限靠近/居中
+            # 动作不能在第一帧运动时又被通用“运动帧不定位”门禁立即刹停。
+            # 该动作仍受原 reobserve_motion_end_time 和激光门禁约束，结束后
+            # 自动归零并重新积累稳定帧，不会无限运动或直接写运动坐标。
+            live_request = None
         if live_request is not None:
             if reobservation_actions_conflict(
                     self.reobserve_action, live_request.get('action')):
