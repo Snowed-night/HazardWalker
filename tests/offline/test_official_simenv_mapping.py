@@ -137,6 +137,18 @@ def test_official_headless_startup_reuses_display_and_cleans_only_stale_lock():
         assert '&>/dev/null' not in source
 
 
+def test_host_network_containers_get_distinct_stable_headless_displays():
+    wrapper = (
+        PLATFORM_SRC / 'docker' / 'auto_noetic.sh'
+    ).read_text(encoding='utf-8')
+    compose = (
+        PLATFORM_SRC / 'docker' / 'docker-compose.yml'
+    ).read_text(encoding='utf-8')
+    assert 'printf \'%s\' "$DOCKER_SIMENV_USER" | cksum' in wrapper
+    assert '2000 + display_hash % 7000' in wrapper
+    assert 'SIMENV_HEADLESS_DISPLAY: ${SIMENV_HEADLESS_DISPLAY:-:99}' in compose
+
+
 def test_official_container_has_bounded_memory_and_no_oom_restart_loop():
     """长时间 gzserver 异常膨胀只能影响本容器，不能拖垮共享主机。"""
 

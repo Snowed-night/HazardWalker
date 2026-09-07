@@ -13,6 +13,14 @@ export COMPOSE_PROJECT_NAME="simenv_ros1_${DOCKER_SIMENV_USER}"
 
 CONTAINER_NAME="simenv_ros1_${DOCKER_SIMENV_USER}"
 
+# 所有仿真容器使用 host 网络；Xvfb 除文件 socket 外还会创建同一网络命名
+# 空间可见的抽象 socket，因此不同组不能共同使用默认 :99。按容器属主生成
+# 稳定的高位显示号，同一容器重启保持不变，也不占用宿主桌面的低位显示。
+if [[ -z "${SIMENV_HEADLESS_DISPLAY:-}" ]]; then
+  display_hash="$(printf '%s' "$DOCKER_SIMENV_USER" | cksum | awk '{print $1}')"
+  export SIMENV_HEADLESS_DISPLAY=":$((2000 + display_hash % 7000))"
+fi
+
 COMPOSE_FILES=(-f "$COMPOSE_FILE")
 if [[ "${USE_GPU:-1}" != "0" ]] && docker info 2>/dev/null | grep -qi nvidia; then
   COMPOSE_FILES+=(-f "$SCRIPT_DIR/docker-compose.gpu.yml")
@@ -46,6 +54,7 @@ Usage: $0 {build|up|down|logs|shell|status|image}
 Environment (passed into container):
   GUI=false  PAUSED=true  START_CONTROLLER=0|1  SIMENV_AUTO_RL=0|1
   START_ROSBRIDGE=0|1  START_ODOM_RELAY=0|1  SEED=...
+  SIMENV_HEADLESS_DISPLAY=:NNNN  # unset = stable per-container display
   SIMENV_MEMORY_LIMIT=32g  SIMENV_MEMORY_SWAP_LIMIT=32g
   SIMENV_RESTART_POLICY=no
   Container name: ${CONTAINER_NAME}
