@@ -89,6 +89,10 @@ perception:
     # 抖动可能达到毫米至厘米级。连续三帧低于 3 cm / 1.5° 才允许写入坐标。
     stable_view_max_translation_m: 0.03
     stable_view_max_yaw_deg: 1.5
+    stable_view_cmd_vel_topic: /hw/cmd_vel
+    stable_view_max_cmd_age_sec: 1.0
+    stable_view_max_linear_speed_mps: 0.05
+    stable_view_max_angular_speed_rps: 0.10
     # 已建立轨迹在短时机动离开视场后继续参与图像投影关联。
     track_projection_max_age_s: 180.0
     # 以下键对应 hsv_detector_node 的 active_view_* ROS 参数。

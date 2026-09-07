@@ -306,6 +306,18 @@ def choose_stable_localization_hold(detections, camera_stable):
     )
 
 
+def motion_command_is_stationary(
+        linear_xyz, angular_xyz, max_linear_mps, max_angular_rps):
+    """判断速度心跳是否已归零，供停稳定位门禁和离线测试共用。"""
+
+    linear_norm = math.sqrt(sum(float(value) ** 2 for value in linear_xyz))
+    angular_norm = math.sqrt(sum(float(value) ** 2 for value in angular_xyz))
+    return (
+        linear_norm <= float(max_linear_mps)
+        and angular_norm <= float(max_angular_rps)
+    )
+
+
 def _urgent_target_action(target, image_width, image_height, policy):
     """返回单候选的高优先级复查动作；普通稳定候选返回 ``None``。"""
 

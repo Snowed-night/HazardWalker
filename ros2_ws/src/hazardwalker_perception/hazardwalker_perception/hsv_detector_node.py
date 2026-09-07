@@ -14,6 +14,7 @@ import time
 
 import numpy as np
 import rclpy
+from geometry_msgs.msg import Twist
 from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
 from rclpy.time import Time
@@ -33,6 +34,7 @@ from hazardwalker_perception.active_view_policy import (
     attach_candidate_aliases_to_hazards,
     choose_active_view_action,
     choose_stable_localization_hold,
+    motion_command_is_stationary,
     project_tracks_for_image_association,
 )
 from hazardwalker_perception.localize_hazard import (
@@ -160,6 +162,10 @@ class HsvDetectorNode(Node):
         self.declare_parameter('stable_view_min_frames', 3)
         self.declare_parameter('stable_view_max_translation_m', 0.03)
         self.declare_parameter('stable_view_max_yaw_deg', 1.5)
+        self.declare_parameter('stable_view_cmd_vel_topic', '/hw/cmd_vel')
+        self.declare_parameter('stable_view_max_cmd_age_sec', 1.0)
+        self.declare_parameter('stable_view_max_linear_speed_mps', 0.05)
+        self.declare_parameter('stable_view_max_angular_speed_rps', 0.10)
         # 主动视角策略阈值全部暴露为 ROS 参数，现场调优不修改源码。
         self.declare_parameter('active_view_edge_margin_ratio', 0.05)
         self.declare_parameter('active_view_min_bbox_area_px', 900)
@@ -194,6 +200,8 @@ class HsvDetectorNode(Node):
         self._last_camera_pose_signature = None
         self._stable_view_frame_count = 0
         self._stable_view_id = ''
+        self._latest_command = None
+        self._last_command_monotonic = None
         self._last_depth_synchronized = False
         self._last_tf_synchronized = False
         self._last_tf_stamp_delta_sec = None
@@ -289,6 +297,12 @@ class HsvDetectorNode(Node):
         self.sub = self.create_subscription(Image, '/hw/camera/image_raw', self.on_image, 10)
         self.camera_info_sub = self.create_subscription(CameraInfo, '/hw/camera/camera_info', self.on_camera_info, 10)
         self.depth_sub = self.create_subscription(Image, '/hw/camera/depth_image', self.on_depth_image, 10)
+        self.command_sub = self.create_subscription(
+            Twist,
+            str(self.get_parameter('stable_view_cmd_vel_topic').value),
+            self.on_command,
+            10,
+        )
         # 第一阶段用 String(JSON) 快速打通链路；稳定后迁移到 hazardwalker_msgs/HazardArray。
         self.pub = self.create_publisher(String, '/hw/perception/hazard_detections', 10)
         self.inspection_request_sub = self.create_subscription(
@@ -321,6 +335,12 @@ class HsvDetectorNode(Node):
 
     def on_camera_info(self, msg: CameraInfo):
         self.camera_intrinsics = camera_intrinsics_from_k(msg.k)
+
+    def on_command(self, msg: Twist):
+        """保存实际下发速度；最终定位必须同时满足命令归零和位姿稳定。"""
+
+        self._latest_command = msg
+        self._last_command_monotonic = time.monotonic()
 
     def on_depth_image(self, msg: Image):
         depth_image = _depth_image_to_meters(msg)
@@ -899,6 +919,11 @@ class HsvDetectorNode(Node):
     def _update_camera_stability(self, transform):
         """根据精确相机世界位姿判断当前帧是否属于停靠稳定视角。"""
 
+        if not self._command_is_stationary():
+            self._last_camera_pose_signature = None
+            self._stable_view_frame_count = 0
+            self._stable_view_id = ''
+            return False
         axis_convention = str(
             self.get_parameter('camera_axis_convention').value
         )
@@ -933,6 +958,26 @@ class HsvDetectorNode(Node):
                 transform, axis_convention,
             )
         return stable
+
+    def _command_is_stationary(self):
+        """只有新鲜的零速度心跳才允许把相机判为停稳。"""
+
+        if (self._latest_command is None
+                or self._last_command_monotonic is None
+                or time.monotonic() - self._last_command_monotonic > float(
+                    self.get_parameter(
+                        'stable_view_max_cmd_age_sec').value)):
+            return False
+        linear = self._latest_command.linear
+        angular = self._latest_command.angular
+        return motion_command_is_stationary(
+            (linear.x, linear.y, linear.z),
+            (angular.x, angular.y, angular.z),
+            float(self.get_parameter(
+                'stable_view_max_linear_speed_mps').value),
+            float(self.get_parameter(
+                'stable_view_max_angular_speed_rps').value),
+        )
 
     def _lookup_camera_to_output(self, camera_frame, output_frame, stamp):
         self._last_tf_synchronized = False

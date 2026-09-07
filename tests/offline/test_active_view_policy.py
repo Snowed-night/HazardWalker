@@ -20,6 +20,7 @@ from hazardwalker_perception.active_view_policy import (
     bbox_iou,
     choose_active_view_action,
     choose_stable_localization_hold,
+    motion_command_is_stationary,
 )
 
 
@@ -75,6 +76,15 @@ def test_stable_or_already_confirmed_sphere_does_not_request_hold():
     candidate['track_status'] = 'confirmed'
     assert choose_stable_localization_hold(
         [candidate], camera_stable=False) is None
+
+
+def test_motion_command_must_be_near_zero_for_stable_localization():
+    assert motion_command_is_stationary(
+        (0.01, 0.0, 0.0), (0.0, 0.0, 0.02), 0.05, 0.10)
+    assert not motion_command_is_stationary(
+        (0.45, 0.0, 0.0), (0.0, 0.0, 0.0), 0.05, 0.10)
+    assert not motion_command_is_stationary(
+        (0.0, 0.0, 0.0), (0.0, 0.0, 0.4), 0.05, 0.10)
 
 
 def test_active_view_direction_memory_prevents_center_line_oscillation():

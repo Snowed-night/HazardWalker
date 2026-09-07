@@ -316,6 +316,10 @@ def test_rosbridge_fragment_contract_is_bounded_and_adapter_keeps_image_bytes():
     assert 'positive_partial_sphere' in detector
     assert 'or positive_partial_sphere' in detector
     assert "if camera_stable:\n            self.tracker.update(observations" in detector
+    assert "self.declare_parameter('stable_view_cmd_vel_topic', '/hw/cmd_vel')" in detector
+    assert 'if not self._command_is_stationary()' in detector
+    assert 'stable_view_max_linear_speed_mps' in detector
+    assert 'stable_view_max_angular_speed_rps' in detector
     assert 'choose_stable_localization_hold(' in detector
     assert "'stable_localization_required': (" in detector
     recorder = (
