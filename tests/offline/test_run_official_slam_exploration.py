@@ -475,7 +475,6 @@ def test_entrance_structure_detector_distinguishes_lobby_and_door_frame():
     set_sector(lobby, -70.0, -20.0, 7.5)
     assert MODULE.entrance_lobby_structure_detected(
         lobby, angle_min, angle_increment)
-
     deep_lobby = list(lobby)
     set_sector(deep_lobby, 70.0, 115.0, 4.4)
     set_sector(deep_lobby, -115.0, -70.0, 1.75)
@@ -499,6 +498,13 @@ def test_entrance_structure_detector_distinguishes_lobby_and_door_frame():
         seen, streak = MODULE.update_entrance_structure_state(
             seen, streak, 6.0, False)
     assert seen is True and streak == 3
+
+
+def test_entrance_clearance_ignores_one_sparse_self_echo_but_not_an_obstacle():
+    assert MODULE.scan_clearance_low_percentile(
+        [0.45] + [4.0] * 19) == 4.0
+    assert MODULE.scan_clearance_low_percentile(
+        [0.45] * 4 + [4.0] * 16) == 0.45
 
 
 def test_runner_writes_and_enforces_post_run_slam_physical_alignment():

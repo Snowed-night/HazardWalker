@@ -626,6 +626,20 @@ def _scan_sector_median(
     return 0.5 * (values[middle - 1] + values[middle])
 
 
+def scan_clearance_low_percentile(values, percentile: float = 0.10) -> float:
+    """用前向有效束低分位估计净空，忽略单束机身/门框边缘异常。"""
+
+    valid = sorted(
+        float(value) for value in values
+        if math.isfinite(float(value)) and float(value) > 0.05
+    )
+    if not valid:
+        return math.inf
+    ratio = min(1.0, max(0.0, float(percentile)))
+    index = min(len(valid) - 1, max(0, int(math.ceil(ratio * len(valid))) - 1))
+    return valid[index]
+
+
 def entrance_lobby_structure_detected(
         ranges, angle_min: float, angle_increment: float) -> bool:
     """仅凭公开激光判断机器人已穿过大门并进入一楼大厅。"""
@@ -1104,7 +1118,7 @@ def perform_entrance_ingress(
                     if math.isfinite(numeric) and numeric > 0.05:
                         values.append(numeric)
                 angle += float(message.angle_increment)
-            self.front_clearance = min(values) if values else math.inf
+            self.front_clearance = scan_clearance_low_percentile(values)
             front_median = _scan_sector_median(
                 message.ranges, message.angle_min,
                 message.angle_increment, -15.0, 15.0)
