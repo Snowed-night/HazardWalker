@@ -127,6 +127,11 @@ def test_official_headless_startup_reuses_display_and_cleans_only_stale_lock():
         assert 'kill -0 "$LOCK_PID"' in source
         assert 'rm -f "$DISPLAY_LOCK" "$DISPLAY_SOCKET"' in source
         assert '> "$XVFB_LOG" 2>&1 &' in source
+        assert source.index('if display_is_ready; then', source.index(
+            'for _ in $(seq 1 50)')) < source.index(
+                'if ! kill -0 "$XVFB_PID"', source.index(
+                    'for _ in $(seq 1 50)'))
+        assert 'display_is_ready && DISPLAY_READY=1' in source
         assert 'if [ "$DISPLAY_READY" != "1" ]' in source
         assert 'pkill Xvfb' not in source
         assert '&>/dev/null' not in source

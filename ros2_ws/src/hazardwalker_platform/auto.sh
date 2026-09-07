@@ -217,11 +217,15 @@ else
   XVFB_PID=$!
   DISPLAY_READY=0
   for _ in $(seq 1 50); do
-    if ! kill -0 "$XVFB_PID" 2>/dev/null; then
-      break
-    fi
     if display_is_ready; then
       DISPLAY_READY=1
+      break
+    fi
+    # 并发启动的另一个 Xvfb 可能先取得显示锁，使本进程立即退出；先检查
+    # 显示是否已经可用，再根据本进程存活性决定失败，避免健康启动被误杀。
+    if ! kill -0 "$XVFB_PID" 2>/dev/null; then
+      sleep 0.1
+      display_is_ready && DISPLAY_READY=1
       break
     fi
     sleep 0.1
