@@ -47,12 +47,13 @@ BUSINESS_NODE_NAMES = {
     '/hazardwalker_pointcloud_map',
 }
 RUNTIME_GIT_EXCLUDES = (
-    'install',
-    'build',
-    'log',
-    'ros2_ws/src/hazardwalker_platform/.ros1_catkin_ws',
-    'ros2_ws/src/hazardwalker_platform/generated_building',
-    'ros2_ws/src/hazardwalker_platform/results',
+    'install/**',
+    'build/**',
+    'log/**',
+    'reports/nav/**',
+    'ros2_ws/src/hazardwalker_platform/.ros1_catkin_ws/**',
+    'ros2_ws/src/hazardwalker_platform/generated_building/**',
+    'ros2_ws/src/hazardwalker_platform/results/**',
 )
 A1_EXECUTION_SCALE = 0.88
 

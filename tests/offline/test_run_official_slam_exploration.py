@@ -405,6 +405,13 @@ def test_first_person_recording_is_container_local_and_converted_to_mp4():
     assert MODULE._safe_run_slug('测试 run/01') == 'run_01'
 
 
+def test_runtime_outputs_do_not_make_a_committed_run_look_dirty():
+    assert 'install/**' in MODULE.RUNTIME_GIT_EXCLUDES
+    assert 'build/**' in MODULE.RUNTIME_GIT_EXCLUDES
+    assert 'log/**' in MODULE.RUNTIME_GIT_EXCLUDES
+    assert 'reports/nav/**' in MODULE.RUNTIME_GIT_EXCLUDES
+
+
 def test_slam_starts_at_public_spawn_before_ingress_and_navigation_release():
     source = SCRIPT.read_text(encoding='utf-8')
     ingress = source.split('def perform_entrance_ingress', 1)[1].split(
