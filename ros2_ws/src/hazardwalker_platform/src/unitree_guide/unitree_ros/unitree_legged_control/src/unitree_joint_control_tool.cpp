@@ -3,11 +3,13 @@
 float clamp(float &val, float min_val, float max_val)
 {
     val = std::min(std::max(val, min_val), max_val);
+    return val;
 }
 
 double clamp(double &val, double min_val, double max_val)
 {
     val = std::min(std::max(val, min_val), max_val);
+    return val;
 }
 
 double computeVel(double currentPos, double lastPos, double lastVel, double period)

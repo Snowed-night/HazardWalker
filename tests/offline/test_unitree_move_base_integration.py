@@ -21,15 +21,15 @@ def test_image_installs_upstream_move_base_without_rebuilding_large_layers():
         'ros-noetic-move-base')
 
 
-def test_unitree_joint_controller_plugin_is_resident_for_gazebo_lifetime():
-    """控制插件不得每个物理周期重复注册并泄漏 class_loader 工厂。"""
+def test_unitree_joint_clamp_returns_instead_of_falling_into_plugin_init():
+    """限幅函数必须显式返回，不能在优化构建中落入相邻静态注册函数。"""
 
-    cmake = (
+    source = (
         PLATFORM / 'src' / 'unitree_guide' / 'unitree_ros' /
-        'unitree_legged_control' / 'CMakeLists.txt'
+        'unitree_legged_control' / 'src' /
+        'unitree_joint_control_tool.cpp'
     ).read_text(encoding='utf-8')
-    assert 'set_target_properties(unitree_legged_control PROPERTIES' in cmake
-    assert 'LINK_FLAGS "-Wl,-z,nodelete"' in cmake
+    assert source.count('return val;') == 2
 
 
 def test_unitree_move_base_launch_uses_isolated_velocity_output():
