@@ -21,6 +21,17 @@ def test_image_installs_upstream_move_base_without_rebuilding_large_layers():
         'ros-noetic-move-base')
 
 
+def test_unitree_joint_controller_plugin_is_resident_for_gazebo_lifetime():
+    """控制插件不得每个物理周期重复注册并泄漏 class_loader 工厂。"""
+
+    cmake = (
+        PLATFORM / 'src' / 'unitree_guide' / 'unitree_ros' /
+        'unitree_legged_control' / 'CMakeLists.txt'
+    ).read_text(encoding='utf-8')
+    assert 'set_target_properties(unitree_legged_control PROPERTIES' in cmake
+    assert 'LINK_FLAGS "-Wl,-z,nodelete"' in cmake
+
+
 def test_unitree_move_base_launch_uses_isolated_velocity_output():
     path = UNITREE / 'launch' / 'hazardwalker_move_base.launch'
     root = ET.parse(path).getroot()
