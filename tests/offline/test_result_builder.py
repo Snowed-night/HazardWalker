@@ -154,6 +154,67 @@ def test_official_result_requires_observation_time_floor_in_formal_multifloor():
         {'position': [8.0, 1.0, 2.75]}]
 
 
+def test_final_result_merges_compatible_same_floor_drift_tracks():
+    evidence = {
+        'status': 'confirmed',
+        'position_frame_id': 'world',
+        'floor_index': 0,
+        'source': 'hsv_depth_tf',
+        'evidence_status': 'single_view_sphere_confirmed',
+        'distinct_view_count': 1,
+        'eligible_observation_count': 1,
+        'eligible_view_ids': ['stable'],
+        'spherical_view_ids': ['stable'],
+        'required_min_eligible_observations': 1,
+        'required_min_distinct_views': 1,
+        'required_min_spherical_views': 1,
+        'median_apparent_diameter_m': 0.30,
+    }
+    result = build_official_detected_danger_result(
+        hazards=[
+            {'id': 1, 'position': [1.0, 2.0, 0.15],
+             'confidence': 0.95, **evidence},
+            {'id': 2, 'position': [2.3, 2.1, 0.15],
+             'confidence': 0.90, **evidence},
+        ],
+        exploration_time_sec=20.0,
+        require_sphere_evidence=True,
+        require_explicit_floor_index=True,
+    )
+    assert result['detected_danger_sources'] == [
+        {'position': [1.0, 2.0, 0.15]}]
+
+
+def test_final_result_keeps_same_frame_distinct_targets_inside_drift_radius():
+    common = {
+        'status': 'confirmed',
+        'position_frame_id': 'world',
+        'floor_index': 2,
+        'source': 'hsv_depth_tf',
+        'evidence_status': 'single_view_sphere_confirmed',
+        'distinct_view_count': 1,
+        'eligible_observation_count': 1,
+        'eligible_view_ids': ['stable'],
+        'spherical_view_ids': ['stable'],
+        'required_min_eligible_observations': 1,
+        'required_min_distinct_views': 1,
+        'required_min_spherical_views': 1,
+        'median_apparent_diameter_m': 0.30,
+    }
+    result = build_official_detected_danger_result(
+        hazards=[
+            {'id': 1, 'position': [1.0, 2.0, 5.35],
+             'confidence': 0.95, 'distinct_track_ids': [2], **common},
+            {'id': 2, 'position': [2.0, 2.0, 5.35],
+             'confidence': 0.90, 'distinct_track_ids': [1], **common},
+        ],
+        exploration_time_sec=20.0,
+        require_sphere_evidence=True,
+        require_explicit_floor_index=True,
+    )
+    assert len(result['detected_danger_sources']) == 2
+
+
 def test_official_result_accepts_slam_with_public_floor_action_provenance():
     """公开电梯动作补楼层高度仍属合法定位，不应被官方结果层静默丢弃。"""
     result = build_official_detected_danger_result(

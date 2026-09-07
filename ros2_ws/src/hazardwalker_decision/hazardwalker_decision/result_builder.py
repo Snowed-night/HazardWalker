@@ -69,6 +69,8 @@ def build_official_detected_danger_result(
     floor_height_m=2.6,
     sphere_center_height_m=0.15,
     dedup_distance_m=0.30,
+    drift_dedup_distance_m=2.0,
+    drift_dedup_diameter_relative_error=0.25,
     require_legal_localization=False,
     require_sphere_evidence=False,
     require_multiview_sphere_evidence=False,
@@ -112,6 +114,11 @@ def build_official_detected_danger_result(
     threshold = float(dedup_distance_m)
     if not math.isfinite(threshold) or threshold < 0.0:
         raise ValueError('dedup_distance_m must be a finite non-negative number.')
+    drift_threshold = float(drift_dedup_distance_m)
+    diameter_error = float(drift_dedup_diameter_relative_error)
+    if (not math.isfinite(drift_threshold) or drift_threshold < threshold
+            or not math.isfinite(diameter_error) or diameter_error < 0.0):
+        raise ValueError('drift dedup thresholds must be finite and valid.')
 
     confirmed = []
     for hazard in hazards:
@@ -171,15 +178,28 @@ def build_official_detected_danger_result(
             -float(hazard.get('confidence', 0.0)),
             str(hazard.get('id', '')),
             position,
+            hazard,
         ))
 
     # 先保留置信度高的轨迹，随后对同一球的近邻重复轨迹只输出一次。
     confirmed.sort()
     exported = []
-    for _negative_confidence, _track_id, position in confirmed:
-        if any(_distance_m(position, item['position']) <= threshold for item in exported):
+    exported_metadata = []
+    for _negative_confidence, track_id, position, hazard in confirmed:
+        if any(
+                _same_exported_hazard(
+                    track_id, position, hazard,
+                    item['track_id'], item['position'], item['hazard'],
+                    threshold, drift_threshold, diameter_error,
+                )
+                for item in exported_metadata):
             continue
         exported.append({'position': [round(value, 4) for value in position]})
+        exported_metadata.append({
+            'track_id': track_id,
+            'position': position,
+            'hazard': hazard,
+        })
 
     return {
         'exploration_time': round(duration, 3),
@@ -421,6 +441,39 @@ def _validated_floor_index(value):
     if isinstance(value, bool) or not isinstance(value, int) or value < 0:
         return None
     return int(value)
+
+
+def _same_exported_hazard(
+        first_id, first_position, first, second_id, second_position, second,
+        exact_distance_m, drift_distance_m, max_diameter_relative_error):
+    """合并未共现、同楼层、尺寸一致的漂移轨迹；共现目标永久分离。"""
+
+    distance = _distance_m(first_position, second_position)
+    if distance <= exact_distance_m:
+        return True
+    if distance > drift_distance_m:
+        return False
+    first_floor = _validated_floor_index(first.get('floor_index'))
+    second_floor = _validated_floor_index(second.get('floor_index'))
+    if first_floor is None or first_floor != second_floor:
+        return False
+    first_distinct = {
+        str(value) for value in first.get('distinct_track_ids', [])}
+    second_distinct = {
+        str(value) for value in second.get('distinct_track_ids', [])}
+    if str(second_id) in first_distinct or str(first_id) in second_distinct:
+        return False
+    try:
+        first_diameter = float(first['median_apparent_diameter_m'])
+        second_diameter = float(second['median_apparent_diameter_m'])
+    except (KeyError, TypeError, ValueError):
+        return False
+    if (not math.isfinite(first_diameter) or first_diameter <= 0.0
+            or not math.isfinite(second_diameter) or second_diameter <= 0.0):
+        return False
+    relative_error = abs(first_diameter - second_diameter) / max(
+        first_diameter, second_diameter)
+    return relative_error <= max_diameter_relative_error
 
 
 def _distance_m(first, second):

@@ -62,6 +62,22 @@ def test_inactive_floor_tracks_do_not_age_while_another_floor_is_scanned():
     assert tracker.tracks[0].status == 'confirmed'
 
 
+def test_tracks_matched_in_one_frame_are_marked_physically_distinct():
+    tracker = HazardTracker(HazardTrackerConfig(
+        confirm_observation_count=1, merge_distance_m=0.2))
+    tracker.update([
+        HazardObservation(
+            position=(1.0, 2.0, 0.0), confidence=0.9, floor_index=0),
+        HazardObservation(
+            position=(2.0, 2.0, 0.0), confidence=0.9, floor_index=0),
+    ])
+    assert tracker.tracks[0].distinct_track_ids == [2]
+    assert tracker.tracks[1].distinct_track_ids == [1]
+    payload = tracker.to_hazard_dicts()
+    assert payload[0]['distinct_track_ids'] == [2]
+    assert payload[1]['distinct_track_ids'] == [1]
+
+
 """验证距离超过 merge_distance_m 的观测会创建新的危险源轨迹。"""
 def test_tracker_creates_new_track_for_far_observation():
     tracker = HazardTracker(HazardTrackerConfig(confirm_observation_count=2, merge_distance_m=0.5))

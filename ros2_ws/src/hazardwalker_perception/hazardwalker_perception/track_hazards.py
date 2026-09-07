@@ -77,6 +77,8 @@ class HazardTrack:
     positions_by_view: dict = field(default_factory=dict)
     evidence_status: str = 'collecting_views'
     floor_index: int = 0
+    # 同一 RGB-D 帧内同时匹配到的轨迹必定来自不同物体，最终漂移去重不得合并。
+    distinct_track_ids: list = field(default_factory=list)
 
 
 @dataclass
@@ -172,6 +174,19 @@ class HazardTracker:
                     and (floors_to_age is None
                          or track.floor_index in floors_to_age)):
                 track.missed_count += 1
+
+        coobserved = sorted(matched_track_ids)
+        for left_index, left_id in enumerate(coobserved):
+            left = next(
+                track for track in self.tracks if track.track_id == left_id)
+            for right_id in coobserved[left_index + 1:]:
+                right = next(
+                    track for track in self.tracks
+                    if track.track_id == right_id)
+                if right_id not in left.distinct_track_ids:
+                    left.distinct_track_ids.append(right_id)
+                if left_id not in right.distinct_track_ids:
+                    right.distinct_track_ids.append(left_id)
 
         self._refresh_statuses()
         return self.active_tracks()
@@ -491,6 +506,8 @@ def track_to_hazard_dict(track):
         ),
         'view_bearing_span_deg': round(_bearing_span_deg(track.bearings_by_view), 3),
         'evidence_status': track.evidence_status,
+        'distinct_track_ids': sorted(
+            int(value) for value in track.distinct_track_ids),
     }
 
 
