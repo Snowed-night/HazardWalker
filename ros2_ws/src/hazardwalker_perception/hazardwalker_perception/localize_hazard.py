@@ -273,7 +273,7 @@ def evaluate_sphere_depth_shape(depth_image, bbox, max_depth_m=20.0,
                                 min_points_per_region=8,
                                 min_curvature_m=0.008,
                                 min_axis_points=4,
-                                min_axis_curvature_ratio=0.35):
+                                min_axis_curvature_ratio=0.25):
     """用中心/外环曲率及四方向曲率一致性筛选球面。
 
     返回 ``spherical``、``flat``、``anisotropic`` 或 ``unknown``：

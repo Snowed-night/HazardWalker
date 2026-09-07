@@ -122,7 +122,7 @@ SIMENV_ROOT=/path/to/SimEnv \
 
 每个 RGB-D 视角的球面正证据不仅检查“中心比外环更近”，还分别计算水平、竖直和两条对角线
 四个方向的深度曲率。四个方向都有凸曲率且最小/最大曲率比例不低于
-`min_sphere_axis_curvature_ratio`（默认 `0.35`）时才记为 `spherical`；只在一个方向弯曲的
+`min_sphere_axis_curvature_ratio`（默认 `0.25`）时才记为 `spherical`；只在一个方向弯曲的
 任意角度的圆柱侧面或弧形板标为 `anisotropic`，只可触发侧向复查。方向有效深度不足时标为 `unknown`，
 不会误充球面正证据，也不会永久拒绝可能被遮挡的真实红球。
 

@@ -147,7 +147,7 @@ class HsvDetectorNode(Node):
         self.declare_parameter('min_sphere_depth_shape_points', 8)
         # 球面横纵两个方向都应有凸曲率；单轴弯曲通常来自圆柱侧面或弧形板。
         self.declare_parameter('min_sphere_axis_depth_points', 4)
-        self.declare_parameter('min_sphere_axis_curvature_ratio', 0.35)
+        self.declare_parameter('min_sphere_axis_curvature_ratio', 0.25)
         # RGB 与独立深度 WebSocket 可能跨帧到达；不同时间的深度不能用于球形判别或定位，
         # 否则会把运动中的红球错误记为平面/错误世界坐标。
         # 当前官方 ROS1↔ROS2 适配实测 RGB/深度固定相差约 50 ms，帧周期约

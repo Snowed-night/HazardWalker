@@ -249,6 +249,33 @@ def test_depth_shape_marks_single_axis_cylinder_surface_as_anisotropic():
     assert evidence.curvature_isotropy_ratio < 0.35
 
 
+def test_occluded_sphere_with_measured_axis_ratio_passes_relaxed_gate():
+    """遮挡半球约0.30轴向曲率比应通过0.25门槛，但仍不通过旧0.35门槛。"""
+
+    depth_image = [[0.0 for _x in range(41)] for _y in range(41)]
+    for y in range(5, 36):
+        for x in range(5, 36):
+            dx = (x - 20) / 15.5
+            dy = (y - 20) / 15.5
+            if dx * dx + dy * dy <= 0.90 * 0.90:
+                depth_image[y][x] = 2.00 + 0.08 * dx * dx + 0.024 * dy * dy
+
+    relaxed = evaluate_sphere_depth_shape(
+        depth_image, {'x_min': 5, 'y_min': 5, 'x_max': 35, 'y_max': 35},
+        min_points_per_region=8, min_curvature_m=0.008,
+        min_axis_points=4, min_axis_curvature_ratio=0.25,
+    )
+    strict = evaluate_sphere_depth_shape(
+        depth_image, {'x_min': 5, 'y_min': 5, 'x_max': 35, 'y_max': 35},
+        min_points_per_region=8, min_curvature_m=0.008,
+        min_axis_points=4, min_axis_curvature_ratio=0.35,
+    )
+
+    assert relaxed.status == 'spherical'
+    assert strict.status == 'anisotropic'
+    assert 0.25 <= relaxed.curvature_isotropy_ratio < 0.35
+
+
 """验证斜放圆柱也会在对角方向暴露平坦轴，不能绕过固定横纵检查。"""
 def test_depth_shape_marks_rotated_cylinder_surface_as_anisotropic():
     depth_image = [[0.0 for _x in range(41)] for _y in range(41)]
