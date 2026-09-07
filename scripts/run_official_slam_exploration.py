@@ -236,6 +236,9 @@ def build_launch_command(
         'navigation_linear_speed:=0.45',
         'navigation_minimum_linear_speed:=0.30',
         'navigation_start_paused:=true',
+        # 平台已托管唯一 command_mux；业务导航只能写仲裁输入，绝不能与
+        # command_mux 同时直接发布 /hw/cmd_vel。
+        'navigation_cmd_vel_topic:=/hw/control/navigation_cmd_vel',
         f'localization_command_motion_scale:={A1_EXECUTION_SCALE:.2f}',
         'localization_command_lateral_motion_scale:='
         f'{A1_LATERAL_EXECUTION_SCALE:.2f}',
@@ -761,10 +764,18 @@ def release_navigation_after_ingress() -> dict:
     """在 SLAM 连续记录完入门轨迹后，显式释放 Frontier。"""
 
     run_ros2_cli([
+        'topic', 'pub', '--once', '/hw/control/mode_request',
+        'std_msgs/msg/String', '{data: navigation}',
+    ], timeout_sec=10.0)
+    run_ros2_cli([
         'topic', 'pub', '--once', '/hw/navigation/start',
         'std_msgs/msg/Bool', '{data: true}',
     ], timeout_sec=10.0)
-    return {'topic': '/hw/navigation/start', 'released': True}
+    return {
+        'mode': 'navigation',
+        'topic': '/hw/navigation/start',
+        'released': True,
+    }
 
 
 def save_pointcloud_map() -> dict:
@@ -1102,8 +1113,11 @@ def perform_entrance_ingress(
             self.lobby_structure_streak = 0
             self.lobby_structure_confirmed = False
             self.entrance_door_frame_seen = False
+            # Frontier 已启动但保持 paused，会定期向 navigation 输入发零速。
+            # 入门阶段独占没有其他发布者的 assist 输入，避免两个发布者互相
+            # 覆盖；完成后 release_navigation_after_ingress 再原子切回导航。
             self.cmd_pub = self.create_publisher(
-                Twist, '/hw/control/navigation_cmd_vel', 10)
+                Twist, '/hw/control/assist_cmd_vel', 10)
             self.mode_pub = self.create_publisher(
                 String, '/hw/control/mode_request', 10)
             self.create_subscription(
@@ -1155,7 +1169,7 @@ def perform_entrance_ingress(
 
         def publish(self, linear: float, angular: float = 0.0):
             mode = String()
-            mode.data = 'navigation'
+            mode.data = 'assist'
             self.mode_pub.publish(mode)
             command = Twist()
             command.linear.x = float(linear)

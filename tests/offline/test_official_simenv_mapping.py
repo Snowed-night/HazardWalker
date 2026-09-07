@@ -247,6 +247,17 @@ def test_official_mapping_is_internally_valid():
     assert validate_mapping() == ()
 
 
+def test_formal_runner_never_bypasses_managed_command_mux():
+    source = (
+        REPO_ROOT / 'scripts' / 'run_official_slam_exploration.py'
+    ).read_text(encoding='utf-8')
+    assert (
+        "'navigation_cmd_vel_topic:=/hw/control/navigation_cmd_vel'"
+        in source
+    )
+    assert "Twist, '/hw/control/assist_cmd_vel'" in source
+
+
 def test_rosbridge_control_relay_defaults_to_safe_and_uses_wall_clock_watchdog():
     source = (REPO_ROOT / 'scripts' / 'official_simenv_rosbridge_ros2_adapter_node.py').read_text(
         encoding='utf-8')

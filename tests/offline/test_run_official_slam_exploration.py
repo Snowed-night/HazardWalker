@@ -35,6 +35,8 @@ def test_launch_command_uses_unique_managed_control_and_legal_slam_inputs():
     assert 'navigation_linear_speed:=0.45' in joined
     assert 'navigation_minimum_linear_speed:=0.30' in joined
     assert 'navigation_start_paused:=true' in joined
+    assert (
+        'navigation_cmd_vel_topic:=/hw/control/navigation_cmd_vel' in joined)
     assert 'localization_command_motion_scale:=0.80' in joined
     assert 'localization_command_lateral_motion_scale:=0.00' in joined
     assert 'localization_use_command_motion_fallback:=false' in joined
@@ -445,7 +447,7 @@ def test_slam_starts_at_public_spawn_before_ingress_and_navigation_release():
     ingress = source.split('def perform_entrance_ingress', 1)[1].split(
         'def write_handoff', 1)[0]
     assert "'/hw/scan'" in ingress
-    assert "'/hw/control/navigation_cmd_vel'" in ingress
+    assert "'/hw/control/assist_cmd_vel'" in ingress
     assert "'/hazardwalker/slam/odometry'" in ingress
     assert "'/hw/odom'" not in ingress
     main_source = source.split('def main()', 1)[1]
@@ -464,6 +466,8 @@ def test_slam_starts_at_public_spawn_before_ingress_and_navigation_release():
     assert main_source.index('perform_entrance_ingress(') < main_source.index(
         'release_navigation_after_ingress()')
     assert 'start_temporary_localizer=False' in main_source
+    assert "Twist, '/hw/control/assist_cmd_vel'" in source
+    assert "'{data: navigation}'" in source
     assert "args.enable_perception or args.strict_room_inspection" in main_source
     assert "manifest['status'] == 'complete' and perception_enabled" in main_source
     assert "f'command_motion_scale:={A1_EXECUTION_SCALE:.2f}'" in source
