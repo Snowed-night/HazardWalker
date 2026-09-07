@@ -45,6 +45,8 @@ def test_online_localizer_can_publish_odometry_without_competing_tf():
     assert "declare_parameter('proprio_odom_topic', '/hw/proprio_odom')" in source
     assert "declare_parameter('use_command_motion_fallback', False)" in source
     assert "declare_parameter('proprio_motion_gate_m', 0.001)" in source
+    assert "declare_parameter('proprio_speed_gate_mps', 0.02)" in source
+    assert 'self.latest_proprio_speed_mps = math.hypot(' in source
     assert "declare_parameter('minimum_command_progress_ratio', 0.0)" in source
     assert "declare_parameter('command_motion_scale', 1.0)" in source
     assert "declare_parameter('command_lateral_motion_scale', 0.0)" in source

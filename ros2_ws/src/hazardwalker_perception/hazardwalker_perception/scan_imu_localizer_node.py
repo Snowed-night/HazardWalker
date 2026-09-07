@@ -70,7 +70,8 @@ class ScanImuLocalizerNode(Node):
         self.declare_parameter('proprio_max_interval_s', 0.25)
         self.declare_parameter('proprio_max_step_m', 0.25)
         self.declare_parameter('proprio_motion_gate_m', 0.001)
-        self.declare_parameter('proprio_motion_hold_s', 0.25)
+        self.declare_parameter('proprio_speed_gate_mps', 0.02)
+        self.declare_parameter('proprio_motion_hold_s', 0.50)
         self.declare_parameter('use_command_motion_fallback', False)
         # 仅为非正式兼容模式保留命令积分回退；正式入口固定关闭。
         self.declare_parameter('command_motion_scale', 1.0)
@@ -117,6 +118,7 @@ class ScanImuLocalizerNode(Node):
         self.latest_command = Twist()
         self._last_command_monotonic = None
         self.latest_proprio_pose = None
+        self.latest_proprio_speed_mps = 0.0
         self._last_proprio_monotonic = None
         self._last_consumed_proprio_pose = None
         self._last_proprio_motion_monotonic = None
@@ -217,6 +219,9 @@ class ScanImuLocalizerNode(Node):
             quaternion_to_yaw(
                 orientation.x, orientation.y, orientation.z, orientation.w),
         )
+        linear = message.twist.twist.linear
+        self.latest_proprio_speed_mps = math.hypot(
+            float(linear.x), float(linear.y))
         self._last_proprio_monotonic = time.monotonic()
 
     def on_floor_index(self, message):
@@ -321,8 +326,13 @@ class ScanImuLocalizerNode(Node):
                         self.get_parameter('proprio_max_interval_s').value),
                 )
             self._last_consumed_proprio_pose = self.latest_proprio_pose
-            if math.hypot(*proprio_delta) >= float(
-                    self.get_parameter('proprio_motion_gate_m').value):
+            # Estimator 的累计位置在步态支撑相位会间歇停滞，但同一消息中的
+            # body twist 仍连续反映实际足端运动。任一证据满足即可刷新短保持窗，
+            # 避免正常行走每隔几帧被误判为静止而系统性少计里程。
+            if (math.hypot(*proprio_delta) >= float(
+                    self.get_parameter('proprio_motion_gate_m').value)
+                    or self.latest_proprio_speed_mps >= float(
+                        self.get_parameter('proprio_speed_gate_mps').value)):
                 self._last_proprio_motion_monotonic = time.monotonic()
             proprio_motion_confirmed = (
                 self._last_proprio_motion_monotonic is not None
