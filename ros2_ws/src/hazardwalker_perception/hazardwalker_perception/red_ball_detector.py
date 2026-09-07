@@ -68,6 +68,21 @@ def is_complete_candidate_for_3d_tracking(detection, image_width, image_height,
         or int(detection.y_max) >= height - 1 - margin
     )
 
+
+def occluded_bbox_has_positive_sphere_depth(
+        depth_shape_status, complete_for_3d_tracking):
+    """判断不完整二维轮廓是否已有足够的球面深度正证据。
+
+    家具遮挡可能发生在画面内部，不能只依赖 ``is_partial`` 或贴边标志。
+    只有同步深度明确判为 spherical 才放行；unknown、flat 和 anisotropic
+    均继续复查，因此红立方体不会仅凭红色轮廓进入三维轨迹。
+    """
+
+    return (
+        not bool(complete_for_3d_tracking)
+        and str(depth_shape_status).strip().lower() == 'spherical'
+    )
+
 """二维检测后端接口，后续 YOLO/分割模型只要实现 detect 即可接入 ROS 节点。"""
 class DetectionBackend:
     name = 'base'

@@ -35,7 +35,7 @@ def test_launch_command_uses_unique_managed_control_and_legal_slam_inputs():
     assert 'navigation_linear_speed:=0.45' in joined
     assert 'navigation_minimum_linear_speed:=0.30' in joined
     assert 'navigation_start_paused:=true' in joined
-    assert 'localization_command_motion_scale:=0.88' in joined
+    assert 'localization_command_motion_scale:=0.80' in joined
     assert 'mission_time_budget_s:=600.000' in joined
     assert 'strict_room_inspection:=false' in joined
     assert 'start_perception:=false' in joined
@@ -89,6 +89,13 @@ def test_launch_command_uses_unique_managed_control_and_legal_slam_inputs():
     assert 'strict_room_inspection:=false' in perception_only
     assert 'perception_parameter_file:=' in perception_only
     assert 'official_hazard_source_frame:=odom' in perception_only
+
+
+def test_long_corridor_runtime_scale_places_floor_zero_ball_inside_meter_gate():
+    """把本轮27.6601m命令积分校准到真值相对起点25.184m。"""
+
+    calibrated_forward = 27.6601 * (MODULE.A1_EXECUTION_SCALE / 0.88)
+    assert abs(calibrated_forward - 25.184) < 0.10
 
 
 def test_map_origin_uses_actual_public_ingress_before_slam_start():

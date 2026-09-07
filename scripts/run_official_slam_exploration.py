@@ -56,7 +56,9 @@ RUNTIME_GIT_EXCLUDES = (
     'ros2_ws/src/hazardwalker_platform/generated_building/**',
     'ros2_ws/src/hazardwalker_platform/results/**',
 )
-A1_EXECUTION_SCALE = 0.88
+# 固定种子长走廊实测：0.88 会把 25.18 m 前向位移累计成 27.66 m；
+# 按同一次合法 scan/IMU 轨迹标定为 0.80，使红球楼层坐标回到 1 m 计分门内。
+A1_EXECUTION_SCALE = 0.80
 
 
 def ensure_workspace_overlay() -> None:

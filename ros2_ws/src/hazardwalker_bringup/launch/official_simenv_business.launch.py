@@ -356,7 +356,7 @@ def generate_launch_description():
             'navigation_minimum_linear_speed', default_value='0.30'),
         DeclareLaunchArgument('navigation_start_paused', default_value='false'),
         DeclareLaunchArgument(
-            'localization_command_motion_scale', default_value='0.88'),
+            'localization_command_motion_scale', default_value='0.80'),
         DeclareLaunchArgument('target_floors', default_value='[]'),
         DeclareLaunchArgument('per_floor_exploration_s', default_value='120.0'),
         DeclareLaunchArgument('manual_elevator_assist', default_value='true'),
@@ -420,8 +420,9 @@ def generate_launch_description():
                 'publish_tf': publish_legal_tf_parameter,
                 # 重复长走廊缺少纵向扫描约束；用实际下发速度提供短时平移
                 # 初值，IMU绝对航向和三维点云在出现结构特征后继续纠偏。
-                # 完整四房间轨迹的全局尺度标定为 0.877，固定取 0.88；由正式
-                # 运行器同时传给入门和业务局部器，禁止两个阶段各用一套比例。
+                # 0.9 m/s DWA 长走廊轨迹中 0.88 会把 25.18m 累计成27.66m；
+                # 固定取0.80，并由正式运行器同时传给入门和业务局部器，禁止
+                # 两阶段各用一套比例。
                 'command_motion_scale': localization_command_motion_scale,
                 'min_effective_linear_speed_mps': 0.30,
                 'use_sim_time': sim_time_parameter,

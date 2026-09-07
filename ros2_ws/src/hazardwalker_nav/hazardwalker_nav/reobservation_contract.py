@@ -308,6 +308,11 @@ def live_reobservation_action_update_allowed(
     recommended = str(recommended_action or '').strip()
     if not current or not recommended or current == recommended:
         return False
+    # ``hold_observation`` 是运动帧发现候选后的停稳事务。开始后必须完整
+    # 经过停车、相机稳定和确认帧窗口，不能被下一帧的靠近/转向建议覆盖；
+    # 若稳定帧仍不足，后续动作会在本段结束后通过 follow-up 正常执行。
+    if current == 'hold_observation':
+        return False
     if current in ('move_left', 'move_right') and recommended in (
             'turn_left', 'turn_right'):
         return False

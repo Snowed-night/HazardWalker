@@ -342,7 +342,8 @@ def test_rosbridge_fragment_contract_is_bounded_and_adapter_keeps_image_bytes():
     assert "'raw_surface_depth_m': raw_surface_depth_m" in detector
     assert "declare_parameter('max_rgb_depth_sync_delta_sec', 0.06)" in detector
     assert 'positive_partial_sphere' in detector
-    assert 'or positive_partial_sphere' in detector
+    assert 'positive_depth_sphere' in detector
+    assert 'or positive_depth_sphere' in detector
     assert 'bool(detection_2d.is_partial)' in detector
     assert "'floor_index': int(self.current_floor_index)" in detector
     assert 'self.candidate_memory.clear()' in detector
@@ -633,7 +634,7 @@ def test_cartographer_2d_fuses_only_speed_bounded_scan_imu_odometry():
     assert "('odom', '/hazardwalker/slam/odometry')" in two_dimensional_remaps
     assert "('odom', '/hazardwalker/depth_icp/odometry')" not in two_dimensional_remaps
     assert "'command_motion_scale': localization_command_motion_scale" in launch
-    assert "'localization_command_motion_scale', default_value='0.88'" in launch
+    assert "'localization_command_motion_scale', default_value='0.80'" in launch
 
 
 def test_cartographer_3d_uses_native_pointcloud_imu_without_custom_odometry():

@@ -17,6 +17,7 @@ from hazardwalker_perception.red_ball_detector import (
     detect_red_ball_rgb_bytes,
     detect_red_balls_rgb_bytes,
     is_complete_candidate_for_3d_tracking,
+    occluded_bbox_has_positive_sphere_depth,
     rgb_to_hsv_pixel,
 )
 
@@ -405,6 +406,16 @@ def test_partial_merged_and_edge_candidates_cannot_update_3d_tracks():
     assert not is_complete_candidate_for_3d_tracking(partial, 100, 100)
     assert not is_complete_candidate_for_3d_tracking(split, 100, 100)
     assert not is_complete_candidate_for_3d_tracking(edge, 100, 100)
+
+
+def test_internal_occlusion_can_use_only_explicit_spherical_depth_evidence():
+    """内部遮挡轮廓仅在深度明确为球面时允许停稳建轨。"""
+
+    assert occluded_bbox_has_positive_sphere_depth('spherical', False)
+    assert not occluded_bbox_has_positive_sphere_depth('anisotropic', False)
+    assert not occluded_bbox_has_positive_sphere_depth('flat', False)
+    assert not occluded_bbox_has_positive_sphere_depth('unknown', False)
+    assert not occluded_bbox_has_positive_sphere_depth('spherical', True)
 
 
 def test_three_ball_triangle_blob_can_be_split_despite_near_square_bbox():

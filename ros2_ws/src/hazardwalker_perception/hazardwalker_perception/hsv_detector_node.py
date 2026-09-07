@@ -50,6 +50,7 @@ from hazardwalker_perception.inspection_capture import InspectionCaptureGate
 from hazardwalker_perception.red_ball_detector import (
     create_detection_backend,
     is_complete_candidate_for_3d_tracking,
+    occluded_bbox_has_positive_sphere_depth,
 )
 from hazardwalker_perception.rgbd_pairing import DeferredRgbDepthPairer
 from hazardwalker_perception.track_hazards import (
@@ -579,11 +580,22 @@ class HsvDetectorNode(Node):
                 and not shape_complete_for_3d_tracking
                 and depth_shape_status == 'spherical'
             )
+            # 家具从画面内部遮住球体时，轮廓未必触碰图像边缘，因此检测器
+            # 不会标成 is_partial；同步深度的各向同性凸曲率仍是球体正证据。
+            # 赛事红色干扰物是立方体，其深度会落入 flat/anisotropic，允许
+            # 这种内部遮挡候选在停稳后建轨可避免为了补全轮廓反复移动。
+            positive_depth_sphere = (
+                positive_partial_sphere
+                or occluded_bbox_has_positive_sphere_depth(
+                    depth_shape_status,
+                    shape_complete_for_3d_tracking,
+                )
+            )
             # 圆柱端面、立方体/平板等在单帧可能都有近圆形红色投影。只有深度明确
             # 显示平面或轮廓明显非圆时才抑制正证据；unknown 保留给多视角策略。
             # 非圆视角仍进入轨迹用于复查，但不能污染后续完整球视角的尺寸/圆度统计。
             confirmation_eligible = (
-                positive_partial_sphere
+                positive_depth_sphere
                 or (
                     shape_complete_for_3d_tracking
                     and depth_shape_status not in (
@@ -608,7 +620,7 @@ class HsvDetectorNode(Node):
                     sphere_radius_m=(
                         float(self.get_parameter('sphere_radius_m').value)
                         if (shape_complete_for_3d_tracking
-                            or positive_partial_sphere) else 0.0
+                            or positive_depth_sphere) else 0.0
                     ),
                     use_sphere_projection_geometry=(
                         shape_complete_for_3d_tracking
@@ -650,7 +662,7 @@ class HsvDetectorNode(Node):
                 'red_pixel_count': detection_2d.red_pixel_count,
                 'is_partial': detection_2d.is_partial,
                 'requires_reobservation': (
-                    not positive_partial_sphere
+                    not positive_depth_sphere
                     and (
                         detection_2d.requires_reobservation
                         or not shape_complete_for_3d_tracking
@@ -732,7 +744,7 @@ class HsvDetectorNode(Node):
             # 球面正证据的遮挡候选，此时可用表面深度+标准半径定位球心。
             if localization and (
                     shape_complete_for_3d_tracking
-                    or positive_partial_sphere):
+                    or positive_depth_sphere):
                 observations.append(HazardObservation(
                     position=(
                         localization.position.x,
@@ -750,7 +762,7 @@ class HsvDetectorNode(Node):
                     # 贴边框被图像裁切，长宽比不代表真实轮廓，不能拿来否决球体。
                     aspect_ratio=(
                         None if (
-                            positive_partial_sphere
+                            positive_depth_sphere
                             or _bbox_touches_image_edge(
                                 bbox, msg.width, msg.height)
                         )

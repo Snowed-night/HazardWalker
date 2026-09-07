@@ -190,7 +190,7 @@ def test_partial_box_stays_reobserve_but_partial_sphere_can_be_tracked():
     assert 'or not confirmation_eligible' in detector
     assert 'shape_complete_for_3d_tracking' in detector
     assert "depth_shape_status == 'spherical'" in detector
-    assert 'or positive_partial_sphere' in detector
+    assert 'or positive_depth_sphere' in detector
 
     capture_path = os.path.join(
         REPO_ROOT,
@@ -365,6 +365,10 @@ def test_live_action_updates_do_not_oscillate_between_lateral_and_turning():
     assert not live_reobservation_action_update_allowed('move_left', 'turn_left')
     assert not live_reobservation_action_update_allowed('move_right', 'turn_right')
     assert live_reobservation_action_update_allowed('turn_left', 'move_forward')
+    assert not live_reobservation_action_update_allowed(
+        'hold_observation', 'move_forward')
+    assert not live_reobservation_action_update_allowed(
+        'hold_observation', 'turn_right')
 
 
 def test_reobservation_pose_increment_accepts_realistic_motion():
