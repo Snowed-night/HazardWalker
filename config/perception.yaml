@@ -85,8 +85,10 @@ perception:
     partial_min_aspect_ratio: 0.12
     partial_min_value: 50
     stable_view_min_frames: 3
-    stable_view_max_translation_m: 0.002
-    stable_view_max_yaw_deg: 0.3
+    # 10 Hz 相机下正常行走每帧位移约 3--9 cm；停稳后的 Cartographer/IMU
+    # 抖动可能达到毫米至厘米级。连续三帧低于 3 cm / 1.5° 才允许写入坐标。
+    stable_view_max_translation_m: 0.03
+    stable_view_max_yaw_deg: 1.5
     # 已建立轨迹在短时机动离开视场后继续参与图像投影关联。
     track_projection_max_age_s: 180.0
     # 以下键对应 hsv_detector_node 的 active_view_* ROS 参数。

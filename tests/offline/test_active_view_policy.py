@@ -19,6 +19,7 @@ from hazardwalker_perception.active_view_policy import (
     attach_candidate_aliases_to_hazards,
     bbox_iou,
     choose_active_view_action,
+    choose_stable_localization_hold,
 )
 
 
@@ -39,6 +40,41 @@ def _detection(identifier='one', x_min=100, y_min=100, x_max=150, y_max=150,
 def test_empty_frame_keeps_exploring():
     action = choose_active_view_action([], 640, 480)
     assert action.action == 'continue_exploring'
+
+
+def test_moving_spherical_candidate_requests_stable_localization_hold():
+    candidate = _detection(identifier='candidate-7')
+    candidate.update({
+        'candidate_id': 'candidate-7',
+        'confirmation_eligible': True,
+        'depth_synchronized': True,
+        'tf_synchronized': True,
+        'localization_status': 'localized',
+        'track_status': 'untracked',
+    })
+
+    action = choose_stable_localization_hold([candidate], camera_stable=False)
+
+    assert action.action == 'hold_observation'
+    assert action.priority == 100
+    assert action.target_id == 'candidate-7'
+
+
+def test_stable_or_already_confirmed_sphere_does_not_request_hold():
+    candidate = _detection(identifier='candidate-7')
+    candidate.update({
+        'candidate_id': 'candidate-7',
+        'confirmation_eligible': True,
+        'depth_synchronized': True,
+        'tf_synchronized': True,
+        'localization_status': 'localized',
+        'track_status': 'untracked',
+    })
+    assert choose_stable_localization_hold(
+        [candidate], camera_stable=True) is None
+    candidate['track_status'] = 'confirmed'
+    assert choose_stable_localization_hold(
+        [candidate], camera_stable=False) is None
 
 
 def test_active_view_direction_memory_prevents_center_line_oscillation():

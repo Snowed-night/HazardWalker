@@ -315,8 +315,9 @@ def test_rosbridge_fragment_contract_is_bounded_and_adapter_keeps_image_bytes():
     assert "declare_parameter('max_rgb_depth_sync_delta_sec', 0.06)" in detector
     assert 'positive_partial_sphere' in detector
     assert 'or positive_partial_sphere' in detector
-    assert 'self.tracker.update(observations, stamp_sec=stamp_sec)' in detector
-    assert "if camera_stable:\n            self.tracker.update(observations" not in detector
+    assert "if camera_stable:\n            self.tracker.update(observations" in detector
+    assert 'choose_stable_localization_hold(' in detector
+    assert "'stable_localization_required': (" in detector
     recorder = (
         REPO_ROOT / 'ros2_ws' / 'src' / 'hazardwalker_perception'
         / 'hazardwalker_perception' / 'dynamic_detection_recorder_node.py'

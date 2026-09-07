@@ -32,6 +32,7 @@ from hazardwalker_perception.active_view_policy import (
     annotate_detections_with_tracks,
     attach_candidate_aliases_to_hazards,
     choose_active_view_action,
+    choose_stable_localization_hold,
     project_tracks_for_image_association,
 )
 from hazardwalker_perception.localize_hazard import (
@@ -157,8 +158,8 @@ class HsvDetectorNode(Node):
         # 运动中继续发布候选供导航使用，但只有相机连续稳定若干帧后才向轨迹
         # 累积确认/反证，防止横移过渡帧让球体尺寸和曲率统计失真。
         self.declare_parameter('stable_view_min_frames', 3)
-        self.declare_parameter('stable_view_max_translation_m', 0.002)
-        self.declare_parameter('stable_view_max_yaw_deg', 0.3)
+        self.declare_parameter('stable_view_max_translation_m', 0.03)
+        self.declare_parameter('stable_view_max_yaw_deg', 1.5)
         # 主动视角策略阈值全部暴露为 ROS 参数，现场调优不修改源码。
         self.declare_parameter('active_view_edge_margin_ratio', 0.05)
         self.declare_parameter('active_view_min_bbox_area_px', 900)
@@ -704,9 +705,11 @@ class HsvDetectorNode(Node):
         for item in detections_2d_payload:
             item.pop('_source_id', None)
 
-        # 跟踪使用同步 RGB-D + TF 的世界坐标，不应被“完全静止”门禁阻断。
-        # 三帧球面证据仍负责抗噪；这样机器人边走边看时也能及时记录目标。
-        self.tracker.update(observations, stamp_sec=stamp_sec)
+        # 运动帧可以立即触发停车，但不能建立或更新最终三维轨迹。快速转动时
+        # 图像与桥接 TF 即使只差约 60 ms，也足以让四米外目标横跳近一米。
+        # 停稳后的连续帧仍使用同一 RGB-D 球面判据，不引入额外多视角要求。
+        if camera_stable:
+            self.tracker.update(observations, stamp_sec=stamp_sec)
         tracks_to_publish = (
             self.tracker.published_tracks()
             if camera_stable else self.tracker.active_tracks()
@@ -837,6 +840,10 @@ class HsvDetectorNode(Node):
                 float(stamp_sec) if stamp_sec is not None else time.time()
             ),
         ).to_dict()
+        stable_localization_hold = choose_stable_localization_hold(
+            detections_2d, camera_stable)
+        if stable_localization_hold is not None:
+            recommendation = stable_localization_hold.to_dict()
         localization_provenance = str(
             self.get_parameter('localization_provenance').value).strip()
         localization_ready = (
@@ -862,6 +869,8 @@ class HsvDetectorNode(Node):
             'tf_stamp_delta_sec': self._last_tf_stamp_delta_sec,
             'localization_provenance': localization_provenance,
             'camera_stable': bool(camera_stable),
+            'stable_localization_required': (
+                stable_localization_hold is not None),
             'stable_view_frame_count': self._stable_view_frame_count,
         }, ensure_ascii=False)
         self.pub.publish(out)

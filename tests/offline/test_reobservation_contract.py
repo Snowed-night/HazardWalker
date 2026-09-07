@@ -131,9 +131,9 @@ def test_official_reobservation_cannot_preempt_corridor_or_door_entry():
     assert 'strict_room_reobservation_allowed(' in hazard_callback
     assert 'inspection_phase = execution.phase' in hazard_callback
     assert "payload.get('camera_stable', False)" in hazard_callback
-    assert hazard_callback.index(
-        "strict_room_inspection_enabled').value") < hazard_callback.index(
-            'request = parse_reobservation_request(payload)')
+    assert 'stable_localization_hold = (' in hazard_callback
+    assert "'room_cross', 'room_loop', 'room_exit'" in hazard_callback
+    assert 'and not stable_localization_hold' in hazard_callback
 
     launch_path = os.path.join(
         REPO_ROOT, 'ros2_ws', 'src', 'hazardwalker_bringup',

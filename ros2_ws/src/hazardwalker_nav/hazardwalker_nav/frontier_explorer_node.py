@@ -899,15 +899,25 @@ class FrontierExplorerNode(Node):
         if self.state == 'REOBSERVING':
             self._update_reobservation_feedback(payload)
             return
+        request = parse_reobservation_request(payload)
+        stable_localization_hold = (
+            bool(payload.get('stable_localization_required'))
+            and request is not None
+            and request.get('action') == 'hold_observation'
+            and self._deterministic_room_sector is not None
+            and self._deterministic_route_phase in (
+                'room_cross', 'room_loop', 'room_exit')
+        )
         # 严格房间模式只允许在算法选中的观察位完成移动和朝向后，由红球候选
         # 短暂触发主动复查。走廊、穿门和观察位之间的移动阶段禁止抢占导航。
         execution = self._room_inspection_execution
         inspection_phase = execution.phase if execution is not None else ''
-        if not strict_room_reobservation_allowed(
+        if (not stable_localization_hold
+                and not strict_room_reobservation_allowed(
                 self.get_parameter('strict_room_inspection_enabled').value,
                 self._deterministic_route_phase,
                 inspection_phase,
-                payload.get('camera_stable', False)):
+                payload.get('camera_stable', False))):
             return
         deterministic_room_active = (
             self._deterministic_room_sector is not None
@@ -915,9 +925,9 @@ class FrontierExplorerNode(Node):
         if (bool(self.get_parameter(
                 'reobserve_only_inside_active_room').value)
                 and self._active_room_sector is None
-                and not deterministic_room_active):
+                and not deterministic_room_active
+                and not stable_localization_hold):
             return
-        request = parse_reobservation_request(payload)
         allow_returning = bool(
             self.get_parameter('reobserve_during_returning').value
         )

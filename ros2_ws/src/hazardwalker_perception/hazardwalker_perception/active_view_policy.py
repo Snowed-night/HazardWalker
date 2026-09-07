@@ -271,6 +271,41 @@ def choose_active_view_action(detections, image_width, image_height, config=None
     )
 
 
+def choose_stable_localization_hold(detections, camera_stable):
+    """运动中看到球面正证据时先停车，禁止用运动帧建立最终三维轨迹。"""
+
+    if bool(camera_stable) or not isinstance(detections, list):
+        return None
+    candidates = [
+        item for item in detections
+        if isinstance(item, dict)
+        and bool(item.get('confirmation_eligible'))
+        and bool(item.get('depth_synchronized'))
+        and bool(item.get('tf_synchronized'))
+        and item.get('localization_status') == 'localized'
+        and item.get('track_status') not in (
+            'confirmed', 'rejected', 'rejected_non_spherical')
+    ]
+    if not candidates:
+        return None
+    target = max(
+        candidates,
+        key=lambda item: float(item.get('confidence', 0.0)),
+    )
+    target_id = str(
+        target.get('track_id')
+        or target.get('candidate_id')
+        or target.get('id')
+        or ''
+    )
+    return ViewRecommendation(
+        'hold_observation',
+        '运动中已发现红球球面证据；先停稳并用同步 RGB-D/TF 帧确认三维位置。',
+        100,
+        target_id,
+    )
+
+
 def _urgent_target_action(target, image_width, image_height, policy):
     """返回单候选的高优先级复查动作；普通稳定候选返回 ``None``。"""
 
