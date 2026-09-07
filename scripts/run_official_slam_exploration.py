@@ -1192,18 +1192,11 @@ def perform_entrance_ingress(
             x, y, yaw = node.pose
             final_pose = node.pose
             travelled = math.hypot(x - start_x, y - start_y)
-            # 大厅结构证明已经过门，合法相对里程保证完整 A1 footprint 也
-            # 离开门框代价区；二者必须同时满足，不能刚看到大厅就停在门槛。
-            if (node.lobby_structure_confirmed
-                    and travelled >= float(distance_m)):
-                break
-            # 主门在机器人开始行驶前已由公开服务完全打开时，水平激光可能
-            # 从第一帧起就直接看进大厅，因而不会经历“先见门框、后见深处”
-            # 的特征序列。此时以合法 scan/IMU 相对里程清出完整 A1 footprint，
-            # 并要求前方仍有足够净空；不能因门框特征缺失继续冲到保护上限。
-            if (not node.lobby_structure_confirmed
-                    and travelled >= float(distance_m)
-                    and node.front_clearance >= 0.80):
+            # 主门已在运动前通过公开服务确认完全打开，赛事公开里程计也已
+            # 验证为米制。达到足以清出完整 A1 footprint 的固定相对距离就
+            # 必须停车；激光大厅结构只作审计证据，不能因偶发缺帧让机器人
+            # 越过安全停止点继续冲入走廊。
+            if travelled >= float(distance_m):
                 break
             if travelled >= max(8.0, 2.5 * distance_m):
                 raise RuntimeError(
@@ -1254,10 +1247,7 @@ def perform_entrance_ingress(
         'relative_heading_rad': round(relative_yaw, 9),
         'lobby_structure_confirmed': bool(
             node.lobby_structure_confirmed),
-        'distance_clearance_fallback': bool(
-            not node.lobby_structure_confirmed
-            and travelled >= float(distance_m)
-            and node.front_clearance >= 0.80),
+        'odometry_distance_stop': bool(travelled >= float(distance_m)),
         'entrance_door_frame_seen': bool(
             node.entrance_door_frame_seen),
         'speed_command_mps': round(float(speed_mps), 3),

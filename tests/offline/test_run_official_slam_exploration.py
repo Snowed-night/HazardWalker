@@ -366,9 +366,9 @@ def test_default_ingress_clears_the_complete_a1_footprint_from_door_frame():
     source = SCRIPT.read_text(encoding='utf-8')
     assert 'distance_m: float = 3.6' in source
     assert "'--entrance-distance-m', type=float, default=3.6" in source
-    assert 'and travelled >= float(distance_m)' in source
-    assert 'and node.front_clearance >= 0.80' in source
-    assert "'distance_clearance_fallback'" in source
+    assert 'if travelled >= float(distance_m):' in source
+    assert "'odometry_distance_stop'" in source
+    assert 'lobby_structure_confirmed' in source
 
 
 def test_pointcloud_save_must_ack_before_launch_shutdown():
