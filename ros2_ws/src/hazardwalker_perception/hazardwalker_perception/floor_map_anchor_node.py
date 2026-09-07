@@ -40,8 +40,9 @@ class FloorMapAnchorNode(Node):
 
         self.latest_world_yaw = None
         self.pending_floor = None
+        self.pending_apply_floors = []
         self.anchors = {}
-        self.seen_floors = set()
+        self.last_floor = None
         self.tf_buffer = tf2_ros.Buffer()
         self.tf_listener = tf2_ros.TransformListener(self.tf_buffer, self)
         qos = QoSProfile(depth=8)
@@ -68,17 +69,26 @@ class FloorMapAnchorNode(Node):
 
     def on_floor_index(self, message):
         floor = int(message.data)
-        if floor in self.seen_floors:
-            return
-        self.seen_floors.add(floor)
-        initial_floor = int(self.get_parameter('initial_floor_index').value)
-        if floor == initial_floor:
+        if self.last_floor is None:
+            self.last_floor = floor
             # 首次 floor_index 在运行器完成入门、释放导航时发布；此时机器人
-            # 已不在出生点。首层必须使用运行器在运动前锁定的全局变换。
+            # 已不在出生点。首层暂用运行器在运动前锁定的全局变换，待离开
+            # 本层、进入电梯轿厢时再用闭环后的 map 位姿结算。
             self.get_logger().info(
-                'Initial floor keeps the pre-motion runner map anchor.')
+                'Initial floor keeps the pre-motion runner map anchor '
+                'until the first elevator transition.')
             return
+        if floor == self.last_floor:
+            return
+        previous_floor = self.last_floor
+        self.last_floor = floor
         self.pending_floor = floor
+        # 上行时同一轿厢锚点既结算刚完成楼层，也初始化新楼层。最终下行
+        # 返回 0 层时只结算刚完成的最高层，不能覆盖已闭环结算的一楼。
+        self.pending_apply_floors = (
+            [previous_floor, floor]
+            if floor > previous_floor else [previous_floor]
+        )
 
     def try_publish_anchor(self):
         if self.pending_floor is None or self.latest_world_yaw is None:
@@ -112,14 +122,18 @@ class FloorMapAnchorNode(Node):
         payload = {
             'schema': 'hazardwalker_floor_map_anchor_v1',
             'floor': floor,
+            'applies_to_floors': list(self.pending_apply_floors),
             'world_from_map': [round(value, 9) for value in world_from_map],
             'source': f'lidar_imu_slam+{anchor_kind}',
         }
-        self.anchors[floor] = payload
+        for anchored_floor in self.pending_apply_floors:
+            self.anchors[anchored_floor] = payload
         self.pending_floor = None
+        self.pending_apply_floors = []
         self.anchor_pub.publish(String(data=json.dumps(payload)))
         self.get_logger().info(
-            f'Floor {floor} map anchored from {anchor_kind}: '
+            f'Floors {payload["applies_to_floors"]} map anchored '
+            f'from {anchor_kind}: '
             f'{payload["world_from_map"]}')
 
 

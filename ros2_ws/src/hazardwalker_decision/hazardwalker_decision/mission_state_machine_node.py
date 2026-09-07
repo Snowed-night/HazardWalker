@@ -139,11 +139,24 @@ class MissionStateMachineNode(Node):
                 'Rejected untrusted floor map anchor.',
                 throttle_duration_sec=5.0)
             return
-        if floor in self.floor_world_from_map:
+        raw_floors = payload.get('applies_to_floors', [floor])
+        if (not isinstance(raw_floors, list)
+                or not raw_floors
+                or any(isinstance(value, bool) for value in raw_floors)):
+            self.get_logger().warning(
+                'Rejected malformed floor anchor scope.',
+                throttle_duration_sec=5.0)
             return
-        self.floor_world_from_map[floor] = transform
+        try:
+            floors = [int(value) for value in raw_floors]
+        except (TypeError, ValueError):
+            return
+        if any(value < 0 for value in floors):
+            return
+        for anchored_floor in floors:
+            self.floor_world_from_map[anchored_floor] = transform
         self.get_logger().info(
-            f'Accepted floor {floor} SLAM map anchor: {transform}')
+            f'Accepted floors {floors} SLAM map anchor: {transform}')
 
     def on_timer(self):
         # 将导航状态转发为任务状态。当前最小版暂时没有独立决策逻辑。
