@@ -13,6 +13,8 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = ROOT / 'scripts' / 'run_official_slam_exploration.py'
+STABLE_THREE_FLOOR_SCRIPT = (
+    ROOT / 'scripts' / 'run_stable_three_floor_experiment.sh')
 SPEC = importlib.util.spec_from_file_location('slam_exploration_runner', SCRIPT)
 MODULE = importlib.util.module_from_spec(SPEC)
 assert SPEC.loader is not None
@@ -410,6 +412,17 @@ def test_runtime_outputs_do_not_make_a_committed_run_look_dirty():
     assert 'build/**' in MODULE.RUNTIME_GIT_EXCLUDES
     assert 'log/**' in MODULE.RUNTIME_GIT_EXCLUDES
     assert 'reports/nav/**' in MODULE.RUNTIME_GIT_EXCLUDES
+
+
+def test_stable_three_floor_entry_is_exclusive_and_self_cleaning():
+    source = STABLE_THREE_FLOOR_SCRIPT.read_text(encoding='utf-8')
+    assert '--target-floors 0,1,2' in source
+    assert '--enable-perception' in source
+    assert "docker ps --format '{{.Names}}'" in source
+    assert '正式实验拒绝并行' in source
+    assert 'trap cleanup EXIT INT TERM' in source
+    assert './auto_docker.sh down' in source
+    assert 'three_floor_stable_current' in source
 
 
 def test_slam_starts_at_public_spawn_before_ingress_and_navigation_release():
