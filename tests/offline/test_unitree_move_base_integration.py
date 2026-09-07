@@ -167,6 +167,11 @@ def test_frontier_delegates_local_avoidance_to_unitree_move_base():
     assert 'def _unitree_move_base_effective_command' not in source
     assert 'Unitree move_base goal updated:' in source
     assert 'ParameterUninitializedException' in source
+    assert 'def _reset_unitree_move_base_for_new_floor' in source
+    begin_new_floor = source.split(
+        'def _begin_new_floor_exploration', 1)[1].split(
+        'def _handle_manual_floor_transition', 1)[0]
+    assert 'self._reset_unitree_move_base_for_new_floor()' in begin_new_floor
 
 
 def test_official_room_completion_requires_physical_loop_and_holds_heading():
@@ -193,7 +198,9 @@ def test_rosbridge_keeps_unitree_speed_isolated_until_frontier_and_mux():
     assert "'/hw/control/unitree_move_base_cmd_vel'" in source
     assert "'/hw/navigation/unitree_move_base_goal'" in source
     assert "'/hw/navigation/unitree_move_base_control'" in source
-    assert "str(message.data).strip().lower() != 'cancel'" in source
+    assert "action == 'clear_costmaps'" in source
+    assert "'service': '/move_base/clear_costmaps'" in source
+    assert "action != 'cancel'" in source
     assert "'secs': 0" in source
     assert "'nsecs': 0" in source
     assert 'target=self._receive_unitree_cmd_loop' in source
@@ -253,6 +260,20 @@ def test_platform_lifecycle_starts_and_health_checks_unitree_move_base():
     assert 'rosnode ping -c 1 /move_base' in compose
     assert 'pgrep -x move_base' in compose
     assert 'UNITREE_RL_FORCE_CPU: ${UNITREE_RL_FORCE_CPU:-1}' in compose
+    estimator = (
+        PLATFORM / 'src' / 'unitree_guide' / 'unitree_guide' /
+        'unitree_guide' / 'src' / 'control' / 'Estimator.cpp'
+    ).read_text(encoding='utf-8')
+    simulator_launch = (
+        PLATFORM / 'src' / 'unitree_guide' / 'unitree_guide' /
+        'unitree_guide' / 'launch' / 'multi_floor_gazeboSim.launch'
+    ).read_text(encoding='utf-8')
+    assert '/hazardwalker/publish_estimator_odom_tf' in estimator
+    assert 'if(_publishOdomTf)' in estimator
+    assert (
+        '<param name="/hazardwalker/publish_estimator_odom_tf" '
+        'value="false"/>' in simulator_launch
+    )
     robot_xacro = (
         PLATFORM / 'src' / 'unitree_guide' / 'unitree_ros' / 'robots' /
         'a1_description' / 'xacro' / 'robot.xacro'

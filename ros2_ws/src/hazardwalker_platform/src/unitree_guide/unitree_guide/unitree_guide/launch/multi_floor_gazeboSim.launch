@@ -24,6 +24,9 @@
     <arg name="robot_yaw" default="$(optenv COMPETITION_ROBOT_YAW 1.5708)"/>
 
     <param name="world_file" value="$(arg world_file)"/>
+    <!-- state_from_gazebo 是仿真中 odom→base 的唯一所有者。关闭足端估计器的
+         同名 TF，避免 move_base 的机器人位姿在两套坐标之间来回跳变。 -->
+    <param name="/hazardwalker/publish_estimator_odom_tf" value="false"/>
 
     <include file="$(find gazebo_ros)/launch/empty_world.launch">
         <arg name="world_name" value="$(arg world_file)"/>

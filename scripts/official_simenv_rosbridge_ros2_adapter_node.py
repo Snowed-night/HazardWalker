@@ -775,10 +775,23 @@ class RosbridgeHwAdapter(Node):
                 self._counts.get('unitree_move_base_goal_forwarded', 0) + 1)
 
     def _on_move_base_control(self, message):
-        """支持显式 cancel；其他字符串一律拒绝，避免形成隐藏控制入口。"""
+        """转发受限的 move_base 生命周期动作，不形成任意 ROS1 控制入口。"""
 
-        if (not self.enable_unitree_move_base_bridge
-                or str(message.data).strip().lower() != 'cancel'):
+        if not self.enable_unitree_move_base_bridge:
+            return
+        action = str(message.data).strip().lower()
+        if action == 'clear_costmaps':
+            if self._send({
+                    'op': 'call_service',
+                    'id': 'hw:unitree_move_base_clear_costmaps',
+                    'service': '/move_base/clear_costmaps',
+                    'args': {},
+            }):
+                self._counts['unitree_move_base_clear_costmaps_forwarded'] = (
+                    self._counts.get(
+                        'unitree_move_base_clear_costmaps_forwarded', 0) + 1)
+            return
+        if action != 'cancel':
             return
         if self._send({
                 'op': 'publish',

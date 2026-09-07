@@ -4105,6 +4105,10 @@ class FrontierExplorerNode(Node):
     def _begin_new_floor_exploration(self) -> None:
         """切换分层地图并清理上一层前沿状态。"""
 
+        # 电梯瞬移后必须同时清理 ROS1 move_base 的旧层障碍与活动目标；
+        # 仅重启 ROS2 Cartographer 不会重置独立的 ROS1 滚动代价地图。
+        self._reset_unitree_move_base_for_new_floor()
+
         if self._return_after_floor_transition:
             # 最后一层结束后，电梯只负责把机器人送回指定返航楼层；
             # 不能再次进入探索，也不能把该层电梯口覆盖成新的 home。
@@ -7090,6 +7094,18 @@ class FrontierExplorerNode(Node):
         self._unitree_move_base_cmd_stale_since_wall = None
         self._unitree_move_base_last_goal_map = None
         self._unitree_move_base_last_goal_wall = None
+
+    def _reset_unitree_move_base_for_new_floor(self) -> None:
+        """楼层切换后撤销旧目标并清空赛事 move_base 的两张代价地图。"""
+
+        if self._local_planner_backend != 'unitree_move_base':
+            return
+        self._cancel_unitree_move_base()
+        message = String()
+        message.data = 'clear_costmaps'
+        self.unitree_move_base_control_pub.publish(message)
+        self.get_logger().info(
+            'Requested Unitree move_base costmap reset for the new floor.')
 
     def _follow_path_with_unitree_move_base(self) -> Twist:
         """把高层路径交给赛事仓库随附的宇树 DWA，并转发其新鲜速度。"""
