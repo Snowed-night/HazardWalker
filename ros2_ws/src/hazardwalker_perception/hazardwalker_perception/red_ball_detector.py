@@ -83,6 +83,44 @@ def occluded_bbox_has_positive_sphere_depth(
         and str(depth_shape_status).strip().lower() == 'spherical'
     )
 
+
+def foreground_occluded_round_candidate_is_sphere(
+        detection, depth_shape, *, min_depth_separation_m=0.50,
+        min_circularity=0.55, min_aspect_ratio=0.70,
+        max_extent=0.78, min_red_pixel_count=200):
+    """识别“球在家具后方、只露出圆弧”的赛场遮挡模式。
+
+    此时普通外环曲率会因前景家具更近而成为大幅负值，不能据此把球判成
+    平面。放行必须同时满足：明确 partial、近前景/远中心的深度分层、圆弧
+    轮廓、非矩形 extent 和足够红色像素。红色方块即使深度分层相似，也会
+    被高 extent 或非 partial 条件挡住。
+    """
+
+    if not bool(getattr(detection, 'is_partial', False)) or depth_shape is None:
+        return False
+    center_depth = getattr(depth_shape, 'center_depth_m', None)
+    outer_depth = getattr(depth_shape, 'outer_depth_m', None)
+    try:
+        depth_separation = float(center_depth) - float(outer_depth)
+    except (TypeError, ValueError):
+        return False
+    values = (
+        depth_separation,
+        float(getattr(detection, 'circularity', 0.0)),
+        float(getattr(detection, 'aspect_ratio', 0.0)),
+        float(getattr(detection, 'extent', 1.0)),
+    )
+    if not all(math.isfinite(value) for value in values):
+        return False
+    return (
+        depth_separation >= float(min_depth_separation_m)
+        and values[1] >= float(min_circularity)
+        and values[2] >= float(min_aspect_ratio)
+        and values[3] <= float(max_extent)
+        and int(getattr(detection, 'red_pixel_count', 0))
+        >= int(min_red_pixel_count)
+    )
+
 """二维检测后端接口，后续 YOLO/分割模型只要实现 detect 即可接入 ROS 节点。"""
 class DetectionBackend:
     name = 'base'

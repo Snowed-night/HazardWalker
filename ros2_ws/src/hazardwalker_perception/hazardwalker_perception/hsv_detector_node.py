@@ -45,10 +45,12 @@ from hazardwalker_perception.localize_hazard import (
     estimate_depth_from_bbox,
     evaluate_sphere_depth_shape,
     localize_bbox_from_depth_image,
+    localize_bbox_with_depth,
 )
 from hazardwalker_perception.inspection_capture import InspectionCaptureGate
 from hazardwalker_perception.red_ball_detector import (
     create_detection_backend,
+    foreground_occluded_round_candidate_is_sphere,
     is_complete_candidate_for_3d_tracking,
     occluded_bbox_has_positive_sphere_depth,
 )
@@ -156,6 +158,14 @@ class HsvDetectorNode(Node):
         # 球面横纵两个方向都应有凸曲率；单轴弯曲通常来自圆柱侧面或弧形板。
         self.declare_parameter('min_sphere_axis_depth_points', 4)
         self.declare_parameter('min_sphere_axis_curvature_ratio', 0.25)
+        # 家具前景遮住球体下半部时，外环深度会比红色球心近很多。以下参数
+        # 共同定义遮挡圆弧正证据；全部可配置，不能把单一深度跳变当成球。
+        self.declare_parameter(
+            'occluded_sphere_min_depth_separation_m', 0.50)
+        self.declare_parameter('occluded_sphere_min_circularity', 0.55)
+        self.declare_parameter('occluded_sphere_min_aspect_ratio', 0.70)
+        self.declare_parameter('occluded_sphere_max_extent', 0.78)
+        self.declare_parameter('occluded_sphere_min_red_pixel_count', 200)
         # RGB 与独立深度 WebSocket 可能跨帧到达；不同时间的深度不能用于球形判别或定位，
         # 否则会把运动中的红球错误记为平面/错误世界坐标。
         # 当前官方 ROS1↔ROS2 适配实测 RGB/深度固定相差约 50 ms，帧周期约
@@ -580,12 +590,34 @@ class HsvDetectorNode(Node):
                 and not shape_complete_for_3d_tracking
                 and depth_shape_status == 'spherical'
             )
+            foreground_occluded_sphere = (
+                foreground_occluded_round_candidate_is_sphere(
+                    detection_2d,
+                    depth_shape,
+                    min_depth_separation_m=float(self.get_parameter(
+                        'occluded_sphere_min_depth_separation_m').value),
+                    min_circularity=float(self.get_parameter(
+                        'occluded_sphere_min_circularity').value),
+                    min_aspect_ratio=float(self.get_parameter(
+                        'occluded_sphere_min_aspect_ratio').value),
+                    max_extent=float(self.get_parameter(
+                        'occluded_sphere_max_extent').value),
+                    min_red_pixel_count=int(self.get_parameter(
+                        'occluded_sphere_min_red_pixel_count').value),
+                )
+            )
+            if (foreground_occluded_sphere
+                    and depth_shape.center_depth_m is not None):
+                # 后续主动视角和证据字段也统一使用可见红色球面的中心深度，
+                # 不能继续报告前景家具污染后的 ROI 中位数。
+                raw_surface_depth_m = float(depth_shape.center_depth_m)
             # 家具从画面内部遮住球体时，轮廓未必触碰图像边缘，因此检测器
             # 不会标成 is_partial；同步深度的各向同性凸曲率仍是球体正证据。
             # 赛事红色干扰物是立方体，其深度会落入 flat/anisotropic，允许
             # 这种内部遮挡候选在停稳后建轨可避免为了补全轮廓反复移动。
             positive_depth_sphere = (
                 positive_partial_sphere
+                or foreground_occluded_sphere
                 or occluded_bbox_has_positive_sphere_depth(
                     depth_shape_status,
                     shape_complete_for_3d_tracking,
@@ -603,33 +635,50 @@ class HsvDetectorNode(Node):
                 )
             )
             if self.camera_intrinsics and depth_synchronized and camera_to_output:
-                localization = localize_bbox_from_depth_image(
-                    bbox=bbox,
-                    intrinsics=self.camera_intrinsics,
-                    depth_image=self.latest_depth_image,
-                    camera_to_output=camera_to_output,
-                    output_frame=output_frame,
-                    # 局部、粘连或贴边框不是完整球直径：只保留表面点供复查，
-                    # 不扩大 ROI，也不允许用标准半径反推球心。
-                    roi_padding_px=(
-                        int(self.get_parameter('roi_padding_px').value)
-                        if shape_complete_for_3d_tracking else 0
-                    ),
-                    max_depth_m=float(self.get_parameter('max_detection_range_m').value),
-                    min_points=int(self.get_parameter('min_depth_points_in_roi').value),
-                    sphere_radius_m=(
-                        float(self.get_parameter('sphere_radius_m').value)
-                        if (shape_complete_for_3d_tracking
-                            or positive_depth_sphere) else 0.0
-                    ),
-                    use_sphere_projection_geometry=(
-                        shape_complete_for_3d_tracking
-                        and bool(self.get_parameter('use_sphere_projection_geometry').value)
-                    ),
-                    camera_axis_convention=str(
-                        self.get_parameter('camera_axis_convention').value
-                    ),
-                )
+                if (foreground_occluded_sphere
+                        and depth_shape.center_depth_m is not None):
+                    # 红色中心属于远处可见球面，外环/ROI 中位数属于近处家具。
+                    # 直接用球面中心深度并沿视线补一个半径；不能继续采用被
+                    # 家具污染的 raw_surface_depth_m。
+                    localization = localize_bbox_with_depth(
+                        bbox=bbox,
+                        intrinsics=self.camera_intrinsics,
+                        depth_m=(float(depth_shape.center_depth_m)
+                                 + float(self.get_parameter(
+                                     'sphere_radius_m').value)),
+                        camera_to_output=camera_to_output,
+                        output_frame=output_frame,
+                        camera_axis_convention=str(self.get_parameter(
+                            'camera_axis_convention').value),
+                    )
+                else:
+                    localization = localize_bbox_from_depth_image(
+                        bbox=bbox,
+                        intrinsics=self.camera_intrinsics,
+                        depth_image=self.latest_depth_image,
+                        camera_to_output=camera_to_output,
+                        output_frame=output_frame,
+                        # 局部、粘连或贴边框不是完整球直径：只保留表面点供复查，
+                        # 不扩大 ROI，也不允许用标准半径反推球心。
+                        roi_padding_px=(
+                            int(self.get_parameter('roi_padding_px').value)
+                            if shape_complete_for_3d_tracking else 0
+                        ),
+                        max_depth_m=float(self.get_parameter('max_detection_range_m').value),
+                        min_points=int(self.get_parameter('min_depth_points_in_roi').value),
+                        sphere_radius_m=(
+                            float(self.get_parameter('sphere_radius_m').value)
+                            if (shape_complete_for_3d_tracking
+                                or positive_depth_sphere) else 0.0
+                        ),
+                        use_sphere_projection_geometry=(
+                            shape_complete_for_3d_tracking
+                            and bool(self.get_parameter('use_sphere_projection_geometry').value)
+                        ),
+                        camera_axis_convention=str(
+                            self.get_parameter('camera_axis_convention').value
+                        ),
+                    )
             apparent_diameter_m = (
                 _apparent_diameter_m(
                     bbox, raw_surface_depth_m,
@@ -710,6 +759,8 @@ class HsvDetectorNode(Node):
                     'diagonal_negative_points': (
                         depth_shape.diagonal_negative_points if depth_shape else 0
                     ),
+                    'foreground_occlusion_override': bool(
+                        foreground_occluded_sphere),
                 },
                 'depth_synchronized': depth_synchronized,
                 'depth_stamp_delta_sec': depth_stamp_delta_sec,
@@ -724,7 +775,9 @@ class HsvDetectorNode(Node):
                     math.degrees(view_bearing_rad) if view_bearing_rad is not None else None
                 ),
                 'localization_status': (
-                    'suppressed_non_spherical_depth_shape'
+                    'localized_foreground_occluded_sphere'
+                    if foreground_occluded_sphere and localization
+                    else 'suppressed_non_spherical_depth_shape'
                     if depth_shape_status in ('flat', 'anisotropic', 'non_spherical')
                     else 'localized' if localization else 'unlocalized'
                 ),
@@ -757,7 +810,9 @@ class HsvDetectorNode(Node):
                     source_id=source_id,
                     view_id=view_id,
                     confirmation_eligible=confirmation_eligible,
-                    depth_shape_status=depth_shape_status,
+                    depth_shape_status=(
+                        'spherical' if foreground_occluded_sphere
+                        else depth_shape_status),
                     apparent_diameter_m=apparent_diameter_m,
                     # 贴边框被图像裁切，长宽比不代表真实轮廓，不能拿来否决球体。
                     aspect_ratio=(
@@ -768,7 +823,9 @@ class HsvDetectorNode(Node):
                         )
                         else detection_2d.aspect_ratio
                     ),
-                    depth_curvature_m=(depth_shape.curvature_m if depth_shape else None),
+                    depth_curvature_m=(
+                        None if foreground_occluded_sphere
+                        else depth_shape.curvature_m if depth_shape else None),
                     view_bearing_rad=view_bearing_rad,
                 ))
 

@@ -33,6 +33,11 @@ perception:
     # 家具遮挡的真实半球实测轴向曲率比约 0.30；0.25 可保留该球面，
     # 而红方块/圆柱的平坦轴仍远低于该门槛。
     min_sphere_axis_curvature_ratio: 0.25
+    occluded_sphere_min_depth_separation_m: 0.50
+    occluded_sphere_min_circularity: 0.55
+    occluded_sphere_min_aspect_ratio: 0.70
+    occluded_sphere_max_extent: 0.78
+    occluded_sphere_min_red_pixel_count: 200
     # 官方标准红球半径；设为 0 可禁用球面深度到球心的几何补偿。
     sphere_radius_m: 0.15
     # 官方当前桥接链 RGB-D 实测固定相差约 0.05 s；运行记录必须保存解析后的值。

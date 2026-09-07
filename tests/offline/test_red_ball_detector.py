@@ -16,6 +16,7 @@ from hazardwalker_perception.red_ball_detector import (
     RedBallDetection2D,
     detect_red_ball_rgb_bytes,
     detect_red_balls_rgb_bytes,
+    foreground_occluded_round_candidate_is_sphere,
     is_complete_candidate_for_3d_tracking,
     occluded_bbox_has_positive_sphere_depth,
     rgb_to_hsv_pixel,
@@ -416,6 +417,38 @@ def test_internal_occlusion_can_use_only_explicit_spherical_depth_evidence():
     assert not occluded_bbox_has_positive_sphere_depth('flat', False)
     assert not occluded_bbox_has_positive_sphere_depth('unknown', False)
     assert not occluded_bbox_has_positive_sphere_depth('spherical', True)
+
+
+def test_round_cap_behind_foreground_obstacle_is_positive_sphere_evidence():
+    """复现官方楼内半球：中心约4.97m、外环前景约2.25m。"""
+
+    detection = RedBallDetection2D(
+        273, 258, 305, 286, 0.326, 583,
+        circularity=0.628, aspect_ratio=0.879, extent=0.56,
+        is_partial=True, requires_reobservation=True,
+    )
+    depth_shape = type('DepthShape', (), {
+        'center_depth_m': 4.972,
+        'outer_depth_m': 2.253,
+    })()
+
+    assert foreground_occluded_round_candidate_is_sphere(
+        detection, depth_shape)
+
+
+def test_occluded_red_box_is_not_promoted_by_depth_discontinuity_alone():
+    depth_shape = type('DepthShape', (), {
+        'center_depth_m': 4.0,
+        'outer_depth_m': 2.0,
+    })()
+    red_box = RedBallDetection2D(
+        10, 10, 50, 50, 0.9, 1200,
+        circularity=0.78, aspect_ratio=1.0, extent=0.96,
+        is_partial=True, requires_reobservation=True,
+    )
+
+    assert not foreground_occluded_round_candidate_is_sphere(
+        red_box, depth_shape)
 
 
 def test_three_ball_triangle_blob_can_be_split_despite_near_square_bbox():
