@@ -27,6 +27,7 @@ def test_floor_anchor_node_never_reads_forbidden_truth_sources():
     assert 'self.awaiting_arrival_floor' in source
     assert "'hazardwalker_floor_slam_session_v1'" in source
     assert "'applies_to_floors': [floor]" in source
+    assert "'source_frame': str(self.get_parameter('map_frame').value)" in source
     assert 'def on_final_anchor_request' in source
     assert "'public_home'" in source
     assert 'self._enqueue_anchor(' in source
@@ -53,6 +54,7 @@ def test_business_launch_and_result_writer_use_floor_anchors():
     assert 'self.floor_world_from_map' in decision
     assert "payload.get('applies_to_floors', [floor])" in decision
     assert 'world_from_source_by_floor=self.floor_world_from_map' in decision
+    assert "'official_hazard_source_frame').value" in decision
     assert "floor_map_anchors.json" in decision
     assert "'hazardwalker_floor_map_anchor_set_v1'" in decision
     assert "'lidar_imu_slam+public_home'" in decision

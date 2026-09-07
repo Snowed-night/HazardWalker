@@ -134,6 +134,9 @@ class MissionStateMachineNode(Node):
                 or floor < 0
                 or len(transform) != 3
                 or not all(math.isfinite(value) for value in transform)
+                or payload.get('source_frame') != str(
+                    self.get_parameter(
+                        'official_hazard_source_frame').value)
                 or payload.get('source') not in {
                     'lidar_imu_slam+public_start',
                     'lidar_imu_slam+public_elevator_arrival',

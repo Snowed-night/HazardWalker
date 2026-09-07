@@ -495,8 +495,9 @@ def generate_launch_description():
             condition=IfCondition(start_slam_video),
         ),
 
-        # ---- 每层 SLAM map 的公开 world 锚点 ----
-        # 只使用起点/电梯动作、IMU 和 map→base，不读取 Gazebo odom 或真值。
+        # ---- 每层定位源的公开 world 锚点 ----
+        # 正式红球保存在稳定 odom；只用起点/电梯动作、IMU 和 odom→base，
+        # 不读取 Gazebo odom 或真值。诊断模式仍可显式选择其他合法源。
         Node(
             package='hazardwalker_perception',
             executable='floor_map_anchor_node',
@@ -508,7 +509,7 @@ def generate_launch_description():
                 'final_anchor_request_topic': (
                     '/hazardwalker/navigation/final_floor_anchor'),
                 'imu_topic': '/hw/trunk_imu',
-                'map_frame': 'map',
+                'map_frame': perception_output_frame,
                 'base_frame': 'base',
                 'initial_floor_index': 0,
                 'official_home_x_m': 0.0,

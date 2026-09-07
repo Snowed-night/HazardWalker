@@ -1,4 +1,4 @@
-"""为多层任务发布每层独立的合法 SLAM map→world 锚点。
+"""为多层任务发布每层独立的合法定位源→world 锚点。
 
 节点只读取 Cartographer TF、trunk IMU、公开楼层动作以及公开起点/电梯落点。
 它不订阅 `/hw/odom`、`/Odometry_gazebo`、场景清单或危险源真值。
@@ -198,6 +198,7 @@ class FloorMapAnchorNode(Node):
             'schema': 'hazardwalker_floor_map_anchor_v1',
             'floor': floor,
             'applies_to_floors': [floor],
+            'source_frame': str(self.get_parameter('map_frame').value),
             'world_from_map': [round(value, 9) for value in world_from_map],
             'source': f'lidar_imu_slam+{anchor_kind}',
             'session_generation': request['generation'],
