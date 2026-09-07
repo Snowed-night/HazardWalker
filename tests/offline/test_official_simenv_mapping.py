@@ -145,8 +145,19 @@ def test_host_network_containers_get_distinct_stable_headless_displays():
         PLATFORM_SRC / 'docker' / 'docker-compose.yml'
     ).read_text(encoding='utf-8')
     assert 'printf \'%s\' "$DOCKER_SIMENV_USER" | cksum' in wrapper
-    assert '2000 + display_hash % 7000' in wrapper
+    assert 'port_slot="$((display_hash % 7000))"' in wrapper
+    assert '12000 + port_slot' in wrapper
+    assert '22000 + port_slot' in wrapper
+    assert '32000 + port_slot' in wrapper
     assert 'SIMENV_HEADLESS_DISPLAY: ${SIMENV_HEADLESS_DISPLAY:-:99}' in compose
+    assert 'ROS_MASTER_URI: ${ROS_MASTER_URI:-http://127.0.0.1:11311}' in compose
+    assert 'GAZEBO_MASTER_URI: ${GAZEBO_MASTER_URI:-http://127.0.0.1:11345}' in compose
+
+    adapter = (
+        REPO_ROOT / 'scripts' / 'run_official_simenv_rosbridge_adapter.sh'
+    ).read_text(encoding='utf-8')
+    assert 'CONTAINER_ROSBRIDGE_PORT' in adapter
+    assert 'ROSBRIDGE_URL="ws://127.0.0.1:${CONTAINER_ROSBRIDGE_PORT:-9090}"' in adapter
 
 
 def test_official_container_has_bounded_memory_and_no_oom_restart_loop():

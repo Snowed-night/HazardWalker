@@ -25,6 +25,8 @@ services:
     environment:
       ROS_DISTRO: noetic
       DOCKER_SIMENV_USER: ${DOCKER_SIMENV_USER:-default}
+      ROS_MASTER_URI: ${ROS_MASTER_URI:-http://127.0.0.1:11311}
+      GAZEBO_MASTER_URI: ${GAZEBO_MASTER_URI:-http://127.0.0.1:11345}
       LIBTORCH_ROOT: /home/ros/Guoyulun/Download/libtorch
       LD_LIBRARY_PATH: /home/ros/Guoyulun/Download/libtorch/lib
       LIBGL_ALWAYS_SOFTWARE: ${LIBGL_ALWAYS_SOFTWARE:-1}

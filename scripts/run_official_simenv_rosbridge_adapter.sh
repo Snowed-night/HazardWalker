@@ -9,7 +9,7 @@ CONTAINER="${SIMENV_CONTAINER:-simenv_ros1_${DOCKER_SIMENV_USER:-${USER:-default
 # 多组账号共享同一 ROS_DOMAIN_ID 时禁用按用户隔离的 Fast DDS SHM，保证平台
 # 账号发布的 /hw/* 能被导航、感知、决策和测试账号实际接收。
 export FASTDDS_BUILTIN_TRANSPORTS="${FASTDDS_BUILTIN_TRANSPORTS:-UDPv4}"
-ROSBRIDGE_URL="${OFFICIAL_SIMENV_ROSBRIDGE_URL:-ws://127.0.0.1:9090}"
+ROSBRIDGE_URL="${OFFICIAL_SIMENV_ROSBRIDGE_URL:-}"
 ROSBRIDGE_HOST_HEADER="${OFFICIAL_SIMENV_ROSBRIDGE_HOST_HEADER:-}"
 ENABLE_CONTROL="${OFFICIAL_SIMENV_ENABLE_CONTROL:-0}"
 ENABLE_UNITREE_MOVE_BASE_BRIDGE="${OFFICIAL_SIMENV_ENABLE_UNITREE_MOVE_BASE_BRIDGE:-0}"
@@ -96,6 +96,15 @@ if ! command -v ros2 >/dev/null || ! "$PYTHON_BIN" -c 'import rclpy, websocket' 
 fi
 if ! docker inspect -f '{{.State.Running}}' "$CONTAINER" 2>/dev/null | grep -qx true; then
   echo "[rosbridge-adapter] 官方容器未运行：$CONTAINER" >&2; exit 1
+fi
+# 未显式覆盖时始终连接目标容器实际声明的 rosbridge 端口。多容器 host
+# 网络隔离会为每个属主分配不同端口，不能继续假设所有实例都在 9090。
+if [[ -z "$ROSBRIDGE_URL" ]]; then
+  CONTAINER_ROSBRIDGE_PORT="$(
+    docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' "$CONTAINER" |
+      sed -n 's/^ROSBRIDGE_PORT=//p' | tail -n 1
+  )"
+  ROSBRIDGE_URL="ws://127.0.0.1:${CONTAINER_ROSBRIDGE_PORT:-9090}"
 fi
 # 以容器实际环境为准；宿主 shell 中后来修改的 SEED 不能冒充本轮场景。
 CONTAINER_SCENARIO_SEED="$(
