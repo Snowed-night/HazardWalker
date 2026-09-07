@@ -762,7 +762,11 @@ def _safe_run_slug(run_id: str) -> str:
 
 
 def start_first_person_recording(container: str, run_id: str) -> dict:
-    """在ROS1容器内直接录RGB，避免图像经rosbridge占用三维SLAM带宽。"""
+    """在ROS1容器内直接录RGB，避免图像经rosbridge占用三维SLAM带宽。
+
+    录像先保存在容器内；停止时再用 ``docker cp`` 取回。不能假设执行本脚本的
+    Git 工作树就是容器当前挂载的工作树，否则多工作树联调时会找不到录像。
+    """
 
     slug = _safe_run_slug(run_id)
     host_dir = (
@@ -818,6 +822,14 @@ def stop_first_person_recording(
     ], text=True, capture_output=True, timeout=10.0)
     time.sleep(2.0)
     source = Path(str(capture['host_avi']))
+    source.unlink(missing_ok=True)
+    copied = subprocess.run([
+        'docker', 'cp',
+        f'{container}:{capture["container_avi"]}', str(source),
+    ], text=True, capture_output=True, timeout=60.0)
+    if copied.returncode != 0:
+        raise RuntimeError(
+            f'第一人称录像取回失败：{copied.stderr.strip()}')
     video_dir = output_dir / 'video'
     video_dir.mkdir(parents=True, exist_ok=True)
     target = video_dir / 'first_person.mp4'

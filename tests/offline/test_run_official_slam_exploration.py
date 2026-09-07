@@ -400,6 +400,8 @@ def test_first_person_recording_is_container_local_and_converted_to_mp4():
     assert '_fps:=5 _codec:=MJPG' in source
     assert "'libx264'" in source
     assert "'pkill', '-INT'" in source
+    assert "'docker', 'cp'" in source
+    assert '多工作树联调时会找不到录像' in source
     assert MODULE._safe_run_slug('测试 run/01') == 'run_01'
 
 
