@@ -59,6 +59,7 @@ RUNTIME_GIT_EXCLUDES = (
 # 固定种子长走廊实测：0.88 会把 25.18 m 前向位移累计成 27.66 m；
 # 按同一次合法 scan/IMU 轨迹标定为 0.80，使红球楼层坐标回到 1 m 计分门内。
 A1_EXECUTION_SCALE = 0.80
+A1_LATERAL_EXECUTION_SCALE = 0.0
 
 
 def ensure_workspace_overlay() -> None:
@@ -235,6 +236,8 @@ def build_launch_command(
         'navigation_minimum_linear_speed:=0.30',
         'navigation_start_paused:=true',
         f'localization_command_motion_scale:={A1_EXECUTION_SCALE:.2f}',
+        'localization_command_lateral_motion_scale:='
+        f'{A1_LATERAL_EXECUTION_SCALE:.2f}',
         f'exploration_timeout_s:={float(exploration_timeout_s):.3f}',
         f'mission_time_budget_s:={float(mission_time_budget_s):.3f}',
         f'simenv_container:={simenv_container}',

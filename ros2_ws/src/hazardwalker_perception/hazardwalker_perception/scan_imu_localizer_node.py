@@ -62,7 +62,11 @@ class ScanImuLocalizerNode(Node):
         # 该阈值只判断本轮是否允许扫描更新平移，不把命令当作位移真值。
         # 固定距离扫描标定显示命令积分偏大约 1.5 倍，因此默认比例为 0.65；
         # 低于 0.30 m/s 的命令处于官方 A1 控制死区附近，不作为平移先验。
+        # 重复长走廊只在前向缺少几何约束；横向墙距本身可观测。DWA 为追踪
+        # 目标会持续给出横移修正，但 A1 实际横移响应与命令积分差异很大，
+        # 因此前向保留标定先验，横向默认完全交给扫描匹配。
         self.declare_parameter('command_motion_scale', 1.0)
+        self.declare_parameter('command_lateral_motion_scale', 0.0)
         self.declare_parameter('min_effective_linear_speed_mps', 0.30)
         self.declare_parameter('command_fresh_timeout_s', 0.5)
         self.declare_parameter('max_scan_dt_s', 0.25)
@@ -243,7 +247,10 @@ class ScanImuLocalizerNode(Node):
             and time.monotonic() - self._last_command_monotonic
             <= float(self.get_parameter('command_fresh_timeout_s').value)
         )
-        scale = float(self.get_parameter('command_motion_scale').value)
+        forward_scale = float(
+            self.get_parameter('command_motion_scale').value)
+        lateral_scale = float(
+            self.get_parameter('command_lateral_motion_scale').value)
         motion_prior = (0.0, 0.0)
         translation_expected = False
         if command_fresh and dt_sec > 0.0:
@@ -258,8 +265,8 @@ class ScanImuLocalizerNode(Node):
                 command_y = 0.0
             translation_expected = bool(command_x or command_y)
             motion_prior = (
-                command_x * dt_sec * scale,
-                command_y * dt_sec * scale,
+                command_x * dt_sec * forward_scale,
+                command_y * dt_sec * lateral_scale,
             )
         result = self.localizer.update_scan(
             message.ranges,

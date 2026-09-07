@@ -243,6 +243,9 @@ def generate_launch_description():
     localization_command_motion_scale = ParameterValue(
         LaunchConfiguration('localization_command_motion_scale'),
         value_type=float)
+    localization_command_lateral_motion_scale = ParameterValue(
+        LaunchConfiguration('localization_command_lateral_motion_scale'),
+        value_type=float)
     target_floors = LaunchConfiguration('target_floors')
     per_floor_exploration_s = LaunchConfiguration('per_floor_exploration_s')
     manual_elevator_assist = LaunchConfiguration('manual_elevator_assist')
@@ -357,6 +360,8 @@ def generate_launch_description():
         DeclareLaunchArgument('navigation_start_paused', default_value='false'),
         DeclareLaunchArgument(
             'localization_command_motion_scale', default_value='0.80'),
+        DeclareLaunchArgument(
+            'localization_command_lateral_motion_scale', default_value='0.0'),
         DeclareLaunchArgument('target_floors', default_value='[]'),
         DeclareLaunchArgument('per_floor_exploration_s', default_value='120.0'),
         DeclareLaunchArgument('manual_elevator_assist', default_value='true'),
@@ -424,6 +429,8 @@ def generate_launch_description():
                 # 固定取0.80，并由正式运行器同时传给入门和业务局部器，禁止
                 # 两阶段各用一套比例。
                 'command_motion_scale': localization_command_motion_scale,
+                'command_lateral_motion_scale': (
+                    localization_command_lateral_motion_scale),
                 'min_effective_linear_speed_mps': 0.30,
                 'use_sim_time': sim_time_parameter,
             }],

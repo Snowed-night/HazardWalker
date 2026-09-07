@@ -42,8 +42,12 @@ def test_online_localizer_can_publish_odometry_without_competing_tf():
     assert "declare_parameter('publish_tf', True)" in source
     assert 'if self.tf_broadcaster is not None:' in source
     assert "declare_parameter('command_motion_scale', 1.0)" in source
+    assert "declare_parameter('command_lateral_motion_scale', 0.0)" in source
     assert "declare_parameter('min_effective_linear_speed_mps', 0.30)" in source
     assert 'if abs(command_x) < min_effective_speed:' in source
+    assert 'command_x * dt_sec * forward_scale' in source
+    assert 'command_y * dt_sec * lateral_scale' in source
+    assert 'command_y * dt_sec * forward_scale' not in source
 
 
 def test_livox_point_cloud_uses_public_pitch_and_height_filter():
