@@ -253,12 +253,15 @@ def test_rosbridge_control_relay_defaults_to_safe_and_uses_wall_clock_watchdog()
     assert "declare_parameter('enable_cmd_vel_relay', False)" in source
     assert "declare_parameter('enable_odom_relay', False)" in source
     assert "declare_parameter('enable_odom_tf_relay', False)" in source
+    assert "declare_parameter('enable_proprio_odom_relay', False)" in source
     assert "if self.enable_odom_relay:" in source
     assert 'if self.enable_odom_tf_relay:' in source
     assert "source.get('orientation', {})" in source
     assert 'time.monotonic()' in source
     assert "declare_parameter('rgb_topic'" in source
     assert "declare_parameter('ros1_odom_topic', '/hazardwalker/odom')" in source
+    assert "'ros1_proprio_odom_topic', '/odom'" in source
+    assert "Odometry, '/hw/proprio_odom'" in source
     assert "'forwarded_cmd_count'" in source
     assert "rosbridge_host_header" in source
     runner = (REPO_ROOT / 'scripts' /
@@ -266,6 +269,7 @@ def test_rosbridge_control_relay_defaults_to_safe_and_uses_wall_clock_watchdog()
                   encoding='utf-8')
     assert 'OFFICIAL_SIMENV_ODOM_TOPIC:-/Odometry_gazebo' in runner
     assert 'OFFICIAL_SIMENV_ENABLE_ODOM_TF_RELAY:-0' in runner
+    assert 'OFFICIAL_SIMENV_ENABLE_PROPRIO_ODOM_RELAY:-0' in runner
 
 
 def test_gui_assist_request_can_only_call_bounded_ros2_services():
@@ -635,6 +639,8 @@ def test_cartographer_2d_fuses_only_speed_bounded_scan_imu_odometry():
     assert "('odom', '/hazardwalker/depth_icp/odometry')" not in two_dimensional_remaps
     assert "'command_motion_scale': localization_command_motion_scale" in launch
     assert "'command_lateral_motion_scale': (" in launch
+    assert "'proprio_odom_topic': '/hw/proprio_odom'" in launch
+    assert "'use_command_motion_fallback': (" in launch
     assert "'localization_command_motion_scale', default_value='0.80'" in launch
     assert (
         "'localization_command_lateral_motion_scale', default_value='0.0'"
@@ -816,7 +822,7 @@ def test_scan_imu_localizer_publishes_configured_runtime_provenance():
         'hazardwalker_perception' / 'scan_imu_localizer_node.py'
     ).read_text(encoding='utf-8')
     assert (
-        "declare_parameter('localization_provenance', 'lidar_imu_slam')"
+        "'localization_provenance', 'lidar_imu_proprio_slam'"
         in source
     )
     assert 'String(data=self.localization_provenance)' in source

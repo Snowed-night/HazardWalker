@@ -79,6 +79,8 @@ def build_official_detected_danger_result(
         'lidar_imu_slam',
         'visual_inertial_slam',
         'lidar_imu_slam+public_floor_action',
+        'lidar_imu_proprio_slam',
+        'lidar_imu_proprio_slam+public_floor_action',
     ),
     allowed_detection_sources=(
         'hsv_depth_tf',

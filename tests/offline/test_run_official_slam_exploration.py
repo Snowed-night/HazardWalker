@@ -31,22 +31,24 @@ def test_launch_command_uses_unique_managed_control_and_legal_slam_inputs():
     assert 'start_navigation:=true' in joined
     assert 'slam_backend:=cartographer' in joined
     assert 'slam_dimension:=2d' in joined
-    assert 'localization_provenance:=lidar_imu_slam' in joined
+    assert 'localization_provenance:=lidar_imu_proprio_slam' in joined
     assert 'navigation_linear_speed:=0.45' in joined
     assert 'navigation_minimum_linear_speed:=0.30' in joined
     assert 'navigation_start_paused:=true' in joined
     assert 'localization_command_motion_scale:=0.80' in joined
     assert 'localization_command_lateral_motion_scale:=0.00' in joined
+    assert 'localization_use_command_motion_fallback:=false' in joined
     assert 'mission_time_budget_s:=600.000' in joined
     assert 'strict_room_inspection:=false' in joined
     assert 'start_perception:=false' in joined
     assert 'start_evidence_recorder:=false' in joined
     assert 'perception_output_frame:=odom' in joined
-    assert 'nav_record_dir:=/tmp/nav-run/navigation' in joined
-    assert 'slam_monitor_output_dir:=/tmp/nav-run/slam' in joined
-    assert 'pointcloud_map_output_dir:=/tmp/nav-run/slam_3d' in joined
+    output = Path('/tmp/nav-run')
+    assert f'nav_record_dir:={output / "navigation"}' in joined
+    assert f'slam_monitor_output_dir:={output / "slam"}' in joined
+    assert f'pointcloud_map_output_dir:={output / "slam_3d"}' in joined
     assert 'start_slam_video:=true' in joined
-    assert 'slam_video_output:=/tmp/nav-run/video/slam_exploration.mp4' in joined
+    assert f'slam_video_output:={output / "video" / "slam_exploration.mp4"}' in joined
     assert '/hw/odom' not in joined
 
     multifloor = ' '.join(MODULE.build_launch_command(
@@ -59,7 +61,7 @@ def test_launch_command_uses_unique_managed_control_and_legal_slam_inputs():
     assert 'mission_time_budget_s:=900.000' in multifloor
     assert 'manual_elevator_assist:=false' in multifloor
     assert 'automatic_elevator_entry:=true' in multifloor
-    assert 'localization_provenance:=lidar_imu_slam+public_floor_action' in multifloor
+    assert 'localization_provenance:=lidar_imu_proprio_slam+public_floor_action' in multifloor
     assert 'simenv_container:=simenv_ros1_test' in multifloor
 
     strict = ' '.join(MODULE.build_launch_command(
@@ -71,14 +73,14 @@ def test_launch_command_uses_unique_managed_control_and_legal_slam_inputs():
     assert 'start_evidence_recorder:=true' in strict
     assert 'perception_output_frame:=odom' in strict
     assert 'perception_parameter_file:=' in strict
-    assert '/config/perception.yaml' in strict
+    assert str(ROOT / 'config' / 'perception.yaml') in strict
     assert 'official_hazard_source_frame:=odom' in strict
     assert 'official_world_from_map_y:=1.403000' in strict
     assert 'official_world_from_map_yaw:=1.570796' in strict
     assert 'official_floor_height_m:=2.600000' in strict
     assert 'official_sphere_center_height_m:=0.150000' in strict
     assert 'strict_room_clearance_m:=0.600000' in strict
-    assert 'official_result_path:=/tmp/nav-run/detected_danger.json' in strict
+    assert f'official_result_path:={output / "detected_danger.json"}' in strict
 
     perception_only = ' '.join(MODULE.build_launch_command(
         Path('/tmp/nav-run'), scenario_seed='20260823', code_version='abc',
@@ -212,9 +214,9 @@ def test_official_evaluation_runs_only_from_explicit_post_run_files():
     assert command[0] == 'python3'
     assert command[1].endswith('evaluate_danger.py')
     assert command[-6:] == [
-        '--truth-file', '/tmp/truth.json',
-        '--detected-file', '/tmp/detected.json',
-        '--output-file', '/tmp/evaluation.json',
+        '--truth-file', str(Path('/tmp/truth.json')),
+        '--detected-file', str(Path('/tmp/detected.json')),
+        '--output-file', str(Path('/tmp/evaluation.json')),
     ]
     source = SCRIPT.read_text(encoding='utf-8')
     assert source.index('stop_process_group(process)') < source.index(
@@ -339,6 +341,9 @@ def test_preflight_allows_control_odom_but_rejects_ground_truth_tf():
     assert '赛事 DWA 控制要求平台转发只读 /hw/odom' in source
     assert "adapter.get('enable_odom_tf_relay') is not False" in source
     assert '禁止平台把 Gazebo odom 转发为 odom→base TF' in source
+    assert "adapter.get('enable_proprio_odom_relay') is not True" in source
+    assert "'/hw/proprio_odom'" in source
+    assert "get('/odom', 0)" in source
     assert "adapter.get('enable_pointcloud_relay') is not True" in source
 
 

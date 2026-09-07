@@ -27,6 +27,19 @@ if [[ -z "${OFFICIAL_SIMENV_ENABLE_CONTROL+x}" ]]; then
   esac
 fi
 
+# START_CONTROLLER 会启动宇树 Estimator。把其 /odom 作为独立本体运动源转发，
+# 供 scan/IMU 定位器使用；该消息不发布 TF，也不替代 Gazebo DWA 控制里程计。
+if [[ -z "${OFFICIAL_SIMENV_ENABLE_PROPRIO_ODOM_RELAY+x}" ]]; then
+  case "${START_CONTROLLER:-1}" in
+    0|false|False|FALSE|no|NO|off|OFF)
+      export OFFICIAL_SIMENV_ENABLE_PROPRIO_ODOM_RELAY=0
+      ;;
+    *)
+      export OFFICIAL_SIMENV_ENABLE_PROPRIO_ODOM_RELAY=1
+      ;;
+  esac
+fi
+
 # 宇树 move_base 与容器同生命周期。只有显式启动该官方局部规划器时，
 # 受管适配器才桥接其目标和隔离速度话题；普通平台启动不增加 ROS 数据流。
 if [[ -z "${OFFICIAL_SIMENV_ENABLE_UNITREE_MOVE_BASE_BRIDGE+x}" ]]; then

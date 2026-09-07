@@ -33,6 +33,7 @@ REQUIRED_TOPICS = {
     '/clock',
     '/hw/scan',
     '/hw/trunk_imu',
+    '/hw/proprio_odom',
     '/hw/cmd_vel',
     '/hw/control/status',
     '/hw/platform/official_simenv_adapter_status',
@@ -56,8 +57,8 @@ RUNTIME_GIT_EXCLUDES = (
     'ros2_ws/src/hazardwalker_platform/generated_building/**',
     'ros2_ws/src/hazardwalker_platform/results/**',
 )
-# 固定种子长走廊实测：0.88 会把 25.18 m 前向位移累计成 27.66 m；
-# 按同一次合法 scan/IMU 轨迹标定为 0.80，使红球楼层坐标回到 1 m 计分门内。
+# 仅供显式诊断回退使用；正式运行固定关闭 cmd_vel 位移积分，短时运动先验
+# 由宇树 Estimator 的 /hw/proprio_odom 提供。
 A1_EXECUTION_SCALE = 0.80
 A1_LATERAL_EXECUTION_SCALE = 0.0
 
@@ -203,8 +204,8 @@ def build_launch_command(
     """构造唯一业务 launch；平台 adapter/mux 继续由平台生命周期管理。"""
 
     localization_provenance = (
-        'lidar_imu_slam+public_floor_action'
-        if target_floors else 'lidar_imu_slam')
+        'lidar_imu_proprio_slam+public_floor_action'
+        if target_floors else 'lidar_imu_proprio_slam')
     perception_enabled = bool(enable_perception or strict_room_inspection)
     command = [
         'ros2', 'launch', 'hazardwalker_bringup',
@@ -238,6 +239,7 @@ def build_launch_command(
         f'localization_command_motion_scale:={A1_EXECUTION_SCALE:.2f}',
         'localization_command_lateral_motion_scale:='
         f'{A1_LATERAL_EXECUTION_SCALE:.2f}',
+        'localization_use_command_motion_fallback:=false',
         f'exploration_timeout_s:={float(exploration_timeout_s):.3f}',
         f'mission_time_budget_s:={float(mission_time_budget_s):.3f}',
         f'simenv_container:={simenv_container}',
@@ -924,6 +926,15 @@ def preflight(expected_seed: str, require_pointcloud: bool = False) -> dict:
         raise RuntimeError(
             '禁止平台把 Gazebo odom 转发为 odom→base TF；SLAM 与感知必须 '
             '继续使用合法 scan+IMU 位姿树')
+    if adapter.get('enable_proprio_odom_relay') is not True:
+        raise RuntimeError(
+            '正式定位要求平台转发宇树 Estimator /odom 到 '
+            '/hw/proprio_odom；禁止回退为 cmd_vel 积分')
+    if (adapter.get('sources') or {}).get('proprio_odom') != '/odom':
+        raise RuntimeError('宇树本体里程计源必须为容器公开 /odom')
+    if int((adapter.get('received') or {}).get('/odom', 0)) <= 0:
+        raise RuntimeError(
+            '适配器尚未收到宇树本体里程计；禁止在只有话题名、没有数据时启动')
     if (require_pointcloud
             and adapter.get('enable_pointcloud_relay') is not True):
         raise RuntimeError('三维 SLAM 成果要求平台启用 Mid-360 点云转发')
@@ -1066,7 +1077,9 @@ def perform_entrance_ingress(
         '-r', '__node:=hazardwalker_ingress_localizer',
         '-p', 'use_sim_time:=true',
         '-p', 'publish_tf:=false',
-        '-p', 'localization_provenance:=lidar_imu_slam',
+        '-p', 'localization_provenance:=lidar_imu_proprio_slam',
+        '-p', 'proprio_odom_topic:=/hw/proprio_odom',
+        '-p', 'use_command_motion_fallback:=false',
         '-p', f'command_motion_scale:={A1_EXECUTION_SCALE:.2f}',
     ]
     localizer_log = None

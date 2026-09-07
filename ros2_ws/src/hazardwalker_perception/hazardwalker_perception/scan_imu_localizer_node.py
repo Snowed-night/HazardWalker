@@ -1,10 +1,11 @@
-"""官方 SimEnv 的 ROS2 合法激光—IMU增量里程计节点。
+"""官方 SimEnv 的 ROS2 合法激光—IMU—本体增量里程计节点。
 
 所属组：感知定位组。
-节点只订阅平台适配后的 `/hw/scan`、`/hw/trunk_imu` 和由公开动作确认的楼层编号，
-发布 `odom -> base` 与 `/hazardwalker/slam/odometry`。它禁止读取 `/hw/odom`、
-`/Odometry_gazebo`、场景布局或危险源真值，为 SLAM Toolbox、Frontier 探索和 RGB-D
-三维定位提供同一条可审计坐标链。
+节点订阅平台适配后的 `/hw/scan`、`/hw/trunk_imu`、宇树 Estimator 的
+`/hw/proprio_odom` 和由公开动作确认的楼层编号，发布 `odom -> base` 与
+`/hazardwalker/slam/odometry`。它禁止读取 Gazebo 真值 `/hw/odom`、
+`/Odometry_gazebo`、场景布局或危险源真值，为 Cartographer、Frontier 探索和
+RGB-D 三维定位提供同一条可审计坐标链。
 """
 
 import math
@@ -26,6 +27,7 @@ from hazardwalker_perception.scan_imu_localization import (
     ScanImuLocalizer,
     ScanImuLocalizerConfig,
     floor_index_to_elevation,
+    proprioceptive_planar_delta,
     quaternion_upright_cosine,
     quaternion_to_yaw,
 )
@@ -40,10 +42,12 @@ class ScanImuLocalizerNode(Node):
         self.declare_parameter('imu_topic', '/hw/trunk_imu')
         self.declare_parameter('floor_index_topic', '/hazardwalker/navigation/floor_index')
         self.declare_parameter('cmd_vel_topic', '/hw/cmd_vel')
+        self.declare_parameter('proprio_odom_topic', '/hw/proprio_odom')
         self.declare_parameter('output_topic', '/hazardwalker/slam/odometry')
         # 运行时发布同一份来源声明，供预检与 rosbag 交叉验证。该节点只能
         # 声明自身实际实现的 scan/IMU 两种来源，不能冒充视觉定位。
-        self.declare_parameter('localization_provenance', 'lidar_imu_slam')
+        self.declare_parameter(
+            'localization_provenance', 'lidar_imu_proprio_slam')
         self.declare_parameter('odom_frame', 'odom')
         self.declare_parameter('base_frame', 'base')
         # 作为 SLAM Toolbox 前端时需直接发布 odom→base；作为 Cartographer
@@ -59,12 +63,14 @@ class ScanImuLocalizerNode(Node):
         self.declare_parameter('min_match_count', 12)
         self.declare_parameter('laser_offset_x_m', 0.20)
         self.declare_parameter('laser_offset_y_m', 0.0)
-        # 该阈值只判断本轮是否允许扫描更新平移，不把命令当作位移真值。
-        # 固定距离扫描标定显示命令积分偏大约 1.5 倍，因此默认比例为 0.65；
-        # 低于 0.30 m/s 的命令处于官方 A1 控制死区附近，不作为平移先验。
-        # 重复长走廊只在前向缺少几何约束；横向墙距本身可观测。DWA 为追踪
-        # 目标会持续给出横移修正，但 A1 实际横移响应与命令积分差异很大，
-        # 因此前向保留标定先验，横向默认完全交给扫描匹配。
+        # cmd_vel 只表示“当前允许发生平移”，绝不能再作为实际位移。真正短时
+        # 运动先验来自宇树 Estimator；它由足端接触、关节状态和 IMU 估计，
+        # 被门框挡住时不会像命令积分那样凭空累计前进距离。
+        self.declare_parameter('proprio_fresh_timeout_s', 0.5)
+        self.declare_parameter('proprio_max_interval_s', 0.25)
+        self.declare_parameter('proprio_max_step_m', 0.25)
+        self.declare_parameter('use_command_motion_fallback', False)
+        # 仅为非正式兼容模式保留命令积分回退；正式入口固定关闭。
         self.declare_parameter('command_motion_scale', 1.0)
         self.declare_parameter('command_lateral_motion_scale', 0.0)
         self.declare_parameter('min_effective_linear_speed_mps', 0.30)
@@ -106,6 +112,9 @@ class ScanImuLocalizerNode(Node):
         self.latest_upright_cosine = None
         self.latest_command = Twist()
         self._last_command_monotonic = None
+        self.latest_proprio_pose = None
+        self._last_proprio_monotonic = None
+        self._last_consumed_proprio_pose = None
         self._last_scan_time_sec = None
         self.tf_broadcaster = (
             TransformBroadcaster(self)
@@ -120,6 +129,8 @@ class ScanImuLocalizerNode(Node):
         allowed_provenance = {
             'lidar_imu_slam',
             'lidar_imu_slam+public_floor_action',
+            'lidar_imu_proprio_slam',
+            'lidar_imu_proprio_slam+public_floor_action',
         }
         if self.localization_provenance not in allowed_provenance:
             raise ValueError(
@@ -152,16 +163,23 @@ class ScanImuLocalizerNode(Node):
             10,
         )
         self.create_subscription(
+            Odometry,
+            str(self.get_parameter('proprio_odom_topic').value),
+            self.on_proprio_odom,
+            20,
+        )
+        self.create_subscription(
             Int32,
             str(self.get_parameter('floor_index_topic').value),
             self.on_floor_index,
             10,
         )
         self.get_logger().info(
-            'Legal scan/IMU odometry ready: %s + %s -> %s -> %s'
+            'Legal scan/IMU/proprio odometry ready: %s + %s + %s -> %s -> %s'
             % (
                 self.get_parameter('scan_topic').value,
                 self.get_parameter('imu_topic').value,
+                self.get_parameter('proprio_odom_topic').value,
                 self.odom_frame,
                 self.base_frame,
             )
@@ -177,10 +195,24 @@ class ScanImuLocalizerNode(Node):
         )
 
     def on_cmd_vel(self, message):
-        """保存本系统已下发的合法控制，作为退化走廊中的短时匹配方向先验。"""
+        """保存合法控制，只用于判断当前是否允许扫描匹配更新平移。"""
 
         self.latest_command = message
         self._last_command_monotonic = time.monotonic()
+
+    def on_proprio_odom(self, message):
+        """保存宇树 Estimator 的本体位姿；不转发其 TF，也不当累计世界坐标。"""
+
+        stamp = message.header.stamp
+        orientation = message.pose.pose.orientation
+        self.latest_proprio_pose = (
+            float(stamp.sec) + float(stamp.nanosec) * 1e-9,
+            float(message.pose.pose.position.x),
+            float(message.pose.pose.position.y),
+            quaternion_to_yaw(
+                orientation.x, orientation.y, orientation.z, orientation.w),
+        )
+        self._last_proprio_monotonic = time.monotonic()
 
     def on_floor_index(self, message):
         try:
@@ -199,6 +231,8 @@ class ScanImuLocalizerNode(Node):
         self.floor_index = new_index
         self.floor_elevation_m = elevation
         self.localizer.reset_matching_map()
+        # 电梯运动不属于任一楼层的平面扫描匹配；新楼层首帧重新建立短时基线。
+        self._last_consumed_proprio_pose = None
         self.get_logger().info(
             '楼层切换到 %d，合法相对高度 %.3f m；已隔离旧楼层扫描地图。'
             % (self.floor_index, self.floor_elevation_m)
@@ -247,10 +281,6 @@ class ScanImuLocalizerNode(Node):
             and time.monotonic() - self._last_command_monotonic
             <= float(self.get_parameter('command_fresh_timeout_s').value)
         )
-        forward_scale = float(
-            self.get_parameter('command_motion_scale').value)
-        lateral_scale = float(
-            self.get_parameter('command_lateral_motion_scale').value)
         motion_prior = (0.0, 0.0)
         translation_expected = False
         if command_fresh and dt_sec > 0.0:
@@ -264,9 +294,38 @@ class ScanImuLocalizerNode(Node):
             if abs(command_y) < min_effective_speed:
                 command_y = 0.0
             translation_expected = bool(command_x or command_y)
+        proprio_fresh = (
+            self.latest_proprio_pose is not None
+            and self._last_proprio_monotonic is not None
+            and time.monotonic() - self._last_proprio_monotonic
+            <= float(self.get_parameter('proprio_fresh_timeout_s').value)
+        )
+        if proprio_fresh:
+            if self._last_consumed_proprio_pose is not None:
+                motion_prior = proprioceptive_planar_delta(
+                    self._last_consumed_proprio_pose,
+                    self.latest_proprio_pose,
+                    max_step_m=float(
+                        self.get_parameter('proprio_max_step_m').value),
+                    max_interval_s=float(
+                        self.get_parameter('proprio_max_interval_s').value),
+                )
+            self._last_consumed_proprio_pose = self.latest_proprio_pose
+        elif bool(self.get_parameter('use_command_motion_fallback').value):
+            # 诊断兼容分支。正式三层入口关闭该分支，缺失本体里程计时宁可
+            # 只靠扫描证据，也不能重新把“想走多远”冒充“实际走了多远”。
+            forward_scale = float(
+                self.get_parameter('command_motion_scale').value)
+            lateral_scale = float(
+                self.get_parameter('command_lateral_motion_scale').value)
             motion_prior = (
                 command_x * dt_sec * forward_scale,
                 command_y * dt_sec * lateral_scale,
+            ) if translation_expected else (0.0, 0.0)
+        elif self.latest_proprio_pose is None:
+            self.get_logger().warn(
+                '等待 /hw/proprio_odom；正式模式禁止用 cmd_vel 积分替代实际位移。',
+                throttle_duration_sec=5.0,
             )
         result = self.localizer.update_scan(
             message.ranges,

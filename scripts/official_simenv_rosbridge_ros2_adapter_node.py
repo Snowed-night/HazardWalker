@@ -4,8 +4,9 @@
 所属组：平台与仿真组。负责人：姜晨。
 运行位置：ROS2 主机，不运行在仅安装 ROS1 的官方 Docker 内。通过 rosbridge v2 WebSocket 订阅官方
 RGB、深度、内参、激光和 IMU，完整重组 fragment 后发布稳定 /hw/*；仅显式开启时才把
-/hw/cmd_vel 发回官方 /cmd_vel。正式模式默认不订阅 Gazebo 派生里程计，由感知定位组
-scan/IMU 节点发布合法 odom。验证：先跑 ROS1 直连控制，再执行适配器验收脚本。
+/hw/cmd_vel 发回官方 /cmd_vel。正式模式把 Gazebo 派生 `/Odometry_gazebo` 与宇树
+Estimator `/odom` 分开转发：前者只供 DWA 控制，后者只供 scan/IMU 定位器作短时
+运动先验，二者都不发布 TF。验证：先跑 ROS1 直连控制，再执行适配器验收脚本。
 """
 
 import base64
@@ -40,6 +41,51 @@ from hazardwalker_platform.rosbridge_protocol import (
 
 def _stamp(target, source):
     target.sec, target.nanosec = decode_ros_time(source)
+
+
+def _decode_odometry(source):
+    """把 rosbridge JSON 解码为 Odometry，完整保留位姿、速度与协方差。"""
+
+    source = source if isinstance(source, dict) else {}
+    header = source.get('header', {})
+    message = Odometry()
+    _stamp(message.header.stamp, header.get('stamp'))
+    message.header.frame_id = str(header.get('frame_id', ''))
+    message.child_frame_id = str(source.get('child_frame_id', ''))
+    pose_container = source.get('pose', {})
+    twist_container = source.get('twist', {})
+    pose = pose_container.get('pose', {})
+    twist = twist_container.get('twist', {})
+    for name in ('x', 'y', 'z'):
+        setattr(
+            message.pose.pose.position,
+            name,
+            float(pose.get('position', {}).get(name, 0.0)),
+        )
+        setattr(
+            message.twist.twist.linear,
+            name,
+            float(twist.get('linear', {}).get(name, 0.0)),
+        )
+    for name in ('x', 'y', 'z', 'w'):
+        setattr(
+            message.pose.pose.orientation,
+            name,
+            float(pose.get('orientation', {}).get(name, 0.0)),
+        )
+    for name in ('x', 'y', 'z'):
+        setattr(
+            message.twist.twist.angular,
+            name,
+            float(twist.get('angular', {}).get(name, 0.0)),
+        )
+    pose_covariance = pose_container.get('covariance', [])
+    twist_covariance = twist_container.get('covariance', [])
+    if len(pose_covariance) == 36:
+        message.pose.covariance = [float(value) for value in pose_covariance]
+    if len(twist_covariance) == 36:
+        message.twist.covariance = [float(value) for value in twist_covariance]
+    return message
 
 
 class RosbridgeHwAdapter(Node):
@@ -110,6 +156,13 @@ class RosbridgeHwAdapter(Node):
             self.declare_parameter('enable_odom_tf_relay', False).value
         )
         self.odom_throttle_rate_ms = int(self.declare_parameter('odom_throttle_rate_ms', 20).value)
+        # 宇树 Estimator /odom 来自关节、足端接触和 trunk IMU，不是 Gazebo
+        # ground truth。只转发消息供定位器计算相邻帧增量，永远不转发其 TF。
+        self.enable_proprio_odom_relay = bool(
+            self.declare_parameter('enable_proprio_odom_relay', False).value
+        )
+        self.proprio_odom_throttle_rate_ms = int(self.declare_parameter(
+            'proprio_odom_throttle_rate_ms', 20).value)
         # 官方 /tf 可达 500 Hz；三维定位消费的是低频 RGB-D，保留 50 Hz 已足够插值，
         # 否则 JSON 解码会饿死大图像分片与感知回调。
         self.tf_throttle_rate_ms = int(self.declare_parameter('tf_throttle_rate_ms', 20).value)
@@ -185,6 +238,11 @@ class RosbridgeHwAdapter(Node):
         self.depth_info_topic = self.declare_parameter('depth_camera_info_topic', '/real_sense/depth/camera_info').value
         # 仅 enable_odom_relay=true 的平台诊断模式会使用该话题。
         self.ros1_odom_topic = self.declare_parameter('ros1_odom_topic', '/hazardwalker/odom').value
+        self.ros1_proprio_odom_topic = self.declare_parameter(
+            'ros1_proprio_odom_topic', '/odom').value
+        if (self.enable_odom_relay and self.enable_proprio_odom_relay
+                and self.ros1_odom_topic == self.ros1_proprio_odom_topic):
+            raise ValueError('Gazebo 控制里程计与宇树本体里程计源话题不得相同')
         self._last_cmd = None
         self._last_forwarded_cmd = None
         self._forwarded_cmd_count = 0
@@ -205,6 +263,8 @@ class RosbridgeHwAdapter(Node):
         self._pending_lock = threading.Lock()
         self.clock_pub = self.create_publisher(Clock, '/clock', 10)
         self.odom_pub = self.create_publisher(Odometry, '/hw/odom', 10)
+        self.proprio_odom_pub = self.create_publisher(
+            Odometry, '/hw/proprio_odom', 20)
         self.rgb_pub = self.create_publisher(Image, '/hw/camera/image_raw', 1)
         self.depth_pub = self.create_publisher(Image, '/hw/camera/depth_image', 1)
         self.info_pub = self.create_publisher(CameraInfo, '/hw/camera/camera_info', 1)
@@ -221,7 +281,8 @@ class RosbridgeHwAdapter(Node):
             Twist, self.ros2_move_base_cmd_topic, 10)
         self._ros_publishers = {
             'clock': self.clock_pub,
-            'odom': self.odom_pub, 'rgb': self.rgb_pub, 'depth': self.depth_pub,
+            'odom': self.odom_pub, 'proprio_odom': self.proprio_odom_pub,
+            'rgb': self.rgb_pub, 'depth': self.depth_pub,
             'rgb_info': self.info_pub, 'depth_info': self.depth_info_pub,
             'tf': self.tf_pub, 'tf_static': self.tf_static_pub,
             'scan': self.scan_pub, 'scan_raw': self.scan_raw_pub,
@@ -290,11 +351,12 @@ class RosbridgeHwAdapter(Node):
         # 受管进程的 stdout/stderr 会进入 adapter.log。启动时必须明确记录关键
         # 开关，避免“传感器正常但控制被关闭”只能通过 ROS2 参数反向猜测。
         self.get_logger().info(
-            'official SimEnv adapter started: control=%s image=%s odom=%s seed=%s'
+            'official SimEnv adapter started: control=%s image=%s odom=%s proprio=%s seed=%s'
             % (
                 self.enable_control,
                 self.enable_image_relay,
                 self.enable_odom_relay,
+                self.enable_proprio_odom_relay,
                 self.scenario_seed or 'unset',
             )
         )
@@ -400,6 +462,9 @@ class RosbridgeHwAdapter(Node):
                     subscriptions.append((self.clock_topic, 'rosgraph_msgs/Clock'))
                 if self.enable_odom_relay:
                     subscriptions.append((self.ros1_odom_topic, 'nav_msgs/Odometry'))
+                if self.enable_proprio_odom_relay:
+                    subscriptions.append((
+                        self.ros1_proprio_odom_topic, 'nav_msgs/Odometry'))
                 if self.enable_tf_relay:
                     subscriptions.extend((('/tf', 'tf2_msgs/TFMessage'),
                                           ('/tf_static', 'tf2_msgs/TFMessage')))
@@ -415,7 +480,10 @@ class RosbridgeHwAdapter(Node):
                 for topic, msg_type in subscriptions:
                     request = {'op': 'subscribe', 'id': 'hw:' + topic, 'topic': topic, 'type': msg_type,
                                'queue_length': 1, 'fragment_size': 60000, 'compression': 'none'}
-                    if topic == self.ros1_odom_topic:
+                    if topic == self.ros1_proprio_odom_topic:
+                        request['throttle_rate'] = (
+                            self.proprio_odom_throttle_rate_ms)
+                    elif topic == self.ros1_odom_topic:
                         request['throttle_rate'] = self.odom_throttle_rate_ms
                     elif topic == self.clock_topic:
                         request['throttle_rate'] = self.clock_throttle_rate_ms
@@ -526,19 +594,8 @@ class RosbridgeHwAdapter(Node):
             )
             self._queue_message('clock', message)
         elif self.enable_odom_relay and topic == self.ros1_odom_topic:
-            message = Odometry(); _stamp(message.header.stamp, header.get('stamp')); message.header.frame_id = header.get('frame_id', '')
-            message.child_frame_id = source.get('child_frame_id', '')
-            pose = source.get('pose', {}).get('pose', {}); twist = source.get('twist', {}).get('twist', {})
-            for name in ('x', 'y', 'z'):
-                setattr(message.pose.pose.position, name, float(pose.get('position', {}).get(name, 0.0)))
-                setattr(message.twist.twist.linear, name, float(twist.get('linear', {}).get(name, 0.0)))
+            message = _decode_odometry(source)
             self._official_odom_xy = (message.pose.pose.position.x, message.pose.pose.position.y)
-            # Pose 使用四元数 (x/y/z/w)，Twist.angular 是三维 Vector3，不能把 w 写入其中。
-            # 这里若混写会在首个 Odometry 包抛 AttributeError，使整个 rosbridge 收帧循环重连。
-            for name in ('x', 'y', 'z', 'w'):
-                setattr(message.pose.pose.orientation, name, float(pose.get('orientation', {}).get(name, 0.0)))
-            for name in ('x', 'y', 'z'):
-                setattr(message.twist.twist.angular, name, float(twist.get('angular', {}).get(name, 0.0)))
             self._queue_message('odom', message)
             # 正式模式由 scan_imu_localizer_node 唯一发布 odom→base。官方
             # Odometry 仅作为局部 DWA 控制参考，不进入 SLAM/危险源坐标。
@@ -552,6 +609,11 @@ class RosbridgeHwAdapter(Node):
                 odom_tf.transform.translation.z = message.pose.pose.position.z
                 odom_tf.transform.rotation = message.pose.pose.orientation
                 self._queue_message('tf', TFMessage(transforms=[odom_tf]))
+        elif (self.enable_proprio_odom_relay
+              and topic == self.ros1_proprio_odom_topic):
+            # 仅发布独立消息。禁止把 Estimator 自带 odom→base TF 转入 ROS2，
+            # Cartographer/合法定位器仍是比赛坐标树唯一发布者。
+            self._queue_message('proprio_odom', _decode_odometry(source))
         elif topic in (self.rgb_topic, self.depth_topic):
             message = Image(); _stamp(message.header.stamp, header.get('stamp')); message.header.frame_id = header.get('frame_id', '')
             message.height = int(source.get('height', 0)); message.width = int(source.get('width', 0))
@@ -860,7 +922,9 @@ class RosbridgeHwAdapter(Node):
             'last_forwarded_cmd': self._last_forwarded_cmd,
             'sources': {'rgb': self.rgb_topic, 'depth': self.depth_topic,
                         'rgb_camera_info': self.rgb_info_topic,
-                        'depth_camera_info': self.depth_info_topic},
+                        'depth_camera_info': self.depth_info_topic,
+                        'official_odom': self.ros1_odom_topic,
+                        'proprio_odom': self.ros1_proprio_odom_topic},
             'enable_image_relay': self.enable_image_relay,
             'enable_clock_relay': self.enable_clock_relay,
             'clock_topic': self.clock_topic,
@@ -875,6 +939,9 @@ class RosbridgeHwAdapter(Node):
             'enable_odom_relay': self.enable_odom_relay,
             'enable_odom_tf_relay': self.enable_odom_tf_relay,
             'odom_throttle_rate_ms': self.odom_throttle_rate_ms,
+            'enable_proprio_odom_relay': self.enable_proprio_odom_relay,
+            'proprio_odom_throttle_rate_ms': (
+                self.proprio_odom_throttle_rate_ms),
             'enable_tf_relay': self.enable_tf_relay,
             'tf_throttle_rate_ms': self.tf_throttle_rate_ms,
             'dropped_inconsistent_tf': self._dropped_inconsistent_tf,

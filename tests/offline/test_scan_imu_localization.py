@@ -14,6 +14,7 @@ from hazardwalker_perception.scan_imu_localization import (
     ScanImuLocalizer,
     ScanImuLocalizerConfig,
     floor_index_to_elevation,
+    proprioceptive_planar_delta,
     point_cloud_xyz_to_base_points,
     quaternion_to_yaw,
     scan_ranges_to_points,
@@ -41,13 +42,48 @@ def test_online_localizer_can_publish_odometry_without_competing_tf():
     ).read_text(encoding='utf-8')
     assert "declare_parameter('publish_tf', True)" in source
     assert 'if self.tf_broadcaster is not None:' in source
+    assert "declare_parameter('proprio_odom_topic', '/hw/proprio_odom')" in source
+    assert "declare_parameter('use_command_motion_fallback', False)" in source
     assert "declare_parameter('command_motion_scale', 1.0)" in source
     assert "declare_parameter('command_lateral_motion_scale', 0.0)" in source
     assert "declare_parameter('min_effective_linear_speed_mps', 0.30)" in source
     assert 'if abs(command_x) < min_effective_speed:' in source
-    assert 'command_x * dt_sec * forward_scale' in source
-    assert 'command_y * dt_sec * lateral_scale' in source
+    assert 'proprioceptive_planar_delta(' in source
+    assert 'command_x * dt_sec * forward_scale' in source  # 仅显式诊断回退。
+    assert 'command_y * dt_sec * lateral_scale' in source  # 仅显式诊断回退。
     assert 'command_y * dt_sec * forward_scale' not in source
+
+
+def test_proprioceptive_delta_uses_real_motion_not_requested_command():
+    """本体未移动时，无论上层发过什么命令，运动先验都必须为零。"""
+
+    assert proprioceptive_planar_delta(
+        (1.00, 3.0, -2.0, 0.0),
+        (1.05, 3.0, -2.0, 0.0),
+    ) == (0.0, 0.0)
+
+
+def test_proprioceptive_delta_rotates_world_displacement_into_body_frame():
+    forward, left = proprioceptive_planar_delta(
+        (1.00, 0.0, 0.0, math.pi / 2.0),
+        (1.05, 0.0, 0.10, math.pi / 2.0),
+    )
+
+    assert abs(forward - 0.10) < 1e-9
+    assert abs(left) < 1e-9
+
+
+def test_proprioceptive_delta_rejects_reconnect_gap_and_clamps_spike():
+    assert proprioceptive_planar_delta(
+        (1.0, 0.0, 0.0, 0.0),
+        (2.0, 3.0, 0.0, 0.0),
+    ) == (0.0, 0.0)
+    forward, left = proprioceptive_planar_delta(
+        (1.00, 0.0, 0.0, 0.0),
+        (1.05, 3.0, 4.0, 0.0),
+        max_step_m=0.25,
+    )
+    assert abs(math.hypot(forward, left) - 0.25) < 1e-9
 
 
 def test_livox_point_cloud_uses_public_pitch_and_height_filter():

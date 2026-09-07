@@ -38,6 +38,9 @@ ODOM_TOPIC="${OFFICIAL_SIMENV_ODOM_TOPIC:-/Odometry_gazebo}"
 # 平台诊断默认转发容器内最新值中继；它与控制、点云互相独立，且不构成合法 SLAM 位姿。
 ENABLE_ODOM_RELAY="${OFFICIAL_SIMENV_ENABLE_ODOM_RELAY:-1}"
 ENABLE_ODOM_TF_RELAY="${OFFICIAL_SIMENV_ENABLE_ODOM_TF_RELAY:-0}"
+PROPRIO_ODOM_TOPIC="${OFFICIAL_SIMENV_PROPRIO_ODOM_TOPIC:-/odom}"
+ENABLE_PROPRIO_ODOM_RELAY="${OFFICIAL_SIMENV_ENABLE_PROPRIO_ODOM_RELAY:-0}"
+PROPRIO_ODOM_THROTTLE_RATE_MS="${OFFICIAL_SIMENV_PROPRIO_ODOM_THROTTLE_RATE_MS:-20}"
 PUBLIC_START_X="${OFFICIAL_PUBLIC_START_X:-0.0}"
 PUBLIC_START_Y="${OFFICIAL_PUBLIC_START_Y:--2.2}"
 PUBLIC_START_Z="${OFFICIAL_PUBLIC_START_Z:-0.6}"
@@ -59,6 +62,7 @@ MANAGED_LIFECYCLE="$(as_ros_bool "$MANAGED_LIFECYCLE")"
 ENABLE_IMAGE_RELAY="$(as_ros_bool "$ENABLE_IMAGE_RELAY")"
 ENABLE_ODOM_RELAY="$(as_ros_bool "$ENABLE_ODOM_RELAY")"
 ENABLE_ODOM_TF_RELAY="$(as_ros_bool "$ENABLE_ODOM_TF_RELAY")"
+ENABLE_PROPRIO_ODOM_RELAY="$(as_ros_bool "$ENABLE_PROPRIO_ODOM_RELAY")"
 ENABLE_POINTCLOUD_RELAY="$(as_ros_bool "$ENABLE_POINTCLOUD_RELAY")"
 ENABLE_LIVOX_IMU_RELAY="$(as_ros_bool "$ENABLE_LIVOX_IMU_RELAY")"
 ENABLE_TRUNK_IMU_RELAY="$(as_ros_bool "$ENABLE_TRUNK_IMU_RELAY")"
@@ -123,6 +127,10 @@ if [[ "$ENABLE_ODOM_RELAY" == "true" ]] && ! docker exec "$CONTAINER" bash -lc "
   echo "[rosbridge-adapter] 官方最新值里程计未就绪：$ODOM_TOPIC；请用修复后的 auto_docker.sh 重建并启动容器。" >&2
   exit 1
 fi
+if [[ "$ENABLE_PROPRIO_ODOM_RELAY" == "true" ]] && ! docker exec "$CONTAINER" bash -lc "source /opt/ros/noetic/setup.bash; timeout 5 rostopic echo -n 1 '$PROPRIO_ODOM_TOPIC' >/dev/null"; then
+  echo "[rosbridge-adapter] 宇树本体里程计未就绪：$PROPRIO_ODOM_TOPIC；请确认 Estimator 已随控制器启动。" >&2
+  exit 1
+fi
 ARGS=(--ros-args -p rosbridge_url:="$ROSBRIDGE_URL")
 if [[ -n "$ROSBRIDGE_HOST_HEADER" ]]; then
   ARGS+=(-p rosbridge_host_header:="$ROSBRIDGE_HOST_HEADER")
@@ -146,6 +154,9 @@ exec "$PYTHON_BIN" "$ROOT/scripts/official_simenv_rosbridge_ros2_adapter_node.py
   -p enable_odom_tf_relay:="$ENABLE_ODOM_TF_RELAY" \
   -p ros1_odom_topic:="$ODOM_TOPIC" \
   -p odom_throttle_rate_ms:="$ODOM_THROTTLE_RATE_MS" \
+  -p enable_proprio_odom_relay:="$ENABLE_PROPRIO_ODOM_RELAY" \
+  -p ros1_proprio_odom_topic:="$PROPRIO_ODOM_TOPIC" \
+  -p proprio_odom_throttle_rate_ms:="$PROPRIO_ODOM_THROTTLE_RATE_MS" \
   -p scan_throttle_rate_ms:="$SCAN_THROTTLE_RATE_MS" \
   -p scan_self_filter_range_m:="$SCAN_SELF_FILTER_RANGE_M" \
   -p pointcloud_throttle_rate_ms:="$POINTCLOUD_THROTTLE_RATE_MS" \

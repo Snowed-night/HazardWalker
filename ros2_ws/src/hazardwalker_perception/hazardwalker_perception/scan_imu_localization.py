@@ -1,8 +1,10 @@
-"""仅使用激光扫描与 IMU 的二维增量定位纯函数。
+"""使用激光、IMU 与机体本体里程计的二维增量定位纯函数。
 
 用于官方 SimEnv 的感知定位链路：不读取 Gazebo 里程计、ground truth 或场景布局，
-只把公开 LaserScan 端点逐帧对齐到本进程构建的局部占据点图。它提供 ``start``
-坐标系下的机体位姿，供 RGB-D 红球反投影使用；不承担导航、地图探索或控制职责。
+只把公开 LaserScan 端点逐帧对齐到本进程构建的局部占据点图，并允许使用宇树
+Estimator 基于足端接触、关节状态和 IMU 输出的短时位移作为配准初值。它提供
+``start`` 坐标系下的机体位姿，供 RGB-D 红球反投影使用；不承担导航、地图探索
+或控制职责，也不读取 Gazebo 真值里程计。
 """
 
 from dataclasses import dataclass
@@ -63,6 +65,52 @@ class ScanImuLocalizerConfig:
     allow_degenerate_command_prior: bool = True
     max_degenerate_prior_step_m: float = 0.25
     minimum_command_progress_ratio: float = 0.85
+
+
+def proprioceptive_planar_delta(
+        previous_pose, current_pose, max_step_m=0.25,
+        max_interval_s=0.25):
+    """把两帧宇树本体里程计转换为机体坐标系短时平移。
+
+    ``previous_pose`` 与 ``current_pose`` 均为 ``(stamp, x, y, yaw)``。全局
+    平移按两帧中间朝向旋转到 ``forward/left``，适用于转弯中的短弧运动。
+    时间倒退、数据中断或非有限值一律返回零；异常大步长只做向量限幅，防止
+    rosbridge 重连后的旧数据把 SLAM 瞬间推远。
+    """
+
+    try:
+        previous_stamp, previous_x, previous_y, previous_yaw = (
+            float(value) for value in previous_pose)
+        current_stamp, current_x, current_y, current_yaw = (
+            float(value) for value in current_pose)
+    except (TypeError, ValueError):
+        return 0.0, 0.0
+    values = (
+        previous_stamp, previous_x, previous_y, previous_yaw,
+        current_stamp, current_x, current_y, current_yaw,
+    )
+    if not all(math.isfinite(value) for value in values):
+        return 0.0, 0.0
+    interval_s = current_stamp - previous_stamp
+    if interval_s <= 0.0 or interval_s > max(0.0, float(max_interval_s)):
+        return 0.0, 0.0
+
+    yaw_delta = normalize_angle(current_yaw - previous_yaw)
+    middle_yaw = previous_yaw + 0.5 * yaw_delta
+    delta_x = current_x - previous_x
+    delta_y = current_y - previous_y
+    cosine, sine = math.cos(middle_yaw), math.sin(middle_yaw)
+    forward = cosine * delta_x + sine * delta_y
+    left = -sine * delta_x + cosine * delta_y
+    distance = math.hypot(forward, left)
+    maximum_step = max(0.0, float(max_step_m))
+    if distance > maximum_step:
+        if maximum_step <= 0.0:
+            return 0.0, 0.0
+        scale = maximum_step / distance
+        forward *= scale
+        left *= scale
+    return forward, left
 
 
 class ScanImuLocalizer:
