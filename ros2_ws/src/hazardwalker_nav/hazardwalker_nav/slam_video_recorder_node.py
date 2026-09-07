@@ -3,7 +3,8 @@
 
 所属组：导航探索组。负责人：姜晨。
 文件作用：仅订阅公开SLAM输出并生成低开销MP4，不参与定位、规划或控制。
-视频每收到一帧有界三维地图写入一帧，适合把长时低实时率仿真压缩成演示视频。
+视频以 `/map` 更新节拍写入；三维点云若启用则作为右侧可选图层。这样二维正式
+任务即使关闭高带宽点云，也一定能留下完整建图与轨迹视频。
 """
 
 from pathlib import Path
@@ -49,6 +50,7 @@ class SlamVideoRecorder(Node):
         self.max_render_points = max(
             1000, int(self.get_parameter('max_render_points').value))
         self.latest_map = None
+        self.latest_cloud = np.empty((0, 3), dtype=np.float32)
         self.floor_index = 0
         self.nav_state = 'INIT'
         self.paths = {}
@@ -69,7 +71,9 @@ class SlamVideoRecorder(Node):
         self.get_logger().info(f'SLAM视频录制：{self.output_path}')
 
     def _on_map(self, message):
-        self.latest_map = message
+        with self._lock:
+            self.latest_map = message
+            self._write_frame(self.latest_cloud)
 
     def _on_floor(self, message):
         self.floor_index = int(message.data)
@@ -95,17 +99,24 @@ class SlamVideoRecorder(Node):
             if len(points) > self.max_render_points:
                 stride = max(1, len(points) // self.max_render_points)
                 points = points[::stride][:self.max_render_points]
-            pose = self._current_pose()
-            if pose is not None:
-                self.paths.setdefault(self.floor_index, []).append(pose)
-            frame = self._render_frame(points, pose)
-            self.writer.write(frame)
-            self.frame_count += 1
-            if self.frame_count % 10 == 0:
-                cv2.imwrite(
-                    str(self.output_path.with_name(
-                        self.output_path.stem + '_latest.png')),
-                    frame)
+            self.latest_cloud = points
+            # 纯三维诊断在 /map 尚未产生时仍可录像；正常二维/三维正式任务
+            # 统一由地图更新驱动，避免同一时刻重复写帧。
+            if self.latest_map is None:
+                self._write_frame(points)
+
+    def _write_frame(self, points):
+        pose = self._current_pose()
+        if pose is not None:
+            self.paths.setdefault(self.floor_index, []).append(pose)
+        frame = self._render_frame(points, pose)
+        self.writer.write(frame)
+        self.frame_count += 1
+        if self.frame_count % 10 == 0:
+            cv2.imwrite(
+                str(self.output_path.with_name(
+                    self.output_path.stem + '_latest.png')),
+                frame)
 
     def _render_frame(self, points, pose):
         frame = np.full((FRAME_HEIGHT, FRAME_WIDTH, 3), 18, dtype=np.uint8)

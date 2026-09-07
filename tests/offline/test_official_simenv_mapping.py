@@ -258,6 +258,20 @@ def test_formal_runner_never_bypasses_managed_command_mux():
     assert "Twist, '/hw/control/assist_cmd_vel'" in source
 
 
+def test_slam_video_is_driven_by_2d_map_when_pointcloud_is_disabled():
+    source = (
+        REPO_ROOT / 'ros2_ws' / 'src' / 'hazardwalker_nav' /
+        'hazardwalker_nav' / 'slam_video_recorder_node.py'
+    ).read_text(encoding='utf-8')
+    map_callback = source.split('def _on_map', 1)[1].split(
+        'def _on_floor', 1)[0]
+    cloud_callback = source.split('def _on_cloud', 1)[1].split(
+        'def _write_frame', 1)[0]
+    assert 'self._write_frame(self.latest_cloud)' in map_callback
+    assert 'self.latest_cloud = points' in cloud_callback
+    assert 'if self.latest_map is None:' in cloud_callback
+
+
 def test_rosbridge_control_relay_defaults_to_safe_and_uses_wall_clock_watchdog():
     source = (REPO_ROOT / 'scripts' / 'official_simenv_rosbridge_ros2_adapter_node.py').read_text(
         encoding='utf-8')
