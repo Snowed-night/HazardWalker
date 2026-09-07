@@ -203,6 +203,9 @@ class FrontierExplorerNode(Node):
         self.declare_parameter('official_home_tolerance_m', 0.60)
         self.declare_parameter('official_return_floor_index', 0)
         self.declare_parameter('official_return_lookahead_m', 3.0)
+        self.declare_parameter(
+            'final_floor_anchor_topic',
+            '/hazardwalker/navigation/final_floor_anchor')
         self.declare_parameter('use_official_odom_for_elevator_control', False)
         self.declare_parameter('official_elevator_lobby_x_m', 0.80)
         self.declare_parameter('official_elevator_cabin_x_m', 2.70)
@@ -873,6 +876,11 @@ class FrontierExplorerNode(Node):
         floor_index_qos.durability = DurabilityPolicy.TRANSIENT_LOCAL
         self.floor_index_pub = self.create_publisher(
             Int32, '/hazardwalker/navigation/floor_index', floor_index_qos)
+        self.final_floor_anchor_pub = self.create_publisher(
+            Int32,
+            str(self.get_parameter('final_floor_anchor_topic').value),
+            floor_index_qos,
+        )
         self.create_service(
             Trigger, '/hazardwalker/navigation/elevator_ready',
             self.on_manual_elevator_ready)
@@ -3537,6 +3545,7 @@ class FrontierExplorerNode(Node):
                 self.get_logger().info(
                     'Arrived at official physical home. '
                     f'Distance={official_distance:.2f}m')
+                self._publish_final_floor_anchor()
                 self._transition('FINISHED')
                 return cmd
             # 物理返程由 ROS1 DWA规划；dummy map点只用于保持路径跟踪调用，
@@ -3550,6 +3559,7 @@ class FrontierExplorerNode(Node):
         if dist_home <= goal_tol:
             self.get_logger().info(
                 f'Arrived home. Distance={dist_home:.2f}m')
+            self._publish_final_floor_anchor()
             self._transition('FINISHED')
             return cmd
 
@@ -4963,6 +4973,14 @@ class FrontierExplorerNode(Node):
         self.floor_index_pub.publish(msg)
         self.get_logger().info(
             f'Published floor_index={index} → SLAM map will reset.')
+
+    def _publish_final_floor_anchor(self):
+        """在任务终点请求结算尚未有电梯闭环锚点的当前楼层。"""
+
+        self.final_floor_anchor_pub.publish(
+            Int32(data=int(self._current_floor)))
+        self.get_logger().info(
+            f'Requested final map anchor for floor {self._current_floor}.')
 
     # ---- 辅助方法 ----
 

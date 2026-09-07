@@ -17,11 +17,14 @@ def test_floor_anchor_node_never_reads_forbidden_truth_sources():
 
     assert "'/hw/trunk_imu'" in source
     assert "'/hazardwalker/navigation/floor_index'" in source
+    assert "'/hazardwalker/navigation/final_floor_anchor'" in source
     assert 'until the first elevator transition' in source
     assert 'self.last_floor' in source
     assert "'applies_to_floors'" in source
     assert '[previous_floor, floor]' in source
     assert 'else [previous_floor]' in source
+    assert 'def on_final_anchor_request' in source
+    assert "self.pending_anchor_kind = 'public_home'" in source
     assert "'/hw/odom'" not in source
     assert "'/Odometry_gazebo'" not in source
     assert 'danger_truth.json' not in source
@@ -40,8 +43,11 @@ def test_business_launch_and_result_writer_use_floor_anchors():
 
     assert "executable='floor_map_anchor_node'" in launch
     assert "'/hazardwalker/slam/floor_anchors'" in launch
+    assert "'/hazardwalker/navigation/final_floor_anchor'" in launch
     assert 'self.floor_world_from_map' in decision
     assert "payload.get('applies_to_floors', [floor])" in decision
     assert 'world_from_source_by_floor=self.floor_world_from_map' in decision
     assert "floor_map_anchors.json" in decision
     assert "'hazardwalker_floor_map_anchor_set_v1'" in decision
+    assert "'lidar_imu_slam+public_home'" in decision
+    assert "'official_result_anchor_settle_s', 1.0" in decision

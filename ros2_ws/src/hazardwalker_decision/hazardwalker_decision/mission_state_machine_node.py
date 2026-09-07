@@ -23,6 +23,7 @@
 import json
 import math
 import os
+import time
 from datetime import datetime
 from pathlib import Path
 
@@ -59,6 +60,7 @@ class MissionStateMachineNode(Node):
         self.declare_parameter('official_result_dedup_distance_m', 0.30)
         self.declare_parameter('official_require_legal_localization', True)
         self.declare_parameter('official_require_frontier_sequence', True)
+        self.declare_parameter('official_result_anchor_settle_s', 1.0)
         self.declare_parameter(
             'floor_map_anchor_topic', '/hazardwalker/slam/floor_anchors')
 
@@ -70,6 +72,7 @@ class MissionStateMachineNode(Node):
         self.nav_state_history = []
         self.invalid_completion_reported = False
         self.start_time = None
+        self.finish_received_monotonic = None
         self.floor_world_from_map = {}
 
         # 导航状态来自导航组；危险源 JSON 来自感知组。
@@ -115,7 +118,7 @@ class MissionStateMachineNode(Node):
             self.hazards[hazard_id] = hazard
 
     def on_floor_anchor(self, msg: String):
-        """保存每层首次公开锚点，返程重访 0 层时不得覆盖历史变换。"""
+        """保存楼层闭环锚点；同层后续锚点可替换开层时的初始估计。"""
 
         try:
             payload = json.loads(msg.data)
@@ -134,6 +137,7 @@ class MissionStateMachineNode(Node):
                 or payload.get('source') not in {
                     'lidar_imu_slam+public_start',
                     'lidar_imu_slam+public_elevator_arrival',
+                    'lidar_imu_slam+public_home',
                 }):
             self.get_logger().warning(
                 'Rejected untrusted floor map anchor.',
@@ -165,6 +169,16 @@ class MissionStateMachineNode(Node):
         self.state_pub.publish(state)
 
         if self.nav_state == 'FINISHED' and not self.finished:
+            now_monotonic = time.monotonic()
+            if self.finish_received_monotonic is None:
+                self.finish_received_monotonic = now_monotonic
+                return
+            settle_elapsed = (
+                now_monotonic - self.finish_received_monotonic)
+            if settle_elapsed < max(
+                    0.0, float(self.get_parameter(
+                        'official_result_anchor_settle_s').value)):
+                return
             if (
                 bool(self.get_parameter(
                     'official_require_frontier_sequence',

@@ -31,16 +31,22 @@ class FloorMapAnchorNode(Node):
             'floor_index_topic', '/hazardwalker/navigation/floor_index')
         self.declare_parameter(
             'anchor_topic', '/hazardwalker/slam/floor_anchors')
+        self.declare_parameter(
+            'final_anchor_request_topic',
+            '/hazardwalker/navigation/final_floor_anchor')
         self.declare_parameter('imu_topic', '/hw/trunk_imu')
         self.declare_parameter('map_frame', 'map')
         self.declare_parameter('base_frame', 'base')
         self.declare_parameter('initial_floor_index', 0)
+        self.declare_parameter('official_home_x_m', 0.0)
+        self.declare_parameter('official_home_y_m', -2.2)
         self.declare_parameter('official_elevator_cabin_x_m', 2.7)
         self.declare_parameter('official_elevator_y_m', 2.6)
 
         self.latest_world_yaw = None
         self.pending_floor = None
         self.pending_apply_floors = []
+        self.pending_anchor_kind = ''
         self.anchors = {}
         self.last_floor = None
         self.tf_buffer = tf2_ros.Buffer()
@@ -59,6 +65,12 @@ class FloorMapAnchorNode(Node):
             Int32,
             str(self.get_parameter('floor_index_topic').value),
             self.on_floor_index,
+            qos,
+        )
+        self.create_subscription(
+            Int32,
+            str(self.get_parameter('final_anchor_request_topic').value),
+            self.on_final_anchor_request,
             qos,
         )
         self.create_timer(0.1, self.try_publish_anchor)
@@ -83,12 +95,23 @@ class FloorMapAnchorNode(Node):
         previous_floor = self.last_floor
         self.last_floor = floor
         self.pending_floor = floor
+        self.pending_anchor_kind = 'public_elevator_arrival'
         # 上行时同一轿厢锚点既结算刚完成楼层，也初始化新楼层。最终下行
         # 返回 0 层时只结算刚完成的最高层，不能覆盖已闭环结算的一楼。
         self.pending_apply_floors = (
             [previous_floor, floor]
             if floor > previous_floor else [previous_floor]
         )
+
+    def on_final_anchor_request(self, message):
+        """单层任务回到公开 home 后，补齐尚未由电梯闭环结算的楼层。"""
+
+        floor = int(message.data)
+        if floor in self.anchors:
+            return
+        self.pending_floor = floor
+        self.pending_apply_floors = [floor]
+        self.pending_anchor_kind = 'public_home'
 
     def try_publish_anchor(self):
         if self.pending_floor is None or self.latest_world_yaw is None:
@@ -106,11 +129,16 @@ class FloorMapAnchorNode(Node):
             return
         q = transform.transform.rotation
         map_yaw = quaternion_to_yaw(q.x, q.y, q.z, q.w)
-        world_x = float(self.get_parameter(
-            'official_elevator_cabin_x_m').value)
-        world_y = float(self.get_parameter(
-            'official_elevator_y_m').value)
-        anchor_kind = 'public_elevator_arrival'
+        anchor_kind = self.pending_anchor_kind
+        if anchor_kind == 'public_home':
+            world_x = float(self.get_parameter('official_home_x_m').value)
+            world_y = float(self.get_parameter('official_home_y_m').value)
+        else:
+            world_x = float(self.get_parameter(
+                'official_elevator_cabin_x_m').value)
+            world_y = float(self.get_parameter(
+                'official_elevator_y_m').value)
+            anchor_kind = 'public_elevator_arrival'
         world_from_map = world_from_map_at_robot_anchor(
             transform.transform.translation.x,
             transform.transform.translation.y,
@@ -130,6 +158,7 @@ class FloorMapAnchorNode(Node):
             self.anchors[anchored_floor] = payload
         self.pending_floor = None
         self.pending_apply_floors = []
+        self.pending_anchor_kind = ''
         self.anchor_pub.publish(String(data=json.dumps(payload)))
         self.get_logger().info(
             f'Floors {payload["applies_to_floors"]} map anchored '

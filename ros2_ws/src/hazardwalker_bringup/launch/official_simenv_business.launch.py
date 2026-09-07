@@ -490,10 +490,14 @@ def generate_launch_description():
             parameters=[{
                 'floor_index_topic': '/hazardwalker/navigation/floor_index',
                 'anchor_topic': '/hazardwalker/slam/floor_anchors',
+                'final_anchor_request_topic': (
+                    '/hazardwalker/navigation/final_floor_anchor'),
                 'imu_topic': '/hw/trunk_imu',
                 'map_frame': 'map',
                 'base_frame': 'base',
                 'initial_floor_index': 0,
+                'official_home_x_m': 0.0,
+                'official_home_y_m': -2.2,
                 'official_elevator_cabin_x_m': 2.70,
                 'official_elevator_y_m': 2.60,
                 'use_sim_time': sim_time_parameter,

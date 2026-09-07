@@ -162,3 +162,5 @@ def test_final_floor_returns_by_elevator_before_home():
     assert 'if self._return_after_floor_transition:' in begin_floor
     assert "self._transition('RETURNING')" in begin_floor
     assert 'continuing to the official task home' in begin_floor
+    assert 'def _publish_final_floor_anchor' in source
+    assert 'self._publish_final_floor_anchor()' in source
