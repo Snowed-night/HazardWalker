@@ -30,13 +30,26 @@ if (( ${#active_simenv[@]} > 0 )); then
 fi
 
 platform_started=0
+runner_pid=''
 cleanup() {
+  if [[ -n "$runner_pid" ]] && kill -0 "$runner_pid" 2>/dev/null; then
+    kill -INT "$runner_pid" 2>/dev/null || true
+    for _attempt in $(seq 1 300); do
+      kill -0 "$runner_pid" 2>/dev/null || break
+      sleep 0.1
+    done
+    if kill -0 "$runner_pid" 2>/dev/null; then
+      kill -TERM "$runner_pid" 2>/dev/null || true
+    fi
+  fi
   if (( platform_started == 1 )); then
     cd "$PLATFORM"
     ./auto_docker.sh down || true
   fi
 }
-trap cleanup EXIT INT TERM
+trap cleanup EXIT
+# 信号处理只负责进入统一 EXIT 清理；不能执行 cleanup 后返回原命令继续跑。
+trap 'exit 130' INT TERM
 
 cd "$PLATFORM"
 SEED="$SEED" \
@@ -76,4 +89,11 @@ python3 scripts/run_official_slam_exploration.py \
   --target-floors 0,1,2 \
   --per-floor-exploration-sec 480 \
   --enable-perception \
-  --truth-file "$PLATFORM/results/danger_truth.json"
+  --truth-file "$PLATFORM/results/danger_truth.json" &
+runner_pid=$!
+set +e
+wait "$runner_pid"
+runner_status=$?
+set -e
+runner_pid=''
+exit "$runner_status"

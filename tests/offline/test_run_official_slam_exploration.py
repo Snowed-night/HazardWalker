@@ -437,7 +437,9 @@ def test_stable_three_floor_entry_is_exclusive_and_self_cleaning():
     assert '--enable-perception' in source
     assert "docker ps --format '{{.Names}}'" in source
     assert '正式实验拒绝并行' in source
-    assert 'trap cleanup EXIT INT TERM' in source
+    assert 'trap cleanup EXIT' in source
+    assert "trap 'exit 130' INT TERM" in source
+    assert 'kill -INT "$runner_pid"' in source
     assert './auto_docker.sh down' in source
     assert 'three_floor_stable_current' in source
 
