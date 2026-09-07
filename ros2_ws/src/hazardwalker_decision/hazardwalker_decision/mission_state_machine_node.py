@@ -137,6 +137,7 @@ class MissionStateMachineNode(Node):
                 or payload.get('source') not in {
                     'lidar_imu_slam+public_start',
                     'lidar_imu_slam+public_elevator_arrival',
+                    'lidar_imu_slam+public_elevator_departure',
                     'lidar_imu_slam+public_home',
                 }):
             self.get_logger().warning(
@@ -260,6 +261,7 @@ class MissionStateMachineNode(Node):
             ),
             require_sphere_evidence=True,
             require_multiview_sphere_evidence=False,
+            require_explicit_floor_index=True,
         )
         official_value = self.get_parameter('official_result_path').value
         official_path = Path(official_value)

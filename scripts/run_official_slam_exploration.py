@@ -42,6 +42,7 @@ BUSINESS_NODE_NAMES = {
     '/hazardwalker_cartographer',
     '/hazardwalker_cartographer_occupancy_grid',
     '/hazardwalker_multifloor_occupancy_mapper',
+    '/hazardwalker_floor_slam_session_manager',
     '/hazardwalker_scan_imu_localizer',
     '/hazardwalker_slam_monitor',
     '/hazardwalker_pointcloud_map',
@@ -508,8 +509,11 @@ def evaluate_slam_physical_alignment(
     spec.loader.exec_module(module)
 
     try:
-        metrics = module.evaluate_map_physical_alignment(
-            _read_jsonl(Path(trajectory_file)))
+        rows = _read_jsonl(Path(trajectory_file))
+        if any('floor_index' in row for row in rows):
+            metrics = module.evaluate_multifloor_map_physical_alignment(rows)
+        else:
+            metrics = module.evaluate_map_physical_alignment(rows)
     except (OSError, ValueError) as exc:
         raise RuntimeError(f'SLAM 物理对齐验收失败：{exc}') from exc
     metrics['p95_limit_m'] = float(p95_limit_m)
@@ -823,14 +827,18 @@ def stop_first_person_recording(
     ], text=True, capture_output=True, timeout=10.0)
     time.sleep(2.0)
     source = Path(str(capture['host_avi']))
-    source.unlink(missing_ok=True)
-    copied = subprocess.run([
-        'docker', 'cp',
-        f'{container}:{capture["container_avi"]}', str(source),
-    ], text=True, capture_output=True, timeout=60.0)
-    if copied.returncode != 0:
-        raise RuntimeError(
-            f'第一人称录像取回失败：{copied.stderr.strip()}')
+    # 当前代码工作树就是容器 bind mount 时，host_avi 与 container_avi 是
+    # 同一个文件；先 unlink 会通过挂载反向删除容器录像。只有宿主侧确实
+    # 不存在录像时才使用 docker cp，兼容容器挂载其他工作树的场景。
+    if not source.is_file() or source.stat().st_size <= 0:
+        source.unlink(missing_ok=True)
+        copied = subprocess.run([
+            'docker', 'cp',
+            f'{container}:{capture["container_avi"]}', str(source),
+        ], text=True, capture_output=True, timeout=60.0)
+        if copied.returncode != 0:
+            raise RuntimeError(
+                f'第一人称录像取回失败：{copied.stderr.strip()}')
     video_dir = output_dir / 'video'
     video_dir.mkdir(parents=True, exist_ok=True)
     target = video_dir / 'first_person.mp4'

@@ -72,6 +72,7 @@ def build_official_detected_danger_result(
     require_legal_localization=False,
     require_sphere_evidence=False,
     require_multiview_sphere_evidence=False,
+    require_explicit_floor_index=False,
     allowed_localization_provenance=(
         'lidar_imu_slam',
         'visual_inertial_slam',
@@ -145,11 +146,15 @@ def build_official_detected_danger_result(
         position = _validated_position(hazard.get('position'))
         if position is None:
             continue
+        floor_index = _validated_floor_index(hazard.get('floor_index'))
+        if require_explicit_floor_index and floor_index is None:
+            continue
         transform = _validated_planar_transform(world_from_source)
         floor_transform = _floor_transform_for_position(
             position,
             world_from_source_by_floor,
             floor_height_m=float(floor_height_m),
+            floor_index=floor_index,
         )
         if floor_transform is not None:
             transform = floor_transform
@@ -160,6 +165,7 @@ def build_official_detected_danger_result(
                 position,
                 floor_height_m=float(floor_height_m),
                 sphere_center_height_m=float(sphere_center_height_m),
+                floor_index=floor_index,
             )
         confirmed.append((
             -float(hazard.get('confidence', 0.0)),
@@ -360,8 +366,8 @@ def _validated_planar_transform(value):
 
 
 def _floor_transform_for_position(
-        position, transforms_by_floor, floor_height_m):
-    """按原始 SLAM 高度选择当前楼层锚点；缺失时由调用方使用全局回退。"""
+        position, transforms_by_floor, floor_height_m, floor_index=None):
+    """优先按观测时楼层选择锚点；兼容旧数据时才从高度推断。"""
 
     if transforms_by_floor is None:
         return None
@@ -370,7 +376,8 @@ def _floor_transform_for_position(
     height = float(floor_height_m)
     if not math.isfinite(height) or height <= 0.0:
         raise ValueError('floor_height_m must be positive and finite.')
-    floor_index = max(0, int(round(float(position[2]) / height)))
+    if floor_index is None:
+        floor_index = max(0, int(round(float(position[2]) / height)))
     value = transforms_by_floor.get(
         floor_index, transforms_by_floor.get(str(floor_index)))
     return _validated_planar_transform(value)
@@ -390,7 +397,8 @@ def _transform_planar_position(position, transform):
     )
 
 
-def _snap_sphere_height(position, floor_height_m, sphere_center_height_m):
+def _snap_sphere_height(
+        position, floor_height_m, sphere_center_height_m, floor_index=None):
     """用公开楼层高度和目标半径恢复球心 z，消除二维 SLAM 高度漂移。"""
 
     if (not math.isfinite(floor_height_m) or floor_height_m <= 0.0
@@ -398,12 +406,21 @@ def _snap_sphere_height(position, floor_height_m, sphere_center_height_m):
             or sphere_center_height_m < 0.0):
         raise ValueError('floor and sphere heights must be finite and valid.')
     source_x, source_y, source_z = position
-    floor_index = max(0, int(round(source_z / floor_height_m)))
+    if floor_index is None:
+        floor_index = max(0, int(round(source_z / floor_height_m)))
     return (
         source_x,
         source_y,
         floor_index * floor_height_m + sphere_center_height_m,
     )
+
+
+def _validated_floor_index(value):
+    """只接受观测时写入的非负整数楼层，拒绝布尔值和浮点截断。"""
+
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        return None
+    return int(value)
 
 
 def _distance_m(first, second):

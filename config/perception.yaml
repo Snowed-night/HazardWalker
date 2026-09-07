@@ -60,7 +60,9 @@ perception:
     reject_non_spherical_tracks: false
     reject_after_missed_count: 300
     merge_distance_m: 0.5
-    single_track_reacquire_distance_m: 1.0
+    # 分层独立地图内，同一球从障碍物两侧观测时坐标可相差约 1.4 m；只有
+    # 半径内恰好一个尺寸兼容球面轨迹时才恢复，多个候选时仍拒绝猜测。
+    single_track_reacquire_distance_m: 2.0
     single_track_reacquire_diameter_relative_error: 0.25
     same_frame_duplicate_distance_m: 0.12
     same_frame_duplicate_diameter_relative_error: 0.25

@@ -125,6 +125,31 @@ def _launch_cartographer(context, nav_pkg):
     use_sim_time = _as_bool(
         LaunchConfiguration('use_sim_time').perform(context),
     )
+    nav_record_dir_value = LaunchConfiguration(
+        'nav_record_dir').perform(context).strip()
+    map_archive_dir = (
+        os.path.join(nav_record_dir_value, 'floor_maps')
+        if nav_record_dir_value else '')
+    if dimension == '2d':
+        # 每层必须使用独立 Cartographer 位姿图。连续三层共用一个进程会把
+        # 相似走廊误配成跨层回环，并在返航后改写早期红球坐标。
+        return [Node(
+            package='hazardwalker_nav',
+            executable='floor_slam_session_manager',
+            name='hazardwalker_floor_slam_session_manager',
+            output='screen',
+            parameters=[{
+                'configuration_directory': runtime_dir,
+                'configuration_basename': configuration_basename,
+                'initial_floor_index': 0,
+                'floor_index_topic': (
+                    '/hazardwalker/navigation/floor_index'),
+                'session_topic': '/hazardwalker/slam/floor_session',
+                'map_archive_dir': map_archive_dir,
+                'use_sim_time': use_sim_time,
+            }],
+        )]
+
     cartographer = Node(
             package='cartographer_ros',
             executable='cartographer_node',
@@ -144,23 +169,13 @@ def _launch_cartographer(context, nav_pkg):
                 ('odom', '/hazardwalker/slam/odometry'),
             ]),
         )
-    if dimension == '3d':
-        occupancy = Node(
-            package='hazardwalker_nav',
-            executable='multifloor_occupancy_mapper',
-            name='hazardwalker_multifloor_occupancy_mapper',
-            output='screen',
-            parameters=[{'use_sim_time': use_sim_time}],
-        )
-    else:
-        occupancy = Node(
-            package='cartographer_ros',
-            executable='cartographer_occupancy_grid_node',
-            name='hazardwalker_cartographer_occupancy_grid',
-            output='screen',
-            arguments=['-resolution', '0.05', '-publish_period_sec', '1.0'],
-            parameters=[{'use_sim_time': use_sim_time}],
-        )
+    occupancy = Node(
+        package='hazardwalker_nav',
+        executable='multifloor_occupancy_mapper',
+        name='hazardwalker_multifloor_occupancy_mapper',
+        output='screen',
+        parameters=[{'use_sim_time': use_sim_time}],
+    )
     return [cartographer, occupancy]
 
 

@@ -21,10 +21,15 @@ def test_floor_anchor_node_never_reads_forbidden_truth_sources():
     assert 'until the first elevator transition' in source
     assert 'self.last_floor' in source
     assert "'applies_to_floors'" in source
-    assert '[previous_floor, floor]' in source
-    assert 'else [previous_floor]' in source
+    assert "'public_elevator_departure'" in source
+    assert "'public_elevator_arrival'" in source
+    assert 'self.pending_anchors' in source
+    assert 'self.awaiting_arrival_floor' in source
+    assert "'hazardwalker_floor_slam_session_v1'" in source
+    assert "'applies_to_floors': [floor]" in source
     assert 'def on_final_anchor_request' in source
-    assert "self.pending_anchor_kind = 'public_home'" in source
+    assert "'public_home'" in source
+    assert 'self._enqueue_anchor(' in source
     assert "'/hw/odom'" not in source
     assert "'/Odometry_gazebo'" not in source
     assert 'danger_truth.json' not in source
@@ -43,6 +48,7 @@ def test_business_launch_and_result_writer_use_floor_anchors():
 
     assert "executable='floor_map_anchor_node'" in launch
     assert "'/hazardwalker/slam/floor_anchors'" in launch
+    assert "'/hazardwalker/slam/floor_session'" in launch
     assert "'/hazardwalker/navigation/final_floor_anchor'" in launch
     assert 'self.floor_world_from_map' in decision
     assert "payload.get('applies_to_floors', [floor])" in decision
@@ -50,4 +56,26 @@ def test_business_launch_and_result_writer_use_floor_anchors():
     assert "floor_map_anchors.json" in decision
     assert "'hazardwalker_floor_map_anchor_set_v1'" in decision
     assert "'lidar_imu_slam+public_home'" in decision
+    assert "'lidar_imu_slam+public_elevator_departure'" in decision
     assert "'official_result_anchor_settle_s', 1.0" in decision
+
+
+def test_cartographer_2d_uses_one_process_session_per_floor():
+    launch = (
+        ROOT / 'ros2_ws' / 'src' / 'hazardwalker_bringup' / 'launch'
+        / 'official_simenv_business.launch.py'
+    ).read_text(encoding='utf-8')
+    manager = (
+        ROOT / 'ros2_ws' / 'src' / 'hazardwalker_nav'
+        / 'hazardwalker_nav' / 'floor_slam_session_manager_node.py'
+    ).read_text(encoding='utf-8')
+    setup = (
+        ROOT / 'ros2_ws' / 'src' / 'hazardwalker_nav' / 'setup.py'
+    ).read_text(encoding='utf-8')
+    assert "executable='floor_slam_session_manager'" in launch
+    assert "'restart_delay_s', 2.0" in manager
+    assert "'ros2', 'run', 'cartographer_ros', 'cartographer_node'" in manager
+    assert "'hazardwalker_floor_slam_session_v1'" in manager
+    assert 'self._stop_session()' in manager
+    assert 'self._start_session()' in manager
+    assert 'floor_slam_session_manager = ' in setup

@@ -34,6 +34,8 @@ class FloorMapAnchorNode(Node):
         self.declare_parameter(
             'final_anchor_request_topic',
             '/hazardwalker/navigation/final_floor_anchor')
+        self.declare_parameter(
+            'floor_session_topic', '/hazardwalker/slam/floor_session')
         self.declare_parameter('imu_topic', '/hw/trunk_imu')
         self.declare_parameter('map_frame', 'map')
         self.declare_parameter('base_frame', 'base')
@@ -44,11 +46,11 @@ class FloorMapAnchorNode(Node):
         self.declare_parameter('official_elevator_y_m', 2.6)
 
         self.latest_world_yaw = None
-        self.pending_floor = None
-        self.pending_apply_floors = []
-        self.pending_anchor_kind = ''
+        self.pending_anchors = []
         self.anchors = {}
         self.last_floor = None
+        self.awaiting_arrival_floor = None
+        self.floor_session_generation = {}
         self.tf_buffer = tf2_ros.Buffer()
         self.tf_listener = tf2_ros.TransformListener(self.tf_buffer, self)
         qos = QoSProfile(depth=8)
@@ -73,7 +75,26 @@ class FloorMapAnchorNode(Node):
             self.on_final_anchor_request,
             qos,
         )
+        self.create_subscription(
+            String,
+            str(self.get_parameter('floor_session_topic').value),
+            self.on_floor_session,
+            qos,
+        )
         self.create_timer(0.1, self.try_publish_anchor)
+
+    def _enqueue_anchor(self, floor, anchor_kind, generation=None):
+        request = {
+            'floor': int(floor),
+            'anchor_kind': str(anchor_kind),
+            'generation': generation,
+        }
+        key = (request['floor'], request['anchor_kind'], generation)
+        if any(
+                (item['floor'], item['anchor_kind'], item['generation']) == key
+                for item in self.pending_anchors):
+            return
+        self.pending_anchors.append(request)
 
     def on_imu(self, message):
         q = message.orientation
@@ -94,14 +115,38 @@ class FloorMapAnchorNode(Node):
             return
         previous_floor = self.last_floor
         self.last_floor = floor
-        self.pending_floor = floor
-        self.pending_anchor_kind = 'public_elevator_arrival'
-        # 上行时同一轿厢锚点既结算刚完成楼层，也初始化新楼层。最终下行
-        # 返回 0 层时只结算刚完成的最高层，不能覆盖已闭环结算的一楼。
-        self.pending_apply_floors = (
-            [previous_floor, floor]
-            if floor > previous_floor else [previous_floor]
+        # 会话管理器会在短暂宽限后结束旧 Cartographer。先用电梯轿厢这个
+        # 公开公共点冻结刚完成楼层；新楼层必须等全新会话 ready 后另行锚定。
+        self._enqueue_anchor(
+            previous_floor,
+            'public_elevator_departure',
+            self.floor_session_generation.get(previous_floor),
         )
+        self.awaiting_arrival_floor = floor
+
+    def on_floor_session(self, message):
+        """新 Cartographer 会话产出首张地图后锚定当前到达楼层。"""
+
+        try:
+            payload = json.loads(message.data)
+            floor = int(payload['floor_index'])
+            generation = int(payload['generation'])
+        except (KeyError, TypeError, ValueError, json.JSONDecodeError):
+            return
+        if (payload.get('schema') != 'hazardwalker_floor_slam_session_v1'
+                or payload.get('state') != 'ready'):
+            return
+        self.floor_session_generation[floor] = generation
+        if floor != self.awaiting_arrival_floor:
+            return
+        # 最终返航会为 0 层启动一个只供回程控制的新会话；早期红球属于最初
+        # 的 0 层会话，已在首次离层时冻结，绝不能被返航会话覆盖。
+        if floor in self.anchors:
+            self.awaiting_arrival_floor = None
+            return
+        self._enqueue_anchor(
+            floor, 'public_elevator_arrival', generation)
+        self.awaiting_arrival_floor = None
 
     def on_final_anchor_request(self, message):
         """单层任务回到公开 home 后，补齐尚未由电梯闭环结算的楼层。"""
@@ -109,14 +154,17 @@ class FloorMapAnchorNode(Node):
         floor = int(message.data)
         if floor in self.anchors:
             return
-        self.pending_floor = floor
-        self.pending_apply_floors = [floor]
-        self.pending_anchor_kind = 'public_home'
+        self._enqueue_anchor(
+            floor,
+            'public_home',
+            self.floor_session_generation.get(floor),
+        )
 
     def try_publish_anchor(self):
-        if self.pending_floor is None or self.latest_world_yaw is None:
+        if not self.pending_anchors or self.latest_world_yaw is None:
             return
-        floor = self.pending_floor
+        request = self.pending_anchors[0]
+        floor = int(request['floor'])
         try:
             transform = self.tf_buffer.lookup_transform(
                 str(self.get_parameter('map_frame').value),
@@ -129,7 +177,7 @@ class FloorMapAnchorNode(Node):
             return
         q = transform.transform.rotation
         map_yaw = quaternion_to_yaw(q.x, q.y, q.z, q.w)
-        anchor_kind = self.pending_anchor_kind
+        anchor_kind = str(request['anchor_kind'])
         if anchor_kind == 'public_home':
             world_x = float(self.get_parameter('official_home_x_m').value)
             world_y = float(self.get_parameter('official_home_y_m').value)
@@ -138,7 +186,6 @@ class FloorMapAnchorNode(Node):
                 'official_elevator_cabin_x_m').value)
             world_y = float(self.get_parameter(
                 'official_elevator_y_m').value)
-            anchor_kind = 'public_elevator_arrival'
         world_from_map = world_from_map_at_robot_anchor(
             transform.transform.translation.x,
             transform.transform.translation.y,
@@ -150,15 +197,13 @@ class FloorMapAnchorNode(Node):
         payload = {
             'schema': 'hazardwalker_floor_map_anchor_v1',
             'floor': floor,
-            'applies_to_floors': list(self.pending_apply_floors),
+            'applies_to_floors': [floor],
             'world_from_map': [round(value, 9) for value in world_from_map],
             'source': f'lidar_imu_slam+{anchor_kind}',
+            'session_generation': request['generation'],
         }
-        for anchored_floor in self.pending_apply_floors:
-            self.anchors[anchored_floor] = payload
-        self.pending_floor = None
-        self.pending_apply_floors = []
-        self.pending_anchor_kind = ''
+        self.anchors[floor] = payload
+        self.pending_anchors.pop(0)
         self.anchor_pub.publish(String(data=json.dumps(payload)))
         self.get_logger().info(
             f'Floors {payload["applies_to_floors"]} map anchored '

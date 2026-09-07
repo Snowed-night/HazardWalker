@@ -138,6 +138,11 @@ class TransientCandidateMemory:
                 continue
             self._entries[candidate_id]['track_id'] = track_id
 
+    def clear(self):
+        """楼层切换时清空图像候选别名，禁止跨楼层复用同一目标 ID。"""
+
+        self._entries.clear()
+
 
 class ActiveViewDirectionMemory:
     """在同一候选复查会话内保持侧移方向，避免越过画面中心后左右振荡。"""

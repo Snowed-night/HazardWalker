@@ -112,3 +112,60 @@ def alignment_is_acceptable(
         and p95 <= float(p95_limit_m)
         and maximum <= float(max_limit_m)
     )
+
+
+def evaluate_multifloor_map_physical_alignment(
+        samples: Iterable[Mapping]) -> dict:
+    """对真正独立的逐层地图分别做 SE(2) ATE，再保守汇总最差楼层。"""
+
+    groups = {}
+    for sample in samples:
+        if str(sample.get('state', '')).upper() in {
+                'INIT', 'FLOOR_COMPLETE', 'FLOOR_TRANSITION'}:
+            continue
+        floor = sample.get('floor_index')
+        if isinstance(floor, bool) or not isinstance(floor, int) or floor < 0:
+            continue
+        generation = sample.get('slam_session_generation', 0)
+        if (isinstance(generation, bool)
+                or not isinstance(generation, int) or generation < 0):
+            continue
+        groups.setdefault((floor, generation), []).append(sample)
+    if not groups:
+        raise ValueError('多层对齐缺少逐帧 floor_index')
+    sessions = {
+        f'{floor}:{generation}': evaluate_map_physical_alignment(rows)
+        for (floor, generation), rows in sorted(groups.items())
+        if len(rows) >= 3
+    }
+    if len(sessions) != len(groups):
+        raise ValueError('至少一个楼层会话没有三条有效轨迹样本')
+    total = sum(item['sample_count'] for item in sessions.values())
+    weighted_mean = sum(
+        item['mean_error_m'] * item['sample_count']
+        for item in sessions.values()) / total
+    weighted_square = sum(
+        item['rms_error_m'] ** 2 * item['sample_count']
+        for item in sessions.values()) / total
+    last_session = max(
+        groups,
+        key=lambda floor: max(
+            float(row.get('ros_sec', 0.0)) for row in groups[floor]),
+    )
+    last_session_key = f'{last_session[0]}:{last_session[1]}'
+    return {
+        'schema': 'hazardwalker_multifloor_slam_alignment_v1',
+        'sample_count': total,
+        'alignment_sample_count': total,
+        'floor_count': len({key[0] for key in groups}),
+        'session_count': len(sessions),
+        'sessions': sessions,
+        'mean_error_m': weighted_mean,
+        'rms_error_m': math.sqrt(weighted_square),
+        # 正式门禁采用各层最差 P95，而不是把大量容易样本稀释困难楼层。
+        'p95_error_m': max(
+            item['p95_error_m'] for item in sessions.values()),
+        'max_error_m': max(
+            item['max_error_m'] for item in sessions.values()),
+        'final_error_m': sessions[last_session_key]['final_error_m'],
+    }

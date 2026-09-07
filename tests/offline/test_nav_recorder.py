@@ -26,7 +26,8 @@ def test_recorder_downsamples_by_sim_time_not_wall_time():
         for stamp in (1.0, 1.01, 1.05, 1.099, 1.101, 1.15, 1.205):
             recorder.record_pose(
                 stamp, stamp, 0.0, 0.0, 'EXPLORING',
-                odom_pose=(stamp, -stamp), home_distance_m=stamp)
+                odom_pose=(stamp, -stamp), home_distance_m=stamp,
+                floor_index=2)
             recorder.record_cmd_vel(stamp, 0.6, 0.0)
         recorder.close(1.3, final_state='FINISHED', total_frontiers_visited=1)
 
@@ -36,6 +37,7 @@ def test_recorder_downsamples_by_sim_time_not_wall_time():
         assert poses[-1]['odom_x'] == 1.205
         assert poses[-1]['odom_y'] == -1.205
         assert poses[-1]['home_distance_m'] == 1.205
+        assert poses[-1]['floor_index'] == 2
         assert [row['ros_sec'] for row in commands] == [1.0, 1.101, 1.205]
 
 

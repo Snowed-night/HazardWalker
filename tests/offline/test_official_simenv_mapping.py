@@ -343,7 +343,12 @@ def test_rosbridge_fragment_contract_is_bounded_and_adapter_keeps_image_bytes():
     assert "declare_parameter('max_rgb_depth_sync_delta_sec', 0.06)" in detector
     assert 'positive_partial_sphere' in detector
     assert 'or positive_partial_sphere' in detector
-    assert "if camera_stable:\n            self.tracker.update(observations" in detector
+    assert 'bool(detection_2d.is_partial)' in detector
+    assert "'floor_index': int(self.current_floor_index)" in detector
+    assert 'self.candidate_memory.clear()' in detector
+    assert 'self._current_floor_tracks()' in detector
+    assert "if camera_stable:\n            self.tracker.update(" in detector
+    assert 'active_floor_index=self.current_floor_index' in detector
     assert "self.declare_parameter('stable_view_cmd_vel_topic', '/hw/cmd_vel')" in detector
     assert 'if not self._command_is_stationary()' in detector
     assert 'stable_view_max_linear_speed_mps' in detector
@@ -479,7 +484,7 @@ def test_official_business_launch_never_starts_fake_platform_by_default():
     assert "executable='cartographer_node'" in source
     assert "executable='multifloor_occupancy_mapper'" in source
     assert "('points2', '/hw/lidar/points')" in source
-    assert "executable='cartographer_occupancy_grid_node'" in source
+    assert "executable='floor_slam_session_manager'" in source
     assert "executable='depth_to_scan_node'" not in source
     assert "('scan', '/hw/scan')" in source
     assert "('scan_1', '/hw/scan')" not in source

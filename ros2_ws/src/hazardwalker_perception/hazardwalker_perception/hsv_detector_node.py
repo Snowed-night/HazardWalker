@@ -17,9 +17,10 @@ import rclpy
 from geometry_msgs.msg import Twist
 from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
+from rclpy.qos import DurabilityPolicy, QoSProfile
 from rclpy.time import Time
 from sensor_msgs.msg import CameraInfo, Image
-from std_msgs.msg import String
+from std_msgs.msg import Int32, String
 from tf2_ros import Buffer, TransformException, TransformListener
 
 from hazardwalker_perception.active_view_geometry import (
@@ -88,6 +89,12 @@ class HsvDetectorNode(Node):
         # 仍发布相机候选和深度距离，但不输出可提交的 world 坐标。
         self.declare_parameter('output_frame', 'map')
         self.declare_parameter('localization_provenance', 'unverified')
+        self.declare_parameter(
+            'floor_index_topic', '/hazardwalker/navigation/floor_index')
+        self.declare_parameter(
+            'floor_session_topic', '/hazardwalker/slam/floor_session')
+        self.declare_parameter('navigation_state_topic', '/hw/nav/state')
+        self.declare_parameter('initial_floor_index', 0)
         self.declare_parameter('confirm_observation_count', 3)
         # 赛场红色干扰物只有正方体。保留同一稳定视角的连续三帧抗噪，
         # 但球面/平面可由单视角 RGB-D 几何直接区分，无需横移复查。
@@ -100,7 +107,7 @@ class HsvDetectorNode(Node):
         # 避免候选在抵达第二视角前被删除。
         self.declare_parameter('reject_after_missed_count', 300)
         self.declare_parameter('merge_distance_m', 0.5)
-        self.declare_parameter('single_track_reacquire_distance_m', 1.0)
+        self.declare_parameter('single_track_reacquire_distance_m', 2.0)
         self.declare_parameter(
             'single_track_reacquire_diameter_relative_error', 0.25,
         )
@@ -205,6 +212,11 @@ class HsvDetectorNode(Node):
         self._last_depth_synchronized = False
         self._last_tf_synchronized = False
         self._last_tf_stamp_delta_sec = None
+        self.current_floor_index = int(
+            self.get_parameter('initial_floor_index').value)
+        self.floor_session_ready = False
+        self.floor_session_generation = -1
+        self.navigation_state = ''
         self.rgbd_pairer = DeferredRgbDepthPairer(
             float(self.get_parameter('max_rgb_depth_sync_delta_sec').value),
         )
@@ -303,6 +315,26 @@ class HsvDetectorNode(Node):
             self.on_command,
             10,
         )
+        floor_qos = QoSProfile(depth=1)
+        floor_qos.durability = DurabilityPolicy.TRANSIENT_LOCAL
+        self.floor_index_sub = self.create_subscription(
+            Int32,
+            str(self.get_parameter('floor_index_topic').value),
+            self.on_floor_index,
+            floor_qos,
+        )
+        self.floor_session_sub = self.create_subscription(
+            String,
+            str(self.get_parameter('floor_session_topic').value),
+            self.on_floor_session,
+            floor_qos,
+        )
+        self.navigation_state_sub = self.create_subscription(
+            String,
+            str(self.get_parameter('navigation_state_topic').value),
+            self.on_navigation_state,
+            10,
+        )
         # 第一阶段用 String(JSON) 快速打通链路；稳定后迁移到 hazardwalker_msgs/HazardArray。
         self.pub = self.create_publisher(String, '/hw/perception/hazard_detections', 10)
         self.inspection_request_sub = self.create_subscription(
@@ -317,6 +349,49 @@ class HsvDetectorNode(Node):
             10,
         )
         self.get_logger().info('HSV detector subscribed to camera image, camera info and depth image.')
+
+    def on_floor_index(self, message: Int32):
+        """在公开楼层动作发生时固定新楼层，并隔离二维候选别名。"""
+
+        floor = int(message.data)
+        if floor == self.current_floor_index:
+            return
+        self.current_floor_index = floor
+        self.floor_session_ready = False
+        self.candidate_memory.clear()
+        self._last_camera_pose_signature = None
+        self._stable_view_frame_count = 0
+        self._stable_view_id = ''
+        self.get_logger().info(
+            f'Perception floor switched to {floor}; candidate memory cleared.')
+
+    def on_floor_session(self, message: String):
+        """只在当前楼层全新 Cartographer 会话 ready 后允许三维确认。"""
+
+        try:
+            payload = json.loads(message.data)
+            floor = int(payload['floor_index'])
+            generation = int(payload['generation'])
+        except (KeyError, TypeError, ValueError, json.JSONDecodeError):
+            return
+        if (payload.get('schema') != 'hazardwalker_floor_slam_session_v1'
+                or payload.get('state') != 'ready'
+                or floor != self.current_floor_index):
+            return
+        self.floor_session_generation = generation
+        self.floor_session_ready = True
+        self.get_logger().info(
+            f'Perception localization enabled for floor={floor}, '
+            f'generation={generation}.')
+
+    def on_navigation_state(self, message: String):
+        self.navigation_state = str(message.data).strip().upper()
+
+    def _current_floor_tracks(self):
+        return [
+            track for track in self.tracker.tracks
+            if int(track.floor_index) == int(self.current_floor_index)
+        ]
 
     def on_inspection_request(self, msg: String):
         """登记导航观察目标；同目标可靠重发不会刷新新鲜帧边界。"""
@@ -406,7 +481,13 @@ class HsvDetectorNode(Node):
         )
         self._last_depth_synchronized = depth_synchronized
         output_frame = str(self.get_parameter('output_frame').value)
-        camera_to_output = self._lookup_camera_to_output(msg.header.frame_id, output_frame, msg.header.stamp)
+        camera_to_output = (
+            self._lookup_camera_to_output(
+                msg.header.frame_id, output_frame, msg.header.stamp)
+            if (self.floor_session_ready
+                and self.navigation_state in {'EXPLORING', 'REOBSERVING'})
+            else None
+        )
         if self._image_callback_count <= 2:
             self.get_logger().info('RGB frame %d processed: detections=%d tf=%s.' % (
                 self._image_callback_count, len(detections_2d), bool(camera_to_output)))
@@ -422,7 +503,9 @@ class HsvDetectorNode(Node):
         )
         if not detections_2d:
             if camera_stable:
-                self.tracker.update([], stamp_sec=stamp_sec)
+                self.tracker.update(
+                    [], stamp_sec=stamp_sec,
+                    active_floor_index=self.current_floor_index)
             tracks_to_publish = (
                 self.tracker.published_tracks()
                 if camera_stable else self.tracker.active_tracks()
@@ -492,7 +575,8 @@ class HsvDetectorNode(Node):
             # 允许这类候选直接进入三维跟踪；定位只沿视线补一个已知球半径，
             # 不用残缺 bbox 的投影直径反推深度。
             positive_partial_sphere = (
-                not shape_complete_for_3d_tracking
+                bool(detection_2d.is_partial)
+                and not shape_complete_for_3d_tracking
                 and depth_shape_status == 'spherical'
             )
             # 圆柱端面、立方体/平板等在单帧可能都有近圆形红色投影。只有深度明确
@@ -552,6 +636,9 @@ class HsvDetectorNode(Node):
                 # 仅用于本回调内把二维投影关联结果传给对应三维观测，发布前删除。
                 '_source_id': source_id,
                 'frame_id': msg.header.frame_id,
+                'floor_index': int(self.current_floor_index),
+                'slam_session_generation': int(
+                    self.floor_session_generation),
                 # 量化后的相机世界位姿标签用于后续多视角确认与实验审计。
                 'view_id': view_id,
                 'stamp': {
@@ -653,6 +740,7 @@ class HsvDetectorNode(Node):
                         localization.position.z,
                     ),
                     confidence=detection_2d.confidence,
+                    floor_index=int(self.current_floor_index),
                     stamp_sec=stamp_sec,
                     source_id=source_id,
                     view_id=view_id,
@@ -675,12 +763,13 @@ class HsvDetectorNode(Node):
         detections_2d_payload = self.candidate_memory.annotate(
             detections_2d_payload, stamp_sec,
         )
-        if observations and self.tracker.tracks:
+        current_floor_tracks = self._current_floor_tracks()
+        if observations and current_floor_tracks:
             # 先用上一时刻轨迹投影关联当前二维框。合法 SLAM 长距离漂移会让同一
             # 静态球的世界坐标超过 merge_distance_m，但其旧轨迹投影仍可与当前
             # 图像框唯一重合；把这个非真值提示交给三维跟踪器可避免拆成重复目标。
             previous_projections = project_tracks_for_image_association(
-                self.tracker.tracks,
+                current_floor_tracks,
                 camera_to_output,
                 self.camera_intrinsics,
                 current_stamp_sec=stamp_sec,
@@ -729,13 +818,15 @@ class HsvDetectorNode(Node):
         # 图像与桥接 TF 即使只差约 60 ms，也足以让四米外目标横跳近一米。
         # 停稳后的连续帧仍使用同一 RGB-D 球面判据，不引入额外多视角要求。
         if camera_stable:
-            self.tracker.update(observations, stamp_sec=stamp_sec)
+            self.tracker.update(
+                observations, stamp_sec=stamp_sec,
+                active_floor_index=self.current_floor_index)
         tracks_to_publish = (
             self.tracker.published_tracks()
             if camera_stable else self.tracker.active_tracks()
         )
         projected_tracks = project_tracks_for_image_association(
-            self.tracker.tracks,
+            self._current_floor_tracks(),
             camera_to_output,
             self.camera_intrinsics,
             current_stamp_sec=stamp_sec,
@@ -750,7 +841,7 @@ class HsvDetectorNode(Node):
         )
         annotated_detections = annotate_detections_with_tracks(
             detections_2d_payload,
-            self.tracker.tracks,
+            self._current_floor_tracks(),
             merge_distance_m=float(self.get_parameter('merge_distance_m').value),
             projected_tracks=projected_tracks,
         )

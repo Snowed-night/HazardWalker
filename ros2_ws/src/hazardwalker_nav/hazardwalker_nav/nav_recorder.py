@@ -128,6 +128,8 @@ class NavRecorder:
         odom_pose: Optional[Tuple[float, float]] = None,
         official_pose: Optional[Tuple[float, float, float]] = None,
         home_distance_m: Optional[float] = None,
+        floor_index: Optional[int] = None,
+        slam_session_generation: Optional[int] = None,
     ):
         """记录一帧合法 SLAM 位姿（内部降采样）。"""
         if not self._enabled:
@@ -165,6 +167,11 @@ class NavRecorder:
                 math.degrees(float(official_pose[2])), 2)
         if home_distance_m is not None and math.isfinite(home_distance_m):
             record['home_distance_m'] = round(float(home_distance_m), 4)
+        if floor_index is not None:
+            record['floor_index'] = int(floor_index)
+        if slam_session_generation is not None:
+            record['slam_session_generation'] = int(
+                slam_session_generation)
         self._write_jsonl(self._trajectory_fp, record)
 
     def record_cmd_vel(

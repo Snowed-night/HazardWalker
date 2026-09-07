@@ -12,6 +12,7 @@ sys.path.insert(0, str(NAV_SRC))
 from hazardwalker_nav.slam_alignment import (  # noqa: E402
     alignment_is_acceptable,
     evaluate_map_physical_alignment,
+    evaluate_multifloor_map_physical_alignment,
 )
 
 
@@ -72,5 +73,21 @@ def test_alignment_uses_position_motion_instead_of_noisy_startup_yaw():
         samples.append(sample)
     metrics = evaluate_map_physical_alignment(samples)
     assert abs(metrics['rotation_deg'] - 80.0) < 1e-9
+    assert metrics['max_error_m'] < 1e-9
+    assert alignment_is_acceptable(metrics)
+
+
+def test_independent_floor_maps_are_aligned_per_floor_not_as_one_frame():
+    samples = []
+    for floor, offset in ((0, 0.0), (1, 100.0), (2, -80.0)):
+        for index in range(40):
+            sample = _sample(index)
+            sample['floor_index'] = floor
+            sample['x'] += offset
+            sample['official_x'] += floor * 0.5
+            samples.append(sample)
+    metrics = evaluate_multifloor_map_physical_alignment(samples)
+    assert metrics['floor_count'] == 3
+    assert metrics['p95_error_m'] < 1e-9
     assert metrics['max_error_m'] < 1e-9
     assert alignment_is_acceptable(metrics)

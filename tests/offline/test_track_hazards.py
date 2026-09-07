@@ -40,6 +40,28 @@ def test_tracker_merges_near_observations_and_confirms_track():
     assert tracks[0].missed_count == 0
 
 
+def test_tracker_never_merges_equal_coordinates_from_different_floors():
+    tracker = HazardTracker(HazardTrackerConfig(confirm_observation_count=1))
+    tracker.update([HazardObservation(
+        position=(1.0, 2.0, 0.0), confidence=0.9, floor_index=0)])
+    tracks = tracker.update([HazardObservation(
+        position=(1.0, 2.0, 0.0), confidence=0.9, floor_index=1)])
+    assert len(tracks) == 2
+    assert {track.floor_index for track in tracks} == {0, 1}
+    assert {item['floor_index'] for item in tracker.to_hazard_dicts()} == {0, 1}
+
+
+def test_inactive_floor_tracks_do_not_age_while_another_floor_is_scanned():
+    tracker = HazardTracker(HazardTrackerConfig(
+        confirm_observation_count=1, reject_after_missed_count=2))
+    tracker.update([HazardObservation(
+        position=(1.0, 2.0, 0.0), confidence=0.9, floor_index=0)])
+    for _ in range(5):
+        tracker.update([], active_floor_index=1)
+    assert tracker.tracks[0].missed_count == 0
+    assert tracker.tracks[0].status == 'confirmed'
+
+
 """验证距离超过 merge_distance_m 的观测会创建新的危险源轨迹。"""
 def test_tracker_creates_new_track_for_far_observation():
     tracker = HazardTracker(HazardTrackerConfig(confirm_observation_count=2, merge_distance_m=0.5))

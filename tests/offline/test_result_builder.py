@@ -122,6 +122,38 @@ def test_official_result_can_require_legal_slam_provenance():
     assert result['detected_danger_sources'] == [{'position': [2.0, 2.0, 0.3]}]
 
 
+def test_official_result_requires_observation_time_floor_in_formal_multifloor():
+    evidence = {
+        'source': 'hsv_depth_tf',
+        'evidence_status': 'single_view_sphere_confirmed',
+        'distinct_view_count': 1,
+        'eligible_observation_count': 1,
+        'eligible_view_ids': ['stable'],
+        'spherical_view_ids': ['stable'],
+        'required_min_eligible_observations': 1,
+        'required_min_distinct_views': 1,
+        'required_min_spherical_views': 1,
+    }
+    result = build_official_detected_danger_result(
+        hazards=[
+            {'id': 1, 'status': 'confirmed', 'position_frame_id': 'map',
+             'position': [1.0, 2.0, 0.0], 'confidence': 0.9,
+             **evidence},
+            {'id': 2, 'status': 'confirmed', 'position_frame_id': 'map',
+             'position': [1.0, 2.0, 0.0], 'floor_index': 1,
+             'confidence': 0.8, **evidence},
+        ],
+        exploration_time_sec=20.0,
+        source_frame='map',
+        world_from_source_by_floor={1: (10.0, 0.0, math.pi / 2.0)},
+        snap_sphere_height_to_floor=True,
+        require_sphere_evidence=True,
+        require_explicit_floor_index=True,
+    )
+    assert result['detected_danger_sources'] == [
+        {'position': [8.0, 1.0, 2.75]}]
+
+
 def test_official_result_accepts_slam_with_public_floor_action_provenance():
     """公开电梯动作补楼层高度仍属合法定位，不应被官方结果层静默丢弃。"""
     result = build_official_detected_danger_result(

@@ -404,6 +404,8 @@ def test_first_person_recording_is_container_local_and_converted_to_mp4():
     assert "'pkill', '-INT'" in source
     assert "'docker', 'cp'" in source
     assert '多工作树联调时会找不到录像' in source
+    assert '同一个文件；先 unlink 会通过挂载反向删除容器录像' in source
+    assert 'if not source.is_file() or source.stat().st_size <= 0:' in source
     assert MODULE._safe_run_slug('测试 run/01') == 'run_01'
 
 

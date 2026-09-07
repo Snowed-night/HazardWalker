@@ -39,6 +39,8 @@ class HazardObservation:
     # 有提示时可跨越 SLAM 世界坐标漂移恢复同一轨迹，同时仍由一帧一轨约束
     # 防止两个同时可见红球合并。
     track_id_hint: Optional[int] = None
+    # 楼层必须在观测发生时由公开电梯状态固定，不能事后从二维 SLAM z 猜测。
+    floor_index: int = 0
 
 
 @dataclass
@@ -74,6 +76,7 @@ class HazardTrack:
     # SLAM 单向漂移；运行期只使用公开 TF/深度观测，不读取测试真值。
     positions_by_view: dict = field(default_factory=dict)
     evidence_status: str = 'collecting_views'
+    floor_index: int = 0
 
 
 @dataclass
@@ -128,7 +131,9 @@ class HazardTracker:
         self.tracks = []
         self._next_track_id = 1
 
-    def update(self, observations, stamp_sec=0.0):
+    def update(
+            self, observations, stamp_sec=0.0,
+            active_floor_index=None):
         normalized_observations = []
         for observation in observations:
             normalized = _normalize_observation(observation, stamp_sec)
@@ -155,8 +160,17 @@ class HazardTracker:
                 )
             matched_track_ids.add(track.track_id)
 
+        floors_to_age = (
+            {int(active_floor_index)}
+            if active_floor_index is not None
+            else {item.floor_index for item in normalized_observations}
+            if normalized_observations
+            else None
+        )
         for track in self.tracks:
-            if track.track_id not in matched_track_ids:
+            if (track.track_id not in matched_track_ids
+                    and (floors_to_age is None
+                         or track.floor_index in floors_to_age)):
                 track.missed_count += 1
 
         self._refresh_statuses()
@@ -192,6 +206,7 @@ class HazardTracker:
             for track in self.tracks:
                 if (
                     track.track_id == int(hinted_track_id)
+                    and track.floor_index == observation.floor_index
                     and track.track_id not in already_matched
                     and track.status != 'rejected'
                 ):
@@ -203,6 +218,8 @@ class HazardTracker:
         # 导致导航无限复查并可能在噪声下重新确认。普通 lost_track 才不再复用。
         for track in self.tracks:
             if track.status == 'rejected':
+                continue
+            if track.floor_index != observation.floor_index:
                 continue
             if track.track_id in already_matched:
                 continue
@@ -228,6 +245,7 @@ class HazardTracker:
         for track in self.tracks:
             if (
                 track.status in ('rejected', 'rejected_non_spherical')
+                or track.floor_index != observation.floor_index
                 or track.track_id in already_matched
                 or track.missed_count <= 0
                 or not track.spherical_view_ids
@@ -249,6 +267,7 @@ class HazardTracker:
             track_id=self._next_track_id,
             position=tuple(float(v) for v in observation.position),
             confidence=float(observation.confidence),
+            floor_index=int(observation.floor_index),
             observation_count=1,
             missed_count=0,
             first_seen_sec=float(observation.stamp_sec),
@@ -441,6 +460,7 @@ def track_to_hazard_dict(track):
         'id': track.track_id,
         'position': [round(float(v), 4) for v in track.position],
         'position_frame_id': 'start',
+        'floor_index': int(track.floor_index),
         'confidence': round(float(track.confidence), 4),
         'status': track.status,
         'observation_count': track.observation_count,
@@ -481,6 +501,7 @@ def _normalize_observation(observation, default_stamp_sec):
         return HazardObservation(
             position=tuple(float(v) for v in observation.position),
             confidence=float(observation.confidence),
+            floor_index=int(observation.floor_index),
             stamp_sec=float(stamp),
             source_id=observation.source_id,
             view_id=observation.view_id,
@@ -500,6 +521,7 @@ def _normalize_observation(observation, default_stamp_sec):
     return HazardObservation(
         position=tuple(float(v) for v in position),
         confidence=float(observation.get('confidence', 0.0)),
+        floor_index=int(observation.get('floor_index', 0)),
         stamp_sec=float(stamp),
         source_id=str(observation.get('source_id', observation.get('id', ''))),
         view_id=str(observation.get('view_id', '')),
@@ -615,6 +637,8 @@ def _same_frame_duplicate_index(existing, candidate, config):
     )
     for index, current in enumerate(existing):
         if (
+            current.floor_index != candidate.floor_index
+            or
             not current.confirmation_eligible
             or current.depth_shape_status != 'spherical'
             or not _valid_diameter(current.apparent_diameter_m)

@@ -514,6 +514,8 @@ class FrontierExplorerNode(Node):
         self.declare_parameter(
             'target_floors', Parameter.Type.INTEGER_ARRAY)
         self.declare_parameter('current_floor_index', 0)
+        self.declare_parameter(
+            'floor_session_topic', '/hazardwalker/slam/floor_session')
         self.declare_parameter('floor_coverage_threshold', 0.90)
         self.declare_parameter('elevator_id', 'elevator_main')
         self.declare_parameter('elevator_entry_floor', 0)
@@ -825,6 +827,8 @@ class FrontierExplorerNode(Node):
         # ---- 多楼层 ----
         self._target_floors: list = []
         self._current_floor: int = 0
+        self._slam_floor_index: int = 0
+        self._slam_session_generation: int = 0
         self._coverage: Optional[CoverageGrid] = None
         self._elevator_initiated: bool = False
         self._elevator_floor_reached: bool = False
@@ -882,6 +886,12 @@ class FrontierExplorerNode(Node):
             str(self.get_parameter('final_floor_anchor_topic').value),
             floor_index_qos,
         )
+        self.create_subscription(
+            String,
+            str(self.get_parameter('floor_session_topic').value),
+            self.on_floor_slam_session,
+            floor_index_qos,
+        )
         self.create_service(
             Trigger, '/hazardwalker/navigation/elevator_ready',
             self.on_manual_elevator_ready)
@@ -898,6 +908,20 @@ class FrontierExplorerNode(Node):
             self.grid = occupancy_grid_to_array(msg)
         except Exception:
             self.grid = None
+
+    def on_floor_slam_session(self, msg: String):
+        """记录当前地图会话编号，供逐会话 ATE 验收。"""
+
+        try:
+            payload = json.loads(msg.data)
+            floor = int(payload['floor_index'])
+            generation = int(payload['generation'])
+        except (KeyError, TypeError, ValueError, json.JSONDecodeError):
+            return
+        if (payload.get('schema') == 'hazardwalker_floor_slam_session_v1'
+                and payload.get('state') == 'ready'):
+            self._slam_floor_index = floor
+            self._slam_session_generation = generation
 
     def on_hazard(self, msg: String):
         """解析感知检测结果，判断是否需要进入重观察状态。"""
@@ -1656,6 +1680,8 @@ class FrontierExplorerNode(Node):
                 odom_pose=self._robot_odom,
                 official_pose=official_pose,
                 home_distance_m=self._distance_home_m(),
+                floor_index=self._slam_floor_index,
+                slam_session_generation=self._slam_session_generation,
             )
         self.recorder.record_cmd_vel(
             now_ros, cmd.linear.x, cmd.angular.z, cmd.linear.y,
@@ -4994,6 +5020,7 @@ class FrontierExplorerNode(Node):
 
     def _publish_floor_index(self, index: int):
         """发布 /hazardwalker/navigation/floor_index，触发 SLAM 地图重置。"""
+        self._slam_floor_index = int(index)
         msg = Int32()
         msg.data = index
         self.floor_index_pub.publish(msg)
