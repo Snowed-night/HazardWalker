@@ -20,6 +20,7 @@ import numpy as np
 import rclpy
 from builtin_interfaces.msg import Time as TimeMessage
 from rclpy.duration import Duration
+from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
 from rclpy.qos import qos_profile_sensor_data
 from rclpy.time import Time
@@ -261,7 +262,7 @@ def main(args=None) -> None:
     try:
         node = PointcloudMapNode()
         rclpy.spin(node)
-    except KeyboardInterrupt:
+    except (KeyboardInterrupt, ExternalShutdownException):
         pass
     finally:
         if node is not None:

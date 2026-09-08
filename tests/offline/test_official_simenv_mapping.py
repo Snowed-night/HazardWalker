@@ -292,6 +292,11 @@ def test_slam_video_is_driven_by_2d_map_when_pointcloud_is_disabled():
     assert 'FRAME_HEIGHT = 1080' in pointcloud_video
     assert 'COLORMAP_TURBO' in pointcloud_video
     assert 'orbit_degrees_per_frame' in pointcloud_video
+    pointcloud_map = (
+        REPO_ROOT / 'ros2_ws' / 'src' / 'hazardwalker_nav' /
+        'hazardwalker_nav' / 'pointcloud_map_node.py'
+    ).read_text(encoding='utf-8')
+    assert 'except (KeyboardInterrupt, ExternalShutdownException):' in pointcloud_map
 
 
 def test_rosbridge_control_relay_defaults_to_safe_and_uses_wall_clock_watchdog():
