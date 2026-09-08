@@ -149,6 +149,14 @@ def test_preflight_rejects_clearance_smaller_than_runtime_a1_footprint():
     assert 'start_pointcloud_map:=true' in three_dimensional
     assert 'slam_dimension:=3d' in three_dimensional
 
+    recording_only = ' '.join(MODULE.build_launch_command(
+        Path('/tmp/nav-run'), scenario_seed='20260823', code_version='abc',
+        enable_3d_recording=True))
+    assert 'start_pointcloud_map:=true' in recording_only
+    assert 'start_pointcloud_video:=true' in recording_only
+    assert 'slam_dimension:=2d' in recording_only
+    assert 'slam_3d_pointcloud.mp4' in recording_only
+
 
 def test_target_floor_parser_preserves_order_and_rejects_duplicates():
     assert MODULE.parse_target_floors('0, 2, 1') == (0, 2, 1)
@@ -389,7 +397,9 @@ def test_pointcloud_save_must_ack_before_launch_shutdown():
     completion = source.split(
         "if observer.latest_state in ('FINISHED', 'FAILED'):", 1)[1].split(
             'if process.poll() is not None:', 1)[0]
-    assert completion.index('if args.enable_3d_map:') < completion.index(
+    assert completion.index(
+        'if args.enable_3d_map or args.enable_3d_recording:'
+    ) < completion.index(
         'save_pointcloud_map()')
     assert "'reason': '2d_slam_profile'" in completion
 
@@ -426,6 +436,9 @@ def test_stable_three_floor_entry_is_exclusive_and_self_cleaning():
     assert '--entrance-speed-mps 0.90' in source
     assert '--entrance-wall-timeout-sec 240' in source
     assert '--enable-perception' in source
+    assert '--enable-3d-recording' in source
+    assert 'ENABLE_LIVOX_3D=true' in source
+    assert 'OFFICIAL_SIMENV_POINTCLOUD_THROTTLE_RATE_MS=1000' in source
     assert "docker ps --format '{{.Names}}'" in source
     assert '正式实验拒绝并行' in source
     assert 'trap cleanup EXIT' in source

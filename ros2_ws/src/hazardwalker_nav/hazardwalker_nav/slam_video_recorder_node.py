@@ -160,16 +160,9 @@ class SlamVideoRecorder(Node):
     def _render_2d_frame(self, pose):
         """生成无空白三维面板的 1920×1080 二维分层建图画面。"""
 
-        panel_size = 980
-        map_panel = self._render_occupancy(pose, panel_size=panel_size)
-        # 方形占用图完整保留在中央；左右区域使用同一地图的暗化模糊副本
-        # 填满 16:9，而不是拉伸地图或留下未启用的黑色 3D 面板。
-        background = cv2.resize(
-            map_panel, (TWO_D_FRAME_WIDTH, TWO_D_FRAME_HEIGHT),
-            interpolation=cv2.INTER_LINEAR)
-        background = cv2.GaussianBlur(background, (0, 0), sigmaX=28)
-        dark = np.full_like(background, 18)
-        frame = cv2.addWeighted(background, 0.30, dark, 0.70, 0.0)
+        frame = np.full(
+            (TWO_D_FRAME_HEIGHT, TWO_D_FRAME_WIDTH, 3), 18,
+            dtype=np.uint8)
         cv2.rectangle(
             frame, (0, 0), (TWO_D_FRAME_WIDTH - 1, 76),
             (18, 18, 18), -1)
@@ -183,16 +176,16 @@ class SlamVideoRecorder(Node):
             f'frame={self.frame_count}',
             (28, 72), cv2.FONT_HERSHEY_SIMPLEX, 0.60,
             (120, 210, 255), 1, cv2.LINE_AA)
-        panel_x = (TWO_D_FRAME_WIDTH - panel_size) // 2
-        panel_y = 88
-        frame[
-            panel_y:panel_y + panel_size,
-            panel_x:panel_x + panel_size,
-        ] = self._render_occupancy(pose, panel_size=panel_size)
+        panel_x = 0
+        panel_y = 78
+        panel_width = TWO_D_FRAME_WIDTH
+        panel_height = TWO_D_FRAME_HEIGHT - panel_y
+        frame[panel_y:, :] = self._render_occupancy(
+            pose, panel_width=panel_width, panel_height=panel_height)
         cv2.rectangle(
             frame,
             (panel_x, panel_y),
-            (panel_x + panel_size - 1, panel_y + panel_size - 1),
+            (panel_x + panel_width - 1, panel_y + panel_height - 1),
             (120, 120, 120), 1)
         cv2.putText(
             frame, 'Layered occupancy + trajectory',
@@ -201,15 +194,20 @@ class SlamVideoRecorder(Node):
             cv2.LINE_AA)
         return frame
 
-    def _render_occupancy(self, pose, panel_size=600):
-        panel_size = max(64, int(panel_size))
-        last_pixel = panel_size - 1
-        panel = np.full((panel_size, panel_size, 3), 55, dtype=np.uint8)
+    def _render_occupancy(
+            self, pose, panel_width=600, panel_height=None):
+        panel_width = max(64, int(panel_width))
+        panel_height = max(
+            64, int(panel_height if panel_height is not None else panel_width))
+        last_x = panel_width - 1
+        last_y = panel_height - 1
+        panel = np.full(
+            (panel_height, panel_width, 3), 55, dtype=np.uint8)
         message = self.latest_map
         if message is None or not message.data:
             cv2.putText(
                         panel, 'waiting for /map',
-                        (int(panel_size * 0.24), int(panel_size * 0.50)),
+                        (int(panel_width * 0.38), int(panel_height * 0.50)),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.8, (220, 220, 220), 2)
             return panel
         height = int(message.info.height)
@@ -220,7 +218,7 @@ class SlamVideoRecorder(Node):
         image[grid >= 50] = (20, 20, 20)
         image = np.flipud(image)
         image = cv2.resize(
-            image, (panel_size, panel_size),
+            image, (panel_width, panel_height),
             interpolation=cv2.INTER_NEAREST)
         resolution = float(message.info.resolution)
         origin_x = float(message.info.origin.position.x)
@@ -231,11 +229,11 @@ class SlamVideoRecorder(Node):
             gy = (y_value - origin_y) / max(resolution, 1e-6)
             return (
                 int(np.clip(
-                    gx / max(1, width - 1) * last_pixel,
-                    0, last_pixel)),
+                    gx / max(1, width - 1) * last_x,
+                    0, last_x)),
                 int(np.clip(
-                    (1.0 - gy / max(1, height - 1)) * last_pixel,
-                    0, last_pixel)),
+                    (1.0 - gy / max(1, height - 1)) * last_y,
+                    0, last_y)),
             )
 
         for floor, path in sorted(self.paths.items()):
@@ -245,11 +243,13 @@ class SlamVideoRecorder(Node):
             polyline = np.asarray([pixel(x, y) for x, y, _ in path], np.int32)
             cv2.polylines(
                 image, [polyline], False, color,
-                max(2, panel_size // 360), cv2.LINE_AA)
+                max(2, min(panel_width, panel_height) // 360),
+                cv2.LINE_AA)
         if pose is not None:
             cv2.circle(
                 image, pixel(pose[0], pose[1]),
-                max(6, panel_size // 100), (0, 0, 255), -1)
+                max(6, min(panel_width, panel_height) // 100),
+                (0, 0, 255), -1)
         return image
 
     def _render_cloud(self, points):

@@ -190,6 +190,7 @@ def build_launch_command(
         enable_perception: bool = False,
         strict_room_inspection: bool = False,
         enable_3d_map: bool = False,
+        enable_3d_recording: bool = False,
         world_from_map: tuple[float, float, float] = (0.0, 0.0, 0.0),
         floor_height_m: float = 2.6,
         sphere_center_height_m: float = 0.15,
@@ -201,6 +202,7 @@ def build_launch_command(
         'official_simenv_odometry+public_floor_action'
         if target_floors else 'official_simenv_odometry')
     perception_enabled = bool(enable_perception or strict_room_inspection)
+    pointcloud_enabled = bool(enable_3d_map or enable_3d_recording)
     command = [
         'ros2', 'launch', 'hazardwalker_bringup',
         'official_simenv_control_interface.launch.py',
@@ -209,7 +211,9 @@ def build_launch_command(
         'control_mode:=navigation',
         'start_slam:=true',
         'start_pointcloud_map:='
-        + ('true' if enable_3d_map else 'false'),
+        + ('true' if pointcloud_enabled else 'false'),
+        'start_pointcloud_video:='
+        + ('true' if enable_3d_recording else 'false'),
         'start_slam_video:=true',
         'slam_backend:=cartographer',
         'slam_dimension:=' + ('3d' if enable_3d_map else '2d'),
@@ -246,6 +250,8 @@ def build_launch_command(
         f'slam_monitor_output_dir:={output_dir / "slam"}',
         f'pointcloud_map_output_dir:={output_dir / "slam_3d"}',
         f'slam_video_output:={output_dir / "video" / "slam_exploration.mp4"}',
+        'pointcloud_video_output:='
+        f'{output_dir / "video" / "slam_3d_pointcloud.mp4"}',
         f'scenario_seed:={scenario_seed}',
         f'code_version:={code_version}',
     ]
@@ -1358,7 +1364,10 @@ def main() -> int:
         help='赛后验收使用，不参与导航决策；官方三层楼每层为 4。')
     parser.add_argument(
         '--enable-3d-map', action='store_true',
-        help='额外启动 Mid-360 三维地图；正式评分默认使用低负载二维 SLAM。')
+        help='把 Cartographer 切换为三维 SLAM；会改变导航定位链。')
+    parser.add_argument(
+        '--enable-3d-recording', action='store_true',
+        help='保持二维 SLAM，仅低频累计并单独录制 Mid-360 三维点云。')
     args = parser.parse_args()
     if (args.wall_timeout_sec <= 0.0 or args.exploration_timeout_sec <= 0.0
             or args.mission_time_budget_sec <= 0.0
@@ -1384,7 +1393,8 @@ def main() -> int:
             allow_dirty_diagnostic=bool(args.allow_dirty_diagnostic),
         )
         preflight_payload = preflight(
-            str(args.seed), require_pointcloud=bool(args.enable_3d_map))
+            str(args.seed), require_pointcloud=bool(
+                args.enable_3d_map or args.enable_3d_recording))
         container = str(
             preflight_payload['adapter_status'].get('lifecycle_container')
             or '').strip()
@@ -1430,6 +1440,7 @@ def main() -> int:
         enable_perception=perception_enabled,
         strict_room_inspection=bool(args.strict_room_inspection),
         enable_3d_map=bool(args.enable_3d_map),
+        enable_3d_recording=bool(args.enable_3d_recording),
         world_from_map=world_from_map,
         floor_height_m=float(args.floor_height_m),
         sphere_center_height_m=float(args.sphere_center_height_m),
@@ -1456,6 +1467,7 @@ def main() -> int:
         'strict_room_inspection': bool(args.strict_room_inspection),
         'perception_enabled': perception_enabled,
         'enable_3d_map': bool(args.enable_3d_map),
+        'enable_3d_recording': bool(args.enable_3d_recording),
         'evaluation': None,
         'navigation_acceptance': None,
         'slam_physical_alignment': None,
@@ -1553,7 +1565,7 @@ def main() -> int:
                         '导航进入 FAILED；检查 navigation/failures.jsonl '
                         '与 room_coverage.jsonl')
                     break
-                if args.enable_3d_map:
+                if args.enable_3d_map or args.enable_3d_recording:
                     try:
                         manifest['pointcloud_save'] = save_pointcloud_map()
                         manifest['status'] = 'complete'

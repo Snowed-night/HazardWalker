@@ -40,6 +40,7 @@ setup(
             'multifloor_occupancy_mapper = hazardwalker_nav.multifloor_occupancy_mapper_node:main',
             'floor_slam_session_manager = hazardwalker_nav.floor_slam_session_manager_node:main',
             'slam_video_recorder = hazardwalker_nav.slam_video_recorder_node:main',
+            'pointcloud_video_recorder = hazardwalker_nav.pointcloud_video_recorder_node:main',
         ],
     },
 )

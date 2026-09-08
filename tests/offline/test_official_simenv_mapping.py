@@ -273,13 +273,25 @@ def test_slam_video_is_driven_by_2d_map_when_pointcloud_is_disabled():
     assert "declare_parameter('include_3d_panel', False)" in source
     assert 'TWO_D_FRAME_WIDTH = 1920' in source
     assert 'TWO_D_FRAME_HEIGHT = 1080' in source
-    assert 'cv2.GaussianBlur(background' in source
+    assert 'cv2.GaussianBlur(background' not in source
+    assert 'panel_width = TWO_D_FRAME_WIDTH' in source
+    assert 'panel_height = TWO_D_FRAME_HEIGHT - panel_y' in source
     assert 'return self._render_2d_frame(pose)' in source
     launch = (
         REPO_ROOT / 'ros2_ws' / 'src' / 'hazardwalker_bringup' / 'launch' /
         'official_simenv_business.launch.py'
     ).read_text(encoding='utf-8')
-    assert "'include_3d_panel': pointcloud_enabled_parameter" in launch
+    assert "'include_3d_panel': False" in launch
+    assert "executable='pointcloud_video_recorder'" in launch
+    assert "'target_frame': 'odom'" in launch
+    pointcloud_video = (
+        REPO_ROOT / 'ros2_ws' / 'src' / 'hazardwalker_nav' /
+        'hazardwalker_nav' / 'pointcloud_video_recorder_node.py'
+    ).read_text(encoding='utf-8')
+    assert 'FRAME_WIDTH = 1920' in pointcloud_video
+    assert 'FRAME_HEIGHT = 1080' in pointcloud_video
+    assert 'COLORMAP_TURBO' in pointcloud_video
+    assert 'orbit_degrees_per_frame' in pointcloud_video
 
 
 def test_rosbridge_control_relay_defaults_to_safe_and_uses_wall_clock_watchdog():
@@ -388,14 +400,15 @@ def test_rosbridge_fragment_contract_is_bounded_and_adapter_keeps_image_bytes():
     assert 'self.candidate_memory.clear()' in detector
     assert 'self._current_floor_tracks()' in detector
     assert 'if tracker_observations:' in detector
-    assert 'official_occluded_motion_confirmation' in detector
+    assert 'official_synchronized_motion_confirmation' in detector
     assert 'observation.source_id in motion_safe_observation_source_ids' in detector
+    assert 'if positive_depth_sphere:' in detector
     assert 'active_floor_index=self.current_floor_index' in detector
     assert "self.declare_parameter('stable_view_cmd_vel_topic', '/hw/cmd_vel')" in detector
     assert 'if not self._command_is_stationary()' in detector
     assert 'stable_view_max_linear_speed_mps' in detector
     assert 'stable_view_max_angular_speed_rps' in detector
-    assert 'allow_official_odom_occluded_motion_confirmation' in detector
+    assert 'allow_official_odom_synchronized_motion_confirmation' in detector
     assert 'choose_stable_localization_hold(' in detector
     assert "'stable_localization_required': (" in detector
     recorder = (

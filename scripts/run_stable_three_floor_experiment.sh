@@ -58,7 +58,9 @@ ROOMS_PER_FLOOR=4 \
 DANGER_COUNT=3:6 \
 DISTRACTOR_COUNT=4:8 \
 ENABLE_LIDAR=true \
-ENABLE_LIVOX_3D=false \
+ENABLE_LIVOX_3D=true \
+OFFICIAL_SIMENV_ENABLE_POINTCLOUD_RELAY=1 \
+OFFICIAL_SIMENV_POINTCLOUD_THROTTLE_RATE_MS=1000 \
 START_CONTROLLER=1 \
 OFFICIAL_SIMENV_ENABLE_PROPRIO_ODOM_RELAY=1 \
 SIMENV_AUTO_RL=1 \
@@ -91,6 +93,7 @@ python3 scripts/run_official_slam_exploration.py \
   --target-floors 0,1,2 \
   --per-floor-exploration-sec 480 \
   --enable-perception \
+  --enable-3d-recording \
   --truth-file "$PLATFORM/results/danger_truth.json" &
 runner_pid=$!
 set +e

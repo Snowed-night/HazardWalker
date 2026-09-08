@@ -226,6 +226,7 @@ def generate_launch_description():
     start_slam = LaunchConfiguration('start_slam')
     start_slam_monitor = LaunchConfiguration('start_slam_monitor')
     start_pointcloud_map = LaunchConfiguration('start_pointcloud_map')
+    start_pointcloud_video = LaunchConfiguration('start_pointcloud_video')
     start_slam_video = LaunchConfiguration('start_slam_video')
     slam_backend = LaunchConfiguration('slam_backend')
     slam_dimension = LaunchConfiguration('slam_dimension')
@@ -260,6 +261,7 @@ def generate_launch_description():
     pointcloud_map_output_dir = LaunchConfiguration(
         'pointcloud_map_output_dir')
     slam_video_output = LaunchConfiguration('slam_video_output')
+    pointcloud_video_output = LaunchConfiguration('pointcloud_video_output')
     test_record_dir = LaunchConfiguration('test_record_dir')
     evidence_run_mode = LaunchConfiguration('evidence_run_mode')
     scenario_seed = LaunchConfiguration('scenario_seed')
@@ -269,8 +271,6 @@ def generate_launch_description():
     scenario_seed_string = ParameterValue(scenario_seed, value_type=str)
     code_version_string = ParameterValue(code_version, value_type=str)
     sim_time_parameter = ParameterValue(use_sim_time, value_type=bool)
-    pointcloud_enabled_parameter = ParameterValue(
-        start_pointcloud_map, value_type=bool)
     exploration_timeout_parameter = ParameterValue(
         exploration_timeout_s, value_type=float,
     )
@@ -329,6 +329,7 @@ def generate_launch_description():
         # 三维地图显式开启，要求平台同时转发 /hw/lidar/points；不满足时
         # 节点只告警等待，不使用旧地图或伪造点云。
         DeclareLaunchArgument('start_pointcloud_map', default_value='false'),
+        DeclareLaunchArgument('start_pointcloud_video', default_value='false'),
         DeclareLaunchArgument('start_slam_video', default_value='false'),
         # 无轮速计的四足平台优先使用 scan+IMU+合法控制先验融合；旧的
         # slam_toolbox 保留为显式诊断回退，不再作为官方首选。
@@ -384,6 +385,7 @@ def generate_launch_description():
         DeclareLaunchArgument('slam_monitor_output_dir', default_value=''),
         DeclareLaunchArgument('pointcloud_map_output_dir', default_value=''),
         DeclareLaunchArgument('slam_video_output', default_value=''),
+        DeclareLaunchArgument('pointcloud_video_output', default_value=''),
         DeclareLaunchArgument('test_record_dir', default_value=''),
         # 正式入口使用 official_random_scene；未提交代码或临时目录的调参运行
         # 必须由外层脚本强制改成 diagnostic_official_random_scene。
@@ -458,7 +460,7 @@ def generate_launch_description():
             )],
         ),
 
-        # ---- 多层三维点云地图：Cartographer 位姿 + Mid-360 原始点云 ----
+        # ---- 多层三维点云展示：稳定 odom 位姿 + Mid-360 原始点云 ----
         Node(
             package='hazardwalker_nav',
             executable='pointcloud_map',
@@ -467,9 +469,13 @@ def generate_launch_description():
             parameters=[{
                 'input_topic': '/hw/lidar/points',
                 'output_topic': '/hazardwalker/slam/cloud_map',
-                'target_frame': 'map',
-                'voxel_size_m': 0.08,
-                'max_voxels': 1000000,
+                # 每层 Cartographer 的 map 会独立重启；三维展示必须使用跨层
+                # 连续的赛事公开 odom，否则旧楼层点云会随新 map 变换错位。
+                'target_frame': 'odom',
+                # 三维地图只用于独立展示：低频、较粗体素和硬上限避免拖慢
+                # 已验收二维导航链或重新触发内存压力。
+                'voxel_size_m': 0.12,
+                'max_voxels': 500000,
                 'publish_period_s': 2.0,
                 'output_dir': pointcloud_map_output_dir,
                 'use_sim_time': sim_time_parameter,
@@ -477,7 +483,7 @@ def generate_launch_description():
             condition=IfCondition(start_pointcloud_map),
         ),
 
-        # ---- 展示录像：分层二维地图、轨迹与增量三维体素地图 ----
+        # ---- 独立二维分层地图录像 ----
         Node(
             package='hazardwalker_nav',
             executable='slam_video_recorder',
@@ -487,10 +493,28 @@ def generate_launch_description():
                 'output_path': slam_video_output,
                 'video_fps': 5.0,
                 'max_render_points': 80000,
-                'include_3d_panel': pointcloud_enabled_parameter,
+                # 二维与三维录像必须分开，开启点云也不能把二维画面重新切半。
+                'include_3d_panel': False,
                 'use_sim_time': sim_time_parameter,
             }],
             condition=IfCondition(start_slam_video),
+        ),
+
+        # ---- 独立三维点云展示录像（不参与导航或定位） ----
+        Node(
+            package='hazardwalker_nav',
+            executable='pointcloud_video_recorder',
+            name='hazardwalker_pointcloud_video_recorder',
+            output='screen',
+            parameters=[{
+                'input_topic': '/hazardwalker/slam/cloud_map',
+                'output_path': pointcloud_video_output,
+                'video_fps': 5.0,
+                'max_render_points': 120000,
+                'orbit_degrees_per_frame': 0.35,
+                'use_sim_time': sim_time_parameter,
+            }],
+            condition=IfCondition(start_pointcloud_video),
         ),
 
         # ---- 每层定位源的公开 world 锚点 ----

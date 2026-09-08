@@ -34,6 +34,7 @@ def generate_launch_description():
         DeclareLaunchArgument('start_navigation', default_value='false'),
         DeclareLaunchArgument('start_slam', default_value='false'),
         DeclareLaunchArgument('start_pointcloud_map', default_value='false'),
+        DeclareLaunchArgument('start_pointcloud_video', default_value='false'),
         DeclareLaunchArgument('start_slam_video', default_value='false'),
         DeclareLaunchArgument('slam_backend', default_value='cartographer'),
         DeclareLaunchArgument('slam_dimension', default_value='3d'),
@@ -67,6 +68,7 @@ def generate_launch_description():
         DeclareLaunchArgument('slam_monitor_output_dir', default_value=''),
         DeclareLaunchArgument('pointcloud_map_output_dir', default_value=''),
         DeclareLaunchArgument('slam_video_output', default_value=''),
+        DeclareLaunchArgument('pointcloud_video_output', default_value=''),
         DeclareLaunchArgument('test_record_dir', default_value=''),
         DeclareLaunchArgument('scenario_seed', default_value=''),
         DeclareLaunchArgument('code_version', default_value=''),
@@ -117,6 +119,8 @@ def generate_launch_description():
                 'start_slam': LaunchConfiguration('start_slam'),
                 'start_pointcloud_map': LaunchConfiguration(
                     'start_pointcloud_map'),
+                'start_pointcloud_video': LaunchConfiguration(
+                    'start_pointcloud_video'),
                 'start_slam_video': LaunchConfiguration('start_slam_video'),
                 'slam_backend': LaunchConfiguration('slam_backend'),
                 'slam_dimension': LaunchConfiguration('slam_dimension'),
@@ -164,6 +168,8 @@ def generate_launch_description():
                     'pointcloud_map_output_dir'),
                 'slam_video_output': LaunchConfiguration(
                     'slam_video_output'),
+                'pointcloud_video_output': LaunchConfiguration(
+                    'pointcloud_video_output'),
                 'test_record_dir': LaunchConfiguration('test_record_dir'),
                 'scenario_seed': LaunchConfiguration('scenario_seed'),
                 'code_version': LaunchConfiguration('code_version'),
