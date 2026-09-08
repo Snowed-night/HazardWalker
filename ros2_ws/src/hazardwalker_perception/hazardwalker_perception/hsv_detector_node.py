@@ -184,6 +184,10 @@ class HsvDetectorNode(Node):
         self.declare_parameter('stable_view_max_cmd_age_sec', 1.0)
         self.declare_parameter('stable_view_max_linear_speed_mps', 0.05)
         self.declare_parameter('stable_view_max_angular_speed_rps', 0.10)
+        # 赛事公开里程计与 RGB-D/TF 同步时，严格遮挡圆弧的三维位置可在运动
+        # 帧直接确认；其它候选仍必须停稳，避免把这一例外扩大成通用放宽。
+        self.declare_parameter(
+            'allow_official_odom_occluded_motion_confirmation', False)
         # 主动视角策略阈值全部暴露为 ROS 参数，现场调优不修改源码。
         self.declare_parameter('active_view_edge_margin_ratio', 0.05)
         self.declare_parameter('active_view_min_bbox_area_px', 900)
@@ -532,6 +536,7 @@ class HsvDetectorNode(Node):
             return
 
         observations = []
+        motion_safe_observation_source_ids = set()
         detections_2d_payload = []
 
         for index, detection_2d in enumerate(detections_2d, start=1):
@@ -798,6 +803,8 @@ class HsvDetectorNode(Node):
             if localization and (
                     shape_complete_for_3d_tracking
                     or positive_depth_sphere):
+                if foreground_occluded_sphere:
+                    motion_safe_observation_source_ids.add(source_id)
                 observations.append(HazardObservation(
                     position=(
                         localization.position.x,
@@ -883,16 +890,37 @@ class HsvDetectorNode(Node):
         for item in detections_2d_payload:
             item.pop('_source_id', None)
 
-        # 运动帧可以立即触发停车，但不能建立或更新最终三维轨迹。快速转动时
-        # 图像与桥接 TF 即使只差约 60 ms，也足以让四米外目标横跳近一米。
-        # 停稳后的连续帧仍使用同一 RGB-D 球面判据，不引入额外多视角要求。
-        if camera_stable:
+        official_occluded_motion_confirmation = (
+            not camera_stable
+            and bool(motion_safe_observation_source_ids)
+            and bool(self.get_parameter(
+                'allow_official_odom_occluded_motion_confirmation').value)
+            and self.localization_provenance.startswith(
+                'official_simenv_odometry')
+            and depth_synchronized
+            and self._last_tf_synchronized
+        )
+        # 普通运动帧只能触发停车，不能更新轨迹。唯一例外是赛事公开米制
+        # 里程计下、RGB-D/TF 严格同步且已通过“圆弧+前景深度分层+低 extent”
+        # 的遮挡球；这一类即使只出现两帧也要按用户要求立即记录。
+        tracker_observations = (
+            observations
+            if camera_stable
+            else [
+                observation for observation in observations
+                if observation.source_id in motion_safe_observation_source_ids
+            ]
+            if official_occluded_motion_confirmation
+            else []
+        )
+        if tracker_observations:
             self.tracker.update(
-                observations, stamp_sec=stamp_sec,
+                tracker_observations, stamp_sec=stamp_sec,
                 active_floor_index=self.current_floor_index)
         tracks_to_publish = (
             self.tracker.published_tracks()
-            if camera_stable else self.tracker.active_tracks()
+            if (camera_stable or official_occluded_motion_confirmation)
+            else self.tracker.active_tracks()
         )
         projected_tracks = project_tracks_for_image_association(
             self._current_floor_tracks(),

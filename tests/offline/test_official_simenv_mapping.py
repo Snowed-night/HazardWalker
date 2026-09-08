@@ -377,12 +377,15 @@ def test_rosbridge_fragment_contract_is_bounded_and_adapter_keeps_image_bytes():
     assert "'floor_index': int(self.current_floor_index)" in detector
     assert 'self.candidate_memory.clear()' in detector
     assert 'self._current_floor_tracks()' in detector
-    assert "if camera_stable:\n            self.tracker.update(" in detector
+    assert 'if tracker_observations:' in detector
+    assert 'official_occluded_motion_confirmation' in detector
+    assert 'observation.source_id in motion_safe_observation_source_ids' in detector
     assert 'active_floor_index=self.current_floor_index' in detector
     assert "self.declare_parameter('stable_view_cmd_vel_topic', '/hw/cmd_vel')" in detector
     assert 'if not self._command_is_stationary()' in detector
     assert 'stable_view_max_linear_speed_mps' in detector
     assert 'stable_view_max_angular_speed_rps' in detector
+    assert 'allow_official_odom_occluded_motion_confirmation' in detector
     assert 'choose_stable_localization_hold(' in detector
     assert "'stable_localization_required': (" in detector
     recorder = (
