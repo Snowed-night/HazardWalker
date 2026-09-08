@@ -923,6 +923,7 @@ class RosbridgeHwAdapter(Node):
             'sources': {'rgb': self.rgb_topic, 'depth': self.depth_topic,
                         'rgb_camera_info': self.rgb_info_topic,
                         'depth_camera_info': self.depth_info_topic,
+                        'pointcloud': self.livox_cloud_topic,
                         'official_odom': self.ros1_odom_topic,
                         'proprio_odom': self.ros1_proprio_odom_topic},
             'enable_image_relay': self.enable_image_relay,

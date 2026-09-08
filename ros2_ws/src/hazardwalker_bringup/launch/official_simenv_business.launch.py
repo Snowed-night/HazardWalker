@@ -460,7 +460,7 @@ def generate_launch_description():
             )],
         ),
 
-        # ---- 多层三维点云展示：稳定 odom 位姿 + Mid-360 原始点云 ----
+        # ---- 多层三维点云展示：稳定 odom 位姿 + 公开 PointCloud2 ----
         Node(
             package='hazardwalker_nav',
             executable='pointcloud_map',

@@ -941,12 +941,11 @@ def preflight(expected_seed: str, require_pointcloud: bool = False) -> dict:
         raise RuntimeError('适配器尚未收到赛事公开里程计数据')
     if (require_pointcloud
             and adapter.get('enable_pointcloud_relay') is not True):
-        raise RuntimeError('三维 SLAM 成果要求平台启用 Mid-360 点云转发')
+        raise RuntimeError('三维地图或录像要求平台启用 PointCloud2 转发')
     if adapter.get('enable_unitree_move_base_bridge') is not True:
         raise RuntimeError(
             '正式探索要求平台启用赛事仓库宇树 move_base 桥接；请以 '
-            'START_UNITREE_MOVE_BASE=1 重启容器（平台会自动启用 2D 激光与 '
-            'Mid-360）')
+            'START_UNITREE_MOVE_BASE=1 重启容器（平台会自动启用二维激光）')
     container = str(adapter.get('lifecycle_container') or '').strip()
     if not container or any(character.isspace() for character in container):
         raise RuntimeError('适配器未报告合法的受管容器名')
@@ -1367,7 +1366,7 @@ def main() -> int:
         help='把 Cartographer 切换为三维 SLAM；会改变导航定位链。')
     parser.add_argument(
         '--enable-3d-recording', action='store_true',
-        help='保持二维 SLAM，仅低频累计并单独录制 Mid-360 三维点云。')
+        help='保持二维 SLAM，仅低频累计并单独录制公开 PointCloud2。')
     args = parser.parse_args()
     if (args.wall_timeout_sec <= 0.0 or args.exploration_timeout_sec <= 0.0
             or args.mission_time_budget_sec <= 0.0
