@@ -93,6 +93,8 @@ class HsvDetectorNode(Node):
         # 仍发布相机候选和深度距离，但不输出可提交的 world 坐标。
         self.declare_parameter('output_frame', 'map')
         self.declare_parameter('localization_provenance', 'unverified')
+        self.localization_provenance = str(
+            self.get_parameter('localization_provenance').value).strip()
         self.declare_parameter(
             'floor_index_topic', '/hazardwalker/navigation/floor_index')
         self.declare_parameter(
@@ -967,9 +969,7 @@ class HsvDetectorNode(Node):
         for track in tracks:
             item = track_to_hazard_dict(track)
             item['position_frame_id'] = output_frame
-            item['localization_provenance'] = str(
-                self.get_parameter('localization_provenance').value
-            )
+            item['localization_provenance'] = self.localization_provenance
             item['source'] = 'hsv_depth_tf'
             # 最终结果层不能只相信可伪造的 evidence_status 字符串；把本轮实际
             # 确认门槛随轨迹一并发布，使决策层可复核视角数、球面深度正证据和

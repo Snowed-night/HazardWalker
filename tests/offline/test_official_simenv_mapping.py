@@ -419,6 +419,7 @@ def test_rosbridge_fragment_contract_is_bounded_and_adapter_keeps_image_bytes():
     assert 'stable_view_max_linear_speed_mps' in detector
     assert 'stable_view_max_angular_speed_rps' in detector
     assert 'allow_official_odom_synchronized_motion_confirmation' in detector
+    assert "self.localization_provenance = str(" in detector
     assert 'choose_stable_localization_hold(' in detector
     assert "'stable_localization_required': (" in detector
     recorder = (

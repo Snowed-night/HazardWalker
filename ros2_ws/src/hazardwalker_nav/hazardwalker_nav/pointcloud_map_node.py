@@ -264,6 +264,11 @@ def main(args=None) -> None:
         rclpy.spin(node)
     except (KeyboardInterrupt, ExternalShutdownException):
         pass
+    except Exception:
+        # launch 全局 shutdown 后 Jazzy 偶尔从 wait_set 抛 RCLError 而不是
+        # ExternalShutdownException；仅在 context 已关闭时视为正常退出。
+        if rclpy.ok():
+            raise
     finally:
         if node is not None:
             node.close()
