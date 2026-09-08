@@ -14,7 +14,11 @@ from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
 from std_msgs.msg import String
 
-from .control_arbitration import ControlArbitrator, should_publish_status
+from .control_arbitration import (
+    ControlArbitrator,
+    limit_planar_yaw_coupling,
+    should_publish_status,
+)
 
 
 class CommandMuxNode(Node):
@@ -37,6 +41,10 @@ class CommandMuxNode(Node):
         self.declare_parameter('max_abs_linear_x', 0.80)
         self.declare_parameter('max_abs_linear_y', 0.50)
         self.declare_parameter('max_abs_angular_z', 1.80)
+        # DWA 的线速度和角速度分别合法时，二者同时取高值仍可能让 A1 在
+        # 急弯中侧翻。该上限约束圆周运动的向心加速度；直线速度不受影响。
+        self.declare_parameter(
+            'navigation_max_planar_yaw_product', 0.60)
 
         self.arbitrator = ControlArbitrator(
             default_mode=str(self.get_parameter('default_mode').value),
@@ -59,6 +67,8 @@ class CommandMuxNode(Node):
             'linear_y': self._positive_parameter('max_abs_linear_y'),
             'angular_z': self._positive_parameter('max_abs_angular_z'),
         }
+        self.navigation_max_planar_yaw_product = self._positive_parameter(
+            'navigation_max_planar_yaw_product')
 
         self.output_pub = self.create_publisher(
             Twist, str(self.get_parameter('output_topic').value), 10)
@@ -96,14 +106,26 @@ class CommandMuxNode(Node):
         """缓存控制源最新命令；NaN/Inf 会被拒绝并保持安全停车。"""
 
         try:
+            linear_x = self._bounded(
+                message.linear.x, self.speed_limits['linear_x'])
+            linear_y = self._bounded(
+                message.linear.y, self.speed_limits['linear_y'])
+            angular_z = self._bounded(
+                message.angular.z, self.speed_limits['angular_z'])
+            if source == 'navigation':
+                linear_x, linear_y, angular_z = limit_planar_yaw_coupling(
+                    linear_x,
+                    linear_y,
+                    angular_z,
+                    max_planar_yaw_product=(
+                        self.navigation_max_planar_yaw_product
+                    ),
+                )
             self.arbitrator.update_source(
                 source,
-                linear_x=self._bounded(
-                    message.linear.x, self.speed_limits['linear_x']),
-                linear_y=self._bounded(
-                    message.linear.y, self.speed_limits['linear_y']),
-                angular_z=self._bounded(
-                    message.angular.z, self.speed_limits['angular_z']),
+                linear_x=linear_x,
+                linear_y=linear_y,
+                angular_z=angular_z,
                 received_monotonic_sec=time.monotonic(),
             )
         except ValueError as exc:

@@ -15,6 +15,43 @@ from typing import Dict, Optional, Tuple
 VALID_CONTROL_MODES = ('keyboard', 'navigation', 'assist', 'stopped')
 
 
+def limit_planar_yaw_coupling(
+    linear_x: float,
+    linear_y: float,
+    angular_z: float,
+    *,
+    max_planar_yaw_product: float,
+) -> Tuple[float, float, float]:
+    """限制平移速度与偏航角速度的乘积，避免四足机器人高速急转失稳。
+
+    对近似圆周运动，``平移速度 × 偏航角速度`` 对应向心加速度。
+    本函数只同比例缩小平移分量，不改变转向方向，也不影响直线最高速度；
+    因而 DWA 仍能完成转向，但不会把两个各自合法的上限组合成危险急弯。
+    """
+
+    values = (
+        linear_x,
+        linear_y,
+        angular_z,
+        max_planar_yaw_product,
+    )
+    if not all(_is_finite_number(value) for value in values):
+        raise ValueError('稳定性限幅参数必须是有限数值')
+    limit = float(max_planar_yaw_product)
+    if limit <= 0.0:
+        raise ValueError('平移与偏航乘积上限必须为正数')
+
+    x = float(linear_x)
+    y = float(linear_y)
+    yaw = float(angular_z)
+    planar_speed = (x * x + y * y) ** 0.5
+    product = planar_speed * abs(yaw)
+    if product <= limit or planar_speed <= 0.0:
+        return x, y, yaw
+    scale = limit / product
+    return x * scale, y * scale, yaw
+
+
 @dataclass(frozen=True)
 class VelocityCommand:
     """控制源的一帧二维速度及接收时间。"""
