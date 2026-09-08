@@ -319,6 +319,9 @@ def test_rosbridge_control_relay_defaults_to_safe_and_uses_wall_clock_watchdog()
     assert 'OFFICIAL_SIMENV_ENABLE_PROPRIO_ODOM_RELAY:-0' in runner
     assert 'OFFICIAL_SIMENV_POINTCLOUD_TOPIC:-/livox/Pointcloud2' in runner
     assert '-p livox_cloud_topic:="$POINTCLOUD_TOPIC"' in runner
+    assert 'OFFICIAL_SIMENV_POINTCLOUD_POINT_STRIDE:-1' in runner
+    assert 'def _receive_pointcloud_loop' in source
+    assert 'decimate_pointcloud_bytes(' in source
 
 
 def test_gui_assist_request_can_only_call_bounded_ros2_services():

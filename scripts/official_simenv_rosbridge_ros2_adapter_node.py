@@ -35,6 +35,7 @@ from hazardwalker_platform.rosbridge_protocol import (
     decode_laser_ranges,
     decode_packet,
     decode_ros_time,
+    decimate_pointcloud_bytes,
     filter_scan_self_returns,
 )
 
@@ -137,6 +138,8 @@ class RosbridgeHwAdapter(Node):
             self.declare_parameter('scan_self_filter_range_m', 0.40).value)
         self.pointcloud_throttle_rate_ms = int(
             self.declare_parameter('pointcloud_throttle_rate_ms', 200).value)
+        self.pointcloud_point_stride = max(1, int(
+            self.declare_parameter('pointcloud_point_stride', 1).value))
         self.imu_throttle_rate_ms = int(
             self.declare_parameter('imu_throttle_rate_ms', 20).value)
         self.scan_topic = self.declare_parameter('scan_topic', '/scan').value
@@ -338,6 +341,13 @@ class RosbridgeHwAdapter(Node):
                 worker = threading.Thread(target=self._receive_image_loop, args=(topic,), daemon=True)
                 worker.start()
                 self._image_threads.append(worker)
+        # PointCloud2 比图像更大，必须使用独立 WebSocket；否则数百个 JSON
+        # fragment 会阻塞 /clock、里程计和控制。进入 DDS 前再按完整点记录抽样。
+        self._pointcloud_thread = None
+        if self.enable_pointcloud_relay:
+            self._pointcloud_thread = threading.Thread(
+                target=self._receive_pointcloud_loop, daemon=True)
+            self._pointcloud_thread.start()
         # Unitree DWA 速度属于实时控制链，不能与 PointCloud2、TF 等高带宽
         # 数据共用主 WebSocket。独立连接保证低实时倍率下仍按每个仿真控制周期
         # 及时送达 ROS2，避免 Frontier 因“命令陈旧”反复停车。
@@ -470,9 +480,6 @@ class RosbridgeHwAdapter(Node):
                                           ('/tf_static', 'tf2_msgs/TFMessage')))
                 if self.enable_scan_relay:
                     subscriptions.append((self.scan_topic, 'sensor_msgs/LaserScan'))
-                if self.enable_pointcloud_relay:
-                    subscriptions.append(
-                        (self.livox_cloud_topic, 'sensor_msgs/PointCloud2'))
                 if self.enable_livox_imu_relay:
                     subscriptions.append((self.livox_imu_topic, 'sensor_msgs/Imu'))
                 if self.enable_trunk_imu_relay:
@@ -577,6 +584,49 @@ class RosbridgeHwAdapter(Node):
                         self._publish(packet.get('topic'), packet.get('msg', {}))
             except Exception as error:
                 self.get_logger().warn('图像 rosbridge 连接中断：%s（%s）' % (topic, error))
+                time.sleep(2.0)
+            finally:
+                if connection is not None:
+                    try:
+                        connection.close()
+                    except Exception:
+                        pass
+
+    def _receive_pointcloud_loop(self):
+        """独立接收并重组低频 PointCloud2，避免阻塞主控制连接。"""
+
+        try:
+            import websocket
+        except ImportError:
+            return
+        while rclpy.ok():
+            connection = None
+            try:
+                options = {}
+                if self.host_header:
+                    options['host'] = self.host_header
+                connection = websocket.create_connection(
+                    self.url, timeout=10, **options)
+                connection.send(json.dumps({
+                    'op': 'subscribe',
+                    'id': 'hw-pointcloud:' + self.livox_cloud_topic,
+                    'topic': self.livox_cloud_topic,
+                    'type': 'sensor_msgs/PointCloud2',
+                    'queue_length': 1,
+                    'fragment_size': 60000,
+                    'compression': 'none',
+                    'throttle_rate': self.pointcloud_throttle_rate_ms,
+                }, separators=(',', ':')))
+                assembler = FragmentAssembler(max_messages=2, timeout_sec=10.0)
+                while rclpy.ok():
+                    packet = decode_packet(connection.recv(), assembler)
+                    if packet and packet.get('op') == 'publish':
+                        self._publish(
+                            packet.get('topic'), packet.get('msg', {}))
+            except Exception as error:
+                self.get_logger().warning(
+                    '点云 rosbridge 连接中断：%s' % error,
+                    throttle_duration_sec=10.0)
                 time.sleep(2.0)
             finally:
                 if connection is not None:
@@ -711,7 +761,7 @@ class RosbridgeHwAdapter(Node):
             message.height = int(source.get('height', 1))
             message.width = int(source.get('width', 0))
             message.point_step = int(source.get('point_step', 0))
-            message.row_step = int(source.get('row_step', 0))
+            message.is_bigendian = bool(source.get('is_bigendian', False))
             message.is_dense = bool(source.get('is_dense', False))
             from sensor_msgs.msg import PointField
             message.fields = [PointField(
@@ -719,9 +769,20 @@ class RosbridgeHwAdapter(Node):
                 datatype=int(f.get('datatype', 0)), count=int(f.get('count', 1))
             ) for f in source.get('fields', [])]
             try:
-                message.data = base64.b64decode(source.get('data', ''), validate=True)
+                raw_data = base64.b64decode(
+                    source.get('data', ''), validate=True)
+                point_count = message.width * message.height
+                message.data, point_count = decimate_pointcloud_bytes(
+                    raw_data,
+                    message.point_step,
+                    point_count,
+                    self.pointcloud_point_stride,
+                )
             except (binascii.Error, ValueError):
                 return
+            message.height = 1
+            message.width = point_count
+            message.row_step = message.point_step * point_count
             self._queue_message('livox_cloud', message)
         elif self.enable_livox_imu_relay and topic == self.livox_imu_topic:
             message = Imu()
@@ -943,6 +1004,7 @@ class RosbridgeHwAdapter(Node):
             'enable_proprio_odom_relay': self.enable_proprio_odom_relay,
             'proprio_odom_throttle_rate_ms': (
                 self.proprio_odom_throttle_rate_ms),
+            'pointcloud_point_stride': self.pointcloud_point_stride,
             'enable_tf_relay': self.enable_tf_relay,
             'tf_throttle_rate_ms': self.tf_throttle_rate_ms,
             'dropped_inconsistent_tf': self._dropped_inconsistent_tf,

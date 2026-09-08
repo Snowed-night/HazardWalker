@@ -442,6 +442,7 @@ def test_stable_three_floor_entry_is_exclusive_and_self_cleaning():
         'OFFICIAL_SIMENV_POINTCLOUD_TOPIC=/real_sense/depth/points'
         in source)
     assert 'OFFICIAL_SIMENV_POINTCLOUD_THROTTLE_RATE_MS=2000' in source
+    assert 'OFFICIAL_SIMENV_POINTCLOUD_POINT_STRIDE=64' in source
     assert "docker ps --format '{{.Names}}'" in source
     assert '正式实验拒绝并行' in source
     assert 'trap cleanup EXIT' in source

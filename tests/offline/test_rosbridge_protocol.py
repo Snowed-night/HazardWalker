@@ -18,6 +18,7 @@ from hazardwalker_platform.rosbridge_protocol import (  # noqa: E402
     decode_laser_ranges,
     decode_packet,
     decode_ros_time,
+    decimate_pointcloud_bytes,
     filter_scan_self_returns,
 )
 
@@ -103,3 +104,20 @@ def test_scan_self_filter_removes_only_calibrated_body_returns():
 def test_clock_decoder_accepts_ros1_and_ros2_field_names():
     assert decode_ros_time({'secs': 94, 'nsecs': 12}) == (94, 12)
     assert decode_ros_time({'sec': 95, 'nanosec': 13}) == (95, 13)
+
+
+def test_pointcloud_decimation_keeps_complete_records():
+    raw = b''.join(bytes([index]) * 4 for index in range(10))
+    sampled, count = decimate_pointcloud_bytes(
+        raw, point_step=4, point_count=10, stride=3)
+
+    assert count == 4
+    assert sampled == bytes([0]) * 4 + bytes([3]) * 4 + bytes([6]) * 4 + bytes([9]) * 4
+
+
+def test_pointcloud_decimation_rejects_truncated_layout():
+    try:
+        decimate_pointcloud_bytes(b'123', point_step=4, point_count=1, stride=1)
+    except ValueError:
+        return
+    raise AssertionError('损坏点云字节布局必须被拒绝')
