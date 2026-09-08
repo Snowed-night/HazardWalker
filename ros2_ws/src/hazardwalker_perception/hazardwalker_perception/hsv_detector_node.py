@@ -53,6 +53,7 @@ from hazardwalker_perception.red_ball_detector import (
     foreground_occluded_round_candidate_is_sphere,
     is_complete_candidate_for_3d_tracking,
     occluded_bbox_has_positive_sphere_depth,
+    synchronized_sphere_motion_confirmation_allowed,
 )
 from hazardwalker_perception.rgbd_pairing import DeferredRgbDepthPairer
 from hazardwalker_perception.track_hazards import (
@@ -184,10 +185,10 @@ class HsvDetectorNode(Node):
         self.declare_parameter('stable_view_max_cmd_age_sec', 1.0)
         self.declare_parameter('stable_view_max_linear_speed_mps', 0.05)
         self.declare_parameter('stable_view_max_angular_speed_rps', 0.10)
-        # 赛事公开里程计与 RGB-D/TF 同步时，严格遮挡圆弧的三维位置可在运动
-        # 帧直接确认；其它候选仍必须停稳，避免把这一例外扩大成通用放宽。
+        # 赛事公开里程计与 RGB-D/TF 同步时，具有明确球面深度正证据的三维
+        # 位置可在运动帧直接确认；unknown/flat/anisotropic 仍必须停稳或拒绝。
         self.declare_parameter(
-            'allow_official_odom_occluded_motion_confirmation', False)
+            'allow_official_odom_synchronized_motion_confirmation', False)
         # 主动视角策略阈值全部暴露为 ROS 参数，现场调优不修改源码。
         self.declare_parameter('active_view_edge_margin_ratio', 0.05)
         self.declare_parameter('active_view_min_bbox_area_px', 900)
@@ -803,7 +804,7 @@ class HsvDetectorNode(Node):
             if localization and (
                     shape_complete_for_3d_tracking
                     or positive_depth_sphere):
-                if foreground_occluded_sphere:
+                if positive_depth_sphere:
                     motion_safe_observation_source_ids.add(source_id)
                 observations.append(HazardObservation(
                     position=(
@@ -890,19 +891,22 @@ class HsvDetectorNode(Node):
         for item in detections_2d_payload:
             item.pop('_source_id', None)
 
-        official_occluded_motion_confirmation = (
-            not camera_stable
-            and bool(motion_safe_observation_source_ids)
-            and bool(self.get_parameter(
-                'allow_official_odom_occluded_motion_confirmation').value)
-            and self.localization_provenance.startswith(
-                'official_simenv_odometry')
-            and depth_synchronized
-            and self._last_tf_synchronized
+        official_synchronized_motion_confirmation = (
+            synchronized_sphere_motion_confirmation_allowed(
+                camera_stable=camera_stable,
+                has_positive_depth_sphere=bool(
+                    motion_safe_observation_source_ids),
+                enabled=bool(self.get_parameter(
+                    'allow_official_odom_synchronized_motion_confirmation'
+                ).value),
+                localization_provenance=self.localization_provenance,
+                depth_synchronized=depth_synchronized,
+                tf_synchronized=self._last_tf_synchronized,
+            )
         )
         # 普通运动帧只能触发停车，不能更新轨迹。唯一例外是赛事公开米制
-        # 里程计下、RGB-D/TF 严格同步且已通过“圆弧+前景深度分层+低 extent”
-        # 的遮挡球；这一类即使只出现两帧也要按用户要求立即记录。
+        # 里程计下、RGB-D/TF 严格同步且深度已明确给出球面正证据的候选；
+        # 完整球或遮挡球即使只出现少量运动帧也要按用户要求立即记录。
         tracker_observations = (
             observations
             if camera_stable
@@ -910,7 +914,7 @@ class HsvDetectorNode(Node):
                 observation for observation in observations
                 if observation.source_id in motion_safe_observation_source_ids
             ]
-            if official_occluded_motion_confirmation
+            if official_synchronized_motion_confirmation
             else []
         )
         if tracker_observations:
@@ -919,7 +923,7 @@ class HsvDetectorNode(Node):
                 active_floor_index=self.current_floor_index)
         tracks_to_publish = (
             self.tracker.published_tracks()
-            if (camera_stable or official_occluded_motion_confirmation)
+            if (camera_stable or official_synchronized_motion_confirmation)
             else self.tracker.active_tracks()
         )
         projected_tracks = project_tracks_for_image_association(

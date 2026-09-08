@@ -20,6 +20,7 @@ from hazardwalker_perception.red_ball_detector import (
     is_complete_candidate_for_3d_tracking,
     occluded_bbox_has_positive_sphere_depth,
     rgb_to_hsv_pixel,
+    synchronized_sphere_motion_confirmation_allowed,
 )
 
 try:
@@ -449,6 +450,27 @@ def test_occluded_red_box_is_not_promoted_by_depth_discontinuity_alone():
 
     assert not foreground_occluded_round_candidate_is_sphere(
         red_box, depth_shape)
+
+
+def test_explicit_spherical_depth_can_confirm_while_official_odom_is_moving():
+    values = {
+        'camera_stable': False,
+        'has_positive_depth_sphere': True,
+        'enabled': True,
+        'localization_provenance': (
+            'official_simenv_odometry+public_floor_action'),
+        'depth_synchronized': True,
+        'tf_synchronized': True,
+    }
+    assert synchronized_sphere_motion_confirmation_allowed(**values)
+    for key in ('has_positive_depth_sphere', 'depth_synchronized',
+                'tf_synchronized', 'enabled'):
+        rejected = dict(values)
+        rejected[key] = False
+        assert not synchronized_sphere_motion_confirmation_allowed(**rejected)
+    rejected = dict(values)
+    rejected['localization_provenance'] = 'unverified'
+    assert not synchronized_sphere_motion_confirmation_allowed(**rejected)
 
 
 def test_three_ball_triangle_blob_can_be_split_despite_near_square_bbox():

@@ -102,7 +102,7 @@ perception:
     stable_view_max_cmd_age_sec: 1.0
     stable_view_max_linear_speed_mps: 0.05
     stable_view_max_angular_speed_rps: 0.10
-    allow_official_odom_occluded_motion_confirmation: true
+    allow_official_odom_synchronized_motion_confirmation: true
     # 已建立轨迹在短时机动离开视场后继续参与图像投影关联。
     track_projection_max_age_s: 180.0
     # 以下键对应 hsv_detector_node 的 active_view_* ROS 参数。

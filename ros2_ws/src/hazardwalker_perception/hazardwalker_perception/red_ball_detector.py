@@ -121,6 +121,27 @@ def foreground_occluded_round_candidate_is_sphere(
         >= int(min_red_pixel_count)
     )
 
+
+def synchronized_sphere_motion_confirmation_allowed(
+        *, camera_stable, has_positive_depth_sphere, enabled,
+        localization_provenance, depth_synchronized, tf_synchronized):
+    """判断明确球面证据能否在运动中直接写入轨迹。
+
+    仅赛事公开米制里程计、同步 RGB-D 和同步 TF 的组合可放行。unknown、
+    flat、anisotropic 候选由调用方以 ``has_positive_depth_sphere=False``
+    拒绝，避免把“边走边确认”误扩展到普通红色轮廓。
+    """
+
+    return (
+        not bool(camera_stable)
+        and bool(has_positive_depth_sphere)
+        and bool(enabled)
+        and str(localization_provenance).startswith(
+            'official_simenv_odometry')
+        and bool(depth_synchronized)
+        and bool(tf_synchronized)
+    )
+
 """二维检测后端接口，后续 YOLO/分割模型只要实现 detect 即可接入 ROS 节点。"""
 class DetectionBackend:
     name = 'base'

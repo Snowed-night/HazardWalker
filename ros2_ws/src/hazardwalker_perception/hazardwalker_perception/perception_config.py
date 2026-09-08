@@ -54,7 +54,7 @@ _DIRECT_SECTIONS = {
         'stable_view_cmd_vel_topic', 'stable_view_max_cmd_age_sec',
         'stable_view_max_linear_speed_mps',
         'stable_view_max_angular_speed_rps',
-        'allow_official_odom_occluded_motion_confirmation',
+        'allow_official_odom_synchronized_motion_confirmation',
         'track_projection_max_age_s',
         'candidate_memory_ttl_s', 'active_view_direction_memory_ttl_s',
         'candidate_memory_min_iou', 'candidate_memory_max_center_shift_ratio',
