@@ -388,7 +388,7 @@
                  默认关闭的 ray sensor 产生扫描回调。 -->
             <always_on>true</always_on>
             <visualize>false</visualize>
-            <update_rate>10</update_rate>
+            <update_rate>$(arg LIVOX_3D_UPDATE_RATE)</update_rate>
             <plugin name="gazebo_livox_mid360_controller"
                     filename="liblivox_laser_simulation.so">
                 <ray>
@@ -417,10 +417,10 @@
                         <stddev>0.005</stddev>
                     </noise>
                 </ray>
-                <!-- Mid-360 真机约 20 万点/秒。仿真保留约 1.2 万条射线/帧，
-                     让非重复扫描在室内平面上仍有足够重叠供 LIO 配准。 -->
-                <samples>24000</samples>
-                <downsample>2</downsample>
+                <!-- 独立展示默认约 6 千点/秒；二维 SLAM/避障继续用 /scan。
+                     需要研究三维 LIO 时才显式提高，不能拖垮正式控制链。 -->
+                <samples>$(arg LIVOX_3D_SAMPLES)</samples>
+                <downsample>$(arg LIVOX_3D_DOWNSAMPLE)</downsample>
                 <repeat_pattern>true</repeat_pattern>
                 <csv_file_name>package://livox_laser_simulation/scan_mode/mid360.csv</csv_file_name>
                 <ros_topic>/livox/lidar_raw</ros_topic>

@@ -45,13 +45,9 @@ GAZEBO_HEADLESS="${GAZEBO_HEADLESS:-false}"
 # Gazebo 图形与物理负载。导航/SLAM 测试显式设置 ENABLE_LIDAR=true。
 ENABLE_LIDAR="${ENABLE_LIDAR:-false}"
 ENABLE_LIVOX_3D="${ENABLE_LIVOX_3D:-false}"
-if [ -z "${UNITREE_MOVE_BASE_SCAN_TOPIC:-}" ]; then
-  if [ "$ENABLE_LIVOX_3D" = "true" ]; then
-    UNITREE_MOVE_BASE_SCAN_TOPIC="/livox/scan_projection"
-  else
-    UNITREE_MOVE_BASE_SCAN_TOPIC="/scan"
-  fi
-fi
+# 三维点云是旁路展示；DWA 始终使用已验收的独立水平 /scan，不能因开启
+# 录像而悄悄切换到稀疏三维投影，改变避障和房间路线。
+UNITREE_MOVE_BASE_SCAN_TOPIC="${UNITREE_MOVE_BASE_SCAN_TOPIC:-/scan}"
 # 第一人称和感知均复用 RealSense RGB。官方插件默认仅 2 Hz，浏览器画面会明显跳帧；
 # 设为 10 Hz 以匹配当前低负载 profile。JPEG 质量仅在压缩话题有订阅者时生效。
 CAMERA_IMAGER_RATE_HZ="${CAMERA_IMAGER_RATE_HZ:-10}"

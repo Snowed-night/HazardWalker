@@ -726,12 +726,15 @@ def test_livox_3d_profile_is_explicit_and_keeps_2d_default_compatible():
     assert '<topicName>/scan</topicName>' in gazebo
     assert 'filename="liblivox_laser_simulation.so"' in gazebo
     assert '<ros_topic>/livox/lidar_raw</ros_topic>' in gazebo
-    assert '<samples>24000</samples>' in gazebo
-    assert '<downsample>2</downsample>' in gazebo
+    assert '<samples>$(arg LIVOX_3D_SAMPLES)</samples>' in gazebo
+    assert '<downsample>$(arg LIVOX_3D_DOWNSAMPLE)</downsample>' in gazebo
+    assert '<update_rate>$(arg LIVOX_3D_UPDATE_RATE)</update_rate>' in gazebo
     assert '<repeat_pattern>true</repeat_pattern>' in gazebo
     assert 'enable_livox_3d' in launch
     assert 'ENABLE_LIVOX_3D:=$(arg enable_livox_3d)' in launch
     assert 'ENABLE_LIVOX_3D: ${ENABLE_LIVOX_3D:-false}' in compose
+    assert 'LIVOX_3D_UPDATE_RATE: ${LIVOX_3D_UPDATE_RATE:-2}' in compose
+    assert 'LIVOX_3D_SAMPLES: ${LIVOX_3D_SAMPLES:-6000}' in compose
     assert 'ENABLE_LIVOX_3D="${ENABLE_LIVOX_3D:-false}"' in entry
     preprocessor = (platform / 'src' / 'unitree_guide' / 'unitree_guide' /
                     'unitree_guide' / 'scripts' /

@@ -248,7 +248,7 @@ def test_platform_lifecycle_starts_and_health_checks_unitree_move_base():
         'echo "Starting Unitree upstream move_base', 1,
     )[0]
     assert '[ "$ENABLE_LIVOX_3D" != "true" ]' not in move_base_guard
-    assert 'UNITREE_MOVE_BASE_SCAN_TOPIC="/scan"' in auto
+    assert 'UNITREE_MOVE_BASE_SCAN_TOPIC="${UNITREE_MOVE_BASE_SCAN_TOPIC:-/scan}"' in auto
     assert 'scan_topic:="$move_base_scan_topic"' in auto
     assert 'rosrun laser_filters scan_to_scan_filter_chain' in auto
     assert 'hazardwalker_unitree_scan_filter' in auto

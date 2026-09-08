@@ -7,6 +7,10 @@
     <xacro:arg name="ENABLE_LIDAR" default="false"/>
     <!-- 三维建图 profile 才启用真实 Mid-360 非重复扫描插件；默认二维保底。 -->
     <xacro:arg name="ENABLE_LIVOX_3D" default="false"/>
+    <!-- 三维展示使用低负载采样；不得让传感器抢占控制器启动所需仿真步进。 -->
+    <xacro:arg name="LIVOX_3D_UPDATE_RATE" default="2"/>
+    <xacro:arg name="LIVOX_3D_SAMPLES" default="6000"/>
+    <xacro:arg name="LIVOX_3D_DOWNSAMPLE" default="1"/>
 
     <xacro:include filename="$(find a1_description)/xacro/const.xacro"/>
     <xacro:include filename="$(find a1_description)/xacro/materials.xacro"/>
