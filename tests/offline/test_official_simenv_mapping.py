@@ -733,8 +733,8 @@ def test_livox_3d_profile_is_explicit_and_keeps_2d_default_compatible():
     assert 'enable_livox_3d' in launch
     assert 'ENABLE_LIVOX_3D:=$(arg enable_livox_3d)' in launch
     assert 'ENABLE_LIVOX_3D: ${ENABLE_LIVOX_3D:-false}' in compose
-    assert 'LIVOX_3D_UPDATE_RATE: ${LIVOX_3D_UPDATE_RATE:-2}' in compose
-    assert 'LIVOX_3D_SAMPLES: ${LIVOX_3D_SAMPLES:-6000}' in compose
+    assert 'LIVOX_3D_UPDATE_RATE: ${LIVOX_3D_UPDATE_RATE:-1}' in compose
+    assert 'LIVOX_3D_SAMPLES: ${LIVOX_3D_SAMPLES:-600}' in compose
     assert 'ENABLE_LIVOX_3D="${ENABLE_LIVOX_3D:-false}"' in entry
     preprocessor = (platform / 'src' / 'unitree_guide' / 'unitree_guide' /
                     'unitree_guide' / 'scripts' /

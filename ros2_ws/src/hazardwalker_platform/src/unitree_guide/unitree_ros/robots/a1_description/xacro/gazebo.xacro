@@ -417,7 +417,7 @@
                         <stddev>0.005</stddev>
                     </noise>
                 </ray>
-                <!-- 独立展示默认约 6 千点/秒；二维 SLAM/避障继续用 /scan。
+                <!-- 独立展示默认约 600 点/秒；二维 SLAM/避障继续用 /scan。
                      需要研究三维 LIO 时才显式提高，不能拖垮正式控制链。 -->
                 <samples>$(arg LIVOX_3D_SAMPLES)</samples>
                 <downsample>$(arg LIVOX_3D_DOWNSAMPLE)</downsample>

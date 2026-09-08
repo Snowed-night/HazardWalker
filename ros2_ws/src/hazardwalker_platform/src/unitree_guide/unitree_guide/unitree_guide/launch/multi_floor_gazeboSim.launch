@@ -13,8 +13,8 @@
     <!-- 默认关闭 /scan，降低 GUI 渲染与物理负载；SLAM/导航测试显式传 true。 -->
     <arg name="enable_lidar" default="$(optenv ENABLE_LIDAR false)"/>
     <arg name="enable_livox_3d" default="$(optenv ENABLE_LIVOX_3D false)"/>
-    <arg name="livox_3d_update_rate" default="$(optenv LIVOX_3D_UPDATE_RATE 2)"/>
-    <arg name="livox_3d_samples" default="$(optenv LIVOX_3D_SAMPLES 6000)"/>
+    <arg name="livox_3d_update_rate" default="$(optenv LIVOX_3D_UPDATE_RATE 1)"/>
+    <arg name="livox_3d_samples" default="$(optenv LIVOX_3D_SAMPLES 600)"/>
     <arg name="livox_3d_downsample" default="$(optenv LIVOX_3D_DOWNSAMPLE 1)"/>
     <!-- 当前官方 /scan 是 sensor_msgs/LaserScan；旧转换脚本按 PointCloud 订阅
          同名话题会触发类型冲突并使 Gazebo 退出。仅旧版 PointCloud 环境显式开启。 -->

@@ -439,6 +439,8 @@ def test_stable_three_floor_entry_is_exclusive_and_self_cleaning():
     assert '--enable-3d-recording' in source
     assert 'ENABLE_LIVOX_3D=true' in source
     assert 'OFFICIAL_SIMENV_POINTCLOUD_THROTTLE_RATE_MS=1000' in source
+    assert 'LIVOX_3D_UPDATE_RATE=1' in source
+    assert 'LIVOX_3D_SAMPLES=600' in source
     assert "docker ps --format '{{.Names}}'" in source
     assert '正式实验拒绝并行' in source
     assert 'trap cleanup EXIT' in source
