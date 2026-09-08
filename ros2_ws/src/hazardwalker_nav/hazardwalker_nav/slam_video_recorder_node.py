@@ -24,8 +24,9 @@ from std_msgs.msg import Int32, String
 from tf2_ros import Buffer, TransformException, TransformListener
 
 
-FRAME_WIDTH = 1280
-FRAME_HEIGHT = 720
+SPLIT_FRAME_WIDTH = 1280
+SPLIT_FRAME_HEIGHT = 720
+TWO_D_FRAME_SIZE = 1080
 
 
 class SlamVideoRecorder(Node):
@@ -36,15 +37,24 @@ class SlamVideoRecorder(Node):
         self.declare_parameter('output_path', '')
         self.declare_parameter('video_fps', 5.0)
         self.declare_parameter('max_render_points', 80000)
+        # 二维正式任务默认只显示地图和轨迹，避免把未启用的三维点云渲染成
+        # 半屏黑块。只有 launch 真正启动 3D 地图时才恢复左右分屏。
+        self.declare_parameter('include_3d_panel', False)
         self.output_path = Path(str(
             self.get_parameter('output_path').value)).expanduser()
         if not str(self.output_path):
             raise ValueError('slam video output_path不得为空')
         self.output_path.parent.mkdir(parents=True, exist_ok=True)
         fps = max(1.0, float(self.get_parameter('video_fps').value))
+        self.include_3d_panel = bool(
+            self.get_parameter('include_3d_panel').value)
+        self.frame_width = (
+            SPLIT_FRAME_WIDTH if self.include_3d_panel else TWO_D_FRAME_SIZE)
+        self.frame_height = (
+            SPLIT_FRAME_HEIGHT if self.include_3d_panel else TWO_D_FRAME_SIZE)
         self.writer = cv2.VideoWriter(
             str(self.output_path), cv2.VideoWriter_fourcc(*'mp4v'),
-            fps, (FRAME_WIDTH, FRAME_HEIGHT))
+            fps, (self.frame_width, self.frame_height))
         if not self.writer.isOpened():
             raise RuntimeError(f'无法创建SLAM视频：{self.output_path}')
         self.max_render_points = max(
@@ -119,7 +129,11 @@ class SlamVideoRecorder(Node):
                 frame)
 
     def _render_frame(self, points, pose):
-        frame = np.full((FRAME_HEIGHT, FRAME_WIDTH, 3), 18, dtype=np.uint8)
+        if not self.include_3d_panel:
+            return self._render_2d_frame(pose)
+        frame = np.full(
+            (SPLIT_FRAME_HEIGHT, SPLIT_FRAME_WIDTH, 3), 18,
+            dtype=np.uint8)
         cv2.putText(
             frame, 'HazardWalker 3D SLAM + Multi-floor Exploration',
             (24, 38), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (245, 245, 245), 2,
@@ -140,11 +154,50 @@ class SlamVideoRecorder(Node):
                     cv2.FONT_HERSHEY_SIMPLEX, 0.55, (230, 230, 230), 1)
         return frame
 
-    def _render_occupancy(self, pose):
-        panel = np.full((600, 600, 3), 55, dtype=np.uint8)
+    def _render_2d_frame(self, pose):
+        """生成无空白三维面板的 1080×1080 二维分层建图画面。"""
+
+        frame = np.full(
+            (TWO_D_FRAME_SIZE, TWO_D_FRAME_SIZE, 3), 18,
+            dtype=np.uint8)
+        cv2.putText(
+            frame, 'HazardWalker Multi-floor 2D SLAM Exploration',
+            (28, 42), cv2.FONT_HERSHEY_SIMPLEX, 0.85,
+            (245, 245, 245), 2, cv2.LINE_AA)
+        cv2.putText(
+            frame,
+            f'floor={self.floor_index}  state={self.nav_state}  '
+            f'frame={self.frame_count}',
+            (28, 72), cv2.FONT_HERSHEY_SIMPLEX, 0.60,
+            (120, 210, 255), 1, cv2.LINE_AA)
+        panel_size = 960
+        panel_x = 60
+        panel_y = 92
+        frame[
+            panel_y:panel_y + panel_size,
+            panel_x:panel_x + panel_size,
+        ] = self._render_occupancy(pose, panel_size=panel_size)
+        cv2.rectangle(
+            frame,
+            (panel_x, panel_y),
+            (panel_x + panel_size - 1, panel_y + panel_size - 1),
+            (120, 120, 120), 1)
+        cv2.putText(
+            frame, 'Layered occupancy + trajectory',
+            (panel_x + 18, panel_y + 28),
+            cv2.FONT_HERSHEY_SIMPLEX, 0.62, (30, 30, 220), 2,
+            cv2.LINE_AA)
+        return frame
+
+    def _render_occupancy(self, pose, panel_size=600):
+        panel_size = max(64, int(panel_size))
+        last_pixel = panel_size - 1
+        panel = np.full((panel_size, panel_size, 3), 55, dtype=np.uint8)
         message = self.latest_map
         if message is None or not message.data:
-            cv2.putText(panel, 'waiting for /map', (170, 300),
+            cv2.putText(
+                        panel, 'waiting for /map',
+                        (int(panel_size * 0.24), int(panel_size * 0.50)),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.8, (220, 220, 220), 2)
             return panel
         height = int(message.info.height)
@@ -154,7 +207,9 @@ class SlamVideoRecorder(Node):
         image[grid == 0] = (235, 235, 235)
         image[grid >= 50] = (20, 20, 20)
         image = np.flipud(image)
-        image = cv2.resize(image, (600, 600), interpolation=cv2.INTER_NEAREST)
+        image = cv2.resize(
+            image, (panel_size, panel_size),
+            interpolation=cv2.INTER_NEAREST)
         resolution = float(message.info.resolution)
         origin_x = float(message.info.origin.position.x)
         origin_y = float(message.info.origin.position.y)
@@ -163,8 +218,12 @@ class SlamVideoRecorder(Node):
             gx = (x_value - origin_x) / max(resolution, 1e-6)
             gy = (y_value - origin_y) / max(resolution, 1e-6)
             return (
-                int(np.clip(gx / max(1, width - 1) * 599, 0, 599)),
-                int(np.clip((1.0 - gy / max(1, height - 1)) * 599, 0, 599)),
+                int(np.clip(
+                    gx / max(1, width - 1) * last_pixel,
+                    0, last_pixel)),
+                int(np.clip(
+                    (1.0 - gy / max(1, height - 1)) * last_pixel,
+                    0, last_pixel)),
             )
 
         for floor, path in sorted(self.paths.items()):
@@ -172,9 +231,13 @@ class SlamVideoRecorder(Node):
                 continue
             color = ((40, 40, 230), (40, 180, 40), (230, 120, 30))[floor % 3]
             polyline = np.asarray([pixel(x, y) for x, y, _ in path], np.int32)
-            cv2.polylines(image, [polyline], False, color, 2, cv2.LINE_AA)
+            cv2.polylines(
+                image, [polyline], False, color,
+                max(2, panel_size // 360), cv2.LINE_AA)
         if pose is not None:
-            cv2.circle(image, pixel(pose[0], pose[1]), 6, (0, 0, 255), -1)
+            cv2.circle(
+                image, pixel(pose[0], pose[1]),
+                max(6, panel_size // 100), (0, 0, 255), -1)
         return image
 
     def _render_cloud(self, points):

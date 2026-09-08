@@ -269,6 +269,8 @@ def generate_launch_description():
     scenario_seed_string = ParameterValue(scenario_seed, value_type=str)
     code_version_string = ParameterValue(code_version, value_type=str)
     sim_time_parameter = ParameterValue(use_sim_time, value_type=bool)
+    pointcloud_enabled_parameter = ParameterValue(
+        start_pointcloud_map, value_type=bool)
     exploration_timeout_parameter = ParameterValue(
         exploration_timeout_s, value_type=float,
     )
@@ -485,6 +487,7 @@ def generate_launch_description():
                 'output_path': slam_video_output,
                 'video_fps': 5.0,
                 'max_render_points': 80000,
+                'include_3d_panel': pointcloud_enabled_parameter,
                 'use_sim_time': sim_time_parameter,
             }],
             condition=IfCondition(start_slam_video),

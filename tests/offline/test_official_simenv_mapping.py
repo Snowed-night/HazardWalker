@@ -270,6 +270,14 @@ def test_slam_video_is_driven_by_2d_map_when_pointcloud_is_disabled():
     assert 'self._write_frame(self.latest_cloud)' in map_callback
     assert 'self.latest_cloud = points' in cloud_callback
     assert 'if self.latest_map is None:' in cloud_callback
+    assert "declare_parameter('include_3d_panel', False)" in source
+    assert 'TWO_D_FRAME_SIZE = 1080' in source
+    assert 'return self._render_2d_frame(pose)' in source
+    launch = (
+        REPO_ROOT / 'ros2_ws' / 'src' / 'hazardwalker_bringup' / 'launch' /
+        'official_simenv_business.launch.py'
+    ).read_text(encoding='utf-8')
+    assert "'include_3d_panel': pointcloud_enabled_parameter" in launch
 
 
 def test_rosbridge_control_relay_defaults_to_safe_and_uses_wall_clock_watchdog():
