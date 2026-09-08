@@ -271,7 +271,9 @@ def test_slam_video_is_driven_by_2d_map_when_pointcloud_is_disabled():
     assert 'self.latest_cloud = points' in cloud_callback
     assert 'if self.latest_map is None:' in cloud_callback
     assert "declare_parameter('include_3d_panel', False)" in source
-    assert 'TWO_D_FRAME_SIZE = 1080' in source
+    assert 'TWO_D_FRAME_WIDTH = 1920' in source
+    assert 'TWO_D_FRAME_HEIGHT = 1080' in source
+    assert 'cv2.GaussianBlur(background' in source
     assert 'return self._render_2d_frame(pose)' in source
     launch = (
         REPO_ROOT / 'ros2_ws' / 'src' / 'hazardwalker_bringup' / 'launch' /

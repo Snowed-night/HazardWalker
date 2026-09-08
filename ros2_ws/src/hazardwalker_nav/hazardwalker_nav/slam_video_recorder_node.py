@@ -26,7 +26,8 @@ from tf2_ros import Buffer, TransformException, TransformListener
 
 SPLIT_FRAME_WIDTH = 1280
 SPLIT_FRAME_HEIGHT = 720
-TWO_D_FRAME_SIZE = 1080
+TWO_D_FRAME_WIDTH = 1920
+TWO_D_FRAME_HEIGHT = 1080
 
 
 class SlamVideoRecorder(Node):
@@ -49,9 +50,11 @@ class SlamVideoRecorder(Node):
         self.include_3d_panel = bool(
             self.get_parameter('include_3d_panel').value)
         self.frame_width = (
-            SPLIT_FRAME_WIDTH if self.include_3d_panel else TWO_D_FRAME_SIZE)
+            SPLIT_FRAME_WIDTH
+            if self.include_3d_panel else TWO_D_FRAME_WIDTH)
         self.frame_height = (
-            SPLIT_FRAME_HEIGHT if self.include_3d_panel else TWO_D_FRAME_SIZE)
+            SPLIT_FRAME_HEIGHT
+            if self.include_3d_panel else TWO_D_FRAME_HEIGHT)
         self.writer = cv2.VideoWriter(
             str(self.output_path), cv2.VideoWriter_fourcc(*'mp4v'),
             fps, (self.frame_width, self.frame_height))
@@ -155,11 +158,21 @@ class SlamVideoRecorder(Node):
         return frame
 
     def _render_2d_frame(self, pose):
-        """生成无空白三维面板的 1080×1080 二维分层建图画面。"""
+        """生成无空白三维面板的 1920×1080 二维分层建图画面。"""
 
-        frame = np.full(
-            (TWO_D_FRAME_SIZE, TWO_D_FRAME_SIZE, 3), 18,
-            dtype=np.uint8)
+        panel_size = 980
+        map_panel = self._render_occupancy(pose, panel_size=panel_size)
+        # 方形占用图完整保留在中央；左右区域使用同一地图的暗化模糊副本
+        # 填满 16:9，而不是拉伸地图或留下未启用的黑色 3D 面板。
+        background = cv2.resize(
+            map_panel, (TWO_D_FRAME_WIDTH, TWO_D_FRAME_HEIGHT),
+            interpolation=cv2.INTER_LINEAR)
+        background = cv2.GaussianBlur(background, (0, 0), sigmaX=28)
+        dark = np.full_like(background, 18)
+        frame = cv2.addWeighted(background, 0.30, dark, 0.70, 0.0)
+        cv2.rectangle(
+            frame, (0, 0), (TWO_D_FRAME_WIDTH - 1, 76),
+            (18, 18, 18), -1)
         cv2.putText(
             frame, 'HazardWalker Multi-floor 2D SLAM Exploration',
             (28, 42), cv2.FONT_HERSHEY_SIMPLEX, 0.85,
@@ -170,9 +183,8 @@ class SlamVideoRecorder(Node):
             f'frame={self.frame_count}',
             (28, 72), cv2.FONT_HERSHEY_SIMPLEX, 0.60,
             (120, 210, 255), 1, cv2.LINE_AA)
-        panel_size = 960
-        panel_x = 60
-        panel_y = 92
+        panel_x = (TWO_D_FRAME_WIDTH - panel_size) // 2
+        panel_y = 88
         frame[
             panel_y:panel_y + panel_size,
             panel_x:panel_x + panel_size,
