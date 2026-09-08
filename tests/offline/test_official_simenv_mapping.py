@@ -608,6 +608,8 @@ def test_official_business_launch_never_starts_fake_platform_by_default():
         REPO_ROOT / 'ros2_ws' / 'src' / 'hazardwalker_nav' / 'config' /
         'cartographer_official_2d.lua'
     ).read_text(encoding='utf-8')
+    assert 'POSE_GRAPH.optimize_every_n_nodes = 0' in cartographer_config
+    assert 'POSE_GRAPH.constraint_builder.sampling_ratio = 0.0' in cartographer_config
     assert 'POSE_GRAPH.constraint_builder.max_constraint_distance = 1.5' in cartographer_config
     assert 'POSE_GRAPH.constraint_builder.min_score = 0.72' in cartographer_config
     assert 'POSE_GRAPH.constraint_builder.global_localization_min_score = 0.90' in cartographer_config
@@ -689,6 +691,8 @@ def test_cartographer_2d_fuses_metric_official_competition_odometry():
     assert 'TRAJECTORY_BUILDER_2D.use_imu_data = true' in source
     assert 'use_odometry = true' in source
     assert 'odometry_sampling_ratio = 1.0' in source
+    assert 'POSE_GRAPH.optimize_every_n_nodes = 0' in source
+    assert 'POSE_GRAPH.constraint_builder.sampling_ratio = 0.0' in source
     launch = (
         REPO_ROOT / 'ros2_ws' / 'src' / 'hazardwalker_bringup' / 'launch' /
         'official_simenv_business.launch.py'

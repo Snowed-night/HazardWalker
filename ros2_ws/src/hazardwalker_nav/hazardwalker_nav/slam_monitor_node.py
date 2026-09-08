@@ -26,12 +26,14 @@ import numpy as np
 import rclpy
 from nav_msgs.msg import OccupancyGrid
 from rclpy.node import Node
+from rclpy.qos import DurabilityPolicy, QoSProfile
 from std_msgs.msg import String
 from tf2_ros import Buffer, TransformListener
 
 from .slam_metrics import (
     detect_pose_jump,
     drift_magnitude,
+    fatal_map_jump_without_odom_motion,
     map_occupancy_stats,
 )
 
@@ -82,6 +84,13 @@ class SlamMonitorNode(Node):
         self.declare_parameter('odom_frame', 'odom')
         self.declare_parameter('scenario_seed', '')
         self.declare_parameter('code_version', '')
+        self.declare_parameter(
+            'floor_session_topic', '/hazardwalker/slam/floor_session')
+        self.declare_parameter(
+            'health_topic', '/hazardwalker/slam/health')
+        self.declare_parameter('fatal_jump_map_tolerance_m', 0.75)
+        self.declare_parameter('fatal_jump_minimum_excess_m', 0.75)
+        self.declare_parameter('fatal_jump_session_grace_s', 5.0)
 
         self.map_frame = str(self.get_parameter('map_frame').value)
         self.base_frame = str(self.get_parameter('base_frame').value)
@@ -96,13 +105,34 @@ class SlamMonitorNode(Node):
             OccupancyGrid, '/map', self.on_map, 10)
         self.create_subscription(
             String, '/hw/nav/state', self.on_nav_state, 10)
+        session_qos = QoSProfile(depth=8)
+        session_qos.durability = DurabilityPolicy.TRANSIENT_LOCAL
+        self.create_subscription(
+            String,
+            str(self.get_parameter('floor_session_topic').value),
+            self.on_floor_session,
+            session_qos,
+        )
+        health_qos = QoSProfile(depth=1)
+        health_qos.durability = DurabilityPolicy.TRANSIENT_LOCAL
+        self.health_pub = self.create_publisher(
+            String,
+            str(self.get_parameter('health_topic').value),
+            health_qos,
+        )
 
         # ---- 跳变检测状态 ----
         self._last_x: Optional[float] = None
         self._last_y: Optional[float] = None
         self._last_monotonic: Optional[float] = None
+        self._last_odom_x: Optional[float] = None
+        self._last_odom_y: Optional[float] = None
         self._jump_count = 0
         self._max_jump_m = 0.0
+        self._nav_state = ''
+        self._session_generation: Optional[int] = None
+        self._session_ready_monotonic: Optional[float] = None
+        self._fatal_jump_latched = False
 
         # ---- 漂移告警状态 ----
         self._drift_warn_emitted = False
@@ -127,6 +157,9 @@ class SlamMonitorNode(Node):
             float(self.get_parameter('max_speed_m_s').value),
             float(self.get_parameter('min_distance_m').value),
             float(self.get_parameter('drift_warn_m').value),
+            float(self.get_parameter('fatal_jump_map_tolerance_m').value),
+            float(self.get_parameter('fatal_jump_minimum_excess_m').value),
+            float(self.get_parameter('fatal_jump_session_grace_s').value),
         )
         if (not all(math.isfinite(value) for value in thresholds)
                 or any(value <= 0.0 for value in thresholds)):
@@ -176,6 +209,12 @@ class SlamMonitorNode(Node):
                 'min_distance_m': float(self.get_parameter('min_distance_m').value),
                 'drift_warn_m': float(self.get_parameter('drift_warn_m').value),
                 'monitor_rate_hz': float(self.get_parameter('monitor_rate_hz').value),
+                'fatal_jump_map_tolerance_m': float(self.get_parameter(
+                    'fatal_jump_map_tolerance_m').value),
+                'fatal_jump_minimum_excess_m': float(self.get_parameter(
+                    'fatal_jump_minimum_excess_m').value),
+                'fatal_jump_session_grace_s': float(self.get_parameter(
+                    'fatal_jump_session_grace_s').value),
             },
         }
         self._meta_path = os.path.join(self._dir, 'run_meta.json')
@@ -261,20 +300,52 @@ class SlamMonitorNode(Node):
     def on_nav_state(self, message: String) -> None:
         """在 launch 停止所有进程前先封存完整监测摘要。"""
 
-        if message.data.strip().upper() == 'FINISHED':
+        self._nav_state = message.data.strip().upper()
+        if self._nav_state == 'FINISHED':
             self.close(status='complete')
+
+    def on_floor_session(self, message: String) -> None:
+        """楼层会话变化时清空连续性基线，避免把合法重建误判为跳变。"""
+
+        try:
+            payload = json.loads(message.data)
+            generation = int(payload['generation'])
+            state = str(payload['state']).strip().lower()
+        except (KeyError, TypeError, ValueError, json.JSONDecodeError):
+            return
+        generation_changed = generation != self._session_generation
+        if generation_changed or state != 'ready':
+            self._last_x = None
+            self._last_y = None
+            self._last_odom_x = None
+            self._last_odom_y = None
+            self._last_monotonic = None
+            self._session_ready_monotonic = None
+        self._session_generation = generation
+        if state == 'ready':
+            self._session_ready_monotonic = time.monotonic()
+            self._fatal_jump_latched = False
 
     def _check_pose_jump(self) -> None:
         tf = self._lookup(self.map_frame, self.base_frame)
-        if tf is None:
+        odom_tf = self._lookup(self.odom_frame, self.base_frame)
+        if tf is None or odom_tf is None:
             return
         new_x = tf.transform.translation.x
         new_y = tf.transform.translation.y
+        new_odom_x = odom_tf.transform.translation.x
+        new_odom_y = odom_tf.transform.translation.y
         now_mono = time.monotonic()
 
-        if self._last_x is not None and self._last_monotonic is not None:
+        if (self._last_x is not None
+                and self._last_odom_x is not None
+                and self._last_monotonic is not None):
             displacement = math.hypot(
                 new_x - self._last_x, new_y - self._last_y)
+            odom_displacement = math.hypot(
+                new_odom_x - self._last_odom_x,
+                new_odom_y - self._last_odom_y,
+            )
             elapsed = now_mono - self._last_monotonic
             if detect_pose_jump(
                 displacement, elapsed,
@@ -299,9 +370,48 @@ class SlamMonitorNode(Node):
                     f'[JUMP] +{displacement:.2f}m at '
                     f'({new_x:.2f},{new_y:.2f}) '
                     f'(累计 {self._jump_count} 次)')
+                ready_age = (
+                    -1.0 if self._session_ready_monotonic is None
+                    else now_mono - self._session_ready_monotonic
+                )
+                if (not self._fatal_jump_latched
+                        and fatal_map_jump_without_odom_motion(
+                            displacement,
+                            odom_displacement,
+                            elapsed,
+                            self._nav_state,
+                            ready_age,
+                            max_speed_m_s=float(self.get_parameter(
+                                'max_speed_m_s').value),
+                            map_tolerance_m=float(self.get_parameter(
+                                'fatal_jump_map_tolerance_m').value),
+                            minimum_excess_m=float(self.get_parameter(
+                                'fatal_jump_minimum_excess_m').value),
+                            session_grace_s=float(self.get_parameter(
+                                'fatal_jump_session_grace_s').value),
+                        )):
+                    self._fatal_jump_latched = True
+                    health = {
+                        'schema': 'hazardwalker_slam_health_v1',
+                        'status': 'invalid',
+                        'reason': 'map_pose_jump_without_odom_motion',
+                        'ros_sec': round(ros_sec, 4),
+                        'nav_state': self._nav_state,
+                        'session_generation': self._session_generation,
+                        'map_displacement_m': round(displacement, 4),
+                        'odom_displacement_m': round(odom_displacement, 4),
+                    }
+                    self.health_pub.publish(String(
+                        data=json.dumps(health, ensure_ascii=False)))
+                    self._update_meta('fatal_health_event', health)
+                    self.get_logger().error(
+                        '[FATAL] map 位姿跳变且 odom 未发生对应运动；'
+                        '发布 SLAM invalid，正式运行器必须立即停止。')
 
         self._last_x = new_x
         self._last_y = new_y
+        self._last_odom_x = new_odom_x
+        self._last_odom_y = new_odom_y
         self._last_monotonic = now_mono
 
     def _check_drift(self) -> None:

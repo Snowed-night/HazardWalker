@@ -1476,6 +1476,7 @@ def main() -> int:
 
     import rclpy
     from rclpy.node import Node
+    from rclpy.qos import DurabilityPolicy, QoSProfile
     from rosgraph_msgs.msg import Clock
     from std_msgs.msg import String
 
@@ -1485,10 +1486,16 @@ def main() -> int:
             self.latest_state = ''
             self.start_clock_sec = None
             self.latest_clock_sec = None
+            self.slam_failure = ''
             self.create_subscription(
                 String, '/hw/nav/state', self._on_state, 10)
             self.create_subscription(
                 Clock, '/clock', self._on_clock, 10)
+            health_qos = QoSProfile(depth=1)
+            health_qos.durability = DurabilityPolicy.TRANSIENT_LOCAL
+            self.create_subscription(
+                String, '/hazardwalker/slam/health',
+                self._on_slam_health, health_qos)
 
         def _on_state(self, message):
             self.latest_state = str(message.data)
@@ -1501,6 +1508,16 @@ def main() -> int:
             if self.start_clock_sec is None or value < self.start_clock_sec:
                 self.start_clock_sec = value
             self.latest_clock_sec = value
+
+        def _on_slam_health(self, message):
+            try:
+                payload = json.loads(message.data)
+            except (TypeError, json.JSONDecodeError):
+                return
+            if (isinstance(payload, dict)
+                    and payload.get('status') == 'invalid'):
+                self.slam_failure = json.dumps(
+                    payload, ensure_ascii=False, sort_keys=True)
 
         @property
         def simulation_elapsed_sec(self):
@@ -1557,6 +1574,12 @@ def main() -> int:
             manifest['simulation_elapsed_sec'] = (
                 round(simulation_elapsed, 3)
                 if simulation_elapsed is not None else None)
+            if observer.slam_failure:
+                manifest['status'] = 'failed'
+                manifest['failure_reason'] = (
+                    'SLAM 实时连续性门禁失败：'
+                    + observer.slam_failure)
+                break
             if observer.latest_state in ('FINISHED', 'FAILED'):
                 if observer.latest_state == 'FAILED':
                     manifest['status'] = 'failed'

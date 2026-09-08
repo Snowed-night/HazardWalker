@@ -54,6 +54,62 @@ def detect_pose_jump(
     return displacement > max_speed * elapsed + min_distance
 
 
+def fatal_map_jump_without_odom_motion(
+    map_displacement_m: float,
+    odom_displacement_m: float,
+    elapsed_s: float,
+    nav_state: str,
+    session_ready_age_s: float,
+    *,
+    max_speed_m_s: float = 1.0,
+    map_tolerance_m: float = 0.75,
+    minimum_excess_m: float = 0.75,
+    session_grace_s: float = 5.0,
+) -> bool:
+    """判断活动楼层是否发生与真实里程计不一致的致命地图跳变。
+
+    楼层切换会合法地重建 ``map``，因此只在会话 ready 宽限期结束、且导航
+    处于实际探索/返航阶段时熔断。正常物理运动会同时出现在 map 与 odom；
+    只有 map 位移超过物理上限、并比 odom 多出显著距离时才判为假回环。
+    """
+
+    try:
+        map_displacement = float(map_displacement_m)
+        odom_displacement = float(odom_displacement_m)
+        elapsed = float(elapsed_s)
+        ready_age = float(session_ready_age_s)
+        maximum_speed = float(max_speed_m_s)
+        tolerance = float(map_tolerance_m)
+        minimum_excess = float(minimum_excess_m)
+        grace = float(session_grace_s)
+    except (TypeError, ValueError):
+        return False
+    values = (
+        map_displacement,
+        odom_displacement,
+        elapsed,
+        ready_age,
+        maximum_speed,
+        tolerance,
+        minimum_excess,
+        grace,
+    )
+    if not all(math.isfinite(value) for value in values):
+        return False
+    if str(nav_state).strip().upper() not in (
+            'EXPLORING', 'REOBSERVING', 'RETURNING'):
+        return False
+    if ready_age < max(0.0, grace):
+        return False
+    allowed_motion = max(0.0, maximum_speed) * max(0.0, elapsed)
+    map_limit = allowed_motion + max(0.0, tolerance)
+    return (
+        map_displacement > map_limit
+        and map_displacement - max(0.0, odom_displacement)
+        >= max(0.0, minimum_excess)
+    )
+
+
 def drift_magnitude(x: float, y: float) -> float:
     """map→odom 平移量的欧氏距离；非法输入返回 0.0。"""
     try:

@@ -65,11 +65,15 @@ TRAJECTORY_BUILDER_2D.motion_filter.max_angle_radians = math.rad(0.5)
 TRAJECTORY_BUILDER_2D.use_online_correlative_scan_matching = true
 TRAJECTORY_BUILDER_2D.ceres_scan_matcher.translation_weight = 100.0
 TRAJECTORY_BUILDER_2D.ceres_scan_matcher.rotation_weight = 100.0
-POSE_GRAPH.optimize_every_n_nodes = 60
--- 官方随机楼宇包含大量外观几乎相同的长直墙。默认 15 m 搜索半径会把相隔
--- 3~7 m 的重复走廊误连成闭环，实测导致地图折叠、Frontier 在不足 1 m 处
--- 提前耗尽。只允许与控制/扫描先验相近的局部闭环，并提高接受分数；真正回到
--- 同一区域时先验已足够接近，仍可形成约束。
+-- 官方楼宇每层只有一条长走廊，四个房间及家具高度重复。终版 v1 日志证明，
+-- 二维闭环匹配会把相隔 4.2~5.2 m 的房间以 0.80~0.83 高分误认为同一处，
+-- 随后的位姿图优化造成地图瞬移。仅提高 min_score 无法区分这种几何别名。
+-- 正式多层任务因此采用逐层 local SLAM：保留 scan+IMU+合法 odom 的实时扫描
+-- 匹配和子图构建，禁用跨子图闭环约束及在线全局优化。每层不到 40 m，已有
+-- 里程计约束足以限制累计漂移；确定性地消除假回环比偶发的闭环收益更重要。
+POSE_GRAPH.optimize_every_n_nodes = 0
+POSE_GRAPH.constraint_builder.sampling_ratio = 0.0
+-- 以下阈值只供调试时显式重新开启闭环使用，正式配置的 sampling_ratio=0。
 POSE_GRAPH.constraint_builder.max_constraint_distance = 1.5
 POSE_GRAPH.constraint_builder.min_score = 0.72
 POSE_GRAPH.constraint_builder.global_localization_min_score = 0.90
