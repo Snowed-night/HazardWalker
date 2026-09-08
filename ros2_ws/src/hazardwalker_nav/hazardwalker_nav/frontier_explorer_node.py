@@ -106,6 +106,7 @@ from hazardwalker_nav.elevator_controller import (
 )
 from hazardwalker_nav.nav_recorder import NavRecorder
 from hazardwalker_nav.official_return import (
+    official_elevator_phase_goal,
     planar_velocity_to_goal,
     staged_corridor_goal,
 )
@@ -215,6 +216,8 @@ class FrontierExplorerNode(Node):
         self.declare_parameter('official_elevator_door_timeout_s', 25.0)
         self.declare_parameter(
             'official_elevator_minimum_linear_command', 0.35)
+        self.declare_parameter('official_elevator_linear_command', 0.55)
+        self.declare_parameter('official_elevator_angular_command', 0.80)
         self.declare_parameter('official_robot_model_name', 'a1_gazebo')
         self.declare_parameter('official_robot_ground_z_m', 0.313)
         self.declare_parameter('official_floor_height_m', 2.6)
@@ -4829,6 +4832,73 @@ class FrontierExplorerNode(Node):
         official_x, official_y, _yaw, _stamp = self._official_control_odom
         return math.hypot(target_x - official_x, target_y - official_y)
 
+    def _official_elevator_target(self) -> Optional[Tuple[float, float, float]]:
+        """返回当前官方电梯阶段的唯一 odom 目标。"""
+
+        if (self._floor_transition_phase not in (
+                'navigating', 'entering', 'exiting')
+                or not self._has_fresh_official_control_odom()):
+            return None
+        official_x, official_y, _yaw, _stamp = self._official_control_odom
+        return official_elevator_phase_goal(
+            self._floor_transition_phase,
+            official_x,
+            official_y,
+            float(self.get_parameter('official_elevator_lobby_x_m').value),
+            float(self.get_parameter('official_elevator_cabin_x_m').value),
+            float(self.get_parameter('official_elevator_y_m').value),
+            corridor_center_x=float(self.get_parameter(
+                'official_corridor_center_x_m').value),
+        )
+
+    def _direct_official_elevator_command(self) -> Twist:
+        """DWA短时无速度时，继续朝同一个官方电梯目标安全运动。"""
+
+        command = Twist()
+        target = self._official_elevator_target()
+        if target is None:
+            return command
+        official_x, official_y, official_yaw, _stamp = (
+            self._official_control_odom)
+        velocity = planar_velocity_to_goal(
+            official_x,
+            official_y,
+            official_yaw,
+            target[0],
+            target[1],
+            linear_speed=float(self.get_parameter(
+                'official_elevator_linear_command').value),
+            minimum_linear_speed=float(self.get_parameter(
+                'official_elevator_minimum_linear_command').value),
+            angular_speed=float(self.get_parameter(
+                'official_elevator_angular_command').value),
+            minimum_turn_speed=min(
+                float(self.get_parameter('minimum_turn_speed').value),
+                float(self.get_parameter(
+                    'official_elevator_angular_command').value),
+            ),
+            heading_tolerance_rad=float(self.get_parameter(
+                'heading_tolerance_rad').value),
+        )
+        command.linear.x = velocity.linear_x
+        command.angular.z = velocity.angular_z
+        entering = self._floor_transition_phase == 'entering'
+        clearance = float(self.get_parameter(
+            'elevator_entry_min_clearance_m'
+            if entering else 'elevator_exit_min_clearance_m').value)
+        rotation_clearance = float(self.get_parameter(
+            'elevator_entry_rotation_clearance_m'
+            if entering else 'elevator_exit_rotation_clearance_m').value)
+        if (command.linear.x > 0.0 and clearance >= 0.0
+                and not self._scan_allows_action(
+                    'move_forward', clearance)):
+            command.linear.x = 0.0
+        if command.angular.z != 0.0 and rotation_clearance >= 0.0:
+            action = 'turn_left' if command.angular.z > 0.0 else 'turn_right'
+            if not self._scan_allows_action(action, rotation_clearance):
+                command.angular.z = 0.0
+        return command
+
     def _follow_official_elevator_target(self) -> Twist:
         self.current_path = [(self.robot_x + 1.0, self.robot_y)]
         self.path_index = 0
@@ -6986,33 +7056,9 @@ class FrontierExplorerNode(Node):
             outgoing_frame = str(self.get_parameter('odom_frame').value)
             goal_key = tuple(float(value) for value in outgoing_goal)
         elif use_official_elevator_goal:
-            lobby_x = float(self.get_parameter(
-                'official_elevator_lobby_x_m').value)
-            cabin_x = float(self.get_parameter(
-                'official_elevator_cabin_x_m').value)
-            elevator_y = float(self.get_parameter(
-                'official_elevator_y_m').value)
-            target_x = (
-                cabin_x
-                if self._floor_transition_phase == 'entering'
-                else lobby_x
-            )
-            official_x, official_y, _yaw, _stamp = (
-                self._official_control_odom)
-            target_y = elevator_y
-            # 房间到电梯不能画一条斜线穿过隔墙。返梯时先在当前门排退到
-            # x=0 的走廊中心，再沿中心线到大厅；进入/退出轿厢本来就在
-            # 同一 y 轴线上，无需额外中间点。
-            if (self._floor_transition_phase == 'navigating'
-                    and abs(official_y - elevator_y) > 1.0
-                    and abs(official_x) > 0.55):
-                target_x = 0.0
-                target_y = official_y
-            target_yaw = math.atan2(
-                target_y - official_y,
-                target_x - official_x,
-            )
-            outgoing_goal = target_x, target_y, target_yaw
+            outgoing_goal = self._official_elevator_target()
+            if outgoing_goal is None:
+                return False
             outgoing_frame = str(self.get_parameter('odom_frame').value)
             goal_key = tuple(float(value) for value in outgoing_goal)
         else:
@@ -7166,6 +7212,18 @@ class FrontierExplorerNode(Node):
                         throttle_duration_sec=5.0,
                     )
                     return self._direct_official_return_command()
+                if (self.state == 'FLOOR_TRANSITION'
+                        and bool(self.get_parameter(
+                            'use_official_odom_for_elevator_control').value)
+                        and self._floor_transition_phase in (
+                            'navigating', 'entering', 'exiting')):
+                    self.get_logger().warning(
+                        'Unitree move_base produced no usable elevator '
+                        'command; following the same official odom target '
+                        'with the lidar-gated direct controller.',
+                        throttle_duration_sec=5.0,
+                    )
+                    return self._direct_official_elevator_command()
                 self.get_logger().warning(
                     'Unitree move_base produced no usable command; using '
                     'existing A* path with lidar clearance fallback.',

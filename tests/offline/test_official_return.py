@@ -10,6 +10,7 @@ NAV_SRC = ROOT / 'ros2_ws' / 'src' / 'hazardwalker_nav'
 sys.path.insert(0, str(NAV_SRC))
 
 from hazardwalker_nav.official_return import (  # noqa: E402
+    official_elevator_phase_goal,
     planar_velocity_to_goal,
     staged_corridor_goal,
 )
@@ -62,3 +63,28 @@ def test_direct_fallback_advances_after_alignment():
     )
     assert command.linear_x == 0.9
     assert abs(command.angular_z) < 1e-9
+
+
+def test_elevator_exit_dwa_and_fallback_share_lobby_goal():
+    goal = official_elevator_phase_goal(
+        'exiting', 2.46, 2.89, 0.8, 2.7, 2.6)
+    assert goal[:2] == (0.8, 2.6)
+    assert goal[2] < -2.8
+
+
+def test_elevator_return_first_moves_to_corridor_center():
+    goal = official_elevator_phase_goal(
+        'navigating', 2.0, 20.0, 0.8, 2.7, 2.6,
+        corridor_center_x=0.0,
+    )
+    assert goal[:2] == (0.0, 20.0)
+    assert math.isclose(abs(goal[2]), math.pi)
+
+
+def test_elevator_goal_rejects_unknown_phase():
+    try:
+        official_elevator_phase_goal(
+            'invalid', 0.0, 0.0, 0.8, 2.7, 2.6)
+    except ValueError:
+        return
+    raise AssertionError('未知电梯阶段必须被拒绝')

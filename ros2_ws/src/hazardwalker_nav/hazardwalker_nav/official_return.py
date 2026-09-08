@@ -19,6 +19,49 @@ class PlanarVelocity:
     heading_error_rad: float
 
 
+def official_elevator_phase_goal(
+        phase, current_x, current_y, lobby_x, cabin_x, elevator_y,
+        corridor_center_x=0.0, lateral_stage_threshold_m=0.55,
+        longitudinal_stage_threshold_m=1.0):
+    """为官方电梯阶段生成唯一 odom 目标，供 DWA 与直接回退共同使用。
+
+    ``navigating`` 从房间返梯时先回走廊中线，避免斜穿隔墙；``entering``
+    指向轿厢，``exiting`` 指向大厅。返回的 yaw 始终由同一官方 odom 位姿
+    计算，不能在 DWA 暂时无速度时改用另一套 SLAM 地图方向。
+    """
+
+    if phase not in ('navigating', 'entering', 'exiting'):
+        raise ValueError(f'unsupported elevator phase: {phase!r}')
+    values = (
+        current_x, current_y, lobby_x, cabin_x, elevator_y,
+        corridor_center_x, lateral_stage_threshold_m,
+        longitudinal_stage_threshold_m,
+    )
+    if not all(math.isfinite(float(value)) for value in values):
+        raise ValueError('elevator goal inputs must be finite')
+
+    current_x = float(current_x)
+    current_y = float(current_y)
+    lobby_x = float(lobby_x)
+    cabin_x = float(cabin_x)
+    elevator_y = float(elevator_y)
+    center_x = float(corridor_center_x)
+    target_x = cabin_x if phase == 'entering' else lobby_x
+    target_y = elevator_y
+    if (phase == 'navigating'
+            and abs(current_y - elevator_y)
+            > max(0.05, float(longitudinal_stage_threshold_m))
+            and abs(current_x - center_x)
+            > max(0.05, float(lateral_stage_threshold_m))):
+        target_x = center_x
+        target_y = current_y
+    return (
+        target_x,
+        target_y,
+        math.atan2(target_y - current_y, target_x - current_x),
+    )
+
+
 def staged_corridor_goal(
         current_x, current_y, final_x, final_y, final_yaw,
         corridor_center_x=0.0, lookahead_m=3.0,
