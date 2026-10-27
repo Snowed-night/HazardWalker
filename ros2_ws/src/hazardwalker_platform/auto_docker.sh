@@ -84,7 +84,7 @@ fi
 chmod +x "$ROOT/auto.sh" "$ROOT/scripts/rosbridge_odom_relay.py" \
   "$ROOT/scripts/recover_a1_gazebo.py" \
   "$ROOT/docker/auto_noetic.sh" "$ROOT/docker/build_catkin.sh" \
-  "$ROOT/docker/gui_client.sh" "$ROOT/docker/first_person_client.sh" \
+  "$ROOT/docker/gui_client.sh" \
   2>/dev/null || true
 
 # `.ros1_catkin_ws` 是 Docker 内 Catkin 的独立构建工作区，而不是源码目录。
@@ -283,16 +283,12 @@ case "${1:-up}" in
     # GUI sidecar 只连接现有 Master，不会重启或重建正式仿真容器。
     exec "$ROOT/docker/gui_client.sh" "${@:2}"
     ;;
-  first_person)
-    # 第一人称 sidecar 只读相机和 GUI 状态，不发布控制指令。
-    exec "$ROOT/docker/first_person_client.sh" "${@:2}"
-    ;;
   image)
     # 仅重建镜像；`--no-cache` 等参数原样转交，供平台管理员执行干净验收。
     exec "$ROOT/docker/auto_noetic.sh" image "${@:2}"
     ;;
   *)
-    echo "Usage: $0 {build|image|up|down|logs|shell|status|recover|control-mode|gui|first_person}" >&2
+    echo "Usage: $0 {build|image|up|down|logs|shell|status|recover|control-mode|gui}" >&2
     exit 1
     ;;
 esac

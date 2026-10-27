@@ -1,1 +1,0 @@
-{"seq": 7611, "time": "1970-01-01T00:14:41.985Z", "ros_sec": 881.985, "x": -0.8752, "y": -4.617, "yaw_deg": -71.47, "state": "RETURNING", "odom_x": 0.5821, "odom_y": 0.0731, "official_x": -0.008, "official_y": -1.5553, "official_yaw_deg": -90.46, "home_distance_m": 4.3088, "floor_index": 0, "slam_session_generation": 3}

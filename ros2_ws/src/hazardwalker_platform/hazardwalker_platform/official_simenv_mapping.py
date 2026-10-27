@@ -7,7 +7,7 @@
 只有 ROS1，不能假设其中存在 ``ros1_bridge dynamic_bridge``。旧 ROS1 中继、JSON 管道和话题
 转发适配器均已删除，不应作为应急或正式入口。
 验证方式：``python scripts/run_offline_tests.py`` 及
-``scripts/verify_official_simenv_ros1_adapter.sh``。
+``scripts/run_official_simenv_rosbridge_adapter.sh``。
 """
 
 from dataclasses import dataclass

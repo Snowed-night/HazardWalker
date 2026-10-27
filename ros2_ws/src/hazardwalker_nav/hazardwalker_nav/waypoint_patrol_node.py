@@ -53,7 +53,7 @@ class WaypointPatrolNode(Node):
         self.goal_index = 0
         self.completed = False
 
-        # 输出速度命令给平台层。fake_platform_node 或后续 Gazebo/官方 adapter
+        # 输出速度命令给平台层，由官方 adapter 接入仿真。
         # 都应该接收这个统一的 /hw/cmd_vel。
         self.cmd_pub = self.create_publisher(Twist, '/hw/cmd_vel', 10)
         # 固定航点只用于诊断，状态必须与正式 Frontier 任务隔离。若复用

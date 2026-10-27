@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""校验旧版冻结算法和参数，并检查 Linux ROS2/Docker 运行条件。"""
+"""校验当前运行源码和参数，并检查 Linux ROS2/Docker 运行条件。"""
 from pathlib import Path
 import argparse
 import ast
@@ -34,7 +34,7 @@ def main():
     args = parser.parse_args()
     errors = verify_sources()
     info = json.loads((ROOT / 'reproduction/frozen-files.json').read_text(encoding='utf-8'))
-    print(f'旧版文件校验：{len(info["files"])}项；基线：final_root_cause_validation_once')
+    print(f'运行文件校验：{len(info["files"])}项；算法基线：2026-09-10')
     for path in (ROOT / 'scripts/reproduction').glob('*.py'):
         ast.parse(path.read_text(encoding='utf-8'), str(path))
     if not args.source_only:

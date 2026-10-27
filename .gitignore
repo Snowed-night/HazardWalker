@@ -281,3 +281,10 @@ scripts/deploy_audit_layer2.sh
 /ros2_ws/src/hazardwalker_platform/results/
 *.a
 *.exe
+
+# Runtime results, generated worlds and editor state
+/reports/
+**/generated_building/
+.idea/
+.vscode/
+*.dll

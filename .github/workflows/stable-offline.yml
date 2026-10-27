@@ -1,7 +1,7 @@
-name: Stable baseline offline checks
+name: Build and test
 on:
   push:
-    branches: ['release/stable-20260910']
+    branches: ['main', 'dev', 'maintenance/**']
   pull_request:
   workflow_dispatch:
 permissions:

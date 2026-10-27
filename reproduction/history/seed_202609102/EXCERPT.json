@@ -1,7 +1,0 @@
-{
-  "kind": "historical_acceptance_excerpt",
-  "seed": "202609102",
-  "full_trajectory_included": false,
-  "original_manifest_sha256": "6bc3e3c695d6689da2fd875e657d4bfeb8c17505ad40cf1576494c0e526616ec",
-  "note": "Original status, acceptance fields, completed-room events and last actual trajectory record; not a full raw run."
-}

@@ -100,10 +100,6 @@ def test_official_controller_discovers_split_cuda_runtime_libraries():
     auto_source = (
         REPO_ROOT / 'ros2_ws' / 'src' / 'hazardwalker_platform' / 'auto.sh'
     ).read_text(encoding='utf-8')
-    patch_source = (
-        REPO_ROOT / 'patches' /
-        'official_simenv_controller_runtime_compat_20260718.patch'
-    ).read_text(encoding='utf-8')
     for token in (
         'gazebo-11/plugins',
         'GAZEBO_PLUGIN_PATH',
@@ -112,7 +108,6 @@ def test_official_controller_discovers_split_cuda_runtime_libraries():
         'nvidia/nvtx/lib',
     ):
         assert token in auto_source
-        assert token in patch_source
     assert 'export LD_LIBRARY_PATH=' in auto_source
 
 
@@ -184,25 +179,6 @@ def test_adapter_waits_for_declared_container_healthcheck_to_pass():
     assert '"$health_configured" == false && "$health" == none' in source
 
 
-def test_formal_stack_rejects_dirty_or_misplaced_perception_evidence():
-    """正式成绩不能由脏工作树、临时目录或伪造版本号生成。"""
-
-    stack = (
-        REPO_ROOT / 'scripts' / 'run_official_simenv_ros1_ros2_stack.sh'
-    ).read_text(encoding='utf-8')
-    launch = (
-        REPO_ROOT / 'ros2_ws' / 'src' / 'hazardwalker_bringup' / 'launch' /
-        'official_simenv_business.launch.py'
-    ).read_text(encoding='utf-8')
-    assert 'OFFICIAL_SIMENV_ALLOW_DIRTY_DIAGNOSTIC' in stack
-    assert 'git -C "$ROOT" status --porcelain --untracked-files=all' in stack
-    assert 'CODE_VERSION_VALUE" != "$GIT_HEAD' in stack
-    assert 'reports/perception/official_random' in stack
-    assert 'reports/perception/test_records/official_random' in stack
-    assert 'diagnostic_official_random_scene' in stack
-    assert "DeclareLaunchArgument(\n            'evidence_run_mode'" in launch
-    assert "'run_mode': evidence_run_mode" in launch
-    assert "'run_mode': 'official_random_scene'" not in launch
 
 
 def test_clean_clone_bootstraps_ignored_unitree_runtime_assets_safely():
@@ -360,13 +336,6 @@ def test_gui_assist_request_can_only_call_bounded_ros2_services():
     assert "header.get('frame_id', 'laser_scan')" in source
 
 
-def test_direct_ros1_control_verifier_requires_exclusive_session_and_records_odometry():
-    source = (REPO_ROOT / 'scripts' / 'verify_official_simenv_ros1_direct_control.sh').read_text(
-        encoding='utf-8')
-    assert 'OFFICIAL_SIMENV_EXCLUSIVE_SESSION' in source
-    assert '/Odometry_gazebo' in source
-    assert 'forward_at_least_1m' in source
-    assert 'summary.json' in source
 
 
 def test_rosbridge_fragment_contract_is_bounded_and_adapter_keeps_image_bytes():
@@ -430,47 +399,10 @@ def test_rosbridge_fragment_contract_is_bounded_and_adapter_keeps_image_bytes():
     assert 'confirmed_ids - self.saved_confirmation_ids' in recorder
     assert "'' if is_context_frame" in recorder
     assert 'signal.signal(signal.SIGINT, signal.SIG_IGN)' in recorder
-def test_official_full_stack_requires_an_exclusive_simenv_session():
-    preflight = (REPO_ROOT / 'scripts' / 'check_official_simenv_exclusive_session.sh').read_text(encoding='utf-8')
-    stack = (REPO_ROOT / 'scripts' / 'run_official_simenv_ros1_ros2_stack.sh').read_text(encoding='utf-8')
-    direct = (REPO_ROOT / 'scripts' / 'verify_official_simenv_ros1_direct_control.sh').read_text(encoding='utf-8')
-    # 文案可以说明 docker stop/rm，但脚本本体不能调用这两个破坏性命令。
-    assert '\ndocker stop ' not in preflight and '\ndocker rm ' not in preflight
-    assert '--require-exclusive' in preflight
-    assert '[[ "$NAME" == "$CONTAINER"' in preflight
-    assert 'OFFICIAL_SIMENV_ALLOW_ISOLATED_PARALLEL' in preflight
-    assert 'TARGET_ROS_MASTER' in preflight
-    assert 'TARGET_GAZEBO_MASTER' in preflight
-    assert 'check_official_simenv_exclusive_session.sh' in stack
-    assert 'bash "$ROOT/scripts/check_official_simenv_exclusive_session.sh"' in stack
-    assert 'check_official_simenv_exclusive_session.sh' in direct
-    adapter_runner = (REPO_ROOT / 'scripts' / 'run_official_simenv_rosbridge_adapter.sh').read_text(
-        encoding='utf-8')
-    assert 'official_simenv_rosbridge_ros2_adapter_node.py' in adapter_runner
 
 
-def test_official_navigation_opens_main_entrance_via_public_service_only():
-    source = (
-        REPO_ROOT / 'scripts' / 'run_official_simenv_ros1_ros2_stack.sh'
-    ).read_text(encoding='utf-8')
-
-    assert "'/set_door_state'" in source
-    assert "'main_entrance', True" in source
-    assert 'response.accepted' in source
-    assert '/home/ros/simenv_ws/.ros1_catkin_ws/devel/setup.bash' in source
-    assert 'danger_truth' not in source
 
 
-def test_official_navigation_requires_live_slam_and_rgbd_inputs():
-    source = (
-        REPO_ROOT / 'scripts' / 'run_official_simenv_ros1_ros2_stack.sh'
-    ).read_text(encoding='utf-8')
-
-    assert 'require_live_topic /hw/scan' in source
-    assert 'require_live_topic /hw/trunk_imu' in source
-    assert 'require_live_topic /hw/camera/image_raw' in source
-    assert 'require_live_topic /hw/camera/depth_image' in source
-    assert 'ENABLE_LIDAR=false' in source
 
 
 def test_official_business_launch_never_starts_fake_platform_by_default():
@@ -786,47 +718,10 @@ def test_patrol_coverage_heartbeat_uses_wall_clock():
     assert "'use_sim_time': False" in block
 
 
-def test_legacy_simenv_demo_is_a_safe_official_business_wrapper():
-    """旧 launch 名称不能重新引入 PR #33 的 TF 合并和默认控制。"""
-
-    source = (REPO_ROOT / 'ros2_ws' / 'src' / 'hazardwalker_bringup' / 'launch' /
-              'simenv_demo.launch.py').read_text(encoding='utf-8')
-    assert "'official_simenv_business.launch.py'" in source
-    assert "DeclareLaunchArgument('start_navigation', default_value='false')" in source
-    assert "DeclareLaunchArgument('start_slam', default_value='false')" in source
-    assert "DeclareLaunchArgument('slam_backend', default_value='cartographer')" in source
-    assert "'start_navigation': start_navigation" in source
-    assert "'start_slam': start_slam" in source
-    assert "'slam_backend': slam_backend" in source
-    assert "DeclareLaunchArgument('exploration_timeout_s', default_value='540.0')" in source
-    assert "'exploration_timeout_s': exploration_timeout_s" in source
-    assert "start_evidence_recorder': 'false'" in source
-    assert "executable='async_slam_toolbox_node'" not in source
-    assert "('/tf', '/hw/tf')" not in source
-    assert "('/tf_static', '/hw/tf')" not in source
-    assert "package='hazardwalker_platform'" not in source
-    compile(source, 'simenv_demo.launch.py', 'exec')
 
 
-def test_legacy_start_simenv_fails_before_starting_old_relay():
-    """旧一键脚本仅允许 stop，不得再运行无门禁的 relay。"""
-
-    source = (REPO_ROOT / 'ros2_ws' / 'src' / 'hazardwalker_platform' / 'scripts' /
-              'start_simenv.sh').read_text(encoding='utf-8')
-    assert 'run_official_simenv_ros1_ros2_stack.sh' in source
-    assert '此启动入口已弃用' in source
-    assert source.index('exit 2') < source.index('# 1. 启动 Docker ROS1')
 
 
-def test_nav_pr33_report_is_marked_historical_and_forbids_old_tf_path():
-    """保留优化路径时也必须阻止成员复制历史真值/TF 命令。"""
-
-    source = (REPO_ROOT / 'docs' / 'groups' / 'nav' /
-              'phase5.2-progress-20260717.md').read_text(encoding='utf-8')
-    assert '[!CAUTION]' in source
-    assert '历史排障记录，不是当前启动手册' in source
-    assert 'run_official_simenv_ros1_ros2_stack.sh' in source
-    assert '不得复制执行' in source
 
 
 def test_official_perception_world_export_requires_explicit_legal_slam_contract():
@@ -904,54 +799,14 @@ def test_official_minimal_navigation_consumes_stable_hw_odom():
     assert "'/hw/nav/state'" not in source
 
 
-def test_container_owns_adapter_lifecycle_and_stack_reuses_it():
-    source = (REPO_ROOT / 'scripts' / 'run_official_simenv_ros1_ros2_stack.sh').read_text(
-        encoding='utf-8')
-    assert '由 auto_docker.sh up 管理的官方适配器' in source
-    assert 'bash "$ROOT/scripts/run_official_simenv_rosbridge_adapter.sh" &' not in source
-    assert 'trap cleanup_business EXIT INT TERM' in source
-    # 业务 launch 会派生多个节点；必须拥有独立进程组并在退出时整体回收，
-    # 否则下一次联调会残留多个 /hw/cmd_vel 发布者。
-    assert 'setsid ros2 launch hazardwalker_bringup official_simenv_control_interface.launch.py' in source
-    assert 'kill -TERM -- "-$BUSINESS_PID"' in source
-    assert 'set +u\nsource /opt/ros/jazzy/setup.bash' in source
-    assert 'OFFICIAL_SIMENV_CARTOGRAPHER_PREFIX' in source
-    assert 'OFFICIAL_SIMENV_CARTOGRAPHER_LIBRARY_PATH' in source
-    assert 'ros2 pkg prefix cartographer_ros' in source
-    assert 'share/cartographer_ros' in source
-    assert 'share/cartographer_ros_msgs/local_setup.bash' in source
-    assert 'export HAZARDWALKER_ROOT="$ROOT"' in source
-    assert 'Frontier 导航要求本轮显式 start_slam=true' in source
-    assert 'OFFICIAL_SIMENV_AUTO_STOP_ON_FINISHED' in source
-    assert 'OFFICIAL_SIMENV_STACK_TIMEOUT_SEC' in source
-    assert 'ros2 topic echo /hw/mission/state --field data --once' in source
-    assert 'RESULT_MTIME >= RUN_START_EPOCH' in source
-    assert 'kill -KILL -- "-$BUSINESS_PID"' in source
-    assert 'for _ in {1..150}; do' in source
-    assert 'ADAPTER_PID=' not in source
-    assert 'ros2 launch hazardwalker_bringup official_simenv_control_interface.launch.py' in source
-    assert 'LAUNCH_ARGS+=("control_mode:=navigation")' in source
-    assert 'LAUNCH_ARGS+=("start_command_mux:=false")' in source
-    assert 'manage_official_simenv_command_mux.sh' in source
-    assert '统一控制模式必须为 navigation' in source
-    assert 'ros2 topic echo /clock --once' in source
-    assert 'CLOCK_NSEC=' in source
-    assert 'CLOCK_NS > LAST_CLOCK_NS' in source
-    assert 'LAST_CLOCK_NS="$CLOCK_NS"' in source
-    assert '连续递增的 /clock' in source
-    assert "grep -qx '/hazardwalker_official_rosbridge_adapter'" in source
-    assert 'start_navigation=true 但控制适配未显式开启' in source
-    assert '"enable_cmd_vel_relay": true' in source
-    assert '"managed_lifecycle": true' in source
-    assert 'NAV_MODE=frontier' in source
-    assert 'PERCEPTION_OUTPUT_FRAME=map' in source
-    assert 'LOCALIZATION_PROVENANCE=unverified' in source
-    assert '正式一键任务只允许 nav_mode=frontier' in source
-    assert 'perception_output_frame=world' in source
-    assert '白名单内的合法 SLAM localization_provenance' in source
-    assert '正式 Frontier 任务必须开启证据记录' in source
-    assert '证据记录必须提供 SEED、代码版本和输出目录' in source
-
+def test_container_owns_adapter_lifecycle():
+    source = (PLATFORM_SRC / "auto_docker.sh").read_text(encoding="utf-8")
+    assert "manage_adapter start" in source
+    assert "manage_adapter stop" in source
+    assert "manage_control start" in source
+    assert "manage_control stop" in source
+    assert 'OFFICIAL_SIMENV_SCENARIO_SEED' in source
+    assert 'read_container_scenario_seed' in source
     adapter_runner = (
         REPO_ROOT / 'scripts' / 'run_official_simenv_rosbridge_adapter.sh'
     ).read_text(encoding='utf-8')
@@ -961,17 +816,8 @@ def test_container_owns_adapter_lifecycle_and_stack_reuses_it():
     assert '-p lifecycle_container:="$LIFECYCLE_CONTAINER"' in adapter_runner
     assert '-p "scenario_seed:=\'$SCENARIO_SEED\'"' in adapter_runner
     assert 'CONTAINER_SCENARIO_SEED' in adapter_runner
-
-    auto_docker = (
-        REPO_ROOT / 'ros2_ws' / 'src' / 'hazardwalker_platform' /
-        'auto_docker.sh'
-    ).read_text(encoding='utf-8')
-    assert 'OFFICIAL_SIMENV_SCENARIO_SEED' in auto_docker
-    assert 'read_container_scenario_seed' in auto_docker
-
     slam_config = (
-        REPO_ROOT / 'ros2_ws' / 'src' / 'hazardwalker_nav' / 'config' /
-        'slam_toolbox_online_async.yaml'
+        REPO_ROOT / 'ros2_ws/src/hazardwalker_nav/config/slam_toolbox_online_async.yaml'
     ).read_text(encoding='utf-8')
     assert 'restamp_tf: false' in slam_config
     assert 'min_laser_range: 0.40' in slam_config

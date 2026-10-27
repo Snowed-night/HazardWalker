@@ -221,7 +221,7 @@ class MissionStateMachineNode(Node):
         )
 
     def write_result(self, result):
-        # HAZARDWALKER_ROOT 由 scripts/run_minimal_demo.sh 设置。
+        # HAZARDWALKER_ROOT 由平台启动入口设置。
         # 如果没有设置，就退回到当前工作目录，方便手动 ros2 run 调试。
         repo_root = os.environ.get('HAZARDWALKER_ROOT', os.getcwd())
         result_dir = self.get_parameter('result_dir').value

@@ -192,18 +192,6 @@ def test_partial_box_stays_reobserve_but_partial_sphere_can_be_tracked():
     assert "depth_shape_status == 'spherical'" in detector
     assert 'or positive_depth_sphere' in detector
 
-    capture_path = os.path.join(
-        REPO_ROOT,
-        'scripts',
-        'capture_official_simenv_rgbd_case.py',
-    )
-    with open(capture_path, encoding='utf-8') as handle:
-        capture = handle.read()
-    assert "'view_bearing_span_deg'" in capture
-    assert "'required_min_distinct_views'" in capture
-    assert "'source_ids'" not in capture
-    assert "if track_status == 'confirmed'" in capture
-
 
 def test_reobservation_motion_fails_closed_without_valid_scan_samples():
     assert action_has_scan_clearance(

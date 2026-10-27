@@ -6,7 +6,7 @@
 - 把 `launch/*.launch.py` 安装到 share 目录，供 `ros2 launch` 调用。
 
 当前入口：
-- `launch/minimal_demo.launch.py`：最小 demo 启动文件。
+- `launch/official_simenv_control_interface.launch.py`：控制层与完整业务栈入口。
 
 后续扩展：
 - 新增 launch 文件后，只要放在 `launch/` 目录中，就会被当前 `glob('launch/*.launch.py')` 自动安装。
