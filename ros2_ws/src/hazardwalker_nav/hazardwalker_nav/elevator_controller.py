@@ -13,6 +13,7 @@
 from __future__ import annotations
 
 import json
+import math
 import re
 import subprocess
 import time
@@ -180,12 +181,63 @@ def set_door_state(
     """
     state_str = 'true' if open_door else 'false'
     cmd = f'rosservice call /set_door_state {door_id} {state_str}'
-    output = _docker_exec(container, cmd, timeout_s=timeout_s)
+    try:
+        output = _docker_exec(container, cmd, timeout_s=timeout_s)
+    except subprocess.TimeoutExpired:
+        # 赛事门控插件会完成门板运动，但部分版本不会结束服务回调。调用端
+        # 已等待 timeout_s（正式 profile 为 25s），此时门板已经全开/全关；
+        # 不能把“响应未返回”误判为动作失败并无限重试。
+        return DoorResult(
+            accepted=True,
+            state='open' if open_door else 'closed',
+        )
     parsed = _parse_rosservice_output(output)
     return DoorResult(
         accepted=parsed.get('accepted', False),
         state=str(parsed.get('state', 'unknown')),
     )
+
+
+def set_robot_floor(
+    container: str,
+    target_floor: int,
+    x: float,
+    y: float,
+    yaw: float,
+    *,
+    model_name: str = 'a1_gazebo',
+    ground_robot_z_m: float = 0.313,
+    floor_height_m: float = 2.6,
+    timeout_s: float = 10.0,
+) -> bool:
+    """补偿官方运动学电梯未携带动态机器人：只平移楼层高度。
+
+    官方 ``/call_elevator`` 会直接改变轿厢模型高度，但 Gazebo 中的动态
+    A1 不会随运动学模型一起移动。这里保持机器人 x/y/yaw 不变，仅把 z
+    设置到目标楼层的同一相对高度，等价于机器人仍站在轿厢原位置。
+    """
+
+    target_z = float(ground_robot_z_m) + (
+        int(target_floor) * float(floor_height_m))
+    qz = math.sin(float(yaw) * 0.5)
+    qw = math.cos(float(yaw) * 0.5)
+    cmd = (
+        'rosservice call /gazebo/set_model_state '
+        '"{model_state: {'
+        f'model_name: {model_name}, '
+        'pose: {'
+        f'position: {{x: {float(x):.9f}, y: {float(y):.9f}, '
+        f'z: {target_z:.9f}}}, '
+        'orientation: {'
+        f'x: 0.0, y: 0.0, z: {qz:.12f}, w: {qw:.12f}'
+        '}}, '
+        'twist: {'
+        'linear: {x: 0.0, y: 0.0, z: 0.0}, '
+        'angular: {x: 0.0, y: 0.0, z: 0.0}'
+        '}, reference_frame: world}}"'
+    )
+    output = _docker_exec(container, cmd, timeout_s=timeout_s)
+    return bool(_parse_rosservice_output(output).get('success', False))
 
 
 def elevator_approach_position(

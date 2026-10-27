@@ -27,6 +27,43 @@ if [[ -z "${OFFICIAL_SIMENV_ENABLE_CONTROL+x}" ]]; then
   esac
 fi
 
+# START_CONTROLLER 会启动宇树 Estimator。把其 /odom 作为独立本体运动源转发，
+# 供 scan/IMU 定位器使用；该消息不发布 TF，也不替代 Gazebo DWA 控制里程计。
+if [[ -z "${OFFICIAL_SIMENV_ENABLE_PROPRIO_ODOM_RELAY+x}" ]]; then
+  case "${START_CONTROLLER:-1}" in
+    0|false|False|FALSE|no|NO|off|OFF)
+      export OFFICIAL_SIMENV_ENABLE_PROPRIO_ODOM_RELAY=0
+      ;;
+    *)
+      export OFFICIAL_SIMENV_ENABLE_PROPRIO_ODOM_RELAY=1
+      ;;
+  esac
+fi
+
+# 宇树 move_base 与容器同生命周期。只有显式启动该官方局部规划器时，
+# 受管适配器才桥接其目标和隔离速度话题；普通平台启动不增加 ROS 数据流。
+if [[ -z "${OFFICIAL_SIMENV_ENABLE_UNITREE_MOVE_BASE_BRIDGE+x}" ]]; then
+  case "${START_UNITREE_MOVE_BASE:-0}" in
+    1|true|True|TRUE|yes|YES|on|ON)
+      export OFFICIAL_SIMENV_ENABLE_UNITREE_MOVE_BASE_BRIDGE=1
+      ;;
+    *)
+      export OFFICIAL_SIMENV_ENABLE_UNITREE_MOVE_BASE_BRIDGE=0
+      ;;
+  esac
+fi
+
+# 当前赛事仓库的 Mid-360 xacro 位于 ENABLE_LIDAR 分支内。用户只请求宇树
+# move_base 时自动补齐两个公开传感器开关；若用户显式关闭任一项，容器内
+# auto.sh 仍会 fail-closed，而不是启动没有障碍物输入的局部规划器。
+case "${START_UNITREE_MOVE_BASE:-0}" in
+  1|true|True|TRUE|yes|YES|on|ON)
+    : "${ENABLE_LIDAR:=true}"
+    : "${ENABLE_LIVOX_3D:=true}"
+    export ENABLE_LIDAR ENABLE_LIVOX_3D
+    ;;
+esac
+
 if ! command -v docker >/dev/null 2>&1; then
   echo "ERROR: docker not found. Ask hazard_admin to run setup_hxbl_docker_group.sh" >&2
   exit 1

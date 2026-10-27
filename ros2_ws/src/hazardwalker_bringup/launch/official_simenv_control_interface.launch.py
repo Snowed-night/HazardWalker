@@ -33,22 +33,54 @@ def generate_launch_description():
         DeclareLaunchArgument('start_assist_alignment', default_value='true'),
         DeclareLaunchArgument('start_navigation', default_value='false'),
         DeclareLaunchArgument('start_slam', default_value='false'),
+        DeclareLaunchArgument('start_pointcloud_map', default_value='false'),
+        DeclareLaunchArgument('start_pointcloud_video', default_value='false'),
+        DeclareLaunchArgument('start_slam_video', default_value='false'),
         DeclareLaunchArgument('slam_backend', default_value='cartographer'),
+        DeclareLaunchArgument('slam_dimension', default_value='3d'),
         DeclareLaunchArgument('start_perception', default_value='true'),
         DeclareLaunchArgument('start_decision', default_value='false'),
         DeclareLaunchArgument('start_legal_localization', default_value='true'),
         DeclareLaunchArgument('start_evidence_recorder', default_value='false'),
         DeclareLaunchArgument('nav_mode', default_value='frontier'),
+        DeclareLaunchArgument(
+            'local_planner_backend', default_value='direct'),
         DeclareLaunchArgument('localization_provenance', default_value='unverified'),
         DeclareLaunchArgument('perception_output_frame', default_value='map'),
         DeclareLaunchArgument('perception_parameter_file', default_value=''),
         DeclareLaunchArgument('exploration_timeout_s', default_value='540.0'),
+        DeclareLaunchArgument('mission_time_budget_s', default_value='600.0'),
+        DeclareLaunchArgument('navigation_linear_speed', default_value='1.20'),
+        DeclareLaunchArgument(
+            'navigation_minimum_linear_speed', default_value='0.80'),
+        DeclareLaunchArgument('target_floors', default_value='[]'),
+        DeclareLaunchArgument('per_floor_exploration_s', default_value='150.0'),
+        DeclareLaunchArgument('manual_elevator_assist', default_value='true'),
+        DeclareLaunchArgument(
+            'automatic_elevator_entry', default_value='true'),
+        DeclareLaunchArgument(
+            'strict_room_inspection', default_value='false'),
+        DeclareLaunchArgument('strict_room_clearance_m', default_value='0.60'),
+        DeclareLaunchArgument(
+            'simenv_container', default_value='simenv_ros1_hazard_platform'),
         DeclareLaunchArgument('evidence_output_dir', default_value=''),
+        DeclareLaunchArgument('nav_record_dir', default_value=''),
+        DeclareLaunchArgument('slam_monitor_output_dir', default_value=''),
+        DeclareLaunchArgument('pointcloud_map_output_dir', default_value=''),
+        DeclareLaunchArgument('slam_video_output', default_value=''),
+        DeclareLaunchArgument('pointcloud_video_output', default_value=''),
         DeclareLaunchArgument('test_record_dir', default_value=''),
         DeclareLaunchArgument('scenario_seed', default_value=''),
         DeclareLaunchArgument('code_version', default_value=''),
         DeclareLaunchArgument(
             'official_result_path', default_value='results/detected_danger.json'),
+        DeclareLaunchArgument('official_hazard_source_frame', default_value='map'),
+        DeclareLaunchArgument('official_world_from_map_x', default_value='0.0'),
+        DeclareLaunchArgument('official_world_from_map_y', default_value='0.0'),
+        DeclareLaunchArgument('official_world_from_map_yaw', default_value='0.0'),
+        DeclareLaunchArgument('official_floor_height_m', default_value='2.6'),
+        DeclareLaunchArgument(
+            'official_sphere_center_height_m', default_value='0.15'),
 
         Node(
             package='hazardwalker_platform',
@@ -85,7 +117,13 @@ def generate_launch_description():
                 'use_sim_time': use_sim_time,
                 'start_navigation': LaunchConfiguration('start_navigation'),
                 'start_slam': LaunchConfiguration('start_slam'),
+                'start_pointcloud_map': LaunchConfiguration(
+                    'start_pointcloud_map'),
+                'start_pointcloud_video': LaunchConfiguration(
+                    'start_pointcloud_video'),
+                'start_slam_video': LaunchConfiguration('start_slam_video'),
                 'slam_backend': LaunchConfiguration('slam_backend'),
+                'slam_dimension': LaunchConfiguration('slam_dimension'),
                 'start_perception': LaunchConfiguration('start_perception'),
                 'start_decision': LaunchConfiguration('start_decision'),
                 'start_legal_localization': LaunchConfiguration(
@@ -93,6 +131,8 @@ def generate_launch_description():
                 'start_evidence_recorder': LaunchConfiguration(
                     'start_evidence_recorder'),
                 'nav_mode': LaunchConfiguration('nav_mode'),
+                'local_planner_backend': LaunchConfiguration(
+                    'local_planner_backend'),
                 'localization_provenance': LaunchConfiguration(
                     'localization_provenance'),
                 'perception_output_frame': LaunchConfiguration(
@@ -101,13 +141,52 @@ def generate_launch_description():
                     'perception_parameter_file'),
                 'exploration_timeout_s': LaunchConfiguration(
                     'exploration_timeout_s'),
+                'mission_time_budget_s': LaunchConfiguration(
+                    'mission_time_budget_s'),
+                'navigation_linear_speed': LaunchConfiguration(
+                    'navigation_linear_speed'),
+                'navigation_minimum_linear_speed': LaunchConfiguration(
+                    'navigation_minimum_linear_speed'),
+                'target_floors': LaunchConfiguration('target_floors'),
+                'per_floor_exploration_s': LaunchConfiguration(
+                    'per_floor_exploration_s'),
+                'manual_elevator_assist': LaunchConfiguration(
+                    'manual_elevator_assist'),
+                'automatic_elevator_entry': LaunchConfiguration(
+                    'automatic_elevator_entry'),
+                'strict_room_inspection': LaunchConfiguration(
+                    'strict_room_inspection'),
+                'strict_room_clearance_m': LaunchConfiguration(
+                    'strict_room_clearance_m'),
+                'simenv_container': LaunchConfiguration('simenv_container'),
                 'evidence_output_dir': LaunchConfiguration(
                     'evidence_output_dir'),
+                'nav_record_dir': LaunchConfiguration('nav_record_dir'),
+                'slam_monitor_output_dir': LaunchConfiguration(
+                    'slam_monitor_output_dir'),
+                'pointcloud_map_output_dir': LaunchConfiguration(
+                    'pointcloud_map_output_dir'),
+                'slam_video_output': LaunchConfiguration(
+                    'slam_video_output'),
+                'pointcloud_video_output': LaunchConfiguration(
+                    'pointcloud_video_output'),
                 'test_record_dir': LaunchConfiguration('test_record_dir'),
                 'scenario_seed': LaunchConfiguration('scenario_seed'),
                 'code_version': LaunchConfiguration('code_version'),
                 'official_result_path': LaunchConfiguration(
                     'official_result_path'),
+                'official_hazard_source_frame': LaunchConfiguration(
+                    'official_hazard_source_frame'),
+                'official_world_from_map_x': LaunchConfiguration(
+                    'official_world_from_map_x'),
+                'official_world_from_map_y': LaunchConfiguration(
+                    'official_world_from_map_y'),
+                'official_world_from_map_yaw': LaunchConfiguration(
+                    'official_world_from_map_yaw'),
+                'official_floor_height_m': LaunchConfiguration(
+                    'official_floor_height_m'),
+                'official_sphere_center_height_m': LaunchConfiguration(
+                    'official_sphere_center_height_m'),
                 'navigation_cmd_vel_topic': (
                     '/hw/control/navigation_cmd_vel'),
             }.items(),

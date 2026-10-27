@@ -14,6 +14,7 @@
 - reobservations.jsonl: 时间戳、感知复查请求、执行结果
 - floor_changes.jsonl: 时间戳、楼层切换事件
 - elevator_calls.jsonl: 时间戳、电梯调用事件
+- room_coverage.jsonl: 房间进入、闭环路径长度、耗时、探针数和完成原因
 - map.pgm + map.yaml: 最终 SLAM 地图（FINISHED 时保存）
 
 验证方式：
@@ -101,10 +102,12 @@ class NavRecorder:
             os.path.join(self._dir, 'floor_changes.jsonl'), 'w', encoding='utf-8')
         self._elevator_calls_fp = open(
             os.path.join(self._dir, 'elevator_calls.jsonl'), 'w', encoding='utf-8')
+        self._room_coverage_fp = open(
+            os.path.join(self._dir, 'room_coverage.jsonl'), 'w', encoding='utf-8')
 
         # 降采样计时
-        self._last_trajectory_time: float = 0.0
-        self._last_cmd_vel_time: float = 0.0
+        self._last_trajectory_ros_sec: Optional[float] = None
+        self._last_cmd_vel_ros_sec: Optional[float] = None
 
         # 统计
         self._sequence: int = 0
@@ -122,14 +125,22 @@ class NavRecorder:
         yaw: float,
         state: str,
         target_frontier: Optional[Tuple[float, float]] = None,
+        odom_pose: Optional[Tuple[float, float]] = None,
+        official_pose: Optional[Tuple[float, float, float]] = None,
+        home_distance_m: Optional[float] = None,
+        floor_index: Optional[int] = None,
+        slam_session_generation: Optional[int] = None,
     ):
         """记录一帧合法 SLAM 位姿（内部降采样）。"""
         if not self._enabled:
             return
-        now = time.monotonic()
-        if now - self._last_trajectory_time < self._trajectory_interval:
+        ros_sec = float(ros_sec)
+        if (self._last_trajectory_ros_sec is not None
+                and ros_sec >= self._last_trajectory_ros_sec
+                and ros_sec - self._last_trajectory_ros_sec
+                < self._trajectory_interval):
             return
-        self._last_trajectory_time = now
+        self._last_trajectory_ros_sec = ros_sec
 
         self._sequence += 1
         record = {
@@ -146,6 +157,21 @@ class NavRecorder:
                 round(target_frontier[0], 4),
                 round(target_frontier[1], 4),
             ]
+        if odom_pose is not None:
+            record['odom_x'] = round(float(odom_pose[0]), 4)
+            record['odom_y'] = round(float(odom_pose[1]), 4)
+        if official_pose is not None:
+            record['official_x'] = round(float(official_pose[0]), 4)
+            record['official_y'] = round(float(official_pose[1]), 4)
+            record['official_yaw_deg'] = round(
+                math.degrees(float(official_pose[2])), 2)
+        if home_distance_m is not None and math.isfinite(home_distance_m):
+            record['home_distance_m'] = round(float(home_distance_m), 4)
+        if floor_index is not None:
+            record['floor_index'] = int(floor_index)
+        if slam_session_generation is not None:
+            record['slam_session_generation'] = int(
+                slam_session_generation)
         self._write_jsonl(self._trajectory_fp, record)
 
     def record_cmd_vel(
@@ -158,10 +184,13 @@ class NavRecorder:
         """记录一帧速度指令（内部降采样）。"""
         if not self._enabled:
             return
-        now = time.monotonic()
-        if now - self._last_cmd_vel_time < self._cmd_vel_interval:
+        ros_sec = float(ros_sec)
+        if (self._last_cmd_vel_ros_sec is not None
+                and ros_sec >= self._last_cmd_vel_ros_sec
+                and ros_sec - self._last_cmd_vel_ros_sec
+                < self._cmd_vel_interval):
             return
-        self._last_cmd_vel_time = now
+        self._last_cmd_vel_ros_sec = ros_sec
 
         record = {
             'seq': self._sequence,  # 复用轨迹序号以便对齐
@@ -283,6 +312,91 @@ class NavRecorder:
             record['result'] = result
         self._write_jsonl(self._elevator_calls_fp, record)
 
+    def record_room_coverage(
+        self,
+        ros_sec: float,
+        floor: int,
+        sector: str,
+        phase: str,
+        x: float,
+        y: float,
+        path_m: float = 0.0,
+        duration_s: float = 0.0,
+        probe_count: int = 0,
+        reason: str = '',
+        official_pose: Optional[Tuple[float, float, float]] = None,
+        physical_path_m: Optional[float] = None,
+        loop_area_m2: Optional[float] = None,
+        loop_perimeter_m: Optional[float] = None,
+        official_loop_samples: Optional[list] = None,
+        obstacle_count: Optional[int] = None,
+        inspection_goal_count: Optional[int] = None,
+        inspection_completed_count: Optional[int] = None,
+        visibility_coverage_ratio: Optional[float] = None,
+        visibility_target_cell_count: Optional[int] = None,
+        visibility_covered_cell_count: Optional[int] = None,
+        required_visibility_coverage_ratio: Optional[float] = None,
+    ):
+        """记录房间覆盖证据；进入与完成分别写一条，便于自动验收。"""
+
+        if not self._enabled:
+            return
+        record = {
+            'time': _ros_time_str(ros_sec),
+            'ros_sec': round(float(ros_sec), 4),
+            'floor': int(floor),
+            'sector': str(sector),
+            'phase': str(phase),
+            'pose': [round(float(x), 4), round(float(y), 4)],
+            'path_m': round(max(0.0, float(path_m)), 3),
+            'duration_s': round(max(0.0, float(duration_s)), 3),
+            'probe_count': max(0, int(probe_count)),
+        }
+        if reason:
+            record['reason'] = str(reason)
+        if official_pose is not None:
+            record['official_pose'] = [
+                round(float(official_pose[0]), 4),
+                round(float(official_pose[1]), 4),
+                round(math.degrees(float(official_pose[2])), 2),
+            ]
+        if physical_path_m is not None:
+            record['physical_path_m'] = round(
+                max(0.0, float(physical_path_m)), 3)
+        if loop_area_m2 is not None:
+            record['loop_area_m2'] = round(
+                max(0.0, float(loop_area_m2)), 3)
+        if loop_perimeter_m is not None:
+            record['loop_perimeter_m'] = round(
+                max(0.0, float(loop_perimeter_m)), 3)
+        if official_loop_samples is not None:
+            record['official_loop_samples'] = [
+                [round(float(point[0]), 4), round(float(point[1]), 4)]
+                for point in official_loop_samples
+            ]
+        if obstacle_count is not None:
+            record['obstacle_count'] = max(0, int(obstacle_count))
+        if inspection_goal_count is not None:
+            record['inspection_goal_count'] = max(
+                0, int(inspection_goal_count))
+        if inspection_completed_count is not None:
+            record['inspection_completed_count'] = max(
+                0, int(inspection_completed_count))
+        if visibility_coverage_ratio is not None:
+            record['visibility_coverage_ratio'] = round(
+                min(1.0, max(0.0, float(visibility_coverage_ratio))), 4)
+        if visibility_target_cell_count is not None:
+            record['visibility_target_cell_count'] = max(
+                0, int(visibility_target_cell_count))
+        if visibility_covered_cell_count is not None:
+            record['visibility_covered_cell_count'] = max(
+                0, int(visibility_covered_cell_count))
+        if required_visibility_coverage_ratio is not None:
+            record['required_visibility_coverage_ratio'] = round(
+                min(1.0, max(
+                    0.0, float(required_visibility_coverage_ratio))), 4)
+        self._write_jsonl(self._room_coverage_fp, record)
+
     def save_map(
         self,
         grid: np.ndarray,
@@ -295,6 +409,10 @@ class NavRecorder:
             return
 
         try:
+            if map_msg is not None:
+                resolution = float(map_msg.info.resolution)
+            if not math.isfinite(resolution) or resolution <= 0.0:
+                raise ValueError('地图分辨率无效')
             height, width = grid.shape
             # 转换为 PGM 格式：0=占用(黑), 254=自由(白), 205=未知(灰)
             pgm = np.full((height, width), 205, dtype=np.uint8)
@@ -355,6 +473,7 @@ class NavRecorder:
             self._reobservations_fp,
             self._floor_changes_fp,
             self._elevator_calls_fp,
+            self._room_coverage_fp,
         ):
             try:
                 fp.close()

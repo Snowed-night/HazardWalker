@@ -1,0 +1,23 @@
+{
+  "src/unitree_guide/logs/policy_act_inference_stair.pt": "2d5aa72511c0c6609c02f4105845eee6974d3d73431497f8f35306da9588fe14",
+  "src/unitree_guide/logs/policy_act_inference_plane.pt": "e886847fe266e3c2f7c08825fceeaecfa75c7eac5f780b25b6d4dca173ff8bef",
+  "src/unitree_guide/unitree_guide/unitree_guide/library/unitree_legged_sdk_3.2/lib/libunitree_legged_sdk_arm64.so": "b295b553e5f3e5a2d3e9410901d0c1f1775c588be7604e6a581c1eb39d7babd9",
+  "src/unitree_guide/unitree_guide/unitree_guide/library/unitree_legged_sdk_3.2/lib/libunitree_legged_sdk_arm32.so": "6ad64e0e4184f47b2a2dfab5b9d3e74015f8e3f869e44add80961422bc56e6ae",
+  "src/unitree_guide/unitree_guide/unitree_guide/library/unitree_legged_sdk_3.2/lib/libunitree_legged_sdk_amd64.so": "fd5c2eb5f135d85046fa2dc09ee25bf2cd78b2138373c2493136985e0d6b37b2",
+  "src/unitree_guide/unitree_guide/unitree_guide/library/unitree_legged_sdk_3.4/lib/libunitree_legged_sdk_x86.so": "009af7085402a0715dc9ccff083cf99fd6de98cd2a8094b927a632092c4193c0",
+  "src/unitree_guide/unitree_guide/unitree_guide/library/unitree_legged_sdk_3.4/lib/libunitree_legged_sdk_arm64.so": "1b9be80cc64414e184321f868e0f6537ad612bcf8607458bcb0a8352f0151900",
+  "src/unitree_guide/unitree_guide/unitree_guide/library/unitree_legged_sdk-3.8.0/lib/cpp/arm64/libunitree_legged_sdk.a": "0dd5de99444fcd49770e420a711b150cb6548391bba9227c013805125dd1e60a",
+  "src/unitree_guide/unitree_guide/unitree_guide/library/unitree_legged_sdk-3.8.0/lib/cpp/amd64/libunitree_legged_sdk.a": "cd172d31cbe90648fcc5a9f199a6a5ddbbe31160e9f18e5c1adf81115db16f68",
+  "src/unitree_guide/unitree_guide/unitree_guide/library/unitree_legged_sdk-3.8.0/lib/python/arm64/robot_interface.cpython-38-aarch64-linux-gnu.so": "487df76b6fbf119f86ca8db5f4945fdf1ebb560726b54232480f55b751e1be06",
+  "src/unitree_guide/unitree_guide/unitree_guide/library/unitree_legged_sdk-3.8.0/lib/python/arm64/robot_interface.cpython-37m-aarch64-linux-gnu.so": "1c32a5a6cfbe7fcc295eb266134ed050167cdef79237633a834c73610f20d4ca",
+  "src/unitree_guide/unitree_guide/unitree_guide/library/unitree_legged_sdk-3.8.0/lib/python/amd64/robot_interface.cpython-38-x86_64-linux-gnu.so": "1489700da7fa690e8def2d1ffbf6476ca3b179fb20628a6b7a918bf41cefe224",
+  "src/unitree_guide/unitree_guide/unitree_actuator_sdk/unitree_motor_ctrl/lib/libUnitree_motor_SDK_Linux.so": "98694424689a3b6ace665ed693113b9c56e4e0e51c165e6d468159310fb3080f",
+  "src/unitree_guide/unitree_guide/unitree_actuator_sdk/lib/libUnitree_motor_SDK_ARM64.so": "fe71518062a401df924ffcf1475e58d77acd148584f1528dbf9bfbcf8ce195e7",
+  "src/unitree_guide/unitree_guide/unitree_actuator_sdk/lib/libUnitree_motor_SDK_Linux64.so": "5d015e6ace6b79ee286544147180ec308b920e20641a3d1d6e5fc269aedd2dd8",
+  "src/unitree_guide/unitree_guide/unitree_actuator_sdk/lib/libUnitree_motor_SDK_Linux32.so": "5f257daed4d425b508553a8c0ee45afab0df7e4a1c29a85fb464a60f2967e270",
+  "src/unitree_guide/unitree_guide/unitree_actuator_sdk/lib/libUnitree_motor_SDK_ARM32.so": "c9ed7b82d67fa11e7069d2d13ffab37714714c89e63305be8e163a1ad4306a20",
+  "src/unitree_guide/unitree_ros_to_real/unitree_legged_sdk/lib/cpp/arm64/libunitree_legged_sdk.a": "4ec2f384271ecc6cc4266e10b888d5bb076d73f10ee680436718c26d1d865a6d",
+  "src/unitree_guide/unitree_ros_to_real/unitree_legged_sdk/lib/cpp/amd64/libunitree_legged_sdk.a": "f43fdaf29804c53c48c4fea517ee17014267a9a3c76fdafdb2d6b63feee6e178",
+  "src/unitree_guide/unitree_ros_to_real/unitree_legged_sdk/lib/python/arm64/robot_interface.cpython-38-aarch64-linux-gnu.so": "1fbb20ff939ea4a78c0aec7394b365b0d11135be09c180284fab0f618c55c7de",
+  "src/unitree_guide/unitree_ros_to_real/unitree_legged_sdk/lib/python/amd64/robot_interface.cpython-38-x86_64-linux-gnu.so": "35c88c89b58e3afa7c79600c6f9ff20f250fc218dca613ad4486d7ed2679aaea"
+}

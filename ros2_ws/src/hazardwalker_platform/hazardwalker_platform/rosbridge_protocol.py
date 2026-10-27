@@ -95,6 +95,32 @@ def filter_scan_self_returns(values, minimum_range_m):
     return filtered
 
 
+def decimate_pointcloud_bytes(data, point_step, point_count, stride):
+    """按完整 PointCloud2 点记录做确定性抽样，返回紧凑字节和点数。
+
+    该函数不解释字段内容，因而能保留 x/y/z/rgb 等任意布局；它只允许完整
+    固定长度记录，拒绝损坏的 point_step/count。用于在进入 DDS/UDP 前把
+    RealSense 约 30 万点的组织点云缩小，避免大消息在共享主机静默丢包。
+    """
+
+    raw = bytes(data)
+    step = int(point_step)
+    count = int(point_count)
+    sample_stride = max(1, int(stride))
+    if step <= 0 or count < 0 or len(raw) < step * count:
+        raise ValueError('invalid PointCloud2 byte layout')
+    if sample_stride == 1:
+        return raw[:step * count], count
+    sampled = bytearray(step * ((count + sample_stride - 1) // sample_stride))
+    target_offset = 0
+    for index in range(0, count, sample_stride):
+        source_offset = index * step
+        sampled[target_offset:target_offset + step] = raw[
+            source_offset:source_offset + step]
+        target_offset += step
+    return bytes(sampled[:target_offset]), target_offset // step
+
+
 def decode_ros_time(value):
     """兼容 ROS1 与 ROS2 JSON 字段名并返回 ``(sec, nanosec)``。
 

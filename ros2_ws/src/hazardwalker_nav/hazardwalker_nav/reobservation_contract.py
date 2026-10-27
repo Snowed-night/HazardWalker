@@ -18,6 +18,28 @@ SUPPORTED_REOBSERVATION_ACTIONS = {
 }
 
 
+def strict_room_reobservation_allowed(
+        strict_room_inspection_enabled,
+        deterministic_route_phase,
+        inspection_phase,
+        camera_stable=True):
+    """判断候选复查是否可在严格房间巡检期间接管运动。
+
+    普通探索继续沿用原有复查行为；严格房间模式只允许在 ``room_inspection``
+    阶段且相机已经稳定时复查。这样在 MOVE/ORIENT 之间短暂停稳时看到的
+    边缘红球不会因 CAPTURE 应答竞态被跳过，同时仍禁止在走廊、穿门和
+    房间基础环线期间抢占导航。
+    """
+
+    if not bool(strict_room_inspection_enabled):
+        return True
+    return (
+        str(deterministic_route_phase) == 'room_inspection'
+        and str(inspection_phase).upper() in ('MOVE', 'ORIENT', 'CAPTURE')
+        and bool(camera_stable)
+    )
+
+
 def parse_reobservation_request(payload):
     """返回规范化复查请求；无请求或不安全动作返回 ``None``。"""
 
@@ -173,6 +195,34 @@ def find_target_detection(
     )
 
 
+def find_best_unresolved_detection(payload):
+    """停稳会话中候选ID变化时，接续当前最高置信度未确认红色候选。"""
+
+    if not isinstance(payload, dict):
+        return None
+    detections = payload.get('detections_2d')
+    if not isinstance(detections, list):
+        return None
+    candidates = [
+        item for item in detections
+        if isinstance(item, dict)
+        and item.get('track_status') not in (
+            'confirmed', 'rejected', 'rejected_non_spherical')
+        and str(
+            item.get('track_id')
+            or item.get('candidate_id')
+            or item.get('id')
+            or ''
+        ).strip()
+    ]
+    if not candidates:
+        return None
+    return max(
+        candidates,
+        key=lambda item: float(item.get('confidence', 0.0)),
+    )
+
+
 def target_centered_in_image(
         detection, image_width, center_tolerance_ratio=0.18):
     """目标框进入图像中央带时返回真，供转向视觉伺服提前停车。"""
@@ -258,6 +308,11 @@ def live_reobservation_action_update_allowed(
     recommended = str(recommended_action or '').strip()
     if not current or not recommended or current == recommended:
         return False
+    # ``hold_observation`` 是运动帧发现候选后的停稳事务。开始后必须完整
+    # 经过停车、相机稳定和确认帧窗口，不能被下一帧的靠近/转向建议覆盖；
+    # 若稳定帧仍不足，后续动作会在本段结束后通过 follow-up 正常执行。
+    if current == 'hold_observation':
+        return False
     if current in ('move_left', 'move_right') and recommended in (
             'turn_left', 'turn_right'):
         return False
@@ -317,6 +372,24 @@ def select_live_reobservation_update(
             == str(current_action or '').strip()):
         return None
     return request
+
+
+def select_followup_reobservation_request(payload, active_target_id):
+    """选择同一轨迹在稳定观察后的下一段复查请求。
+
+    与实时动作更新不同，这里允许动作保持不变，因为远目标可能需要多个受限
+    侧移段才能达到球体确认所需的视差；目标不一致且没有显式候选别名关联时
+    仍然拒绝，防止另一个红色物体劫持当前复查预算。
+    """
+
+    request = parse_reobservation_request(payload)
+    if request is None:
+        return None
+    if (_same_target_id(request.get('target_id'), active_target_id)
+            or _payload_links_target_aliases(
+                payload, request.get('target_id'), active_target_id)):
+        return request
+    return None
 
 
 def _payload_links_target_aliases(payload, left_target_id, right_target_id):

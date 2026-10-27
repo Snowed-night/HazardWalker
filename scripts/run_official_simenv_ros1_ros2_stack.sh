@@ -5,6 +5,7 @@ set -euo pipefail
 # 负责人：姜晨。先确认官方容器，再启动独立适配，再启动不含 fake/Harmonic 的 ROS2 业务层。
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CONTAINER="${SIMENV_CONTAINER:-simenv_run}"
+CONTROL_MANAGER="$ROOT/scripts/manage_official_simenv_command_mux.sh"
 export HAZARDWALKER_ROOT="$ROOT"
 
 # Jazzy 的 setup.bash 会读取若干可选变量；在 set -u 下未定义时会提前退出。
@@ -149,7 +150,7 @@ if [[ "$NAVIGATION_REQUESTED" == 1 ]]; then
     exit 1
   fi
   case "$LOCALIZATION_PROVENANCE" in
-    lidar_imu_slam|visual_inertial_slam|lidar_imu_slam+public_floor_action) ;;
+    lidar_imu_slam|visual_inertial_slam|lidar_imu_slam+public_floor_action|lidar_imu_proprio_slam|lidar_imu_proprio_slam+public_floor_action|official_simenv_odometry|official_simenv_odometry+public_floor_action) ;;
     *)
       echo '[stack] 正式结果要求白名单内的合法 SLAM localization_provenance。' >&2
       exit 1
@@ -229,9 +230,8 @@ if [[ "$EVIDENCE_REQUESTED" == 1 ]]; then
 fi
 if [[ "$NAVIGATION_REQUESTED" == 1 && -z "$CONTROL_MODE_VALUE" ]]; then
   LAUNCH_ARGS+=("control_mode:=navigation")
-  CONTROL_MODE_VALUE=navigation
 fi
-CONTROL_MODE_VALUE="${CONTROL_MODE_VALUE:-keyboard}"
+LAUNCH_ARGS+=("start_command_mux:=false")
 
 if ! docker inspect -f '{{.State.Running}}' "$CONTAINER" 2>/dev/null | grep -qx true; then
   if [[ -z "${SIMENV_START_COMMAND:-}" ]]; then
@@ -361,17 +361,6 @@ if [[ "$NAVIGATION_REQUESTED" == 1 ]]; then
   fi
 fi
 echo '[stack] 启动统一控制与 ROS2 业务层（不含 fake 平台；固定航点导航默认关闭）。'
-# auto_docker.sh up 已托管唯一仲裁器。正式业务栈复用它并显式切换模式，
-# 避免 launch 再创建第二个 /hw/cmd_vel 发布者；旧环境没有托管节点时仍由
-# launch 自己启动，保持离线和历史入口兼容。
-if ros2 node list --no-daemon 2>/dev/null | grep -qx '/hazardwalker_command_mux'; then
-  LAUNCH_ARGS+=("start_command_mux:=false")
-  HAZARDWALKER_ROOT="$ROOT" \
-    bash "$ROOT/scripts/manage_official_simenv_command_mux.sh" \
-      mode "$CONTROL_MODE_VALUE"
-else
-  LAUNCH_ARGS+=("start_command_mux:=true")
-fi
 setsid ros2 launch hazardwalker_bringup official_simenv_control_interface.launch.py \
   "${LAUNCH_ARGS[@]}" &
 BUSINESS_PID=$!

@@ -1,0 +1,60 @@
+# 负责人适配：保留宇树上游 TrajectoryPlannerROS(DWA) 局部避障，仅校准 A1 速度和安全权重。
+recovery_behavior_enabled: true
+clearing_rotation_allowed: true
+controller_frequency: 10.0
+planner_frequency: 2.0
+planner_patience: 5.0
+controller_patience: 8.0
+shutdown_costmaps: false
+
+base_global_planner: navfn/NavfnROS
+base_local_planner: base_local_planner/TrajectoryPlannerROS
+
+TrajectoryPlannerROS:
+  max_vel_x: 0.90
+  min_vel_x: 0.55
+  max_vel_y: 0.55
+  min_vel_y: -0.55
+  max_vel_theta: 2.4
+  min_vel_theta: -2.4
+  min_in_place_vel_theta: 1.40
+  # A1 RL 的实际起步阈值约 0.3m/s；0.25 会在电梯门槛永久原地踏步。
+  escape_vel: -0.45
+  # 官方 A1 RL 控制器对 0.1--0.2 m/s 平移无可测响应。TrajectoryPlanner
+  # 默认按真实 odom 速度施加加速度限幅，会永远停在死区内；提高采样跃迁
+  # 上限并保留 max_vel_* 限幅，不改变 DWA 轨迹碰撞评分。
+  acc_lim_x: 8.0
+  acc_lim_y: 8.0
+  acc_lim_theta: 8.0
+  holonomic_robot: true
+  # TrajectoryPlannerROS 动态配置把 y_vels 声明为逗号分隔字符串；YAML
+  # 数组会静默退回插件默认的 ±0.1 m/s 死区样本。
+  y_vels: "-0.55,0.0,0.55"
+
+  yaw_goal_tolerance: 0.40
+  xy_goal_tolerance: 0.25
+  latch_xy_goal_tolerance: true
+  meter_scoring: true
+  # 沿用宇树上游 TrajectoryPlannerROS 的真实参数名。path/goal_distance_bias
+  # 是 DWAPlannerROS 名称，在此插件中只保留兼容记录，不参与评分。
+  pdist_scale: 1.4
+  gdist_scale: 2.8
+  # 保留上游DWA航向评分；房内路线改成8点圆角矩形，将单次转向限制在
+  # 约45°，避免四点矩形的90°/260°大幅原地转向。
+  heading_scoring: true
+  heading_lookahead: 0.8
+  heading_scoring_timestep: 0.8
+  oscillation_reset_dist: 0.10
+  prune_plan: true
+
+  sim_time: 2.0
+  sim_granularity: 0.025
+  angular_sim_granularity: 0.025
+  vx_samples: 12
+  vy_samples: 9
+  vtheta_samples: 50
+  dwa: true
+  path_distance_bias: 32.0
+  goal_distance_bias: 24.0
+  occdist_scale: 0.05
+  simple_attractor: false

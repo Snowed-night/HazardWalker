@@ -50,4 +50,12 @@ RUN chmod +x /tmp/install_cuda_toolkit.sh && /tmp/install_cuda_toolkit.sh && rm 
 COPY install_libtorch.sh /tmp/install_libtorch.sh
 RUN chmod +x /tmp/install_libtorch.sh && /tmp/install_libtorch.sh && rm -f /tmp/install_libtorch.sh
 
+# 赛事仓库随附的宇树 unitree_move_base 只包含配置，基础镜像没有安装
+# move_base 可执行程序。放在大体积 CUDA/LibTorch 层之后，增量构建不会
+# 重新下载前述运行时；ros-noetic-move-base 会带入 costmap_2d、navfn 和
+# TrajectoryPlannerROS，局部避障直接复用宇树官方方案。
+RUN apt-get update -qq \
+    && apt-get install -y -qq --no-install-recommends ros-noetic-move-base \
+    && rm -rf /var/lib/apt/lists/*
+
 WORKDIR /home/ros/simenv_ws

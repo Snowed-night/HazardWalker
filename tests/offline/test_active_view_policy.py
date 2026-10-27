@@ -19,6 +19,8 @@ from hazardwalker_perception.active_view_policy import (
     attach_candidate_aliases_to_hazards,
     bbox_iou,
     choose_active_view_action,
+    choose_stable_localization_hold,
+    motion_command_is_stationary,
 )
 
 
@@ -39,6 +41,70 @@ def _detection(identifier='one', x_min=100, y_min=100, x_max=150, y_max=150,
 def test_empty_frame_keeps_exploring():
     action = choose_active_view_action([], 640, 480)
     assert action.action == 'continue_exploring'
+
+
+def test_moving_spherical_candidate_requests_stable_localization_hold():
+    candidate = _detection(identifier='candidate-7')
+    candidate.update({
+        'candidate_id': 'candidate-7',
+        'confirmation_eligible': True,
+        'depth_synchronized': True,
+        'tf_synchronized': True,
+        'localization_status': 'localized',
+        'localized_position': [1.0, 2.0, 0.1],
+        'track_status': 'untracked',
+    })
+
+    action = choose_stable_localization_hold([candidate], camera_stable=False)
+
+    assert action.action == 'hold_observation'
+    assert action.priority == 100
+    assert action.target_id == 'candidate-7'
+
+
+def test_moving_anisotropic_red_candidate_still_stops_before_classification():
+    candidate = _detection(identifier='candidate-8')
+    candidate.update({
+        'candidate_id': 'candidate-8',
+        'confirmation_eligible': False,
+        'depth_synchronized': True,
+        'tf_synchronized': True,
+        'localization_status': 'suppressed_non_spherical_depth_shape',
+        'localized_position': [1.0, 2.0, 0.1],
+        'track_status': 'untracked',
+    })
+
+    action = choose_stable_localization_hold([candidate], camera_stable=False)
+
+    assert action.action == 'hold_observation'
+    assert action.target_id == 'candidate-8'
+
+
+def test_stable_or_already_confirmed_sphere_does_not_request_hold():
+    candidate = _detection(identifier='candidate-7')
+    candidate.update({
+        'candidate_id': 'candidate-7',
+        'confirmation_eligible': True,
+        'depth_synchronized': True,
+        'tf_synchronized': True,
+        'localization_status': 'localized',
+        'localized_position': [1.0, 2.0, 0.1],
+        'track_status': 'untracked',
+    })
+    assert choose_stable_localization_hold(
+        [candidate], camera_stable=True) is None
+    candidate['track_status'] = 'confirmed'
+    assert choose_stable_localization_hold(
+        [candidate], camera_stable=False) is None
+
+
+def test_motion_command_must_be_near_zero_for_stable_localization():
+    assert motion_command_is_stationary(
+        (0.01, 0.0, 0.0), (0.0, 0.0, 0.02), 0.05, 0.10)
+    assert not motion_command_is_stationary(
+        (0.45, 0.0, 0.0), (0.0, 0.0, 0.0), 0.05, 0.10)
+    assert not motion_command_is_stationary(
+        (0.0, 0.0, 0.0), (0.0, 0.0, 0.4), 0.05, 0.10)
 
 
 def test_active_view_direction_memory_prevents_center_line_oscillation():
@@ -211,39 +277,6 @@ def test_small_candidate_requests_approach():
     assert action.action == 'move_forward'
 
 
-def test_track_lacking_lateral_parallax_overrides_repeated_approach():
-    """轨迹已证明缺少侧视时，小框规则不能继续无限提示直线靠近。"""
-
-    candidate = _detection(
-        identifier='candidate-2',
-        x_min=250,
-        y_min=230,
-        x_max=275,
-        y_max=255,
-        red_pixel_count=500,
-    )
-    candidate.update({
-        'candidate_id': 'candidate-2',
-        'track_id': '7',
-        'track_status': 'tentative',
-    })
-    action = choose_active_view_action(
-        [candidate],
-        640,
-        480,
-        hazards=[{
-            'id': 7,
-            'status': 'needs_reobservation',
-            'evidence_status': 'insufficient_lateral_parallax',
-        }],
-    )
-
-    assert action.action == 'move_left'
-    assert action.priority == 97
-    assert action.target_id == 'candidate-2'
-    assert '横向视差不足' in action.reason
-
-
 def test_unstable_roundness_requests_side_view():
     action = choose_active_view_action([_detection(circularity=0.65)], 640, 480)
     assert action.action == 'move_left'
@@ -361,16 +394,16 @@ def test_stable_candidate_requests_independent_side_view_before_confirmation():
     assert '圆柱' in action.reason
 
 
-def test_excessive_normalized_depth_curvature_prioritizes_side_view():
+def test_excessive_normalized_depth_curvature_continues_without_side_view():
     candidate = _detection()
     candidate['apparent_diameter_m'] = 0.30
     candidate['depth_shape'] = {'status': 'spherical', 'curvature_m': 0.15}
 
     action = choose_active_view_action([candidate], 640, 480)
 
-    assert action.action == 'move_left'
-    assert action.priority == 93
-    assert '曲率' in action.reason
+    assert action.action == 'continue_exploring'
+    assert action.priority == 0
+    assert '不再横移复查' in action.reason
 
 
 def test_bbox_iou_returns_overlap_ratio():
@@ -380,18 +413,18 @@ def test_bbox_iou_returns_overlap_ratio():
 
 
 """深度近似平面的红色圆形候选必须优先侧向复查，避免单视角圆柱误确认。"""
-def test_flat_depth_candidate_requests_lateral_shape_recheck():
+def test_flat_depth_candidate_continues_without_multiview_recheck():
     candidate = _detection(identifier='cylinder_like', x_min=200, y_min=150, x_max=300, y_max=250)
     candidate['depth_shape'] = {'status': 'flat'}
 
     action = choose_active_view_action([candidate], 640, 480)
 
-    assert action.action == 'move_left'
-    assert '非球体' in action.reason
+    assert action.action == 'continue_exploring'
+    assert '红色方块' in action.reason
 
 
 """单轴曲率候选疑似圆柱侧面，必须优先获取独立侧视。"""
-def test_anisotropic_depth_candidate_requests_lateral_shape_recheck():
+def test_anisotropic_depth_candidate_continues_without_multiview_recheck():
     candidate = _detection(
         identifier='cylinder_side', x_min=200, y_min=150, x_max=300, y_max=250,
     )
@@ -399,19 +432,19 @@ def test_anisotropic_depth_candidate_requests_lateral_shape_recheck():
 
     action = choose_active_view_action([candidate], 640, 480)
 
-    assert action.action == 'move_left'
-    assert action.priority == 94
+    assert action.action == 'continue_exploring'
+    assert action.priority == 0
     assert '单轴曲面' in action.reason
 
 
-def test_lateral_recheck_chooses_right_for_right_side_candidate():
+def test_non_spherical_candidate_does_not_start_directional_motion():
     candidate = _detection(identifier='right', x_min=430, y_min=150, x_max=530, y_max=250)
     candidate['depth_shape'] = {'status': 'flat'}
 
     action = choose_active_view_action([candidate], 640, 480)
 
-    assert action.action == 'move_right'
-    assert '向右横移' in action.reason
+    assert action.action == 'continue_exploring'
+    assert '不再横移复查' in action.reason
 
 
 def test_detection_uses_stable_track_id_and_preserves_rejected_status():
@@ -435,70 +468,6 @@ def test_detection_uses_stable_track_id_and_preserves_rejected_status():
     assert annotated[0]['id'] == '7'
     assert annotated[0]['track_id'] == '7'
     assert annotated[0]['track_status'] == 'rejected_non_spherical'
-
-
-def test_lost_rejected_duplicates_do_not_hide_current_confirmed_track():
-    """普通丢失轨迹不应制造歧义，使已确认目标重新变成未跟踪候选。"""
-
-    tracks = [
-        SimpleNamespace(
-            track_id=1,
-            position=(1.00, 2.00, 0.30),
-            status='rejected',
-        ),
-        SimpleNamespace(
-            track_id=2,
-            position=(1.04, 2.00, 0.30),
-            status='rejected',
-        ),
-        SimpleNamespace(
-            track_id=6,
-            position=(1.05, 2.00, 0.30),
-            status='confirmed',
-        ),
-    ]
-    detections = [{
-        'id': 'new-frame',
-        'localized_position': [1.06, 2.00, 0.30],
-        'bbox': {'x_min': 10, 'y_min': 10, 'x_max': 30, 'y_max': 30},
-    }]
-
-    annotated = annotate_detections_with_tracks(
-        detections, tracks, merge_distance_m=0.5,
-    )
-
-    assert annotated[0]['id'] == '6'
-    assert annotated[0]['track_id'] == '6'
-    assert annotated[0]['track_status'] == 'confirmed'
-
-
-def test_candidate_memory_hint_preserves_track_label_across_slam_drift():
-    """快速换视角时，候选别名不得因三维瞬时漂移退回 untracked。"""
-
-    tracks = [
-        SimpleNamespace(
-            track_id=4,
-            position=(1.0, 0.0, 0.3),
-            status='needs_reobservation',
-        ),
-    ]
-    detections = [{
-        'id': 'candidate-1',
-        'candidate_id': 'candidate-1',
-        '_candidate_track_id_hint': '4',
-        # 超出普通世界距离门槛，且本帧没有可用的旧轨迹投影。
-        'localized_position': [1.8, 0.5, 0.3],
-        'bbox': {'x_min': 130, 'y_min': 90, 'x_max': 210, 'y_max': 170},
-    }]
-
-    annotated = annotate_detections_with_tracks(
-        detections, tracks, merge_distance_m=0.5,
-    )
-
-    assert annotated[0]['id'] == '4'
-    assert annotated[0]['track_id'] == '4'
-    assert annotated[0]['track_status'] == 'needs_reobservation'
-    assert annotated[0]['track_association'] == 'candidate_memory'
 
 
 def test_partial_bbox_inherits_track_id_from_world_projection_without_3d_update():

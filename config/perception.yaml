@@ -22,17 +22,22 @@ perception:
     min_confidence: 0.5
 
   localization:
-    # 当前节点使用与 RGB 同步的深度图 ROI；点云后端尚未接入，禁止在配置中
-    # 把路线计划写成已启用能力。
+    # 当前正式链路使用同步 RGB + 深度图 + 合法 SLAM TF 定位；本节点尚未
+    # 实现 PointCloud2 定位输入，必须显式关闭，禁止配置声称启用而实际未用。
     use_point_cloud: false
     max_detection_range_m: 20.0
     # 球面必须同时具有横向和纵向凸曲率；单轴曲面（圆柱侧面、弧形板）只复查。
     min_sphere_depth_curvature_m: 0.008
     min_sphere_depth_shape_points: 8
-    # 小于 40 px 的远球四方向深度曲率在官方 640×480 图像中不稳定，只靠近复查。
-    min_sphere_depth_shape_bbox_px: 40
     min_sphere_axis_depth_points: 4
-    min_sphere_axis_curvature_ratio: 0.35
+    # 家具遮挡的真实半球实测轴向曲率比约 0.30；0.25 可保留该球面，
+    # 而红方块/圆柱的平坦轴仍远低于该门槛。
+    min_sphere_axis_curvature_ratio: 0.25
+    occluded_sphere_min_depth_separation_m: 0.50
+    occluded_sphere_min_circularity: 0.55
+    occluded_sphere_min_aspect_ratio: 0.70
+    occluded_sphere_max_extent: 0.78
+    occluded_sphere_min_red_pixel_count: 200
     # 官方标准红球半径；设为 0 可禁用球面深度到球心的几何补偿。
     sphere_radius_m: 0.15
     # 官方当前桥接链 RGB-D 实测固定相差约 0.05 s；运行记录必须保存解析后的值。
@@ -43,26 +48,26 @@ perception:
     allow_latest_tf_fallback: true
     roi_padding_px: 8
     min_points_in_roi: 5
-    output_frame: map
+    output_frame: start
 
   tracking:
-    confirm_observation_count: 3
-    # 正式确认要求三个稳定停靠视角，避免正面+靠近被误算成充分侧视证据。
-    confirm_distinct_views: 3
-    # 三个停靠点还必须让“相机 -> 目标”的水平视线至少跨越 25°。
-    # 只从正面前后靠近无法排除圆柱、圆锥或圆盘端面。
-    min_view_bearing_span_deg: 25.0
-    # 备用路径只接受两个独立视角均为球面深度、直径约 0.30 m、曲率与轮廓
-    # 一致且没有非球面反证的目标；纯 RGB 仍必须满足上面的 3 视角/25°。
-    strong_depth_min_distinct_views: 2
-    strong_depth_min_view_bearing_span_deg: 5.0
+    # 同步深度明确判为 spherical 后即可确认；前景遮挡的 flat 深度只能
+    # 触发主动复查，不再写入轨迹，因此无需用累计帧数掩盖错误首帧。
+    confirm_observation_count: 1
+    # 赛场干扰物仅有红/绿色正方体和绿色球体：红色候选可由单个稳定
+    # RGB-D 视角的球面/平面几何直接区分，不再强制机器人横移获取视差。
+    confirm_distinct_views: 1
+    min_view_bearing_span_deg: 0.0
+    # 红色正方体的稳定深度轮廓为平面，一次明确反证即可拒绝。
+    min_non_spherical_views_to_reject: 1
+    # 比赛提交采用“球面正证据门控”：非球面候选保持未确认即可，不能因
+    # 遮挡产生的一帧深度异常永久封死随后到达的球面正证据。
+    reject_non_spherical_tracks: false
     reject_after_missed_count: 300
-    # 正式链按仿真时间判丢失；重复帧和运行帧率变化不会提前耗尽轨迹寿命。
-    # 官方 A1 在低实时倍率下完成一次侧移、回转和重新对准可能超过 20 秒仿真时间。
-    # 60 秒仅保留“待复查”轨迹；被深度几何明确判为非球体的目标仍立即拒绝。
-    reject_after_missed_sec: 60.0
     merge_distance_m: 0.5
-    single_track_reacquire_distance_m: 1.0
+    # 分层独立地图内，同一球从障碍物两侧观测时坐标可相差约 1.4 m；只有
+    # 半径内恰好一个尺寸兼容球面轨迹时才恢复，多个候选时仍拒绝猜测。
+    single_track_reacquire_distance_m: 2.0
     single_track_reacquire_diameter_relative_error: 0.25
     same_frame_duplicate_distance_m: 0.12
     same_frame_duplicate_diameter_relative_error: 0.25
@@ -70,17 +75,18 @@ perception:
     # 官方目标直径 0.30 m；保持一定裕量以覆盖 RGB-D 投影/深度噪声。
     expected_sphere_diameter_m: 0.30
     max_sphere_diameter_relative_error: 0.35
-    # 至少一个侧视轮廓低于该比例即保留为待复查，不能用正面帧中位数掩盖。
+    # 单视角仍要求轮廓不过度拉长，防止把遮挡边缘误判成完整球体。
     min_multiview_aspect_ratio: 0.82
-    # 只有至少两个独立视角产生 RGB-D 球面正证据，轨迹才允许 confirmed。
-    min_spherical_views_for_confirm: 2
+    # 一个同步视角产生球面深度正证据即可确认。
+    min_spherical_views_for_confirm: 1
     max_depth_curvature_cv: 0.65
     # 球体深度曲率/表观直径的三视角中位数有效区间。
     min_normalized_depth_curvature: 0.10
     max_median_normalized_depth_curvature: 0.30
 
   active_reobservation:
-    # 宽松候选只触发换视角，不进入危险源确认轨迹。
+    # 多视角证据门槛已关闭；这里仅保留被家具遮挡时的短距离视角获取，
+    # 目标是一张可做球面/平面判别的完整 RGB-D 帧，而不是累计多视角确认。
     emit_partial_candidates: true
     # 保留约 5% 可见球面的最小红色弧段；输出仅为 reobserve，不可直接确认。
     partial_min_area_px: 20
@@ -88,20 +94,20 @@ perception:
     partial_min_aspect_ratio: 0.12
     partial_min_value: 50
     stable_view_min_frames: 3
-    # 先由控制仲裁后的 /hw/cmd_vel 明确证明停止，再用以下阈值吸收 A1
-    # 站立控制与合法 SLAM 的小幅抖动；命令缺失或过期时禁止累计确认视角。
+    # 10 Hz 相机下正常行走每帧位移约 3--9 cm；停稳后的 Cartographer/IMU
+    # 抖动可能达到毫米至厘米级。连续三帧低于 3 cm / 1.5° 才允许写入坐标。
+    stable_view_max_translation_m: 0.03
+    stable_view_max_yaw_deg: 1.5
     stable_view_cmd_vel_topic: /hw/cmd_vel
-    stable_view_max_cmd_age_sec: 0.5
-    stable_view_max_linear_speed_mps: 0.03
-    stable_view_max_angular_speed_rps: 0.05
-    stable_view_max_translation_m: 0.02
-    stable_view_max_yaw_deg: 1.0
+    stable_view_max_cmd_age_sec: 1.0
+    stable_view_max_linear_speed_mps: 0.05
+    stable_view_max_angular_speed_rps: 0.10
+    allow_official_odom_synchronized_motion_confirmation: true
     # 已建立轨迹在短时机动离开视场后继续参与图像投影关联。
     track_projection_max_age_s: 180.0
     # 以下键对应 hsv_detector_node 的 active_view_* ROS 参数。
     edge_margin_ratio: 0.05
-    # 约 40×40 px 后再做球面判形；更小候选先靠近，避免远球深度量化误杀。
-    min_bbox_area_px: 1600
+    min_bbox_area_px: 900
     min_red_pixel_count: 300
     min_circularity: 0.72
     min_confidence: 0.70
@@ -109,8 +115,8 @@ perception:
     dense_iou_threshold: 0.15
     min_normalized_depth_curvature: 0.10
     max_normalized_depth_curvature: 0.30
-    # 覆盖一次横移、停稳与重新对准；按仿真时间计，避免短暂出画更换候选 ID。
-    candidate_memory_ttl_s: 60.0
+    # 纯局部候选尚不能建立 3D 轨迹时，仅用短时图像关联维持复查会话 ID。
+    candidate_memory_ttl_s: 8.0
     # 同一候选的侧移方向短时保持，避免目标跨过画面中心后左右振荡。
     active_view_direction_memory_ttl_s: 12.0
     candidate_memory_min_iou: 0.05

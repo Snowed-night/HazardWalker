@@ -127,9 +127,37 @@ def test_official_headless_startup_reuses_display_and_cleans_only_stale_lock():
         assert 'kill -0 "$LOCK_PID"' in source
         assert 'rm -f "$DISPLAY_LOCK" "$DISPLAY_SOCKET"' in source
         assert '> "$XVFB_LOG" 2>&1 &' in source
+        assert source.index('if display_is_ready; then', source.index(
+            'for _ in $(seq 1 50)')) < source.index(
+                'if ! kill -0 "$XVFB_PID"', source.index(
+                    'for _ in $(seq 1 50)'))
+        assert 'display_is_ready && DISPLAY_READY=1' in source
         assert 'if [ "$DISPLAY_READY" != "1" ]' in source
         assert 'pkill Xvfb' not in source
         assert '&>/dev/null' not in source
+
+
+def test_host_network_containers_get_distinct_stable_headless_displays():
+    wrapper = (
+        PLATFORM_SRC / 'docker' / 'auto_noetic.sh'
+    ).read_text(encoding='utf-8')
+    compose = (
+        PLATFORM_SRC / 'docker' / 'docker-compose.yml'
+    ).read_text(encoding='utf-8')
+    assert 'printf \'%s\' "$DOCKER_SIMENV_USER" | cksum' in wrapper
+    assert 'port_slot="$((display_hash % 7000))"' in wrapper
+    assert '12000 + port_slot' in wrapper
+    assert '22000 + port_slot' in wrapper
+    assert '32000 + port_slot' in wrapper
+    assert 'SIMENV_HEADLESS_DISPLAY: ${SIMENV_HEADLESS_DISPLAY:-:99}' in compose
+    assert 'ROS_MASTER_URI: ${ROS_MASTER_URI:-http://127.0.0.1:11311}' in compose
+    assert 'GAZEBO_MASTER_URI: ${GAZEBO_MASTER_URI:-http://127.0.0.1:11345}' in compose
+
+    adapter = (
+        REPO_ROOT / 'scripts' / 'run_official_simenv_rosbridge_adapter.sh'
+    ).read_text(encoding='utf-8')
+    assert 'CONTAINER_ROSBRIDGE_PORT' in adapter
+    assert 'ROSBRIDGE_URL="ws://127.0.0.1:${CONTAINER_ROSBRIDGE_PORT:-9090}"' in adapter
 
 
 def test_official_container_has_bounded_memory_and_no_oom_restart_loop():
@@ -219,18 +247,86 @@ def test_official_mapping_is_internally_valid():
     assert validate_mapping() == ()
 
 
+def test_formal_runner_never_bypasses_managed_command_mux():
+    source = (
+        REPO_ROOT / 'scripts' / 'run_official_slam_exploration.py'
+    ).read_text(encoding='utf-8')
+    assert (
+        "'navigation_cmd_vel_topic:=/hw/control/navigation_cmd_vel'"
+        in source
+    )
+    assert "Twist, '/hw/control/assist_cmd_vel'" in source
+
+
+def test_slam_video_is_driven_by_2d_map_when_pointcloud_is_disabled():
+    source = (
+        REPO_ROOT / 'ros2_ws' / 'src' / 'hazardwalker_nav' /
+        'hazardwalker_nav' / 'slam_video_recorder_node.py'
+    ).read_text(encoding='utf-8')
+    map_callback = source.split('def _on_map', 1)[1].split(
+        'def _on_floor', 1)[0]
+    cloud_callback = source.split('def _on_cloud', 1)[1].split(
+        'def _write_frame', 1)[0]
+    assert 'self._write_frame(self.latest_cloud)' in map_callback
+    assert 'self.latest_cloud = points' in cloud_callback
+    assert 'if self.latest_map is None:' in cloud_callback
+    assert "declare_parameter('include_3d_panel', False)" in source
+    assert 'TWO_D_FRAME_WIDTH = 1920' in source
+    assert 'TWO_D_FRAME_HEIGHT = 1080' in source
+    assert 'cv2.GaussianBlur(background' not in source
+    assert 'panel_width = TWO_D_FRAME_WIDTH' in source
+    assert 'panel_height = TWO_D_FRAME_HEIGHT - panel_y' in source
+    assert 'return self._render_2d_frame(pose)' in source
+    launch = (
+        REPO_ROOT / 'ros2_ws' / 'src' / 'hazardwalker_bringup' / 'launch' /
+        'official_simenv_business.launch.py'
+    ).read_text(encoding='utf-8')
+    assert "'include_3d_panel': False" in launch
+    assert "executable='pointcloud_video_recorder'" in launch
+    assert "'target_frame': 'odom'" in launch
+    pointcloud_video = (
+        REPO_ROOT / 'ros2_ws' / 'src' / 'hazardwalker_nav' /
+        'hazardwalker_nav' / 'pointcloud_video_recorder_node.py'
+    ).read_text(encoding='utf-8')
+    assert 'FRAME_WIDTH = 1920' in pointcloud_video
+    assert 'FRAME_HEIGHT = 1080' in pointcloud_video
+    assert 'COLORMAP_TURBO' in pointcloud_video
+    assert 'orbit_degrees_per_frame' in pointcloud_video
+    pointcloud_map = (
+        REPO_ROOT / 'ros2_ws' / 'src' / 'hazardwalker_nav' /
+        'hazardwalker_nav' / 'pointcloud_map_node.py'
+    ).read_text(encoding='utf-8')
+    assert 'except (KeyboardInterrupt, ExternalShutdownException):' in pointcloud_map
+
+
 def test_rosbridge_control_relay_defaults_to_safe_and_uses_wall_clock_watchdog():
     source = (REPO_ROOT / 'scripts' / 'official_simenv_rosbridge_ros2_adapter_node.py').read_text(
         encoding='utf-8')
     assert "declare_parameter('enable_cmd_vel_relay', False)" in source
     assert "declare_parameter('enable_odom_relay', False)" in source
+    assert "declare_parameter('enable_odom_tf_relay', False)" in source
+    assert "declare_parameter('enable_proprio_odom_relay', False)" in source
     assert "if self.enable_odom_relay:" in source
+    assert 'if self.enable_odom_tf_relay:' in source
     assert "source.get('orientation', {})" in source
     assert 'time.monotonic()' in source
     assert "declare_parameter('rgb_topic'" in source
     assert "declare_parameter('ros1_odom_topic', '/hazardwalker/odom')" in source
+    assert "'ros1_proprio_odom_topic', '/odom'" in source
+    assert "Odometry, '/hw/proprio_odom'" in source
     assert "'forwarded_cmd_count'" in source
     assert "rosbridge_host_header" in source
+    runner = (REPO_ROOT / 'scripts' /
+              'run_official_simenv_rosbridge_adapter.sh').read_text(
+                  encoding='utf-8')
+    assert 'OFFICIAL_SIMENV_ODOM_TOPIC:-/Odometry_gazebo' in runner
+    assert 'OFFICIAL_SIMENV_ENABLE_ODOM_TF_RELAY:-0' in runner
+    assert 'OFFICIAL_SIMENV_ENABLE_PROPRIO_ODOM_RELAY:-0' in runner
+    assert 'OFFICIAL_SIMENV_POINTCLOUD_TOPIC:-/livox/Pointcloud2' in runner
+    assert '-p livox_cloud_topic:="$POINTCLOUD_TOPIC"' in runner
+    assert 'OFFICIAL_SIMENV_POINTCLOUD_POINT_STRIDE:-1' in runner
+    assert 'def _receive_pointcloud_loop' in source
+    assert 'decimate_pointcloud_bytes(' in source
 
 
 def test_gui_assist_request_can_only_call_bounded_ros2_services():
@@ -306,6 +402,34 @@ def test_rosbridge_fragment_contract_is_bounded_and_adapter_keeps_image_bytes():
     assert 'self.tracker.published_tracks()' in detector
     assert "'raw_surface_depth_m': raw_surface_depth_m" in detector
     assert "declare_parameter('max_rgb_depth_sync_delta_sec', 0.06)" in detector
+    assert 'positive_partial_sphere' in detector
+    assert 'positive_depth_sphere' in detector
+    assert 'or positive_depth_sphere' in detector
+    assert 'bool(detection_2d.is_partial)' in detector
+    assert "'floor_index': int(self.current_floor_index)" in detector
+    assert 'self.candidate_memory.clear()' in detector
+    assert 'self._current_floor_tracks()' in detector
+    assert 'if tracker_observations:' in detector
+    assert 'official_synchronized_motion_confirmation' in detector
+    assert 'observation.source_id in motion_safe_observation_source_ids' in detector
+    assert 'if positive_depth_sphere:' in detector
+    assert 'active_floor_index=self.current_floor_index' in detector
+    assert "self.declare_parameter('stable_view_cmd_vel_topic', '/hw/cmd_vel')" in detector
+    assert 'if not self._command_is_stationary()' in detector
+    assert 'stable_view_max_linear_speed_mps' in detector
+    assert 'stable_view_max_angular_speed_rps' in detector
+    assert 'allow_official_odom_synchronized_motion_confirmation' in detector
+    assert "self.localization_provenance = str(" in detector
+    assert 'choose_stable_localization_hold(' in detector
+    assert "'stable_localization_required': (" in detector
+    recorder = (
+        REPO_ROOT / 'ros2_ws' / 'src' / 'hazardwalker_perception'
+        / 'hazardwalker_perception' / 'dynamic_detection_recorder_node.py'
+    ).read_text(encoding='utf-8')
+    assert 'self.saved_confirmation_ids = set()' in recorder
+    assert 'confirmed_ids - self.saved_confirmation_ids' in recorder
+    assert "'' if is_context_frame" in recorder
+    assert 'signal.signal(signal.SIGINT, signal.SIG_IGN)' in recorder
 def test_official_full_stack_requires_an_exclusive_simenv_session():
     preflight = (REPO_ROOT / 'scripts' / 'check_official_simenv_exclusive_session.sh').read_text(encoding='utf-8')
     stack = (REPO_ROOT / 'scripts' / 'run_official_simenv_ros1_ros2_stack.sh').read_text(encoding='utf-8')
@@ -353,13 +477,61 @@ def test_official_business_launch_never_starts_fake_platform_by_default():
     source = (REPO_ROOT / 'ros2_ws' / 'src' / 'hazardwalker_bringup' / 'launch' /
               'official_simenv_business.launch.py').read_text(encoding='utf-8')
     assert "DeclareLaunchArgument('start_navigation', default_value='false')" in source
+    assert "DeclareLaunchArgument('navigation_linear_speed', default_value='0.45')" in source
+    assert "'navigation_minimum_linear_speed', default_value='0.30'" in source
+    assert "DeclareLaunchArgument('nav_record_dir', default_value='')" in source
+    assert "DeclareLaunchArgument('slam_monitor_output_dir', default_value='')" in source
     assert "DeclareLaunchArgument('start_slam', default_value='false')" in source
     assert "DeclareLaunchArgument('slam_backend', default_value='cartographer')" in source
+    assert "DeclareLaunchArgument('slam_dimension', default_value='3d')" in source
     assert "DeclareLaunchArgument('start_legal_localization', default_value='true')" in source
-    assert "'mission_time_budget_s': 600.0" in source
+    assert "DeclareLaunchArgument('mission_time_budget_s', default_value='600.0')" in source
+    assert "'mission_time_budget_s': mission_time_budget_parameter" in source
     assert "'minimum_return_reserve_s': 120.0" in source
-    assert "'entry_ingress_depth_m': 6.0" in source
-    assert "executable='scan_imu_localizer_node'" in source
+    assert "'entry_ingress_depth_m': 18.0" in source
+    assert "'entry_ingress_progress_slack_m': 2.0" in source
+    assert "'entry_ingress_time_limit_s': 30.0" in source
+    assert "'room_sector_split_depth_m': 14.0" in source
+    assert "'room_sector_visit_lateral_m': 1.5" in source
+    assert "'room_sector_candidate_max_lateral_m': 4.0" in source
+    assert "'room_entry_inflation_radius_m': 0.45" in source
+    assert "'room_entry_navigation_clearance_m': 0.35" in source
+    assert "'imu_topic': '/hw/trunk_imu'" in source
+    assert "'fall_tilt_threshold_deg': 55.0" in source
+    assert "'room_perimeter_min_path_m': 6.0" in source
+    assert "'room_perimeter_linear_speed': 1.80" in source
+    assert "'room_perimeter_probe_count': 4" in source
+    assert "'room_mirrored_doorway_extra_lateral_m': 0.8" in source
+    assert "'deterministic_corridor_min_progress_m': 30.0" in source
+    assert "'deterministic_corridor_max_lateral_m': 1.0" in source
+    assert "'deterministic_corridor_center_lateral_m': 0.0" in source
+    assert "'deterministic_corridor_inflation_radius_m': 0.20" in source
+    assert "'deterministic_entry_direct_until_progress_m': 0.0" in source
+    assert "'deterministic_entry_clearance_m': -1.0" in source
+    assert "'deterministic_entry_rotation_clearance_m': 0.30" in source
+    assert "'deterministic_calibrated_doorways_enabled': True" in source
+    assert "'deterministic_near_door_progress_m': 18.9" in source
+    assert "'deterministic_far_door_progress_m': 32.7" in source
+    assert "'deterministic_corridor_hard_limit_m': 35.5" in source
+    assert "'use_official_odom_for_room_control': True" in source
+    assert "'official_near_room_y_m': 14.865" in source
+    assert "'official_far_room_y_m': 28.895" in source
+    assert "'use_official_odom_for_return_control': True" in source
+    assert "'official_home_y_m': -2.2" in source
+    assert "'deterministic_waypoint_stall_s': 30.0" in source
+    assert "'use_official_odom_for_elevator_control': True" in source
+    assert "'official_elevator_lobby_x_m': 0.80" in source
+    assert "'official_elevator_cabin_x_m': 2.70" in source
+    assert "DeclareLaunchArgument('per_floor_exploration_s', default_value='120.0')" in source
+    assert "'frontier_observation_sweep_rad': 0.0" in source
+    assert "'deterministic_room_route_enabled': True" in source
+    assert "'deterministic_room_cross_depth_m': 1.2" in source
+    assert "'deterministic_room_loop_shallow_m': 1.2" in source
+    assert "'deterministic_room_loop_deep_m': 2.5" in source
+    assert "'deterministic_room_loop_half_length_m': 1.5" in source
+    assert "'entry_forward_half_angle_deg': 15.0" in source
+    assert "'entry_ingress_relaxed_half_angle_deg': 35.0" in source
+    assert "executable='official_odometry_localizer_node'" in source
     assert "'localization_provenance': localization_provenance" in source
     assert "package='hazardwalker_platform'" not in source
     assert "'online_async_launch.py'" in source
@@ -377,13 +549,21 @@ def test_official_business_launch_never_starts_fake_platform_by_default():
     )
     assert "package='cartographer_ros'" in source
     assert "executable='cartographer_node'" in source
-    assert "executable='cartographer_occupancy_grid_node'" in source
+    assert "executable='multifloor_occupancy_mapper'" in source
+    assert "('points2', '/hw/lidar/points')" in source
+    assert "executable='floor_slam_session_manager'" in source
     assert "executable='depth_to_scan_node'" not in source
     assert "('scan', '/hw/scan')" in source
     assert "('scan_1', '/hw/scan')" not in source
     assert "('scan_2', '/hw/depth_scan')" not in source
     assert "('odom', '/hazardwalker/slam/odometry')" in source
+    assert 'depth_icp_odometry_node' not in source
+    three_d_remaps = source.split('remappings=([', 1)[1].split(
+        "] if dimension == '3d'", 1)[0]
+    assert "('points2', '/hw/lidar/points')" in three_d_remaps
+    assert "('odom', '/hazardwalker/slam/odometry')" not in three_d_remaps
     assert "'publish_tf': publish_legal_tf_parameter" in source
+    assert 'publish_legal_tf_parameter = ParameterValue(\n        start_legal_localization' in source
     assert 'OpaqueFunction(' in source
     assert "get_package_share_directory('cartographer_ros')" in source
     assert 'except PackageNotFoundError as exc:' in source
@@ -394,15 +574,25 @@ def test_official_business_launch_never_starts_fake_platform_by_default():
     ) not in source
     assert "'cartographer',\n        'configuration_files'" in source
     assert 'shutil.copytree(builtin_dir, runtime_dir, dirs_exist_ok=True)' in source
+    assert "configuration_basename = f'cartographer_official_{dimension}.lua'" in source
     assert "ParameterValue(scenario_seed, value_type=str)" in source
     assert "ParameterValue(code_version, value_type=str)" in source
     assert "DeclareLaunchArgument('use_sim_time', default_value='true')" in source
     assert "'navigation_cmd_vel_topic', default_value='/hw/cmd_vel'" in source
     assert source.count("'cmd_vel_topic': navigation_cmd_vel_topic") == 2
+    assert "DeclareLaunchArgument('navigation_linear_speed', default_value='0.45')" in source
+    assert "'navigation_minimum_linear_speed', default_value='0.30'" in source
+    assert "DeclareLaunchArgument('nav_record_dir', default_value='')" in source
+    assert "'linear_speed': navigation_linear_speed_parameter" in source
+    assert "'nav_record_dir': nav_record_dir" in source
     assert source.count("'use_sim_time': sim_time_parameter") >= 5
     assert "LaunchConfiguration('use_sim_time').perform(context)" in source
     assert "'use_sim_time': use_sim_time" in source
     assert source.count('condition=IfCondition(start_navigation)') == 2
+    assert "DeclareLaunchArgument('start_slam_monitor', default_value='true')" in source
+    assert "DeclareLaunchArgument('slam_monitor_output_dir', default_value='')" in source
+    assert "executable='slam_monitor'" in source
+    assert "condition=IfCondition(start_slam_monitor)" in source
 
     cartographer_config = (
         REPO_ROOT / 'ros2_ws' / 'src' / 'hazardwalker_nav' / 'config'
@@ -413,11 +603,13 @@ def test_official_business_launch_never_starts_fake_platform_by_default():
     assert "LaunchConfigurationEquals(\n                    'nav_mode', expected_value='frontier')" in source
     assert "LaunchConfigurationEquals(\n                    'nav_mode', expected_value='waypoint')" in source
     assert 'PythonExpression' in source
-    assert "'goal_tolerance_m': 0.25" in source
+    assert "'goal_tolerance_m': 0.40" in source
     cartographer_config = (
         REPO_ROOT / 'ros2_ws' / 'src' / 'hazardwalker_nav' / 'config' /
         'cartographer_official_2d.lua'
     ).read_text(encoding='utf-8')
+    assert 'POSE_GRAPH.optimize_every_n_nodes = 0' in cartographer_config
+    assert 'POSE_GRAPH.constraint_builder.sampling_ratio = 0.0' in cartographer_config
     assert 'POSE_GRAPH.constraint_builder.max_constraint_distance = 1.5' in cartographer_config
     assert 'POSE_GRAPH.constraint_builder.min_score = 0.72' in cartographer_config
     assert 'POSE_GRAPH.constraint_builder.global_localization_min_score = 0.90' in cartographer_config
@@ -442,6 +634,144 @@ def test_unified_control_launch_keeps_navigation_behind_command_mux():
     # 控制仲裁和辅助接管使用墙钟，不能随复杂 Gazebo 的低实时倍率降频。
     assert source.count("'use_sim_time': False") == 2
     compile(source, 'official_simenv_control_interface.launch.py', 'exec')
+
+
+def test_frontier_requests_navigation_mode_without_publishing_bottom_command():
+    """独立业务 launch 也必须通过仲裁器接管，不能直接抢占底盘话题。"""
+
+    source = (
+        REPO_ROOT / 'ros2_ws' / 'src' / 'hazardwalker_nav' /
+        'hazardwalker_nav' / 'frontier_explorer_node.py'
+    ).read_text(encoding='utf-8')
+    assert "'cmd_vel_topic', '/hw/control/navigation_cmd_vel'" in source
+    assert "'control_mode_request_topic', '/hw/control/mode_request'" in source
+    assert "'control_mode_value', 'navigation'" in source
+    assert 'self._mode_request_sent_count >= 3' in source
+    assert 'self._ensure_control_mode()' in source
+    assert "create_publisher(Twist, '/hw/cmd_vel'" not in source
+
+
+def test_cartographer_3d_profile_fuses_public_lidar_imu_and_legal_prior():
+    source = (
+        REPO_ROOT / 'ros2_ws' / 'src' / 'hazardwalker_nav' / 'config' /
+        'cartographer_official_3d.lua'
+    ).read_text(encoding='utf-8')
+
+    assert 'MAP_BUILDER.use_trajectory_builder_3d = true' in source
+    assert 'MAP_BUILDER.num_background_threads = 4' in source
+    assert 'num_accumulated_range_data = 3' in source
+    assert 'POSE_GRAPH.optimize_every_n_nodes = 180' in source
+    assert 'POSE_GRAPH.constraint_builder.sampling_ratio = 0.03' in source
+    assert 'num_point_clouds = 1' in source
+    assert 'use_odometry = false' in source
+    assert 'use_odometry = true' not in source
+    assert 'odometry_sampling_ratio = 0.0' in source
+    assert 'use_online_correlative_scan_matching = false' in source
+    assert 'ceres_scan_matcher.translation_weight = 5.0' in source
+    assert 'ceres_scan_matcher.rotation_weight = 40.0' in source
+    assert '/Odometry_gazebo' not in source
+    assert 'ground_truth' not in source
+
+    two_d = (
+        REPO_ROOT / 'ros2_ws' / 'src' / 'hazardwalker_nav' / 'config' /
+        'cartographer_official_2d.lua'
+    ).read_text(encoding='utf-8')
+    assert 'published_frame = "odom"' in two_d
+    assert 'provide_odom_frame = false' in two_d
+
+
+def test_cartographer_2d_fuses_metric_official_competition_odometry():
+    """二维走廊使用合法控制先验，但速度合同必须等于 A1 可执行范围。"""
+    source = (
+        REPO_ROOT / 'ros2_ws' / 'src' / 'hazardwalker_nav' / 'config' /
+        'cartographer_official_2d.lua'
+    ).read_text(encoding='utf-8')
+
+    assert 'num_laser_scans = 1' in source
+    assert 'TRAJECTORY_BUILDER_2D.use_imu_data = true' in source
+    assert 'use_odometry = true' in source
+    assert 'odometry_sampling_ratio = 1.0' in source
+    assert 'POSE_GRAPH.optimize_every_n_nodes = 0' in source
+    assert 'POSE_GRAPH.constraint_builder.sampling_ratio = 0.0' in source
+    launch = (
+        REPO_ROOT / 'ros2_ws' / 'src' / 'hazardwalker_bringup' / 'launch' /
+        'official_simenv_business.launch.py'
+    ).read_text(encoding='utf-8')
+    two_dimensional_remaps = launch.split(
+        "] if dimension == '3d' else [", 1)[1].split(']),', 1)[0]
+    assert "('scan', '/hw/scan')" in two_dimensional_remaps
+    assert "('imu', '/hw/trunk_imu')" in two_dimensional_remaps
+    assert "('odom', '/hazardwalker/slam/odometry')" in two_dimensional_remaps
+    assert "('odom', '/hazardwalker/depth_icp/odometry')" not in two_dimensional_remaps
+    assert "executable='official_odometry_localizer_node'" in launch
+    assert "'input_topic': '/hw/odom'" in launch
+    assert "'output_topic': '/hazardwalker/slam/odometry'" in launch
+    assert 'scene_manifest.competition_interfaces' in launch
+
+
+def test_cartographer_3d_uses_native_pointcloud_imu_without_custom_odometry():
+    """三维回退必须让点云/IMU 自己约束平移，不能复用已证伪的外部里程计。"""
+    launch = (
+        REPO_ROOT / 'ros2_ws' / 'src' / 'hazardwalker_bringup' / 'launch' /
+        'official_simenv_business.launch.py'
+    ).read_text(encoding='utf-8')
+    three_dimensional_remaps = launch.split(
+        'remappings=([', 1)[1].split("] if dimension == '3d'", 1)[0]
+    assert "('points2', '/hw/lidar/points')" in three_dimensional_remaps
+    assert "('imu', '/hw/trunk_imu')" in three_dimensional_remaps
+    assert "('odom', '/hazardwalker/slam/odometry')" not in three_dimensional_remaps
+
+
+def test_livox_3d_profile_is_explicit_and_keeps_2d_default_compatible():
+    platform = REPO_ROOT / 'ros2_ws' / 'src' / 'hazardwalker_platform'
+    robot = (platform / 'src' / 'unitree_guide' / 'unitree_ros' / 'robots' /
+             'a1_description' / 'xacro' / 'robot.xacro').read_text(
+                 encoding='utf-8')
+    gazebo = (platform / 'src' / 'unitree_guide' / 'unitree_ros' / 'robots' /
+              'a1_description' / 'xacro' / 'gazebo.xacro').read_text(
+                  encoding='utf-8')
+    launch = (platform / 'src' / 'unitree_guide' / 'unitree_guide' /
+              'unitree_guide' / 'launch' /
+              'multi_floor_gazeboSim.launch').read_text(encoding='utf-8')
+    compose = (platform / 'docker' / 'docker-compose.yml').read_text(
+        encoding='utf-8')
+    entry = (platform / 'auto.sh').read_text(encoding='utf-8')
+
+    assert '<xacro:arg name="ENABLE_LIVOX_3D" default="false"/>' in robot
+    assert '<topicName>/scan</topicName>' in gazebo
+    assert 'filename="liblivox_laser_simulation.so"' in gazebo
+    assert '<ros_topic>/livox/lidar_raw</ros_topic>' in gazebo
+    assert '<samples>$(arg LIVOX_3D_SAMPLES)</samples>' in gazebo
+    assert '<downsample>$(arg LIVOX_3D_DOWNSAMPLE)</downsample>' in gazebo
+    assert '<update_rate>$(arg LIVOX_3D_UPDATE_RATE)</update_rate>' in gazebo
+    assert '<repeat_pattern>true</repeat_pattern>' in gazebo
+    assert 'enable_livox_3d' in launch
+    assert 'ENABLE_LIVOX_3D:=$(arg enable_livox_3d)' in launch
+    assert 'ENABLE_LIVOX_3D: ${ENABLE_LIVOX_3D:-false}' in compose
+    assert 'LIVOX_3D_UPDATE_RATE: ${LIVOX_3D_UPDATE_RATE:-1}' in compose
+    assert 'LIVOX_3D_SAMPLES: ${LIVOX_3D_SAMPLES:-600}' in compose
+    assert 'ENABLE_LIVOX_3D="${ENABLE_LIVOX_3D:-false}"' in entry
+    preprocessor = (platform / 'src' / 'unitree_guide' / 'unitree_guide' /
+                    'unitree_guide' / 'scripts' /
+                    'livox_3d_preprocessor.py').read_text(encoding='utf-8')
+    cmake = (platform / 'src' / 'unitree_guide' / 'unitree_guide' /
+             'unitree_guide' / 'CMakeLists.txt').read_text(encoding='utf-8')
+    assert 'hazardwalker_livox_3d_preprocessor' in launch
+    assert '<param name="max_range_m" value="20.0"/>' in launch
+    assert "'/livox/lidar_raw'" in preprocessor
+    assert "'/livox/Pointcloud2'" in preprocessor
+    assert "'/livox/lidar2'" in preprocessor
+    assert "'/livox/scan_projection', LaserScan" in preprocessor
+    assert 'Odometry' not in preprocessor
+    assert '/Odometry_gazebo' not in preprocessor
+    assert 'ground_truth' not in preprocessor
+    assert 'scripts/livox_3d_preprocessor.py' in cmake
+    compile(preprocessor, 'livox_3d_preprocessor.py', 'exec')
+    plugin = (platform / 'src' / 'Mid360_imu_sim' / 'src' /
+              'livox_points_plugin.cpp').read_text(encoding='utf-8')
+    assert 'const double ray_length = maxDist - minDist;' in plugin
+    assert 'range >= ray_length - 0.05' in plugin
+    assert 'range += minDist;' in plugin
 
 
 def test_patrol_coverage_heartbeat_uses_wall_clock():
@@ -517,16 +847,51 @@ def test_official_perception_world_export_requires_explicit_legal_slam_contract(
     assert 'flatten_perception_config' in source
 
 
+def test_official_result_contract_uses_map_origin_and_single_view_sphere_gate():
+    """正式导出必须转换 post-ingress map，并校验球面正证据而非旧多视角门。"""
+    decision = (REPO_ROOT / 'ros2_ws' / 'src' / 'hazardwalker_decision' /
+                'hazardwalker_decision' / 'mission_state_machine_node.py').read_text(
+                    encoding='utf-8')
+    business = (REPO_ROOT / 'ros2_ws' / 'src' / 'hazardwalker_bringup' /
+                'launch' / 'official_simenv_business.launch.py').read_text(
+                    encoding='utf-8')
+    control = (REPO_ROOT / 'ros2_ws' / 'src' / 'hazardwalker_bringup' /
+               'launch' / 'official_simenv_control_interface.launch.py').read_text(
+                   encoding='utf-8')
+
+    assert "require_sphere_evidence=True" in decision
+    assert "require_multiview_sphere_evidence=False" in decision
+    assert "'official_hazard_source_frame', 'map'" in decision
+    for source in (business, control):
+        assert "official_world_from_map_x" in source
+        assert "official_world_from_map_y" in source
+        assert "official_world_from_map_yaw" in source
+        assert "official_sphere_center_height_m" in source
+        assert "strict_room_clearance_m" in source
+    assert "'strict_room_inspection': LaunchConfiguration(" in control
+    assert "DeclareLaunchArgument('navigation_start_paused', default_value='false')" in business
+    assert "'start_paused': ParameterValue(" in business
+    frontier = (REPO_ROOT / 'ros2_ws' / 'src' / 'hazardwalker_nav' /
+                'hazardwalker_nav' / 'frontier_explorer_node.py').read_text(
+                    encoding='utf-8')
+    assert "'start_release_topic', '/hw/navigation/start'" in frontier
+    assert 'if not self._start_released:' in frontier
+    assert 'self.cmd_pub.publish(Twist())' in frontier
+    assert "self.nav_state == 'EXPLORING' and self.start_time is None" in decision
+
+
 def test_scan_imu_localizer_publishes_configured_runtime_provenance():
     source = (
         REPO_ROOT / 'ros2_ws' / 'src' / 'hazardwalker_perception' /
         'hazardwalker_perception' / 'scan_imu_localizer_node.py'
     ).read_text(encoding='utf-8')
     assert (
-        "declare_parameter('localization_provenance', 'lidar_imu_slam')"
+        "'localization_provenance', 'lidar_imu_proprio_slam'"
         in source
     )
     assert 'String(data=self.localization_provenance)' in source
+    assert 'source_nanoseconds + 1_000_000' in source
+    assert 'message.header.stamp = publish_stamp' in source
     assert "'visual_inertial_slam'" not in source
 
 
@@ -626,6 +991,7 @@ def test_compose_starts_the_complete_official_ros1_entry():
     assert 'SIMENV_AUTO_RL: ${SIMENV_AUTO_RL:-1}' in source
     assert 'SIMENV_HEADLESS_MODE: ${SIMENV_HEADLESS_MODE:-move_base}' in source
     assert 'START_ROSBRIDGE: ${START_ROSBRIDGE:-1}' in source
+    assert 'ROSBRIDGE_PORT: ${ROSBRIDGE_PORT:-9090}' in source
     assert 'START_ODOM_RELAY: ${START_ODOM_RELAY:-1}' in source
     assert 'healthcheck:' in source
     assert 'pgrep -x junior_ctrl' in source
@@ -650,6 +1016,8 @@ def test_compose_starts_the_complete_official_ros1_entry():
     ).read_text(encoding='utf-8')
     assert 'scripts/rosbridge_odom_relay.py' in entry
     assert 'rosbridge_websocket.launch' in entry
+    assert 'ROSBRIDGE_PORT="${ROSBRIDGE_PORT:-9090}"' in entry
+    assert 'port:="$ROSBRIDGE_PORT"' in entry
     assert r'\[HEADLESS_FSM\].*mode=move_base.*auto_rl=[01]' in entry
     assert 'SIMENV_HEADLESS_MODE="${SIMENV_HEADLESS_MODE:-move_base}"' in entry
     assert 'rostopic info /cmd_vel' in entry
@@ -664,7 +1032,9 @@ def test_compose_starts_the_complete_official_ros1_entry():
     assert 'CONTROLLER_PROBE_MIN_DISPLACEMENT_M="${CONTROLLER_PROBE_MIN_DISPLACEMENT_M:-0.01}"' in entry
     assert 'CONTROLLER_PROBE_MAX_DISPLACEMENT_M' in entry
     assert 'CONTROLLER_PROBE_MIN_BASE_HEIGHT_M' in entry
-    assert 'Controller fixed-stand posture failed:' in entry
+    assert 'CONTROLLER_STAND_STABLE_SAMPLES' in entry
+    assert 'controller_stable_samples=$((controller_stable_samples + 1))' in entry
+    assert 'Controller fixed-stand posture timed out:' in entry
     assert 'junior_ctrl fixed stand is physically upright:' in entry
     assert 'physical motion probe was not requested' in entry
     assert 'Headless RL state and physical /cmd_vel response were verified.' not in entry
@@ -745,6 +1115,14 @@ def test_compose_starts_the_complete_official_ros1_entry():
     assert 'FASTDDS_BUILTIN_TRANSPORTS="${FASTDDS_BUILTIN_TRANSPORTS:-UDPv4}"' in control_manager
     assert 'mode {keyboard|navigation|assist|stopped}' in control_manager
     assert 'kill -TERM "$pid"' in control_manager
+
+    control_runner = (
+        REPO_ROOT / 'scripts' / 'run_official_simenv_command_mux.sh'
+    ).read_text(encoding='utf-8')
+    assert 'OFFICIAL_SIMENV_WORKSPACE_SETUP' in control_runner
+    assert '"$ROOT/install/setup.bash"' in control_runner
+    assert '"$ROOT/ros2_ws/install/setup.bash"' in control_runner
+    assert 'source "$WORKSPACE_SETUP"' in control_runner
 
     lifecycle_test = (
         REPO_ROOT / 'tests' / 'runtime' /
