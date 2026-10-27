@@ -10,3 +10,5 @@
 6. [旧版实验记录](experiments/stable-20260910.md)：历史成绩及整理验证。
 
 来源与哈希以`reproduction/baseline.json`、`frozen-files.json`追溯；运行资源以`runtime-assets.json`核验。修改公共运行方式时同步更新本目录和根README。
+
+`groups/nav/phase5.2-progress-20260717.md`与`patches/`中的兼容补丁保留给原离线检查读取，属于历史测试输入，不作为当前启动指南。

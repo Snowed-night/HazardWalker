@@ -11,6 +11,8 @@ git clone --branch release/stable-20260910 --single-branch https://github.com/Sn
 cd HazardWalker
 ```
 
+完整运行需要Git版本记录，请保留`.git`目录并使用上述克隆步骤。
+
 固定发布版本与演示附件见[GitHub Release](https://github.com/Snowed-night/HazardWalker/releases/tag/stable-20260910)。
 
 ## 开始使用
