@@ -257,3 +257,27 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+
+# HazardWalker hxbl ops docs (synced on main machine, do not commit)
+docs/主力机环境搭建.md
+docs/主力机环境搭建总结报告.md
+docs/主力机环境运维手册-集成组.md
+docs/远程桌面使用指南.md
+scripts/deploy_grd_remote_login.sh
+scripts/deploy_sftp_audit_layer1.sh
+scripts/deploy_audit_layer2.sh
+
+# Official SimEnv bounded runtime logs
+/ros2_ws/src/hazardwalker_platform/logs/
+
+# Reproduction outputs and externally supplied runtime assets
+/install/
+/log/
+/.reproduction/
+/work/
+/ros2_ws/src/hazardwalker_platform/.ros1_catkin_ws/
+/ros2_ws/src/hazardwalker_platform/generated_building/
+/ros2_ws/src/hazardwalker_platform/results/
+*.a
+*.exe

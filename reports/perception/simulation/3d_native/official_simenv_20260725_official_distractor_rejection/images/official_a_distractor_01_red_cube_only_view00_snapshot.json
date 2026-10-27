@@ -1,0 +1,76 @@
+{
+  "case_id": "official_a_distractor_01_red_cube_only_view00",
+  "image_stamp": {
+    "sec": 74,
+    "nanosec": 40000000
+  },
+  "depth_stamp": {
+    "sec": 74,
+    "nanosec": 40000000
+  },
+  "localization_ready": true,
+  "detections_2d": [
+    {
+      "id": "untracked:1",
+      "frame_id": "real_sense",
+      "view_id": "xy:0.4:0.0|yaw:0",
+      "stamp": {
+        "sec": 74,
+        "nanosec": 40000000
+      },
+      "bbox": {
+        "x_min": 287,
+        "y_min": 279,
+        "x_max": 347,
+        "y_max": 341
+      },
+      "confidence": 0.40267927928199676,
+      "red_pixel_count": 3636,
+      "is_partial": true,
+      "requires_reobservation": true,
+      "may_be_merged": false,
+      "quality_reason": "partial_or_low_light",
+      "shape": {
+        "circularity": 0.7874814497170918,
+        "aspect_ratio": 0.9682539682539683,
+        "extent": 0.9156908665105387
+      },
+      "depth_shape": {
+        "status": "flat",
+        "center_depth_m": 2.8411378860473633,
+        "outer_depth_m": 2.8411378860473633,
+        "curvature_m": 0.0,
+        "horizontal_curvature_m": null,
+        "vertical_curvature_m": null,
+        "diagonal_positive_curvature_m": null,
+        "diagonal_negative_curvature_m": null,
+        "curvature_isotropy_ratio": null,
+        "center_points": 367,
+        "outer_points": 1250,
+        "horizontal_points": 220,
+        "vertical_points": 230,
+        "diagonal_positive_points": 156,
+        "diagonal_negative_points": 156
+      },
+      "confirmation_eligible": false,
+      "depth_synchronized": true,
+      "depth_stamp_delta_sec": 0.05000000000001137,
+      "localization_status": "suppressed_non_spherical_depth_shape",
+      "localized_position": [
+        3.1212,
+        0.0179,
+        -0.313
+      ],
+      "track_id": "",
+      "track_status": "untracked",
+      "track_association": "none",
+      "source": "hsv_minimal",
+      "detector_backend": "hsv_opencv"
+    }
+  ],
+  "hazards": [],
+  "raw_image": "official_a_distractor_01_red_cube_only_view00_raw.png",
+  "annotated_image": "official_a_distractor_01_red_cube_only_view00_annotated.png",
+  "depth_metric_image": "official_a_distractor_01_red_cube_only_view00_depth_mm.png",
+  "depth_visual_image": "official_a_distractor_01_red_cube_only_view00_depth_visual.png"
+}

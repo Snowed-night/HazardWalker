@@ -1,0 +1,25 @@
+name: Stable baseline offline checks
+on:
+  push:
+    branches: ['release/stable-20260910']
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  offline:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v7.1.0
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: requirements-offline.txt
+      - run: python -m pip install -r requirements-offline.txt
+      - run: bash check.sh --source-only
+      - run: python scripts/run_offline_tests.py
+      - run: python -m unittest discover -s tests/reproduction -v
+      - run: bash -n check.sh build.sh run.sh scripts/reproduction/build.sh

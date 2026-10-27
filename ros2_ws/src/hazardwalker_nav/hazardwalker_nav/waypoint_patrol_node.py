@@ -8,7 +8,7 @@
 当前职责：
 - 读取航点参数并维护当前目标下标。
 - 根据当前里程计调用控制函数，输出速度和状态。
-- 在最小 demo 里模拟“巡检 -> 返航 -> 完成”的任务节奏。
+- 在最小 demo 里模拟「巡检 -> 返航 -> 完成」的任务节奏。
 
 后续扩展方式：
 - 如果接 Nav2，可在这个节点里增加 action client，把这里的 `WaypointCommand` 映射成 Nav2 goal 发送逻辑。
@@ -22,6 +22,7 @@
 import math
 
 import rclpy
+from rclpy.executors import ExternalShutdownException
 from geometry_msgs.msg import Twist
 from nav_msgs.msg import Odometry
 from rclpy.node import Node
@@ -55,8 +56,14 @@ class WaypointPatrolNode(Node):
         # 输出速度命令给平台层。fake_platform_node 或后续 Gazebo/官方 adapter
         # 都应该接收这个统一的 /hw/cmd_vel。
         self.cmd_pub = self.create_publisher(Twist, '/hw/cmd_vel', 10)
-        # 输出导航状态给决策层。当前只发布 IDLE/NAVIGATING/RETURNING/FINISHED。
-        self.state_pub = self.create_publisher(String, '/hw/nav/state', 10)
+        # 固定航点只用于诊断，状态必须与正式 Frontier 任务隔离。若复用
+        # /hw/nav/state，其 FINISHED 会让决策层误写 detected_danger.json，
+        # 把四个固定航点冒充成未知楼宇自主探索完成。
+        self.state_pub = self.create_publisher(
+            String, '/hw/nav/diagnostic_state', 10,
+        )
+        # 官方 ROS1 适配层将 /Odometry_gazebo 统一输出为 /hw/odom；不能泄漏官方原话题名，
+        # 否则官方 profile 启动导航后永远收不到位姿，表面上却没有节点异常。
         self.odom_sub = self.create_subscription(Odometry, '/hw/odom', self.on_odom, 10)
         # 10Hz 控制循环。真实 Nav2 接入后，这里可以改成 action/result 驱动，而不是定时轮询。
         self.timer = self.create_timer(0.1, self.on_timer)
@@ -126,6 +133,14 @@ def main():
     node = WaypointPatrolNode()
     try:
         rclpy.spin(node)
+    except ExternalShutdownException:
+        # launch/stack 收到 SIGTERM 时上下文可能已被外部关闭；这属于正常收尾，不能报成导航崩溃。
+        pass
     finally:
-        node.destroy_node()
-        rclpy.shutdown()
+        if rclpy.ok():
+            node.destroy_node()
+            rclpy.shutdown()
+
+
+if __name__ == '__main__':
+    main()

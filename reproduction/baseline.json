@@ -1,0 +1,15 @@
+{
+  "freeze_id": "final_root_cause_validation_once",
+  "frozen_date": "2026-09-10",
+  "packaged_date": "2026-09-12",
+  "organized_date": "2026-10-27",
+  "original_code_base_commit": "174a189d7441978320de2e2b37a739cddccae3e2",
+  "original_submission_zip_sha256": "c51eb769ef5e562b9469c49d589f07e145aa8e12bd3125400bbcae21d947fc10",
+  "original_source_archive_sha256": "f71ebeb79a210aa85876ae4e1697c734e1565d8d7d87fb76e49aa87a1e0f34ea",
+  "original_image_id": "sha256:19dbf5f87625e68876adbb46b5135620291d87eb5bee7836ff2168b15b44c887",
+  "preferred_demo_seed": 202609102,
+  "historical_baseline_seed": 20260728,
+  "algorithm_and_parameters": "2026-09-10 frozen source; no v2 recall changes",
+  "runtime_assets_distributed_in_git": false,
+  "full_experiment_20261027": "not_started_shared_server_busy"
+}

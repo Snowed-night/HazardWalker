@@ -1,0 +1,76 @@
+{
+  "case_id": "official_classic_object_07_cylinder_vertical_view00",
+  "image_stamp": {
+    "sec": 42,
+    "nanosec": 525000000
+  },
+  "depth_stamp": {
+    "sec": 42,
+    "nanosec": 525000000
+  },
+  "localization_ready": true,
+  "detections_2d": [
+    {
+      "id": "untracked:1",
+      "frame_id": "real_sense",
+      "view_id": "xy:0.0:0.0|yaw:0",
+      "stamp": {
+        "sec": 42,
+        "nanosec": 475000000
+      },
+      "bbox": {
+        "x_min": 288,
+        "y_min": 260,
+        "x_max": 345,
+        "y_max": 332
+      },
+      "confidence": 0.37660243478330635,
+      "red_pixel_count": 3969,
+      "is_partial": true,
+      "requires_reobservation": true,
+      "may_be_merged": false,
+      "quality_reason": "partial_or_low_light",
+      "shape": {
+        "circularity": 0.7745291891886598,
+        "aspect_ratio": 0.7945205479452054,
+        "extent": 0.9083608880491261
+      },
+      "depth_shape": {
+        "status": "anisotropic",
+        "center_depth_m": 2.8476223945617676,
+        "outer_depth_m": 2.868272542953491,
+        "curvature_m": 0.020650148391723633,
+        "horizontal_curvature_m": 0.048062920570373535,
+        "vertical_curvature_m": 0.0002397298812866211,
+        "diagonal_positive_curvature_m": 0.022490501403808594,
+        "diagonal_negative_curvature_m": 0.018982410430908203,
+        "curvature_isotropy_ratio": 0.004987834248141653,
+        "center_points": 400,
+        "outer_points": 1390,
+        "horizontal_points": 250,
+        "vertical_points": 252,
+        "diagonal_positive_points": 174,
+        "diagonal_negative_points": 174
+      },
+      "confirmation_eligible": false,
+      "depth_synchronized": true,
+      "depth_stamp_delta_sec": 0.0,
+      "localization_status": "suppressed_non_spherical_depth_shape",
+      "localized_position": [
+        2.8655,
+        0.0207,
+        -0.2868
+      ],
+      "track_id": "",
+      "track_status": "untracked",
+      "track_association": "none",
+      "source": "hsv_minimal",
+      "detector_backend": "hsv_opencv"
+    }
+  ],
+  "hazards": [],
+  "raw_image": "official_classic_object_07_cylinder_vertical_view00_raw.png",
+  "annotated_image": "official_classic_object_07_cylinder_vertical_view00_annotated.png",
+  "depth_metric_image": "official_classic_object_07_cylinder_vertical_view00_depth_mm.png",
+  "depth_visual_image": "official_classic_object_07_cylinder_vertical_view00_depth_visual.png"
+}

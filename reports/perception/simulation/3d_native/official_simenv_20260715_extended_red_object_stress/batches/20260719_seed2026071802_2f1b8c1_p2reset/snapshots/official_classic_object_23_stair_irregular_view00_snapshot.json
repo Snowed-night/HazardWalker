@@ -1,0 +1,76 @@
+{
+  "case_id": "official_classic_object_23_stair_irregular_view00",
+  "image_stamp": {
+    "sec": 1,
+    "nanosec": 253000000
+  },
+  "depth_stamp": {
+    "sec": 1,
+    "nanosec": 253000000
+  },
+  "localization_ready": true,
+  "detections_2d": [
+    {
+      "id": "untracked:1",
+      "frame_id": "real_sense",
+      "view_id": "xy:0.0:0.0|yaw:0",
+      "stamp": {
+        "sec": 1,
+        "nanosec": 203000000
+      },
+      "bbox": {
+        "x_min": 218,
+        "y_min": 258,
+        "x_max": 302,
+        "y_max": 335
+      },
+      "confidence": 0.31845956012226123,
+      "red_pixel_count": 4253,
+      "is_partial": true,
+      "requires_reobservation": true,
+      "may_be_merged": false,
+      "quality_reason": "partial_or_low_light",
+      "shape": {
+        "circularity": 0.5234990695684708,
+        "aspect_ratio": 0.9176470588235294,
+        "extent": 0.6183257918552036
+      },
+      "depth_shape": {
+        "status": "flat",
+        "center_depth_m": 2.897056818008423,
+        "outer_depth_m": 2.8975207805633545,
+        "curvature_m": 0.0004639625549316406,
+        "horizontal_curvature_m": null,
+        "vertical_curvature_m": null,
+        "diagonal_positive_curvature_m": null,
+        "diagonal_negative_curvature_m": null,
+        "curvature_isotropy_ratio": null,
+        "center_points": 634,
+        "outer_points": 1453,
+        "horizontal_points": 293,
+        "vertical_points": 197,
+        "diagonal_positive_points": 137,
+        "diagonal_negative_points": 274
+      },
+      "confirmation_eligible": false,
+      "depth_synchronized": true,
+      "depth_stamp_delta_sec": 0.0,
+      "localization_status": "suppressed_non_spherical_depth_shape",
+      "localized_position": [
+        2.8972,
+        0.3161,
+        -0.2925
+      ],
+      "track_id": "",
+      "track_status": "untracked",
+      "track_association": "none",
+      "source": "hsv_minimal",
+      "detector_backend": "hsv_opencv"
+    }
+  ],
+  "hazards": [],
+  "raw_image": "official_classic_object_23_stair_irregular_view00_raw.png",
+  "annotated_image": "official_classic_object_23_stair_irregular_view00_annotated.png",
+  "depth_metric_image": "official_classic_object_23_stair_irregular_view00_depth_mm.png",
+  "depth_visual_image": "official_classic_object_23_stair_irregular_view00_depth_visual.png"
+}

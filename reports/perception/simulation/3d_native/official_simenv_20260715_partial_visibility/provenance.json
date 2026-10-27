@@ -1,0 +1,14 @@
+{
+  "delivery_stage": "20260715",
+  "canonical_experiment_category": "partial_visibility",
+  "original_directory": "official_simenv_20260710_rgbd_partial_visibility/reruns/20260719_seed2026071802_c401b4e",
+  "actual_run_date": "2026-07-19",
+  "run_id": "20260719_seed2026071802_c401b4e",
+  "seed": "2026071802",
+  "code_version": "c401b4ef0e5d2e7806eb8947c5b2ec13788f3966",
+  "archive_commit": "b69613e",
+  "classification_status": "verified",
+  "official_score_eligible": false,
+  "result": {"pass": 9, "fail": 12},
+  "note": "20260715是用户指定的阶段标签；真实运行日期保持为2026-07-19。"
+}

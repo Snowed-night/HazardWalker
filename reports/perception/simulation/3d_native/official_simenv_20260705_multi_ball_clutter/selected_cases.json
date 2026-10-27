@@ -1,0 +1,46 @@
+[
+  {
+    "case_id": "official_simenv_multi_red_case_01",
+    "official_model": "danger_red_sphere_00",
+    "condition": "best visible view: west",
+    "camera_view": "official_red_00_west",
+    "expected_red_ball_count": 1,
+    "detected_red_ball_count": 1,
+    "result": "pass",
+    "confidence": 0.9618,
+    "annotated_image": "selected_images/official_simenv_multi_red_case_01_red00_west_detected.png"
+  },
+  {
+    "case_id": "official_simenv_multi_red_case_02",
+    "official_model": "danger_red_sphere_01",
+    "condition": "best visible view: west",
+    "camera_view": "official_red_01_west",
+    "expected_red_ball_count": 1,
+    "detected_red_ball_count": 1,
+    "result": "pass",
+    "confidence": 0.9628,
+    "annotated_image": "selected_images/official_simenv_multi_red_case_02_red01_west_detected.png"
+  },
+  {
+    "case_id": "official_simenv_multi_red_case_03",
+    "official_model": "danger_red_sphere_02",
+    "condition": "best visible view: west",
+    "camera_view": "official_red_02_west",
+    "expected_red_ball_count": 1,
+    "detected_red_ball_count": 1,
+    "result": "pass",
+    "confidence": 0.9623,
+    "annotated_image": "selected_images/official_simenv_multi_red_case_03_red02_west_detected.png"
+  },
+  {
+    "case_id": "official_simenv_multi_red_case_04",
+    "official_model": "danger_red_sphere_03",
+    "condition": "best visible view: west",
+    "camera_view": "official_red_03_west",
+    "expected_red_ball_count": 1,
+    "detected_red_ball_count": 1,
+    "result": "pass",
+    "confidence": 0.9625,
+    "annotated_image": "selected_images/official_simenv_multi_red_case_04_red03_west_detected.png"
+  }
+]

@@ -1,0 +1,76 @@
+{
+  "case_id": "official_classic_partial_left_25pct_view00",
+  "image_stamp": {
+    "sec": 17,
+    "nanosec": 873000000
+  },
+  "depth_stamp": {
+    "sec": 17,
+    "nanosec": 873000000
+  },
+  "localization_ready": true,
+  "detections_2d": [
+    {
+      "id": "untracked:1",
+      "frame_id": "real_sense",
+      "view_id": "xy:0.0:0.0|yaw:0",
+      "stamp": {
+        "sec": 17,
+        "nanosec": 823000000
+      },
+      "bbox": {
+        "x_min": 320,
+        "y_min": 274,
+        "x_max": 344,
+        "y_max": 328
+      },
+      "confidence": 0.29391520211605643,
+      "red_pixel_count": 1035,
+      "is_partial": true,
+      "requires_reobservation": true,
+      "may_be_merged": false,
+      "quality_reason": "partial_or_low_light",
+      "shape": {
+        "circularity": 0.6483668999067566,
+        "aspect_ratio": 0.45454545454545453,
+        "extent": 0.7069090909090909
+      },
+      "depth_shape": {
+        "status": "anisotropic",
+        "center_depth_m": 2.8708789348602295,
+        "outer_depth_m": 2.911022663116455,
+        "curvature_m": 0.040143728256225586,
+        "horizontal_curvature_m": 0.010000467300415039,
+        "vertical_curvature_m": 0.053971052169799805,
+        "diagonal_positive_curvature_m": 0.032657742500305176,
+        "diagonal_negative_curvature_m": 0.006700754165649414,
+        "curvature_isotropy_ratio": 0.12415459577419369,
+        "center_points": 135,
+        "outer_points": 429,
+        "horizontal_points": 72,
+        "vertical_points": 79,
+        "diagonal_positive_points": 54,
+        "diagonal_negative_points": 50
+      },
+      "confirmation_eligible": false,
+      "depth_synchronized": true,
+      "depth_stamp_delta_sec": 0.0,
+      "localization_status": "suppressed_non_spherical_depth_shape",
+      "localized_position": [
+        2.8938,
+        -0.06,
+        -0.3157
+      ],
+      "track_id": "",
+      "track_status": "untracked",
+      "track_association": "none",
+      "source": "hsv_minimal",
+      "detector_backend": "hsv_opencv"
+    }
+  ],
+  "hazards": [],
+  "raw_image": "official_classic_partial_left_25pct_view00_raw.png",
+  "annotated_image": "official_classic_partial_left_25pct_view00_annotated.png",
+  "depth_metric_image": "official_classic_partial_left_25pct_view00_depth_mm.png",
+  "depth_visual_image": "official_classic_partial_left_25pct_view00_depth_visual.png"
+}

@@ -1,0 +1,8 @@
+[INFO] [1784520845.048865957] [hsv_detector_node]: HSV detector subscribed to camera image, camera info and depth image.
+[INFO] [1784520845.222685529] [hsv_detector_node]: Received RGB frame 1: 640x480 rgb8.
+[WARN] [1784520845.227113539] [hsv_detector_node]: TF lookup failed from real_sense to base: "base" passed to lookupTransform argument target_frame does not exist. 
+[INFO] [1784520845.227360674] [hsv_detector_node]: RGB frame 1 processed: detections=1 tf=False.
+[INFO] [1784520845.229115088] [hsv_detector_node]: Published perception payload for RGB frame 1.
+[INFO] [1784520845.592032847] [hsv_detector_node]: Received RGB frame 2: 640x480 rgb8.
+[INFO] [1784520845.594651081] [hsv_detector_node]: RGB frame 2 processed: detections=1 tf=False.
+[INFO] [1784520845.596327401] [hsv_detector_node]: Published perception payload for RGB frame 2.

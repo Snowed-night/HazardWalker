@@ -1,0 +1,732 @@
+[
+  {
+    "case_id": "official_classic_partial_00_baseline",
+    "suite": "partial_visibility",
+    "description": "官方复杂楼宇无遮挡红球基准",
+    "expected_red_ball_count": 1,
+    "initial_strict_count": 1,
+    "initial_partial_count": 0,
+    "initial_red_pixel_count": 2465,
+    "actual_visible_ratio": 1.0,
+    "strict_counts_by_view": [
+      1
+    ],
+    "partial_counts_by_view": [
+      0
+    ],
+    "final_confirmed_count": 0,
+    "actual_lateral_move_count": 0,
+    "motions": [],
+    "localized_truth_count": 1,
+    "mean_localization_error_m": 2.9824,
+    "max_localization_error_m": 2.9824,
+    "criterion": "任一视角必须产生严格或 reobserve 候选；实际红像素可见比例须接近设计值；候选不是确认。；背景结构边缘比例必须 >= 0.0060，防止近墙/空白画面充当复杂环境证据。",
+    "result": "fail",
+    "metadata": {
+      "visible_ratio_design": 1.0
+    },
+    "background_edge_ratios": [
+      0.005983072916666667
+    ]
+  },
+  {
+    "case_id": "official_classic_partial_left_05pct",
+    "suite": "partial_visibility",
+    "description": "官方复杂楼宇left侧约 5% 可见红球",
+    "expected_red_ball_count": 1,
+    "initial_strict_count": 0,
+    "initial_partial_count": 1,
+    "initial_red_pixel_count": 510,
+    "actual_visible_ratio": 0.2069,
+    "strict_counts_by_view": [
+      0
+    ],
+    "partial_counts_by_view": [
+      1
+    ],
+    "final_confirmed_count": 0,
+    "actual_lateral_move_count": 0,
+    "motions": [],
+    "localized_truth_count": 0,
+    "mean_localization_error_m": "",
+    "max_localization_error_m": "",
+    "criterion": "任一视角必须产生严格或 reobserve 候选；实际红像素可见比例须接近设计值；候选不是确认。",
+    "result": "fail",
+    "metadata": {
+      "visible_ratio_design": 0.05,
+      "visible_ratio_precalibration_input": 0.314,
+      "occlusion_side": "left",
+      "occluder_center_x": -0.00923,
+      "circle_cut_x": 0.30077,
+      "requires_reobserve": true
+    },
+    "background_edge_ratios": [
+      0.007620442708333334
+    ]
+  },
+  {
+    "case_id": "official_classic_partial_left_10pct",
+    "suite": "partial_visibility",
+    "description": "官方复杂楼宇left侧约 10% 可见红球",
+    "expected_red_ball_count": 1,
+    "initial_strict_count": 0,
+    "initial_partial_count": 1,
+    "initial_red_pixel_count": 636,
+    "actual_visible_ratio": 0.258,
+    "strict_counts_by_view": [
+      0
+    ],
+    "partial_counts_by_view": [
+      1
+    ],
+    "final_confirmed_count": 0,
+    "actual_lateral_move_count": 0,
+    "motions": [],
+    "localized_truth_count": 0,
+    "mean_localization_error_m": "",
+    "max_localization_error_m": "",
+    "criterion": "任一视角必须产生严格或 reobserve 候选；实际红像素可见比例须接近设计值；候选不是确认。",
+    "result": "fail",
+    "metadata": {
+      "visible_ratio_design": 0.1,
+      "visible_ratio_precalibration_input": 0.369,
+      "occlusion_side": "left",
+      "occluder_center_x": -0.02263,
+      "circle_cut_x": 0.28737,
+      "requires_reobserve": true
+    },
+    "background_edge_ratios": [
+      0.006516927083333333
+    ]
+  },
+  {
+    "case_id": "official_classic_partial_left_15pct",
+    "suite": "partial_visibility",
+    "description": "官方复杂楼宇left侧约 15% 可见红球",
+    "expected_red_ball_count": 1,
+    "initial_strict_count": 0,
+    "initial_partial_count": 1,
+    "initial_red_pixel_count": 784,
+    "actual_visible_ratio": 0.3181,
+    "strict_counts_by_view": [
+      0
+    ],
+    "partial_counts_by_view": [
+      1
+    ],
+    "final_confirmed_count": 0,
+    "actual_lateral_move_count": 0,
+    "motions": [],
+    "localized_truth_count": 0,
+    "mean_localization_error_m": "",
+    "max_localization_error_m": "",
+    "criterion": "任一视角必须产生严格或 reobserve 候选；实际红像素可见比例须接近设计值；候选不是确认。",
+    "result": "fail",
+    "metadata": {
+      "visible_ratio_design": 0.15,
+      "visible_ratio_precalibration_input": 0.426,
+      "occlusion_side": "left",
+      "occluder_center_x": -0.03624,
+      "circle_cut_x": 0.27376,
+      "requires_reobserve": true
+    },
+    "background_edge_ratios": [
+      0.006516927083333333
+    ]
+  },
+  {
+    "case_id": "official_classic_partial_left_25pct",
+    "suite": "partial_visibility",
+    "description": "官方复杂楼宇left侧约 25% 可见红球",
+    "expected_red_ball_count": 1,
+    "initial_strict_count": 0,
+    "initial_partial_count": 1,
+    "initial_red_pixel_count": 1018,
+    "actual_visible_ratio": 0.413,
+    "strict_counts_by_view": [
+      0
+    ],
+    "partial_counts_by_view": [
+      1
+    ],
+    "final_confirmed_count": 0,
+    "actual_lateral_move_count": 0,
+    "motions": [],
+    "localized_truth_count": 0,
+    "mean_localization_error_m": "",
+    "max_localization_error_m": "",
+    "criterion": "任一视角必须产生严格或 reobserve 候选；实际红像素可见比例须接近设计值；候选不是确认。",
+    "result": "fail",
+    "metadata": {
+      "visible_ratio_design": 0.25,
+      "visible_ratio_precalibration_input": 0.515,
+      "occlusion_side": "left",
+      "occluder_center_x": -0.05725,
+      "circle_cut_x": 0.25275,
+      "requires_reobserve": true
+    },
+    "background_edge_ratios": [
+      0.00677734375
+    ]
+  },
+  {
+    "case_id": "official_classic_partial_left_35pct",
+    "suite": "partial_visibility",
+    "description": "官方复杂楼宇left侧约 35% 可见红球",
+    "expected_red_ball_count": 1,
+    "initial_strict_count": 1,
+    "initial_partial_count": 0,
+    "initial_red_pixel_count": 1253,
+    "actual_visible_ratio": 0.5083,
+    "strict_counts_by_view": [
+      1
+    ],
+    "partial_counts_by_view": [
+      0
+    ],
+    "final_confirmed_count": 0,
+    "actual_lateral_move_count": 0,
+    "motions": [],
+    "localized_truth_count": 1,
+    "mean_localization_error_m": 4.5392,
+    "max_localization_error_m": 4.5392,
+    "criterion": "任一视角必须产生严格或 reobserve 候选；实际红像素可见比例须接近设计值；候选不是确认。",
+    "result": "fail",
+    "metadata": {
+      "visible_ratio_design": 0.35,
+      "visible_ratio_precalibration_input": 0.6,
+      "occlusion_side": "left",
+      "occluder_center_x": -0.07738,
+      "circle_cut_x": 0.23262,
+      "requires_reobserve": true
+    },
+    "background_edge_ratios": [
+      0.006539713541666666
+    ]
+  },
+  {
+    "case_id": "official_classic_partial_left_45pct",
+    "suite": "partial_visibility",
+    "description": "官方复杂楼宇left侧约 45% 可见红球",
+    "expected_red_ball_count": 1,
+    "initial_strict_count": 1,
+    "initial_partial_count": 0,
+    "initial_red_pixel_count": 1484,
+    "actual_visible_ratio": 0.602,
+    "strict_counts_by_view": [
+      1
+    ],
+    "partial_counts_by_view": [
+      0
+    ],
+    "final_confirmed_count": 0,
+    "actual_lateral_move_count": 0,
+    "motions": [],
+    "localized_truth_count": 1,
+    "mean_localization_error_m": 4.0659,
+    "max_localization_error_m": 4.0659,
+    "criterion": "任一视角必须产生严格或 reobserve 候选；实际红像素可见比例须接近设计值；候选不是确认。",
+    "result": "fail",
+    "metadata": {
+      "visible_ratio_design": 0.45,
+      "visible_ratio_precalibration_input": 0.683,
+      "occlusion_side": "left",
+      "occluder_center_x": -0.09746,
+      "circle_cut_x": 0.21254,
+      "requires_reobserve": true
+    },
+    "background_edge_ratios": [
+      0.007337239583333334
+    ]
+  },
+  {
+    "case_id": "official_classic_partial_left_55pct",
+    "suite": "partial_visibility",
+    "description": "官方复杂楼宇left侧约 55% 可见红球",
+    "expected_red_ball_count": 1,
+    "initial_strict_count": 1,
+    "initial_partial_count": 0,
+    "initial_red_pixel_count": 1696,
+    "actual_visible_ratio": 0.688,
+    "strict_counts_by_view": [
+      1
+    ],
+    "partial_counts_by_view": [
+      0
+    ],
+    "final_confirmed_count": 0,
+    "actual_lateral_move_count": 0,
+    "motions": [],
+    "localized_truth_count": 1,
+    "mean_localization_error_m": 3.7829,
+    "max_localization_error_m": 3.7829,
+    "criterion": "任一视角必须产生严格或 reobserve 候选；实际红像素可见比例须接近设计值；候选不是确认。",
+    "result": "pass",
+    "metadata": {
+      "visible_ratio_design": 0.55,
+      "visible_ratio_precalibration_input": 0.759,
+      "occlusion_side": "left",
+      "occluder_center_x": -0.11664,
+      "circle_cut_x": 0.19336,
+      "requires_reobserve": true
+    },
+    "background_edge_ratios": [
+      0.007119140625
+    ]
+  },
+  {
+    "case_id": "official_classic_partial_left_65pct",
+    "suite": "partial_visibility",
+    "description": "官方复杂楼宇left侧约 65% 可见红球",
+    "expected_red_ball_count": 1,
+    "initial_strict_count": 1,
+    "initial_partial_count": 0,
+    "initial_red_pixel_count": 1906,
+    "actual_visible_ratio": 0.7732,
+    "strict_counts_by_view": [
+      1
+    ],
+    "partial_counts_by_view": [
+      0
+    ],
+    "final_confirmed_count": 0,
+    "actual_lateral_move_count": 0,
+    "motions": [],
+    "localized_truth_count": 1,
+    "mean_localization_error_m": 3.5572,
+    "max_localization_error_m": 3.5572,
+    "criterion": "任一视角必须产生严格或 reobserve 候选；实际红像素可见比例须接近设计值；候选不是确认。",
+    "result": "pass",
+    "metadata": {
+      "visible_ratio_design": 0.65,
+      "visible_ratio_precalibration_input": 0.833,
+      "occlusion_side": "left",
+      "occluder_center_x": -0.13662,
+      "circle_cut_x": 0.17338,
+      "requires_reobserve": true
+    },
+    "background_edge_ratios": [
+      0.00658203125
+    ]
+  },
+  {
+    "case_id": "official_classic_partial_left_75pct",
+    "suite": "partial_visibility",
+    "description": "官方复杂楼宇left侧约 75% 可见红球",
+    "expected_red_ball_count": 1,
+    "initial_strict_count": 1,
+    "initial_partial_count": 0,
+    "initial_red_pixel_count": 2130,
+    "actual_visible_ratio": 0.8641,
+    "strict_counts_by_view": [
+      1
+    ],
+    "partial_counts_by_view": [
+      0
+    ],
+    "final_confirmed_count": 0,
+    "actual_lateral_move_count": 0,
+    "motions": [],
+    "localized_truth_count": 1,
+    "mean_localization_error_m": 3.332,
+    "max_localization_error_m": 3.332,
+    "criterion": "任一视角必须产生严格或 reobserve 候选；实际红像素可见比例须接近设计值；候选不是确认。",
+    "result": "pass",
+    "metadata": {
+      "visible_ratio_design": 0.75,
+      "visible_ratio_precalibration_input": 0.91,
+      "occlusion_side": "left",
+      "occluder_center_x": -0.16007,
+      "circle_cut_x": 0.14993,
+      "requires_reobserve": true
+    },
+    "background_edge_ratios": [
+      0.008720703125
+    ]
+  },
+  {
+    "case_id": "official_classic_partial_left_85pct",
+    "suite": "partial_visibility",
+    "description": "官方复杂楼宇left侧约 85% 可见红球",
+    "expected_red_ball_count": 1,
+    "initial_strict_count": 1,
+    "initial_partial_count": 0,
+    "initial_red_pixel_count": 2355,
+    "actual_visible_ratio": 0.9554,
+    "strict_counts_by_view": [
+      1
+    ],
+    "partial_counts_by_view": [
+      0
+    ],
+    "final_confirmed_count": 0,
+    "actual_lateral_move_count": 0,
+    "motions": [],
+    "localized_truth_count": 1,
+    "mean_localization_error_m": 3.1522,
+    "max_localization_error_m": 3.1522,
+    "criterion": "任一视角必须产生严格或 reobserve 候选；实际红像素可见比例须接近设计值；候选不是确认。",
+    "result": "pass",
+    "metadata": {
+      "visible_ratio_design": 0.85,
+      "visible_ratio_precalibration_input": 0.98,
+      "occlusion_side": "left",
+      "occluder_center_x": -0.18802,
+      "circle_cut_x": 0.12198,
+      "requires_reobserve": true
+    },
+    "background_edge_ratios": [
+      0.0067740885416666665
+    ]
+  },
+  {
+    "case_id": "official_classic_partial_right_05pct",
+    "suite": "partial_visibility",
+    "description": "官方复杂楼宇right侧约 5% 可见红球",
+    "expected_red_ball_count": 1,
+    "initial_strict_count": 0,
+    "initial_partial_count": 0,
+    "initial_red_pixel_count": 25,
+    "actual_visible_ratio": 0.0101,
+    "strict_counts_by_view": [
+      0
+    ],
+    "partial_counts_by_view": [
+      0
+    ],
+    "final_confirmed_count": 0,
+    "actual_lateral_move_count": 0,
+    "motions": [],
+    "localized_truth_count": 0,
+    "mean_localization_error_m": "",
+    "max_localization_error_m": "",
+    "criterion": "任一视角必须产生严格或 reobserve 候选；实际红像素可见比例须接近设计值；候选不是确认。",
+    "result": "fail",
+    "metadata": {
+      "visible_ratio_design": 0.05,
+      "visible_ratio_precalibration_input": 0.001,
+      "occlusion_side": "right",
+      "occluder_center_x": 0.41839,
+      "circle_cut_x": 0.10839,
+      "requires_reobserve": true
+    },
+    "background_edge_ratios": [
+      0.006627604166666667
+    ]
+  },
+  {
+    "case_id": "official_classic_partial_right_10pct",
+    "suite": "partial_visibility",
+    "description": "官方复杂楼宇right侧约 10% 可见红球",
+    "expected_red_ball_count": 1,
+    "initial_strict_count": 0,
+    "initial_partial_count": 1,
+    "initial_red_pixel_count": 88,
+    "actual_visible_ratio": 0.0357,
+    "strict_counts_by_view": [
+      0
+    ],
+    "partial_counts_by_view": [
+      1
+    ],
+    "final_confirmed_count": 0,
+    "actual_lateral_move_count": 0,
+    "motions": [],
+    "localized_truth_count": 0,
+    "mean_localization_error_m": "",
+    "max_localization_error_m": "",
+    "criterion": "任一视角必须产生严格或 reobserve 候选；实际红像素可见比例须接近设计值；候选不是确认。",
+    "result": "pass",
+    "metadata": {
+      "visible_ratio_design": 0.1,
+      "visible_ratio_precalibration_input": 0.019,
+      "occlusion_side": "right",
+      "occluder_center_x": 0.43145,
+      "circle_cut_x": 0.12145,
+      "requires_reobserve": true
+    },
+    "background_edge_ratios": [
+      0.008990885416666667
+    ]
+  },
+  {
+    "case_id": "official_classic_partial_right_15pct",
+    "suite": "partial_visibility",
+    "description": "官方复杂楼宇right侧约 15% 可见红球",
+    "expected_red_ball_count": 1,
+    "initial_strict_count": 0,
+    "initial_partial_count": 1,
+    "initial_red_pixel_count": 192,
+    "actual_visible_ratio": 0.0779,
+    "strict_counts_by_view": [
+      0
+    ],
+    "partial_counts_by_view": [
+      1
+    ],
+    "final_confirmed_count": 0,
+    "actual_lateral_move_count": 0,
+    "motions": [],
+    "localized_truth_count": 0,
+    "mean_localization_error_m": "",
+    "max_localization_error_m": "",
+    "criterion": "任一视角必须产生严格或 reobserve 候选；实际红像素可见比例须接近设计值；候选不是确认。",
+    "result": "pass",
+    "metadata": {
+      "visible_ratio_design": 0.15,
+      "visible_ratio_precalibration_input": 0.051,
+      "occlusion_side": "right",
+      "occluder_center_x": 0.44587,
+      "circle_cut_x": 0.13587,
+      "requires_reobserve": true
+    },
+    "background_edge_ratios": [
+      0.006705729166666666
+    ]
+  },
+  {
+    "case_id": "official_classic_partial_right_25pct",
+    "suite": "partial_visibility",
+    "description": "官方复杂楼宇right侧约 25% 可见红球",
+    "expected_red_ball_count": 1,
+    "initial_strict_count": 0,
+    "initial_partial_count": 1,
+    "initial_red_pixel_count": 384,
+    "actual_visible_ratio": 0.1558,
+    "strict_counts_by_view": [
+      0
+    ],
+    "partial_counts_by_view": [
+      1
+    ],
+    "final_confirmed_count": 0,
+    "actual_lateral_move_count": 0,
+    "motions": [],
+    "localized_truth_count": 0,
+    "mean_localization_error_m": "",
+    "max_localization_error_m": "",
+    "criterion": "任一视角必须产生严格或 reobserve 候选；实际红像素可见比例须接近设计值；候选不是确认。；背景结构边缘比例必须 >= 0.0060，防止近墙/空白画面充当复杂环境证据。",
+    "result": "fail",
+    "metadata": {
+      "visible_ratio_design": 0.25,
+      "visible_ratio_precalibration_input": 0.116,
+      "occlusion_side": "right",
+      "occluder_center_x": 0.4683,
+      "circle_cut_x": 0.1583,
+      "requires_reobserve": true
+    },
+    "background_edge_ratios": [
+      0.005944010416666667
+    ]
+  },
+  {
+    "case_id": "official_classic_partial_right_35pct",
+    "suite": "partial_visibility",
+    "description": "官方复杂楼宇right侧约 35% 可见红球",
+    "expected_red_ball_count": 1,
+    "initial_strict_count": 0,
+    "initial_partial_count": 1,
+    "initial_red_pixel_count": 598,
+    "actual_visible_ratio": 0.2426,
+    "strict_counts_by_view": [
+      0
+    ],
+    "partial_counts_by_view": [
+      1
+    ],
+    "final_confirmed_count": 0,
+    "actual_lateral_move_count": 0,
+    "motions": [],
+    "localized_truth_count": 0,
+    "mean_localization_error_m": "",
+    "max_localization_error_m": "",
+    "criterion": "任一视角必须产生严格或 reobserve 候选；实际红像素可见比例须接近设计值；候选不是确认。；背景结构边缘比例必须 >= 0.0060，防止近墙/空白画面充当复杂环境证据。",
+    "result": "fail",
+    "metadata": {
+      "visible_ratio_design": 0.35,
+      "visible_ratio_precalibration_input": 0.189,
+      "occlusion_side": "right",
+      "occluder_center_x": 0.48951,
+      "circle_cut_x": 0.17951,
+      "requires_reobserve": true
+    },
+    "background_edge_ratios": [
+      0.005930989583333333
+    ]
+  },
+  {
+    "case_id": "official_classic_partial_right_45pct",
+    "suite": "partial_visibility",
+    "description": "官方复杂楼宇right侧约 45% 可见红球",
+    "expected_red_ball_count": 1,
+    "initial_strict_count": 0,
+    "initial_partial_count": 1,
+    "initial_red_pixel_count": 808,
+    "actual_visible_ratio": 0.3278,
+    "strict_counts_by_view": [
+      0
+    ],
+    "partial_counts_by_view": [
+      1
+    ],
+    "final_confirmed_count": 0,
+    "actual_lateral_move_count": 0,
+    "motions": [],
+    "localized_truth_count": 0,
+    "mean_localization_error_m": "",
+    "max_localization_error_m": "",
+    "criterion": "任一视角必须产生严格或 reobserve 候选；实际红像素可见比例须接近设计值；候选不是确认。；背景结构边缘比例必须 >= 0.0060，防止近墙/空白画面充当复杂环境证据。",
+    "result": "fail",
+    "metadata": {
+      "visible_ratio_design": 0.45,
+      "visible_ratio_precalibration_input": 0.265,
+      "occlusion_side": "right",
+      "occluder_center_x": 0.50953,
+      "circle_cut_x": 0.19953,
+      "requires_reobserve": true
+    },
+    "background_edge_ratios": [
+      0.005849609375
+    ]
+  },
+  {
+    "case_id": "official_classic_partial_right_55pct",
+    "suite": "partial_visibility",
+    "description": "官方复杂楼宇right侧约 55% 可见红球",
+    "expected_red_ball_count": 1,
+    "initial_strict_count": 1,
+    "initial_partial_count": 0,
+    "initial_red_pixel_count": 1025,
+    "actual_visible_ratio": 0.4158,
+    "strict_counts_by_view": [
+      1
+    ],
+    "partial_counts_by_view": [
+      0
+    ],
+    "final_confirmed_count": 0,
+    "actual_lateral_move_count": 0,
+    "motions": [],
+    "localized_truth_count": 1,
+    "mean_localization_error_m": 4.9157,
+    "max_localization_error_m": 4.9157,
+    "criterion": "任一视角必须产生严格或 reobserve 候选；实际红像素可见比例须接近设计值；候选不是确认。",
+    "result": "pass",
+    "metadata": {
+      "visible_ratio_design": 0.55,
+      "visible_ratio_precalibration_input": 0.345,
+      "occlusion_side": "right",
+      "occluder_center_x": 0.52939,
+      "circle_cut_x": 0.21939,
+      "requires_reobserve": true
+    },
+    "background_edge_ratios": [
+      0.0064908854166666665
+    ]
+  },
+  {
+    "case_id": "official_classic_partial_right_65pct",
+    "suite": "partial_visibility",
+    "description": "官方复杂楼宇right侧约 65% 可见红球",
+    "expected_red_ball_count": 1,
+    "initial_strict_count": 1,
+    "initial_partial_count": 0,
+    "initial_red_pixel_count": 1257,
+    "actual_visible_ratio": 0.5099,
+    "strict_counts_by_view": [
+      1
+    ],
+    "partial_counts_by_view": [
+      0
+    ],
+    "final_confirmed_count": 0,
+    "actual_lateral_move_count": 0,
+    "motions": [],
+    "localized_truth_count": 1,
+    "mean_localization_error_m": 4.379,
+    "max_localization_error_m": 4.379,
+    "criterion": "任一视角必须产生严格或 reobserve 候选；实际红像素可见比例须接近设计值；候选不是确认。",
+    "result": "pass",
+    "metadata": {
+      "visible_ratio_design": 0.65,
+      "visible_ratio_precalibration_input": 0.429,
+      "occlusion_side": "right",
+      "occluder_center_x": 0.54952,
+      "circle_cut_x": 0.23952,
+      "requires_reobserve": true
+    },
+    "background_edge_ratios": [
+      0.006458333333333333
+    ]
+  },
+  {
+    "case_id": "official_classic_partial_right_75pct",
+    "suite": "partial_visibility",
+    "description": "官方复杂楼宇right侧约 75% 可见红球",
+    "expected_red_ball_count": 1,
+    "initial_strict_count": 1,
+    "initial_partial_count": 0,
+    "initial_red_pixel_count": 1499,
+    "actual_visible_ratio": 0.6081,
+    "strict_counts_by_view": [
+      1
+    ],
+    "partial_counts_by_view": [
+      0
+    ],
+    "final_confirmed_count": 0,
+    "actual_lateral_move_count": 0,
+    "motions": [],
+    "localized_truth_count": 1,
+    "mean_localization_error_m": 3.9445,
+    "max_localization_error_m": 3.9445,
+    "criterion": "任一视角必须产生严格或 reobserve 候选；实际红像素可见比例须接近设计值；候选不是确认。",
+    "result": "pass",
+    "metadata": {
+      "visible_ratio_design": 0.75,
+      "visible_ratio_precalibration_input": 0.517,
+      "occlusion_side": "right",
+      "occluder_center_x": 0.57029,
+      "circle_cut_x": 0.26029,
+      "requires_reobserve": true
+    },
+    "background_edge_ratios": [
+      0.006416015625
+    ]
+  },
+  {
+    "case_id": "official_classic_partial_right_85pct",
+    "suite": "partial_visibility",
+    "description": "官方复杂楼宇right侧约 85% 可见红球",
+    "expected_red_ball_count": 1,
+    "initial_strict_count": 1,
+    "initial_partial_count": 0,
+    "initial_red_pixel_count": 1747,
+    "actual_visible_ratio": 0.7087,
+    "strict_counts_by_view": [
+      1
+    ],
+    "partial_counts_by_view": [
+      0
+    ],
+    "final_confirmed_count": 0,
+    "actual_lateral_move_count": 0,
+    "motions": [],
+    "localized_truth_count": 1,
+    "mean_localization_error_m": 3.6295,
+    "max_localization_error_m": 3.6295,
+    "criterion": "任一视角必须产生严格或 reobserve 候选；实际红像素可见比例须接近设计值；候选不是确认。；背景结构边缘比例必须 >= 0.0060，防止近墙/空白画面充当复杂环境证据。",
+    "result": "fail",
+    "metadata": {
+      "visible_ratio_design": 0.85,
+      "visible_ratio_precalibration_input": 0.61,
+      "occlusion_side": "right",
+      "occluder_center_x": 0.59233,
+      "circle_cut_x": 0.28233,
+      "requires_reobserve": true
+    },
+    "background_edge_ratios": [
+      0.005732421875
+    ]
+  }
+]

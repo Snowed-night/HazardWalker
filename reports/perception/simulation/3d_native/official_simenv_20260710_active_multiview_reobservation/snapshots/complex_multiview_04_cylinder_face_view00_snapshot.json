@@ -1,0 +1,79 @@
+{
+  "case_id": "complex_multiview_04_cylinder_face_view00",
+  "image_stamp": {
+    "sec": 2020,
+    "nanosec": 722000000
+  },
+  "localization_ready": true,
+  "camera_stable": true,
+  "stable_view_frame_count": 31,
+  "detections_2d": [
+    {
+      "id": 1,
+      "frame_id": "hazardwalker_camera",
+      "view_id": "pos:3.2:8.4:3.6|yaw:90",
+      "stamp": {
+        "sec": 2020,
+        "nanosec": 690000000
+      },
+      "bbox": {
+        "x_min": 259,
+        "y_min": 193,
+        "x_max": 380,
+        "y_max": 313
+      },
+      "confidence": 0.9577941635243328,
+      "red_pixel_count": 11527,
+      "is_partial": false,
+      "requires_reobservation": false,
+      "may_be_merged": false,
+      "from_merged_split": false,
+      "quality_reason": "stable_shape",
+      "shape": {
+        "circularity": 0.8918646723034603,
+        "aspect_ratio": 0.9918032786885246,
+        "extent": 0.7692047148082916
+      },
+      "depth_shape": {
+        "status": "flat",
+        "center_depth_m": 1.3621695041656494,
+        "outer_depth_m": 1.3621695041656494,
+        "curvature_m": 0.0,
+        "center_points": 1418,
+        "outer_points": 4810
+      },
+      "confirmation_eligible": false,
+      "apparent_diameter_m": 0.3055,
+      "localization_status": "suppressed_flat_depth_shape",
+      "source": "hsv_minimal",
+      "detector_backend": "hsv_opencv"
+    }
+  ],
+  "hazards": [
+    {
+      "status": "tentative",
+      "position": [
+        3.2987,
+        9.9239,
+        3.3004
+      ],
+      "position_frame_id": "world",
+      "confidence": 0.9585,
+      "observation_count": 29,
+      "distinct_view_count": 0,
+      "source": "hsv_depth_tf",
+      "eligible_observation_count": 0,
+      "eligible_view_ids": [],
+      "flat_view_ids": [
+        "pos:3.2:8.4:3.6|yaw:90"
+      ],
+      "apparent_diameter_cv": 0.0,
+      "min_multiview_aspect_ratio": 0.9918,
+      "depth_curvature_cv": 0.0,
+      "median_normalized_depth_curvature": 0.0,
+      "evidence_status": "collecting_views"
+    }
+  ],
+  "raw_image": "complex_multiview_04_cylinder_face_view00_raw.png",
+  "annotated_image": "complex_multiview_04_cylinder_face_view00_annotated.png"
+}

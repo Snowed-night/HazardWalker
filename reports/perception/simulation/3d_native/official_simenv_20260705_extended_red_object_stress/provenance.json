@@ -1,0 +1,11 @@
+{
+  "delivery_stage": "20260705",
+  "canonical_experiment_category": "extended_red_object_stress",
+  "original_directory": "official_simenv_20260705_3d_red_shape_distractors",
+  "source_commit": "437d8c6",
+  "restored_from_commit": "fd1fd21",
+  "classification_status": "verified",
+  "classification_basis": ["git_commit", "README", "summary.json", "testing_record"],
+  "raw_source_status": "raw_source_missing",
+  "note": "圆柱、平板等属于内部压力干扰物，不是官方危险源。"
+}

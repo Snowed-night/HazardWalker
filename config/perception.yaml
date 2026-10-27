@@ -9,18 +9,115 @@ perception:
     upper_red_1: [10, 255, 255]
     lower_red_2: [170, 80, 80]
     upper_red_2: [180, 255, 255]
-    min_area_px: 80
-    min_circularity: 0.55
+    # 严格正证据至少 200 px；更小红色弧段交由 partial/reobserve 流程，
+    # 不能与远处红色杂物一起直接累加为危险源。
+    min_area_px: 200
+    # 0.65 可排除 7 月 5 日复杂多球图中的红方块轮廓（0.644），同时保留
+    # 45% 可见球的严格边界（约 0.66）。
+    min_circularity: 0.65
+    min_aspect_ratio: 0.45
+    min_extent: 0.35
+    # 圆形投影理论值约 0.785；超过 0.82 的近矩形区域只允许作为重观察候选。
+    max_extent: 0.82
     min_confidence: 0.5
 
   localization:
-    use_point_cloud: true
+    # 当前正式链路使用同步 RGB + 深度图 + 合法 SLAM TF 定位；本节点尚未
+    # 实现 PointCloud2 定位输入，必须显式关闭，禁止配置声称启用而实际未用。
+    use_point_cloud: false
     max_detection_range_m: 20.0
+    # 球面必须同时具有横向和纵向凸曲率；单轴曲面（圆柱侧面、弧形板）只复查。
+    min_sphere_depth_curvature_m: 0.008
+    min_sphere_depth_shape_points: 8
+    min_sphere_axis_depth_points: 4
+    # 家具遮挡的真实半球实测轴向曲率比约 0.30；0.25 可保留该球面，
+    # 而红方块/圆柱的平坦轴仍远低于该门槛。
+    min_sphere_axis_curvature_ratio: 0.25
+    occluded_sphere_min_depth_separation_m: 0.50
+    occluded_sphere_min_circularity: 0.55
+    occluded_sphere_min_aspect_ratio: 0.70
+    occluded_sphere_max_extent: 0.78
+    occluded_sphere_min_red_pixel_count: 200
+    # 官方标准红球半径；设为 0 可禁用球面深度到球心的几何补偿。
+    sphere_radius_m: 0.15
+    # 官方当前桥接链 RGB-D 实测固定相差约 0.05 s；运行记录必须保存解析后的值。
+    max_rgb_depth_sync_delta_sec: 0.06
+    # 完整球形候选使用投影半径反推球心；贴边/遮挡候选自动回退深度补偿。
+    use_sphere_projection_geometry: true
+    # world PoseInfo 与相机桥接存在毫秒级滞后时，允许回退至最新 TF。
+    allow_latest_tf_fallback: true
     roi_padding_px: 8
     min_points_in_roi: 5
     output_frame: start
 
   tracking:
-    confirm_observation_count: 3
-    reject_after_missed_count: 10
+    # 同步深度明确判为 spherical 后即可确认；前景遮挡的 flat 深度只能
+    # 触发主动复查，不再写入轨迹，因此无需用累计帧数掩盖错误首帧。
+    confirm_observation_count: 1
+    # 赛场干扰物仅有红/绿色正方体和绿色球体：红色候选可由单个稳定
+    # RGB-D 视角的球面/平面几何直接区分，不再强制机器人横移获取视差。
+    confirm_distinct_views: 1
+    min_view_bearing_span_deg: 0.0
+    # 红色正方体的稳定深度轮廓为平面，一次明确反证即可拒绝。
+    min_non_spherical_views_to_reject: 1
+    # 比赛提交采用“球面正证据门控”：非球面候选保持未确认即可，不能因
+    # 遮挡产生的一帧深度异常永久封死随后到达的球面正证据。
+    reject_non_spherical_tracks: false
+    reject_after_missed_count: 300
     merge_distance_m: 0.5
+    # 分层独立地图内，同一球从障碍物两侧观测时坐标可相差约 1.4 m；只有
+    # 半径内恰好一个尺寸兼容球面轨迹时才恢复，多个候选时仍拒绝猜测。
+    single_track_reacquire_distance_m: 2.0
+    single_track_reacquire_diameter_relative_error: 0.25
+    same_frame_duplicate_distance_m: 0.12
+    same_frame_duplicate_diameter_relative_error: 0.25
+    max_apparent_diameter_cv: 0.35
+    # 官方目标直径 0.30 m；保持一定裕量以覆盖 RGB-D 投影/深度噪声。
+    expected_sphere_diameter_m: 0.30
+    max_sphere_diameter_relative_error: 0.35
+    # 单视角仍要求轮廓不过度拉长，防止把遮挡边缘误判成完整球体。
+    min_multiview_aspect_ratio: 0.82
+    # 一个同步视角产生球面深度正证据即可确认。
+    min_spherical_views_for_confirm: 1
+    max_depth_curvature_cv: 0.65
+    # 球体深度曲率/表观直径的三视角中位数有效区间。
+    min_normalized_depth_curvature: 0.10
+    max_median_normalized_depth_curvature: 0.30
+
+  active_reobservation:
+    # 多视角证据门槛已关闭；这里仅保留被家具遮挡时的短距离视角获取，
+    # 目标是一张可做球面/平面判别的完整 RGB-D 帧，而不是累计多视角确认。
+    emit_partial_candidates: true
+    # 保留约 5% 可见球面的最小红色弧段；输出仅为 reobserve，不可直接确认。
+    partial_min_area_px: 20
+    partial_min_circularity: 0.18
+    partial_min_aspect_ratio: 0.12
+    partial_min_value: 50
+    stable_view_min_frames: 3
+    # 10 Hz 相机下正常行走每帧位移约 3--9 cm；停稳后的 Cartographer/IMU
+    # 抖动可能达到毫米至厘米级。连续三帧低于 3 cm / 1.5° 才允许写入坐标。
+    stable_view_max_translation_m: 0.03
+    stable_view_max_yaw_deg: 1.5
+    stable_view_cmd_vel_topic: /hw/cmd_vel
+    stable_view_max_cmd_age_sec: 1.0
+    stable_view_max_linear_speed_mps: 0.05
+    stable_view_max_angular_speed_rps: 0.10
+    allow_official_odom_synchronized_motion_confirmation: true
+    # 已建立轨迹在短时机动离开视场后继续参与图像投影关联。
+    track_projection_max_age_s: 180.0
+    # 以下键对应 hsv_detector_node 的 active_view_* ROS 参数。
+    edge_margin_ratio: 0.05
+    min_bbox_area_px: 900
+    min_red_pixel_count: 300
+    min_circularity: 0.72
+    min_confidence: 0.70
+    far_distance_m: 5.0
+    dense_iou_threshold: 0.15
+    min_normalized_depth_curvature: 0.10
+    max_normalized_depth_curvature: 0.30
+    # 纯局部候选尚不能建立 3D 轨迹时，仅用短时图像关联维持复查会话 ID。
+    candidate_memory_ttl_s: 8.0
+    # 同一候选的侧移方向短时保持，避免目标跨过画面中心后左右振荡。
+    active_view_direction_memory_ttl_s: 12.0
+    candidate_memory_min_iou: 0.05
+    candidate_memory_max_center_shift_ratio: 1.5

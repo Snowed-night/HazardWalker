@@ -1,0 +1,142 @@
+{
+  "case_id": "complex_object_17_l_shape_view00",
+  "image_stamp": {
+    "sec": 1754,
+    "nanosec": 578000000
+  },
+  "localization_ready": true,
+  "camera_stable": true,
+  "stable_view_frame_count": 31,
+  "detections_2d": [
+    {
+      "id": 1,
+      "frame_id": "hazardwalker_camera",
+      "view_id": "pos:3.2:8.4:3.6|yaw:90",
+      "stamp": {
+        "sec": 1754,
+        "nanosec": 545000000
+      },
+      "bbox": {
+        "x_min": 264,
+        "y_min": 171,
+        "x_max": 311,
+        "y_max": 241
+      },
+      "confidence": 0.8153310024280014,
+      "red_pixel_count": 3408,
+      "is_partial": false,
+      "requires_reobservation": true,
+      "may_be_merged": true,
+      "from_merged_split": true,
+      "quality_reason": "split_candidate_requires_independent_view",
+      "shape": {
+        "circularity": 0.7376756439858976,
+        "aspect_ratio": 0.676056338028169,
+        "extent": 0.8827758215962441
+      },
+      "depth_shape": {
+        "status": "flat",
+        "center_depth_m": 1.3725075721740723,
+        "outer_depth_m": 1.3725075721740723,
+        "curvature_m": 0.0,
+        "center_points": 324,
+        "outer_points": 1118
+      },
+      "confirmation_eligible": false,
+      "apparent_diameter_m": 0.3792,
+      "localization_status": "suppressed_flat_depth_shape",
+      "source": "hsv_minimal",
+      "detector_backend": "hsv_opencv"
+    },
+    {
+      "id": 2,
+      "frame_id": "hazardwalker_camera",
+      "view_id": "pos:3.2:8.4:3.6|yaw:90",
+      "stamp": {
+        "sec": 1754,
+        "nanosec": 545000000
+      },
+      "bbox": {
+        "x_min": 264,
+        "y_min": 231,
+        "x_max": 414,
+        "y_max": 328
+      },
+      "confidence": 0.7305228977317998,
+      "red_pixel_count": 10366,
+      "is_partial": false,
+      "requires_reobservation": true,
+      "may_be_merged": true,
+      "from_merged_split": true,
+      "quality_reason": "split_candidate_requires_independent_view",
+      "shape": {
+        "circularity": 0.5276484238638787,
+        "aspect_ratio": 0.6490066225165563,
+        "extent": 0.6551898905257467
+      },
+      "depth_shape": {
+        "status": "flat",
+        "center_depth_m": 1.4397394061088562,
+        "outer_depth_m": 1.3937829732894897,
+        "curvature_m": -0.045956432819366455,
+        "center_points": 1430,
+        "outer_points": 4812
+      },
+      "confirmation_eligible": false,
+      "apparent_diameter_m": 0.3868,
+      "localization_status": "suppressed_flat_depth_shape",
+      "source": "hsv_minimal",
+      "detector_backend": "hsv_opencv"
+    }
+  ],
+  "hazards": [
+    {
+      "status": "tentative",
+      "position": [
+        3.3379,
+        9.6421,
+        3.3272
+      ],
+      "position_frame_id": "world",
+      "confidence": 0.7305,
+      "observation_count": 29,
+      "distinct_view_count": 0,
+      "source": "hsv_depth_tf",
+      "eligible_observation_count": 0,
+      "eligible_view_ids": [],
+      "flat_view_ids": [
+        "pos:3.2:8.4:3.6|yaw:90"
+      ],
+      "apparent_diameter_cv": 0.0,
+      "min_multiview_aspect_ratio": 0.9563,
+      "depth_curvature_cv": 0.0,
+      "median_normalized_depth_curvature": 0.0,
+      "evidence_status": "collecting_views"
+    },
+    {
+      "status": "tentative",
+      "position": [
+        3.1259,
+        11.52,
+        3.3807
+      ],
+      "position_frame_id": "world",
+      "confidence": 0.8183,
+      "observation_count": 2,
+      "distinct_view_count": 0,
+      "source": "hsv_depth_tf",
+      "eligible_observation_count": 0,
+      "eligible_view_ids": [],
+      "flat_view_ids": [
+        "pos:3.2:8.4:3.6|yaw:90"
+      ],
+      "apparent_diameter_cv": 0.0,
+      "min_multiview_aspect_ratio": 0.6809,
+      "depth_curvature_cv": 0.0,
+      "median_normalized_depth_curvature": 0.0,
+      "evidence_status": "collecting_views"
+    }
+  ],
+  "raw_image": "complex_object_17_l_shape_view00_raw.png",
+  "annotated_image": "complex_object_17_l_shape_view00_annotated.png"
+}

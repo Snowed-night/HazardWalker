@@ -1,0 +1,14 @@
+{
+  "case_id": "complex_multiview_12_cylinder_vertical_view00",
+  "image_stamp": {
+    "sec": 2214,
+    "nanosec": 927000000
+  },
+  "localization_ready": true,
+  "camera_stable": true,
+  "stable_view_frame_count": 31,
+  "detections_2d": [],
+  "hazards": [],
+  "raw_image": "complex_multiview_12_cylinder_vertical_view00_raw.png",
+  "annotated_image": "complex_multiview_12_cylinder_vertical_view00_annotated.png"
+}

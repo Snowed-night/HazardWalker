@@ -1,0 +1,198 @@
+[
+  {
+    "case_id": "official_a_distractor_01_red_cube_only",
+    "suite": "official_distractor_rejection",
+    "description": "A阶段官方干扰源：red_cube_only",
+    "expected_red_ball_count": 0,
+    "initial_strict_count": 0,
+    "initial_partial_count": 1,
+    "initial_red_pixel_count": 3636,
+    "actual_visible_ratio": "",
+    "strict_counts_by_view": [
+      0
+    ],
+    "partial_counts_by_view": [
+      1
+    ],
+    "final_confirmed_count": 0,
+    "actual_lateral_move_count": 0,
+    "motions": [],
+    "localized_truth_count": 0,
+    "localization_status": "no_predictions",
+    "localization_prediction_count": 0,
+    "localization_evaluation_frame": "",
+    "localization_unmatched_prediction_count": 0,
+    "mean_localization_error_m": "",
+    "max_localization_error_m": "",
+    "criterion": "官方红方块/绿球不得形成 confirmed；含红球场景应至少有一个严格候选。候选框不计虚警，局部坐标不得写入官方 JSON。",
+    "result": "pass",
+    "metadata": {
+      "scene": "red_cube_only",
+      "official_target_count": 0,
+      "target_radius_m": 0.15,
+      "official_distractors": [
+        "red_cube"
+      ]
+    },
+    "background_edge_ratios": [
+      0.008440755208333333
+    ]
+  },
+  {
+    "case_id": "official_a_distractor_02_green_sphere_only",
+    "suite": "official_distractor_rejection",
+    "description": "A阶段官方干扰源：green_sphere_only",
+    "expected_red_ball_count": 0,
+    "initial_strict_count": 0,
+    "initial_partial_count": 0,
+    "initial_red_pixel_count": 0,
+    "actual_visible_ratio": "",
+    "strict_counts_by_view": [
+      0
+    ],
+    "partial_counts_by_view": [
+      0
+    ],
+    "final_confirmed_count": 0,
+    "actual_lateral_move_count": 0,
+    "motions": [],
+    "localized_truth_count": 0,
+    "localization_status": "no_predictions",
+    "localization_prediction_count": 0,
+    "localization_evaluation_frame": "",
+    "localization_unmatched_prediction_count": 0,
+    "mean_localization_error_m": "",
+    "max_localization_error_m": "",
+    "criterion": "官方红方块/绿球不得形成 confirmed；含红球场景应至少有一个严格候选。候选框不计虚警，局部坐标不得写入官方 JSON。",
+    "result": "pass",
+    "metadata": {
+      "scene": "green_sphere_only",
+      "official_target_count": 0,
+      "target_radius_m": 0.15,
+      "official_distractors": [
+        "green_sphere"
+      ]
+    },
+    "background_edge_ratios": [
+      0.008160807291666667
+    ]
+  },
+  {
+    "case_id": "official_a_distractor_03_red_ball_with_red_cube",
+    "suite": "official_distractor_rejection",
+    "description": "A阶段官方干扰源：red_ball_with_red_cube",
+    "expected_red_ball_count": 1,
+    "initial_strict_count": 1,
+    "initial_partial_count": 1,
+    "initial_red_pixel_count": 6350,
+    "actual_visible_ratio": "",
+    "strict_counts_by_view": [
+      1
+    ],
+    "partial_counts_by_view": [
+      1
+    ],
+    "final_confirmed_count": 0,
+    "actual_lateral_move_count": 0,
+    "motions": [],
+    "localized_truth_count": 0,
+    "localization_status": "frame_mismatch",
+    "localization_prediction_count": 1,
+    "localization_evaluation_frame": "",
+    "localization_unmatched_prediction_count": 0,
+    "mean_localization_error_m": "",
+    "max_localization_error_m": "",
+    "criterion": "官方红方块/绿球不得形成 confirmed；含红球场景应至少有一个严格候选。候选框不计虚警，局部坐标不得写入官方 JSON。",
+    "result": "pass",
+    "metadata": {
+      "scene": "red_ball_with_red_cube",
+      "official_target_count": 1,
+      "target_radius_m": 0.15,
+      "official_distractors": [
+        "red_cube"
+      ]
+    },
+    "background_edge_ratios": [
+      0.005462239583333334
+    ]
+  },
+  {
+    "case_id": "official_a_distractor_04_red_ball_with_green_sphere",
+    "suite": "official_distractor_rejection",
+    "description": "A阶段官方干扰源：red_ball_with_green_sphere",
+    "expected_red_ball_count": 1,
+    "initial_strict_count": 1,
+    "initial_partial_count": 0,
+    "initial_red_pixel_count": 2497,
+    "actual_visible_ratio": "",
+    "strict_counts_by_view": [
+      1
+    ],
+    "partial_counts_by_view": [
+      0
+    ],
+    "final_confirmed_count": 0,
+    "actual_lateral_move_count": 0,
+    "motions": [],
+    "localized_truth_count": 0,
+    "localization_status": "frame_mismatch",
+    "localization_prediction_count": 1,
+    "localization_evaluation_frame": "",
+    "localization_unmatched_prediction_count": 0,
+    "mean_localization_error_m": "",
+    "max_localization_error_m": "",
+    "criterion": "官方红方块/绿球不得形成 confirmed；含红球场景应至少有一个严格候选。候选框不计虚警，局部坐标不得写入官方 JSON。",
+    "result": "pass",
+    "metadata": {
+      "scene": "red_ball_with_green_sphere",
+      "official_target_count": 1,
+      "target_radius_m": 0.15,
+      "official_distractors": [
+        "green_sphere"
+      ]
+    },
+    "background_edge_ratios": [
+      0.00642578125
+    ]
+  },
+  {
+    "case_id": "official_a_distractor_05_red_ball_with_both_distractors",
+    "suite": "official_distractor_rejection",
+    "description": "A阶段官方干扰源：red_ball_with_both_distractors",
+    "expected_red_ball_count": 1,
+    "initial_strict_count": 1,
+    "initial_partial_count": 1,
+    "initial_red_pixel_count": 6345,
+    "actual_visible_ratio": "",
+    "strict_counts_by_view": [
+      1
+    ],
+    "partial_counts_by_view": [
+      1
+    ],
+    "final_confirmed_count": 0,
+    "actual_lateral_move_count": 0,
+    "motions": [],
+    "localized_truth_count": 0,
+    "localization_status": "frame_mismatch",
+    "localization_prediction_count": 1,
+    "localization_evaluation_frame": "",
+    "localization_unmatched_prediction_count": 0,
+    "mean_localization_error_m": "",
+    "max_localization_error_m": "",
+    "criterion": "官方红方块/绿球不得形成 confirmed；含红球场景应至少有一个严格候选。候选框不计虚警，局部坐标不得写入官方 JSON。",
+    "result": "pass",
+    "metadata": {
+      "scene": "red_ball_with_both_distractors",
+      "official_target_count": 1,
+      "target_radius_m": 0.15,
+      "official_distractors": [
+        "red_cube",
+        "green_sphere"
+      ]
+    },
+    "background_edge_ratios": [
+      0.005953776041666667
+    ]
+  }
+]

@@ -1,0 +1,128 @@
+#!/usr/bin/env bash
+# Host-side wrapper for SimEnv ROS1 Docker (Ubuntu 20.04 + Noetic).
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SIMENV_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+COMPOSE_FILE="$SCRIPT_DIR/docker-compose.yml"
+
+export SIMENV_HOST_PATH="$SIMENV_ROOT"
+# 共享正式环境可显式指定容器属主；未指定时才沿用当前登录账号，避免主账号误建平行容器。
+export DOCKER_SIMENV_USER="${DOCKER_SIMENV_USER:-${USER:-default}}"
+export COMPOSE_PROJECT_NAME="simenv_ros1_${DOCKER_SIMENV_USER}"
+
+CONTAINER_NAME="simenv_ros1_${DOCKER_SIMENV_USER}"
+
+# 所有仿真容器使用 host 网络；Xvfb 除文件 socket 外还会创建同一网络命名
+# 空间可见的抽象 socket，因此不同组不能共同使用默认 :99。按容器属主生成
+# 稳定的高位显示号，同一容器重启保持不变，也不占用宿主桌面的低位显示。
+display_hash="$(printf '%s' "$DOCKER_SIMENV_USER" | cksum | awk '{print $1}')"
+port_slot="$((display_hash % 7000))"
+export SIMENV_HEADLESS_DISPLAY="${SIMENV_HEADLESS_DISPLAY:-:$((2000 + port_slot))}"
+# host 网络同样会共享 ROS/Gazebo master 与 rosbridge TCP 端口。每个容器
+# 使用互不重叠的稳定端口段，避免同名 ROS1 节点互相踢下线。
+export ROS_MASTER_URI="${ROS_MASTER_URI:-http://127.0.0.1:$((12000 + port_slot))}"
+export GAZEBO_MASTER_URI="${GAZEBO_MASTER_URI:-http://127.0.0.1:$((22000 + port_slot))}"
+export ROSBRIDGE_PORT="${ROSBRIDGE_PORT:-$((32000 + port_slot))}"
+
+COMPOSE_FILES=(-f "$COMPOSE_FILE")
+if [[ "${USE_GPU:-1}" != "0" ]] && docker info 2>/dev/null | grep -qi nvidia; then
+  COMPOSE_FILES+=(-f "$SCRIPT_DIR/docker-compose.gpu.yml")
+elif [[ "${USE_GPU:-1}" != "0" ]]; then
+  echo "NOTE: NVIDIA Container Toolkit not detected — container starts without GPU passthrough." >&2
+  echo "      LibTorch CUDA is still in the image; run setup_hxbl_nvidia_docker.sh on hxbl for GPU runtime." >&2
+fi
+
+compose() {
+  # 共享服务器的 Docker 缺少 buildx 时，BuildKit 会让 `compose build` 在启动前失败。
+  # 回退到 Docker 原生构建器不改变镜像内容，只保证手册中的无缓存重建命令可执行。
+  if docker buildx version >/dev/null 2>&1; then
+    docker compose "${COMPOSE_FILES[@]}" "$@"
+  else
+    DOCKER_BUILDKIT=0 docker compose "${COMPOSE_FILES[@]}" "$@"
+  fi
+}
+
+usage() {
+  cat <<EOF
+Usage: $0 {build|up|down|logs|shell|status|image}
+
+  build   Build/pull Ubuntu 20.04 + Noetic image and catkin_make inside container
+  up      Start Classic Gazebo simulation container
+  down    Stop and remove container for current user
+  logs    Follow container stdout
+  shell   Interactive bash inside running container (with devel sourced)
+  status  Show container and key process state
+  image   Build Docker image only (no catkin)
+
+Environment (passed into container):
+  GUI=false  PAUSED=true  START_CONTROLLER=0|1  SIMENV_AUTO_RL=0|1
+  START_ROSBRIDGE=0|1  START_ODOM_RELAY=0|1  SEED=...
+  SIMENV_HEADLESS_DISPLAY=:NNNN  # unset = stable per-container display
+  ROS_MASTER_URI=...  GAZEBO_MASTER_URI=...  ROSBRIDGE_PORT=...
+  SIMENV_MEMORY_LIMIT=32g  SIMENV_MEMORY_SWAP_LIMIT=32g
+  SIMENV_RESTART_POLICY=no
+  Container name: ${CONTAINER_NAME}
+
+Note: Docker image includes LibTorch CUDA (cu118) + CUDA 11.8 toolkit (for cmake compile).
+      GPU passthrough at runtime: USE_GPU=1 (default) when nvidia-container-toolkit is installed.
+      First 'build' may take 10–30 min. Use 'build force' to rebuild when devel/ already exists.
+EOF
+}
+
+cmd="${1:-up}"
+shift || true
+
+case "$cmd" in
+  image)
+    compose build "$@"
+    ;;
+  build)
+    force=""
+    if [[ "${1:-}" == "force" ]]; then
+      force=1
+      shift
+    fi
+    compose build "$@"
+    clean=""
+    if [[ -n "$force" ]]; then
+      clean="rm -rf .ros1_catkin_ws/build .ros1_catkin_ws/devel .ros1_catkin_ws/install && "
+      echo "Force rebuild: cleaning .ros1_catkin_ws/{build,devel,install}/"
+    fi
+    compose run --rm --entrypoint /ros_entrypoint.sh \
+      -e HOST_UID="$(id -u)" -e HOST_GID="$(id -g)" \
+      -e CUDA_HOME="${CUDA_HOME:-/usr/local/cuda}" \
+      simenv_noetic bash -lc "${clean}chmod +x docker/build_catkin.sh && ./docker/build_catkin.sh"
+    ;;
+  up)
+    chmod +x "$SIMENV_ROOT/auto.sh" \
+      "$SIMENV_ROOT/scripts/rosbridge_odom_relay.py" 2>/dev/null || true
+    compose up -d "$@"
+    echo "Container ${CONTAINER_NAME} started. Logs: $0 logs"
+    ;;
+  down)
+    compose down "$@"
+    ;;
+  logs)
+    compose logs -f "$@"
+    ;;
+  shell)
+    docker exec -it "$CONTAINER_NAME" bash -lc \
+      'source /opt/ros/noetic/setup.bash && source .ros1_catkin_ws/devel/setup.bash && bash'
+    ;;
+  status)
+    docker ps -a --filter "name=${CONTAINER_NAME}" --format 'table {{.Names}}\t{{.Status}}\t{{.Image}}'
+    if docker ps --filter "name=${CONTAINER_NAME}" --format '{{.Names}}' | grep -q "$CONTAINER_NAME"; then
+      docker exec "$CONTAINER_NAME" bash -lc \
+        'pgrep -af "gazebo|roslaunch|junior_ctrl" | head -8 || true'
+    fi
+    ;;
+  -h|--help|help)
+    usage
+    ;;
+  *)
+    echo "Unknown command: $cmd" >&2
+    usage >&2
+    exit 1
+    ;;
+esac

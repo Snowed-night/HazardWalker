@@ -4,9 +4,12 @@
 
 ## 当前文件
 
-- `Hazard.msg`：单个危险源数据。
-- `HazardArray.msg`：危险源数组。
-- `MissionState.msg`：任务状态消息。
+- `Hazard.idl`：单个危险源数据，当前 ROS 2 构建使用的接口文件。
+- `HazardArray.idl`：危险源数组，当前 ROS 2 构建使用的接口文件。
+- `MissionState.idl`：任务状态消息，当前 ROS 2 构建使用的接口文件。
+- `Hazard.msg` / `HazardArray.msg` / `MissionState.msg`：保留为消息语义参考。
+
+当前主力机仓库路径包含中文目录名，ROS 2 Jazzy 的 `.msg -> .idl` 适配链路在该路径下存在解析问题，因此本包直接使用 `.idl` 参与构建。
 
 ## 当前使用状态
 

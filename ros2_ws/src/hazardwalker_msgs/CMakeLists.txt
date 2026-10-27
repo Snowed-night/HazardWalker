@@ -7,9 +7,9 @@ find_package(rosidl_default_generators REQUIRED)
 find_package(std_msgs REQUIRED)
 
 rosidl_generate_interfaces(${PROJECT_NAME}
-  "msg/Hazard.msg"
-  "msg/HazardArray.msg"
-  "msg/MissionState.msg"
+  "msg/Hazard.idl"
+  "msg/HazardArray.idl"
+  "msg/MissionState.idl"
   DEPENDENCIES geometry_msgs std_msgs
 )
 

@@ -1,0 +1,14 @@
+{
+  "case_id": "complex_partial_left_05pct_view00",
+  "image_stamp": {
+    "sec": 23,
+    "nanosec": 35000000
+  },
+  "localization_ready": true,
+  "camera_stable": true,
+  "stable_view_frame_count": 24,
+  "detections_2d": [],
+  "hazards": [],
+  "raw_image": "complex_partial_left_05pct_view00_raw.png",
+  "annotated_image": "complex_partial_left_05pct_view00_annotated.png"
+}

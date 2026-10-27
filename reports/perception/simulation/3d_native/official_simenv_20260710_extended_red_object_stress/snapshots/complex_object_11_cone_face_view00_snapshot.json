@@ -1,0 +1,79 @@
+{
+  "case_id": "complex_object_11_cone_face_view00",
+  "image_stamp": {
+    "sec": 1689,
+    "nanosec": 6000000
+  },
+  "localization_ready": true,
+  "camera_stable": true,
+  "stable_view_frame_count": 32,
+  "detections_2d": [
+    {
+      "id": 1,
+      "frame_id": "hazardwalker_camera",
+      "view_id": "pos:3.2:8.4:3.6|yaw:90",
+      "stamp": {
+        "sec": 1688,
+        "nanosec": 974000000
+      },
+      "bbox": {
+        "x_min": 260,
+        "y_min": 182,
+        "x_max": 379,
+        "y_max": 301
+      },
+      "confidence": 0.9613807254932539,
+      "red_pixel_count": 11332,
+      "is_partial": false,
+      "requires_reobservation": false,
+      "may_be_merged": false,
+      "from_merged_split": false,
+      "quality_reason": "stable_shape",
+      "shape": {
+        "circularity": 0.8928785941008004,
+        "aspect_ratio": 1.0,
+        "extent": 0.7750694444444445
+      },
+      "depth_shape": {
+        "status": "spherical",
+        "center_depth_m": 1.357745110988617,
+        "outer_depth_m": 1.5355515480041504,
+        "curvature_m": 0.17780643701553345,
+        "center_points": 1396,
+        "outer_points": 4704
+      },
+      "confirmation_eligible": true,
+      "apparent_diameter_m": 0.3043,
+      "localization_status": "localized",
+      "source": "hsv_minimal",
+      "detector_backend": "hsv_opencv"
+    }
+  ],
+  "hazards": [
+    {
+      "status": "tentative",
+      "position": [
+        3.2987,
+        9.9432,
+        3.3251
+      ],
+      "position_frame_id": "world",
+      "confidence": 0.9631,
+      "observation_count": 30,
+      "distinct_view_count": 1,
+      "source": "hsv_depth_tf",
+      "eligible_observation_count": 30,
+      "eligible_view_ids": [
+        "pos:3.2:8.4:3.6|yaw:90"
+      ],
+      "flat_view_ids": [],
+      "apparent_diameter_cv": 0.0,
+      "min_multiview_aspect_ratio": 1.0,
+      "depth_curvature_cv": 0.0,
+      "median_normalized_depth_curvature": 0.586,
+      "evidence_status": "collecting_views"
+    }
+  ],
+  "raw_image": "complex_object_11_cone_face_view00_raw.png",
+  "annotated_image": "complex_object_11_cone_face_view00_annotated.png"
+}

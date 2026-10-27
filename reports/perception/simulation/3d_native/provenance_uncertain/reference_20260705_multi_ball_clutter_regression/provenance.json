@@ -1,0 +1,8 @@
+{
+  "classification_status": "provenance_uncertain",
+  "source_capture_stage": "20260705",
+  "archive_commit": "978fac2",
+  "runtime_commit": "provenance_uncertain",
+  "actual_run_time": "provenance_uncertain",
+  "note": "输入帧来源明确，但再处理运行时间、SEED和实际代码SHA缺失。"
+}

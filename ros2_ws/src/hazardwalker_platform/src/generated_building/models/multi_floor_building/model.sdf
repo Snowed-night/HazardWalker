@@ -1,0 +1,967 @@
+<?xml version='1.0'?>
+<sdf version='1.7'>
+  <model name='MultiFloorBuilding'>
+    <static>true</static>
+
+    <!-- Ground base -->
+    <link name='ground_base'>
+      <pose>0 0 -0.15 0 0 0</pose>
+      <visual name='visual'>
+        <geometry><box><size>10.4 9.2 0.2</size></box></geometry>
+        <material><ambient>0.3 0.4 0.3 1</ambient><diffuse>0.4 0.5 0.4 1</diffuse></material>
+      </visual>
+      <collision name='collision'>
+        <geometry><box><size>10.4 9.2 0.2</size></box></geometry>
+      </collision>
+    </link>
+
+    <!-- Floor 0 -->
+    <link name='floor_0'>
+      <pose>0 0 0.05 0 0 0</pose>
+      <visual name='visual'>
+        <geometry><box><size>9.4 8.2 0.1</size></box></geometry>
+        <material><ambient>0.8 0.75 0.7 1</ambient><diffuse>0.85 0.8 0.75 1</diffuse></material>
+      </visual>
+      <collision name='collision'>
+        <geometry><box><size>9.4 8.2 0.1</size></box></geometry>
+      </collision>
+    </link>
+
+    <!-- Outer walls -->
+    <link name='outer_wall_north_0'>
+      <pose>0 4.05 0.75 0 0 0</pose>
+      <visual name='visual'>
+        <geometry><box><size>9.4 0.1 1.5</size></box></geometry>
+        <material><ambient>0.55 0.5 0.45 1</ambient><diffuse>0.65 0.6 0.55 1</diffuse></material>
+      </visual>
+      <collision name='collision'>
+        <geometry><box><size>9.4 0.1 1.5</size></box></geometry>
+      </collision>
+    </link>
+
+    <link name='outer_wall_south_0'>
+      <pose>0 -4.05 0.75 0 0 0</pose>
+      <visual name='visual'>
+        <geometry><box><size>9.4 0.1 1.5</size></box></geometry>
+        <material><ambient>0.55 0.5 0.45 1</ambient><diffuse>0.65 0.6 0.55 1</diffuse></material>
+      </visual>
+      <collision name='collision'>
+        <geometry><box><size>9.4 0.1 1.5</size></box></geometry>
+      </collision>
+    </link>
+
+    <link name='outer_wall_west_0'>
+      <pose>-4.65 0 0.75 0 0 0</pose>
+      <visual name='visual'>
+        <geometry><box><size>0.1 8.2 1.5</size></box></geometry>
+        <material><ambient>0.55 0.5 0.45 1</ambient><diffuse>0.65 0.6 0.55 1</diffuse></material>
+      </visual>
+      <collision name='collision'>
+        <geometry><box><size>0.1 8.2 1.5</size></box></geometry>
+      </collision>
+    </link>
+
+    <link name='outer_wall_east_0'>
+      <pose>4.65 0 0.75 0 0 0</pose>
+      <visual name='visual'>
+        <geometry><box><size>0.1 8.2 1.5</size></box></geometry>
+        <material><ambient>0.55 0.5 0.45 1</ambient><diffuse>0.65 0.6 0.55 1</diffuse></material>
+      </visual>
+      <collision name='collision'>
+        <geometry><box><size>0.1 8.2 1.5</size></box></geometry>
+      </collision>
+    </link>
+
+    <!-- Central corridor north wall -->
+    <link name='corridor_wall_north_0'>
+      <pose>0 3.05 0.75 0 0 0</pose>
+      <visual name='visual'>
+        <geometry><box><size>9.200000000000001 0.1 1.5</size></box></geometry>
+        <material><ambient>0.6 0.55 0.5 1</ambient><diffuse>0.7 0.65 0.6 1</diffuse></material>
+      </visual>
+      <collision name='collision'>
+        <geometry><box><size>9.200000000000001 0.1 1.5</size></box></geometry>
+      </collision>
+    </link>
+
+    <!-- Central corridor south wall -->
+    <link name='corridor_wall_south_0'>
+      <pose>0 -3.05 0.75 0 0 0</pose>
+      <visual name='visual'>
+        <geometry><box><size>9.200000000000001 0.1 1.5</size></box></geometry>
+        <material><ambient>0.6 0.55 0.5 1</ambient><diffuse>0.7 0.65 0.6 1</diffuse></material>
+      </visual>
+      <collision name='collision'>
+        <geometry><box><size>9.200000000000001 0.1 1.5</size></box></geometry>
+      </collision>
+    </link>
+
+    <!-- Room divider wall 0 on floor 0 -->
+    <link name='room_divider_0_0'>
+      <pose>-3.0500000000000007 0 0.75 0 0 0</pose>
+      <visual name='visual'>
+        <geometry><box><size>0.1 7.999999999999999 1.5</size></box></geometry>
+        <material><ambient>0.6 0.55 0.5 1</ambient><diffuse>0.7 0.65 0.6 1</diffuse></material>
+      </visual>
+      <collision name='collision'>
+        <geometry><box><size>0.1 7.999999999999999 1.5</size></box></geometry>
+      </collision>
+    </link>
+
+    <!-- Room divider wall 1 on floor 0 -->
+    <link name='room_divider_0_1'>
+      <pose>0.04999999999999938 0 0.75 0 0 0</pose>
+      <visual name='visual'>
+        <geometry><box><size>0.1 7.999999999999999 1.5</size></box></geometry>
+        <material><ambient>0.6 0.55 0.5 1</ambient><diffuse>0.7 0.65 0.6 1</diffuse></material>
+      </visual>
+      <collision name='collision'>
+        <geometry><box><size>0.1 7.999999999999999 1.5</size></box></geometry>
+      </collision>
+    </link>
+
+    <!-- North room 0 door frame on floor 0 -->
+    <link name='north_door_frame_0_0'>
+      <pose>-3.1000000000000005 3.1 0.75 0 0 0</pose>
+      <visual name='visual'>
+        <geometry><box><size>0.8 0.1 1.5</size></box></geometry>
+        <material><ambient>0.5 0.4 0.3 1</ambient><diffuse>0.6 0.5 0.4 1</diffuse></material>
+      </visual>
+      <collision name='collision'>
+        <geometry><box><size>0.8 0.1 1.5</size></box></geometry>
+      </collision>
+    </link>
+
+    <!-- South room 0 door frame on floor 0 -->
+    <link name='south_door_frame_0_0'>
+      <pose>-3.1000000000000005 -3.1 0.75 0 0 0</pose>
+      <visual name='visual'>
+        <geometry><box><size>0.8 0.1 1.5</size></box></geometry>
+        <material><ambient>0.5 0.4 0.3 1</ambient><diffuse>0.6 0.5 0.4 1</diffuse></material>
+      </visual>
+      <collision name='collision'>
+        <geometry><box><size>0.8 0.1 1.5</size></box></geometry>
+      </collision>
+    </link>
+
+    <!-- North room 0 door on floor 0 -->
+    <link name='north_door_0_0'>
+      <pose>-3.1000000000000005 3.11 0.75 0 0 0</pose>
+      <visual name='visual'>
+        <geometry><box><size>0.8 0.02 1.5</size></box></geometry>
+        <material><ambient>0.8 0.7 0.6 1</ambient><diffuse>0.9 0.8 0.7 1</diffuse></material>
+      </visual>
+    </link>
+
+    <!-- South room 0 door on floor 0 -->
+    <link name='south_door_0_0'>
+      <pose>-3.1000000000000005 -3.11 0.75 0 0 0</pose>
+      <visual name='visual'>
+        <geometry><box><size>0.8 0.02 1.5</size></box></geometry>
+        <material><ambient>0.8 0.7 0.6 1</ambient><diffuse>0.9 0.8 0.7 1</diffuse></material>
+      </visual>
+    </link>
+
+    <!-- North room 1 door frame on floor 0 -->
+    <link name='north_door_frame_0_1'>
+      <pose>-4.440892098500626e-16 3.1 0.75 0 0 0</pose>
+      <visual name='visual'>
+        <geometry><box><size>0.8 0.1 1.5</size></box></geometry>
+        <material><ambient>0.5 0.4 0.3 1</ambient><diffuse>0.6 0.5 0.4 1</diffuse></material>
+      </visual>
+      <collision name='collision'>
+        <geometry><box><size>0.8 0.1 1.5</size></box></geometry>
+      </collision>
+    </link>
+
+    <!-- South room 1 door frame on floor 0 -->
+    <link name='south_door_frame_0_1'>
+      <pose>-4.440892098500626e-16 -3.1 0.75 0 0 0</pose>
+      <visual name='visual'>
+        <geometry><box><size>0.8 0.1 1.5</size></box></geometry>
+        <material><ambient>0.5 0.4 0.3 1</ambient><diffuse>0.6 0.5 0.4 1</diffuse></material>
+      </visual>
+      <collision name='collision'>
+        <geometry><box><size>0.8 0.1 1.5</size></box></geometry>
+      </collision>
+    </link>
+
+    <!-- North room 1 door on floor 0 -->
+    <link name='north_door_0_1'>
+      <pose>-4.440892098500626e-16 3.11 0.75 0 0 0</pose>
+      <visual name='visual'>
+        <geometry><box><size>0.8 0.02 1.5</size></box></geometry>
+        <material><ambient>0.8 0.7 0.6 1</ambient><diffuse>0.9 0.8 0.7 1</diffuse></material>
+      </visual>
+    </link>
+
+    <!-- South room 1 door on floor 0 -->
+    <link name='south_door_0_1'>
+      <pose>-4.440892098500626e-16 -3.11 0.75 0 0 0</pose>
+      <visual name='visual'>
+        <geometry><box><size>0.8 0.02 1.5</size></box></geometry>
+        <material><ambient>0.8 0.7 0.6 1</ambient><diffuse>0.9 0.8 0.7 1</diffuse></material>
+      </visual>
+    </link>
+
+    <!-- North room 2 door frame on floor 0 -->
+    <link name='north_door_frame_0_2'>
+      <pose>3.0999999999999996 3.1 0.75 0 0 0</pose>
+      <visual name='visual'>
+        <geometry><box><size>0.8 0.1 1.5</size></box></geometry>
+        <material><ambient>0.5 0.4 0.3 1</ambient><diffuse>0.6 0.5 0.4 1</diffuse></material>
+      </visual>
+      <collision name='collision'>
+        <geometry><box><size>0.8 0.1 1.5</size></box></geometry>
+      </collision>
+    </link>
+
+    <!-- South room 2 door frame on floor 0 -->
+    <link name='south_door_frame_0_2'>
+      <pose>3.0999999999999996 -3.1 0.75 0 0 0</pose>
+      <visual name='visual'>
+        <geometry><box><size>0.8 0.1 1.5</size></box></geometry>
+        <material><ambient>0.5 0.4 0.3 1</ambient><diffuse>0.6 0.5 0.4 1</diffuse></material>
+      </visual>
+      <collision name='collision'>
+        <geometry><box><size>0.8 0.1 1.5</size></box></geometry>
+      </collision>
+    </link>
+
+    <!-- North room 2 door on floor 0 -->
+    <link name='north_door_0_2'>
+      <pose>3.0999999999999996 3.11 0.75 0 0 0</pose>
+      <visual name='visual'>
+        <geometry><box><size>0.8 0.02 1.5</size></box></geometry>
+        <material><ambient>0.8 0.7 0.6 1</ambient><diffuse>0.9 0.8 0.7 1</diffuse></material>
+      </visual>
+    </link>
+
+    <!-- South room 2 door on floor 0 -->
+    <link name='south_door_0_2'>
+      <pose>3.0999999999999996 -3.11 0.75 0 0 0</pose>
+      <visual name='visual'>
+        <geometry><box><size>0.8 0.02 1.5</size></box></geometry>
+        <material><ambient>0.8 0.7 0.6 1</ambient><diffuse>0.9 0.8 0.7 1</diffuse></material>
+      </visual>
+    </link>
+
+    <link name='stair_0_0'>
+      <pose>-4.000000000000001 -2.85 0.175 0 0 0</pose>
+      <visual name='visual'>
+        <geometry><box><size>1.2 0.3 0.15</size></box></geometry>
+        <material><ambient>0.5 0.5 0.5 1</ambient><diffuse>0.6 0.6 0.6 1</diffuse></material>
+      </visual>
+      <collision name='collision'>
+        <geometry><box><size>1.2 0.3 0.15</size></box></geometry>
+      </collision>
+    </link>
+
+    <link name='stair_0_1'>
+      <pose>-4.000000000000001 -2.5500000000000003 0.32499999999999996 0 0 0</pose>
+      <visual name='visual'>
+        <geometry><box><size>1.2 0.3 0.15</size></box></geometry>
+        <material><ambient>0.5 0.5 0.5 1</ambient><diffuse>0.6 0.6 0.6 1</diffuse></material>
+      </visual>
+      <collision name='collision'>
+        <geometry><box><size>1.2 0.3 0.15</size></box></geometry>
+      </collision>
+    </link>
+
+    <link name='stair_0_2'>
+      <pose>-4.000000000000001 -2.25 0.475 0 0 0</pose>
+      <visual name='visual'>
+        <geometry><box><size>1.2 0.3 0.15</size></box></geometry>
+        <material><ambient>0.5 0.5 0.5 1</ambient><diffuse>0.6 0.6 0.6 1</diffuse></material>
+      </visual>
+      <collision name='collision'>
+        <geometry><box><size>1.2 0.3 0.15</size></box></geometry>
+      </collision>
+    </link>
+
+    <link name='stair_0_3'>
+      <pose>-4.000000000000001 -1.9500000000000002 0.625 0 0 0</pose>
+      <visual name='visual'>
+        <geometry><box><size>1.2 0.3 0.15</size></box></geometry>
+        <material><ambient>0.5 0.5 0.5 1</ambient><diffuse>0.6 0.6 0.6 1</diffuse></material>
+      </visual>
+      <collision name='collision'>
+        <geometry><box><size>1.2 0.3 0.15</size></box></geometry>
+      </collision>
+    </link>
+
+    <link name='stair_0_4'>
+      <pose>-4.000000000000001 -1.6500000000000001 0.7749999999999999 0 0 0</pose>
+      <visual name='visual'>
+        <geometry><box><size>1.2 0.3 0.15</size></box></geometry>
+        <material><ambient>0.5 0.5 0.5 1</ambient><diffuse>0.6 0.6 0.6 1</diffuse></material>
+      </visual>
+      <collision name='collision'>
+        <geometry><box><size>1.2 0.3 0.15</size></box></geometry>
+      </collision>
+    </link>
+
+    <link name='stair_0_5'>
+      <pose>-4.000000000000001 -1.35 0.925 0 0 0</pose>
+      <visual name='visual'>
+        <geometry><box><size>1.2 0.3 0.15</size></box></geometry>
+        <material><ambient>0.5 0.5 0.5 1</ambient><diffuse>0.6 0.6 0.6 1</diffuse></material>
+      </visual>
+      <collision name='collision'>
+        <geometry><box><size>1.2 0.3 0.15</size></box></geometry>
+      </collision>
+    </link>
+
+    <link name='stair_0_6'>
+      <pose>-4.000000000000001 -1.0500000000000003 1.075 0 0 0</pose>
+      <visual name='visual'>
+        <geometry><box><size>1.2 0.3 0.15</size></box></geometry>
+        <material><ambient>0.5 0.5 0.5 1</ambient><diffuse>0.6 0.6 0.6 1</diffuse></material>
+      </visual>
+      <collision name='collision'>
+        <geometry><box><size>1.2 0.3 0.15</size></box></geometry>
+      </collision>
+    </link>
+
+    <link name='stair_0_7'>
+      <pose>-4.000000000000001 -0.75 1.225 0 0 0</pose>
+      <visual name='visual'>
+        <geometry><box><size>1.2 0.3 0.15</size></box></geometry>
+        <material><ambient>0.5 0.5 0.5 1</ambient><diffuse>0.6 0.6 0.6 1</diffuse></material>
+      </visual>
+      <collision name='collision'>
+        <geometry><box><size>1.2 0.3 0.15</size></box></geometry>
+      </collision>
+    </link>
+
+    <link name='stair_0_8'>
+      <pose>-4.000000000000001 -0.4500000000000002 1.375 0 0 0</pose>
+      <visual name='visual'>
+        <geometry><box><size>1.2 0.3 0.15</size></box></geometry>
+        <material><ambient>0.5 0.5 0.5 1</ambient><diffuse>0.6 0.6 0.6 1</diffuse></material>
+      </visual>
+      <collision name='collision'>
+        <geometry><box><size>1.2 0.3 0.15</size></box></geometry>
+      </collision>
+    </link>
+
+    <link name='stair_0_9'>
+      <pose>-4.000000000000001 -0.15000000000000036 1.525 0 0 0</pose>
+      <visual name='visual'>
+        <geometry><box><size>1.2 0.3 0.15</size></box></geometry>
+        <material><ambient>0.5 0.5 0.5 1</ambient><diffuse>0.6 0.6 0.6 1</diffuse></material>
+      </visual>
+      <collision name='collision'>
+        <geometry><box><size>1.2 0.3 0.15</size></box></geometry>
+      </collision>
+    </link>
+
+    <!-- Floor 1 -->
+    <link name='floor_1'>
+      <pose>0 0 1.55 0 0 0</pose>
+      <visual name='visual'>
+        <geometry><box><size>9.4 8.2 0.1</size></box></geometry>
+        <material><ambient>0.8 0.75 0.7 1</ambient><diffuse>0.85 0.8 0.75 1</diffuse></material>
+      </visual>
+      <collision name='collision'>
+        <geometry><box><size>9.4 8.2 0.1</size></box></geometry>
+      </collision>
+    </link>
+
+    <!-- Outer walls -->
+    <link name='outer_wall_north_1'>
+      <pose>0 4.05 2.25 0 0 0</pose>
+      <visual name='visual'>
+        <geometry><box><size>9.4 0.1 1.5</size></box></geometry>
+        <material><ambient>0.55 0.5 0.45 1</ambient><diffuse>0.65 0.6 0.55 1</diffuse></material>
+      </visual>
+      <collision name='collision'>
+        <geometry><box><size>9.4 0.1 1.5</size></box></geometry>
+      </collision>
+    </link>
+
+    <link name='outer_wall_south_1'>
+      <pose>0 -4.05 2.25 0 0 0</pose>
+      <visual name='visual'>
+        <geometry><box><size>9.4 0.1 1.5</size></box></geometry>
+        <material><ambient>0.55 0.5 0.45 1</ambient><diffuse>0.65 0.6 0.55 1</diffuse></material>
+      </visual>
+      <collision name='collision'>
+        <geometry><box><size>9.4 0.1 1.5</size></box></geometry>
+      </collision>
+    </link>
+
+    <link name='outer_wall_west_1'>
+      <pose>-4.65 0 2.25 0 0 0</pose>
+      <visual name='visual'>
+        <geometry><box><size>0.1 8.2 1.5</size></box></geometry>
+        <material><ambient>0.55 0.5 0.45 1</ambient><diffuse>0.65 0.6 0.55 1</diffuse></material>
+      </visual>
+      <collision name='collision'>
+        <geometry><box><size>0.1 8.2 1.5</size></box></geometry>
+      </collision>
+    </link>
+
+    <link name='outer_wall_east_1'>
+      <pose>4.65 0 2.25 0 0 0</pose>
+      <visual name='visual'>
+        <geometry><box><size>0.1 8.2 1.5</size></box></geometry>
+        <material><ambient>0.55 0.5 0.45 1</ambient><diffuse>0.65 0.6 0.55 1</diffuse></material>
+      </visual>
+      <collision name='collision'>
+        <geometry><box><size>0.1 8.2 1.5</size></box></geometry>
+      </collision>
+    </link>
+
+    <!-- Central corridor north wall -->
+    <link name='corridor_wall_north_1'>
+      <pose>0 3.05 2.25 0 0 0</pose>
+      <visual name='visual'>
+        <geometry><box><size>9.200000000000001 0.1 1.5</size></box></geometry>
+        <material><ambient>0.6 0.55 0.5 1</ambient><diffuse>0.7 0.65 0.6 1</diffuse></material>
+      </visual>
+      <collision name='collision'>
+        <geometry><box><size>9.200000000000001 0.1 1.5</size></box></geometry>
+      </collision>
+    </link>
+
+    <!-- Central corridor south wall -->
+    <link name='corridor_wall_south_1'>
+      <pose>0 -3.05 2.25 0 0 0</pose>
+      <visual name='visual'>
+        <geometry><box><size>9.200000000000001 0.1 1.5</size></box></geometry>
+        <material><ambient>0.6 0.55 0.5 1</ambient><diffuse>0.7 0.65 0.6 1</diffuse></material>
+      </visual>
+      <collision name='collision'>
+        <geometry><box><size>9.200000000000001 0.1 1.5</size></box></geometry>
+      </collision>
+    </link>
+
+    <!-- Room divider wall 0 on floor 1 -->
+    <link name='room_divider_1_0'>
+      <pose>-3.0500000000000007 0 2.25 0 0 0</pose>
+      <visual name='visual'>
+        <geometry><box><size>0.1 7.999999999999999 1.5</size></box></geometry>
+        <material><ambient>0.6 0.55 0.5 1</ambient><diffuse>0.7 0.65 0.6 1</diffuse></material>
+      </visual>
+      <collision name='collision'>
+        <geometry><box><size>0.1 7.999999999999999 1.5</size></box></geometry>
+      </collision>
+    </link>
+
+    <!-- Room divider wall 1 on floor 1 -->
+    <link name='room_divider_1_1'>
+      <pose>0.04999999999999938 0 2.25 0 0 0</pose>
+      <visual name='visual'>
+        <geometry><box><size>0.1 7.999999999999999 1.5</size></box></geometry>
+        <material><ambient>0.6 0.55 0.5 1</ambient><diffuse>0.7 0.65 0.6 1</diffuse></material>
+      </visual>
+      <collision name='collision'>
+        <geometry><box><size>0.1 7.999999999999999 1.5</size></box></geometry>
+      </collision>
+    </link>
+
+    <!-- North room 0 door frame on floor 1 -->
+    <link name='north_door_frame_1_0'>
+      <pose>-3.1000000000000005 3.1 2.25 0 0 0</pose>
+      <visual name='visual'>
+        <geometry><box><size>0.8 0.1 1.5</size></box></geometry>
+        <material><ambient>0.5 0.4 0.3 1</ambient><diffuse>0.6 0.5 0.4 1</diffuse></material>
+      </visual>
+      <collision name='collision'>
+        <geometry><box><size>0.8 0.1 1.5</size></box></geometry>
+      </collision>
+    </link>
+
+    <!-- South room 0 door frame on floor 1 -->
+    <link name='south_door_frame_1_0'>
+      <pose>-3.1000000000000005 -3.1 2.25 0 0 0</pose>
+      <visual name='visual'>
+        <geometry><box><size>0.8 0.1 1.5</size></box></geometry>
+        <material><ambient>0.5 0.4 0.3 1</ambient><diffuse>0.6 0.5 0.4 1</diffuse></material>
+      </visual>
+      <collision name='collision'>
+        <geometry><box><size>0.8 0.1 1.5</size></box></geometry>
+      </collision>
+    </link>
+
+    <!-- North room 0 door on floor 1 -->
+    <link name='north_door_1_0'>
+      <pose>-3.1000000000000005 3.11 2.25 0 0 0</pose>
+      <visual name='visual'>
+        <geometry><box><size>0.8 0.02 1.5</size></box></geometry>
+        <material><ambient>0.8 0.7 0.6 1</ambient><diffuse>0.9 0.8 0.7 1</diffuse></material>
+      </visual>
+    </link>
+
+    <!-- South room 0 door on floor 1 -->
+    <link name='south_door_1_0'>
+      <pose>-3.1000000000000005 -3.11 2.25 0 0 0</pose>
+      <visual name='visual'>
+        <geometry><box><size>0.8 0.02 1.5</size></box></geometry>
+        <material><ambient>0.8 0.7 0.6 1</ambient><diffuse>0.9 0.8 0.7 1</diffuse></material>
+      </visual>
+    </link>
+
+    <!-- North room 1 door frame on floor 1 -->
+    <link name='north_door_frame_1_1'>
+      <pose>-4.440892098500626e-16 3.1 2.25 0 0 0</pose>
+      <visual name='visual'>
+        <geometry><box><size>0.8 0.1 1.5</size></box></geometry>
+        <material><ambient>0.5 0.4 0.3 1</ambient><diffuse>0.6 0.5 0.4 1</diffuse></material>
+      </visual>
+      <collision name='collision'>
+        <geometry><box><size>0.8 0.1 1.5</size></box></geometry>
+      </collision>
+    </link>
+
+    <!-- South room 1 door frame on floor 1 -->
+    <link name='south_door_frame_1_1'>
+      <pose>-4.440892098500626e-16 -3.1 2.25 0 0 0</pose>
+      <visual name='visual'>
+        <geometry><box><size>0.8 0.1 1.5</size></box></geometry>
+        <material><ambient>0.5 0.4 0.3 1</ambient><diffuse>0.6 0.5 0.4 1</diffuse></material>
+      </visual>
+      <collision name='collision'>
+        <geometry><box><size>0.8 0.1 1.5</size></box></geometry>
+      </collision>
+    </link>
+
+    <!-- North room 1 door on floor 1 -->
+    <link name='north_door_1_1'>
+      <pose>-4.440892098500626e-16 3.11 2.25 0 0 0</pose>
+      <visual name='visual'>
+        <geometry><box><size>0.8 0.02 1.5</size></box></geometry>
+        <material><ambient>0.8 0.7 0.6 1</ambient><diffuse>0.9 0.8 0.7 1</diffuse></material>
+      </visual>
+    </link>
+
+    <!-- South room 1 door on floor 1 -->
+    <link name='south_door_1_1'>
+      <pose>-4.440892098500626e-16 -3.11 2.25 0 0 0</pose>
+      <visual name='visual'>
+        <geometry><box><size>0.8 0.02 1.5</size></box></geometry>
+        <material><ambient>0.8 0.7 0.6 1</ambient><diffuse>0.9 0.8 0.7 1</diffuse></material>
+      </visual>
+    </link>
+
+    <!-- North room 2 door frame on floor 1 -->
+    <link name='north_door_frame_1_2'>
+      <pose>3.0999999999999996 3.1 2.25 0 0 0</pose>
+      <visual name='visual'>
+        <geometry><box><size>0.8 0.1 1.5</size></box></geometry>
+        <material><ambient>0.5 0.4 0.3 1</ambient><diffuse>0.6 0.5 0.4 1</diffuse></material>
+      </visual>
+      <collision name='collision'>
+        <geometry><box><size>0.8 0.1 1.5</size></box></geometry>
+      </collision>
+    </link>
+
+    <!-- South room 2 door frame on floor 1 -->
+    <link name='south_door_frame_1_2'>
+      <pose>3.0999999999999996 -3.1 2.25 0 0 0</pose>
+      <visual name='visual'>
+        <geometry><box><size>0.8 0.1 1.5</size></box></geometry>
+        <material><ambient>0.5 0.4 0.3 1</ambient><diffuse>0.6 0.5 0.4 1</diffuse></material>
+      </visual>
+      <collision name='collision'>
+        <geometry><box><size>0.8 0.1 1.5</size></box></geometry>
+      </collision>
+    </link>
+
+    <!-- North room 2 door on floor 1 -->
+    <link name='north_door_1_2'>
+      <pose>3.0999999999999996 3.11 2.25 0 0 0</pose>
+      <visual name='visual'>
+        <geometry><box><size>0.8 0.02 1.5</size></box></geometry>
+        <material><ambient>0.8 0.7 0.6 1</ambient><diffuse>0.9 0.8 0.7 1</diffuse></material>
+      </visual>
+    </link>
+
+    <!-- South room 2 door on floor 1 -->
+    <link name='south_door_1_2'>
+      <pose>3.0999999999999996 -3.11 2.25 0 0 0</pose>
+      <visual name='visual'>
+        <geometry><box><size>0.8 0.02 1.5</size></box></geometry>
+        <material><ambient>0.8 0.7 0.6 1</ambient><diffuse>0.9 0.8 0.7 1</diffuse></material>
+      </visual>
+    </link>
+
+    <link name='stair_1_0'>
+      <pose>-4.000000000000001 -2.85 1.675 0 0 0</pose>
+      <visual name='visual'>
+        <geometry><box><size>1.2 0.3 0.15</size></box></geometry>
+        <material><ambient>0.5 0.5 0.5 1</ambient><diffuse>0.6 0.6 0.6 1</diffuse></material>
+      </visual>
+      <collision name='collision'>
+        <geometry><box><size>1.2 0.3 0.15</size></box></geometry>
+      </collision>
+    </link>
+
+    <link name='stair_1_1'>
+      <pose>-4.000000000000001 -2.5500000000000003 1.825 0 0 0</pose>
+      <visual name='visual'>
+        <geometry><box><size>1.2 0.3 0.15</size></box></geometry>
+        <material><ambient>0.5 0.5 0.5 1</ambient><diffuse>0.6 0.6 0.6 1</diffuse></material>
+      </visual>
+      <collision name='collision'>
+        <geometry><box><size>1.2 0.3 0.15</size></box></geometry>
+      </collision>
+    </link>
+
+    <link name='stair_1_2'>
+      <pose>-4.000000000000001 -2.25 1.975 0 0 0</pose>
+      <visual name='visual'>
+        <geometry><box><size>1.2 0.3 0.15</size></box></geometry>
+        <material><ambient>0.5 0.5 0.5 1</ambient><diffuse>0.6 0.6 0.6 1</diffuse></material>
+      </visual>
+      <collision name='collision'>
+        <geometry><box><size>1.2 0.3 0.15</size></box></geometry>
+      </collision>
+    </link>
+
+    <link name='stair_1_3'>
+      <pose>-4.000000000000001 -1.9500000000000002 2.125 0 0 0</pose>
+      <visual name='visual'>
+        <geometry><box><size>1.2 0.3 0.15</size></box></geometry>
+        <material><ambient>0.5 0.5 0.5 1</ambient><diffuse>0.6 0.6 0.6 1</diffuse></material>
+      </visual>
+      <collision name='collision'>
+        <geometry><box><size>1.2 0.3 0.15</size></box></geometry>
+      </collision>
+    </link>
+
+    <link name='stair_1_4'>
+      <pose>-4.000000000000001 -1.6500000000000001 2.275 0 0 0</pose>
+      <visual name='visual'>
+        <geometry><box><size>1.2 0.3 0.15</size></box></geometry>
+        <material><ambient>0.5 0.5 0.5 1</ambient><diffuse>0.6 0.6 0.6 1</diffuse></material>
+      </visual>
+      <collision name='collision'>
+        <geometry><box><size>1.2 0.3 0.15</size></box></geometry>
+      </collision>
+    </link>
+
+    <link name='stair_1_5'>
+      <pose>-4.000000000000001 -1.35 2.425 0 0 0</pose>
+      <visual name='visual'>
+        <geometry><box><size>1.2 0.3 0.15</size></box></geometry>
+        <material><ambient>0.5 0.5 0.5 1</ambient><diffuse>0.6 0.6 0.6 1</diffuse></material>
+      </visual>
+      <collision name='collision'>
+        <geometry><box><size>1.2 0.3 0.15</size></box></geometry>
+      </collision>
+    </link>
+
+    <link name='stair_1_6'>
+      <pose>-4.000000000000001 -1.0500000000000003 2.575 0 0 0</pose>
+      <visual name='visual'>
+        <geometry><box><size>1.2 0.3 0.15</size></box></geometry>
+        <material><ambient>0.5 0.5 0.5 1</ambient><diffuse>0.6 0.6 0.6 1</diffuse></material>
+      </visual>
+      <collision name='collision'>
+        <geometry><box><size>1.2 0.3 0.15</size></box></geometry>
+      </collision>
+    </link>
+
+    <link name='stair_1_7'>
+      <pose>-4.000000000000001 -0.75 2.725 0 0 0</pose>
+      <visual name='visual'>
+        <geometry><box><size>1.2 0.3 0.15</size></box></geometry>
+        <material><ambient>0.5 0.5 0.5 1</ambient><diffuse>0.6 0.6 0.6 1</diffuse></material>
+      </visual>
+      <collision name='collision'>
+        <geometry><box><size>1.2 0.3 0.15</size></box></geometry>
+      </collision>
+    </link>
+
+    <link name='stair_1_8'>
+      <pose>-4.000000000000001 -0.4500000000000002 2.875 0 0 0</pose>
+      <visual name='visual'>
+        <geometry><box><size>1.2 0.3 0.15</size></box></geometry>
+        <material><ambient>0.5 0.5 0.5 1</ambient><diffuse>0.6 0.6 0.6 1</diffuse></material>
+      </visual>
+      <collision name='collision'>
+        <geometry><box><size>1.2 0.3 0.15</size></box></geometry>
+      </collision>
+    </link>
+
+    <link name='stair_1_9'>
+      <pose>-4.000000000000001 -0.15000000000000036 3.025 0 0 0</pose>
+      <visual name='visual'>
+        <geometry><box><size>1.2 0.3 0.15</size></box></geometry>
+        <material><ambient>0.5 0.5 0.5 1</ambient><diffuse>0.6 0.6 0.6 1</diffuse></material>
+      </visual>
+      <collision name='collision'>
+        <geometry><box><size>1.2 0.3 0.15</size></box></geometry>
+      </collision>
+    </link>
+
+    <!-- Floor 2 -->
+    <link name='floor_2'>
+      <pose>0 0 3.05 0 0 0</pose>
+      <visual name='visual'>
+        <geometry><box><size>9.4 8.2 0.1</size></box></geometry>
+        <material><ambient>0.8 0.75 0.7 1</ambient><diffuse>0.85 0.8 0.75 1</diffuse></material>
+      </visual>
+      <collision name='collision'>
+        <geometry><box><size>9.4 8.2 0.1</size></box></geometry>
+      </collision>
+    </link>
+
+    <!-- Outer walls -->
+    <link name='outer_wall_north_2'>
+      <pose>0 4.05 3.75 0 0 0</pose>
+      <visual name='visual'>
+        <geometry><box><size>9.4 0.1 1.5</size></box></geometry>
+        <material><ambient>0.55 0.5 0.45 1</ambient><diffuse>0.65 0.6 0.55 1</diffuse></material>
+      </visual>
+      <collision name='collision'>
+        <geometry><box><size>9.4 0.1 1.5</size></box></geometry>
+      </collision>
+    </link>
+
+    <link name='outer_wall_south_2'>
+      <pose>0 -4.05 3.75 0 0 0</pose>
+      <visual name='visual'>
+        <geometry><box><size>9.4 0.1 1.5</size></box></geometry>
+        <material><ambient>0.55 0.5 0.45 1</ambient><diffuse>0.65 0.6 0.55 1</diffuse></material>
+      </visual>
+      <collision name='collision'>
+        <geometry><box><size>9.4 0.1 1.5</size></box></geometry>
+      </collision>
+    </link>
+
+    <link name='outer_wall_west_2'>
+      <pose>-4.65 0 3.75 0 0 0</pose>
+      <visual name='visual'>
+        <geometry><box><size>0.1 8.2 1.5</size></box></geometry>
+        <material><ambient>0.55 0.5 0.45 1</ambient><diffuse>0.65 0.6 0.55 1</diffuse></material>
+      </visual>
+      <collision name='collision'>
+        <geometry><box><size>0.1 8.2 1.5</size></box></geometry>
+      </collision>
+    </link>
+
+    <link name='outer_wall_east_2'>
+      <pose>4.65 0 3.75 0 0 0</pose>
+      <visual name='visual'>
+        <geometry><box><size>0.1 8.2 1.5</size></box></geometry>
+        <material><ambient>0.55 0.5 0.45 1</ambient><diffuse>0.65 0.6 0.55 1</diffuse></material>
+      </visual>
+      <collision name='collision'>
+        <geometry><box><size>0.1 8.2 1.5</size></box></geometry>
+      </collision>
+    </link>
+
+    <!-- Central corridor north wall -->
+    <link name='corridor_wall_north_2'>
+      <pose>0 3.05 3.75 0 0 0</pose>
+      <visual name='visual'>
+        <geometry><box><size>9.200000000000001 0.1 1.5</size></box></geometry>
+        <material><ambient>0.6 0.55 0.5 1</ambient><diffuse>0.7 0.65 0.6 1</diffuse></material>
+      </visual>
+      <collision name='collision'>
+        <geometry><box><size>9.200000000000001 0.1 1.5</size></box></geometry>
+      </collision>
+    </link>
+
+    <!-- Central corridor south wall -->
+    <link name='corridor_wall_south_2'>
+      <pose>0 -3.05 3.75 0 0 0</pose>
+      <visual name='visual'>
+        <geometry><box><size>9.200000000000001 0.1 1.5</size></box></geometry>
+        <material><ambient>0.6 0.55 0.5 1</ambient><diffuse>0.7 0.65 0.6 1</diffuse></material>
+      </visual>
+      <collision name='collision'>
+        <geometry><box><size>9.200000000000001 0.1 1.5</size></box></geometry>
+      </collision>
+    </link>
+
+    <!-- Room divider wall 0 on floor 2 -->
+    <link name='room_divider_2_0'>
+      <pose>-3.0500000000000007 0 3.75 0 0 0</pose>
+      <visual name='visual'>
+        <geometry><box><size>0.1 7.999999999999999 1.5</size></box></geometry>
+        <material><ambient>0.6 0.55 0.5 1</ambient><diffuse>0.7 0.65 0.6 1</diffuse></material>
+      </visual>
+      <collision name='collision'>
+        <geometry><box><size>0.1 7.999999999999999 1.5</size></box></geometry>
+      </collision>
+    </link>
+
+    <!-- Room divider wall 1 on floor 2 -->
+    <link name='room_divider_2_1'>
+      <pose>0.04999999999999938 0 3.75 0 0 0</pose>
+      <visual name='visual'>
+        <geometry><box><size>0.1 7.999999999999999 1.5</size></box></geometry>
+        <material><ambient>0.6 0.55 0.5 1</ambient><diffuse>0.7 0.65 0.6 1</diffuse></material>
+      </visual>
+      <collision name='collision'>
+        <geometry><box><size>0.1 7.999999999999999 1.5</size></box></geometry>
+      </collision>
+    </link>
+
+    <!-- North room 0 door frame on floor 2 -->
+    <link name='north_door_frame_2_0'>
+      <pose>-3.1000000000000005 3.1 3.75 0 0 0</pose>
+      <visual name='visual'>
+        <geometry><box><size>0.8 0.1 1.5</size></box></geometry>
+        <material><ambient>0.5 0.4 0.3 1</ambient><diffuse>0.6 0.5 0.4 1</diffuse></material>
+      </visual>
+      <collision name='collision'>
+        <geometry><box><size>0.8 0.1 1.5</size></box></geometry>
+      </collision>
+    </link>
+
+    <!-- South room 0 door frame on floor 2 -->
+    <link name='south_door_frame_2_0'>
+      <pose>-3.1000000000000005 -3.1 3.75 0 0 0</pose>
+      <visual name='visual'>
+        <geometry><box><size>0.8 0.1 1.5</size></box></geometry>
+        <material><ambient>0.5 0.4 0.3 1</ambient><diffuse>0.6 0.5 0.4 1</diffuse></material>
+      </visual>
+      <collision name='collision'>
+        <geometry><box><size>0.8 0.1 1.5</size></box></geometry>
+      </collision>
+    </link>
+
+    <!-- North room 0 door on floor 2 -->
+    <link name='north_door_2_0'>
+      <pose>-3.1000000000000005 3.11 3.75 0 0 0</pose>
+      <visual name='visual'>
+        <geometry><box><size>0.8 0.02 1.5</size></box></geometry>
+        <material><ambient>0.8 0.7 0.6 1</ambient><diffuse>0.9 0.8 0.7 1</diffuse></material>
+      </visual>
+    </link>
+
+    <!-- South room 0 door on floor 2 -->
+    <link name='south_door_2_0'>
+      <pose>-3.1000000000000005 -3.11 3.75 0 0 0</pose>
+      <visual name='visual'>
+        <geometry><box><size>0.8 0.02 1.5</size></box></geometry>
+        <material><ambient>0.8 0.7 0.6 1</ambient><diffuse>0.9 0.8 0.7 1</diffuse></material>
+      </visual>
+    </link>
+
+    <!-- North room 1 door frame on floor 2 -->
+    <link name='north_door_frame_2_1'>
+      <pose>-4.440892098500626e-16 3.1 3.75 0 0 0</pose>
+      <visual name='visual'>
+        <geometry><box><size>0.8 0.1 1.5</size></box></geometry>
+        <material><ambient>0.5 0.4 0.3 1</ambient><diffuse>0.6 0.5 0.4 1</diffuse></material>
+      </visual>
+      <collision name='collision'>
+        <geometry><box><size>0.8 0.1 1.5</size></box></geometry>
+      </collision>
+    </link>
+
+    <!-- South room 1 door frame on floor 2 -->
+    <link name='south_door_frame_2_1'>
+      <pose>-4.440892098500626e-16 -3.1 3.75 0 0 0</pose>
+      <visual name='visual'>
+        <geometry><box><size>0.8 0.1 1.5</size></box></geometry>
+        <material><ambient>0.5 0.4 0.3 1</ambient><diffuse>0.6 0.5 0.4 1</diffuse></material>
+      </visual>
+      <collision name='collision'>
+        <geometry><box><size>0.8 0.1 1.5</size></box></geometry>
+      </collision>
+    </link>
+
+    <!-- North room 1 door on floor 2 -->
+    <link name='north_door_2_1'>
+      <pose>-4.440892098500626e-16 3.11 3.75 0 0 0</pose>
+      <visual name='visual'>
+        <geometry><box><size>0.8 0.02 1.5</size></box></geometry>
+        <material><ambient>0.8 0.7 0.6 1</ambient><diffuse>0.9 0.8 0.7 1</diffuse></material>
+      </visual>
+    </link>
+
+    <!-- South room 1 door on floor 2 -->
+    <link name='south_door_2_1'>
+      <pose>-4.440892098500626e-16 -3.11 3.75 0 0 0</pose>
+      <visual name='visual'>
+        <geometry><box><size>0.8 0.02 1.5</size></box></geometry>
+        <material><ambient>0.8 0.7 0.6 1</ambient><diffuse>0.9 0.8 0.7 1</diffuse></material>
+      </visual>
+    </link>
+
+    <!-- North room 2 door frame on floor 2 -->
+    <link name='north_door_frame_2_2'>
+      <pose>3.0999999999999996 3.1 3.75 0 0 0</pose>
+      <visual name='visual'>
+        <geometry><box><size>0.8 0.1 1.5</size></box></geometry>
+        <material><ambient>0.5 0.4 0.3 1</ambient><diffuse>0.6 0.5 0.4 1</diffuse></material>
+      </visual>
+      <collision name='collision'>
+        <geometry><box><size>0.8 0.1 1.5</size></box></geometry>
+      </collision>
+    </link>
+
+    <!-- South room 2 door frame on floor 2 -->
+    <link name='south_door_frame_2_2'>
+      <pose>3.0999999999999996 -3.1 3.75 0 0 0</pose>
+      <visual name='visual'>
+        <geometry><box><size>0.8 0.1 1.5</size></box></geometry>
+        <material><ambient>0.5 0.4 0.3 1</ambient><diffuse>0.6 0.5 0.4 1</diffuse></material>
+      </visual>
+      <collision name='collision'>
+        <geometry><box><size>0.8 0.1 1.5</size></box></geometry>
+      </collision>
+    </link>
+
+    <!-- North room 2 door on floor 2 -->
+    <link name='north_door_2_2'>
+      <pose>3.0999999999999996 3.11 3.75 0 0 0</pose>
+      <visual name='visual'>
+        <geometry><box><size>0.8 0.02 1.5</size></box></geometry>
+        <material><ambient>0.8 0.7 0.6 1</ambient><diffuse>0.9 0.8 0.7 1</diffuse></material>
+      </visual>
+    </link>
+
+    <!-- South room 2 door on floor 2 -->
+    <link name='south_door_2_2'>
+      <pose>3.0999999999999996 -3.11 3.75 0 0 0</pose>
+      <visual name='visual'>
+        <geometry><box><size>0.8 0.02 1.5</size></box></geometry>
+        <material><ambient>0.8 0.7 0.6 1</ambient><diffuse>0.9 0.8 0.7 1</diffuse></material>
+      </visual>
+    </link>
+
+    <!-- Main Entrance (on south wall, center) -->
+    <link name='entrance_frame_left'>
+      <pose>-0.6 -4.05 0.75 0 0 0</pose>
+      <visual name='visual'>
+        <geometry><box><size>0.1 0.05 1.5</size></box></geometry>
+        <material><ambient>0.4 0.3 0.2 1</ambient><diffuse>0.5 0.4 0.3 1</diffuse></material>
+      </visual>
+      <collision name='collision'>
+        <geometry><box><size>0.1 0.05 1.5</size></box></geometry>
+      </collision>
+    </link>
+
+    <link name='entrance_frame_right'>
+      <pose>0.6 -4.05 0.75 0 0 0</pose>
+      <visual name='visual'>
+        <geometry><box><size>0.1 0.05 1.5</size></box></geometry>
+        <material><ambient>0.4 0.3 0.2 1</ambient><diffuse>0.5 0.4 0.3 1</diffuse></material>
+      </visual>
+      <collision name='collision'>
+        <geometry><box><size>0.1 0.05 1.5</size></box></geometry>
+      </collision>
+    </link>
+
+    <!-- Roof -->
+    <link name='roof'>
+      <pose>0 0 3.15 0 0 0</pose>
+      <visual name='visual'>
+        <geometry><box><size>9.4 8.2 0.1</size></box></geometry>
+        <material><ambient>0.4 0.4 0.4 1</ambient><diffuse>0.5 0.5 0.5 1</diffuse></material>
+      </visual>
+      <collision name='collision'>
+        <geometry><box><size>9.4 8.2 0.1</size></box></geometry>
+      </collision>
+    </link>
+
+  </model>
+</sdf>

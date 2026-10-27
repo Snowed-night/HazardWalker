@@ -1,0 +1,2131 @@
+{
+  "schema": "hazardwalker_official_simenv_classic_evidence_v2",
+  "run_id": "20260723_seed2026073001_full08",
+  "delivery_stage": "20260730",
+  "actual_start_utc": "2026-07-23T21:18:07.347766+00:00",
+  "actual_end_utc": "2026-07-23T21:45:33.826169+00:00",
+  "elapsed_sec": 1646.478,
+  "seed": "2026073001",
+  "code_version": "local-feature-perception-bd7492c-uncommitted",
+  "evidence_class": "internal_regression",
+  "official_score_eligible": false,
+  "suite": "active_partial_reobservation",
+  "case_count": 6,
+  "pass_count": 6,
+  "fail_count": 0,
+  "target_case_count": 6,
+  "target_candidate_recall": 1.0,
+  "confirmed_false_positive_count": 0,
+  "confirmed_duplicate_count": 0,
+  "mean_localization_error_m": 0.4736,
+  "max_observed_localization_error_m": 0.7766,
+  "container": "hazardwalker_perception_isolated_stage_b_20260723",
+  "ros_domain_id": "77",
+  "camera_topic": "/hw/camera/image_raw",
+  "detection_topic": "/hw/perception/hazard_detections",
+  "detector_command": "external_prestarted_detector",
+  "localization_evaluation_frame": "world",
+  "max_localization_error_m": 1.0,
+  "control_enabled": true,
+  "cleanup_mode": "isolated_container_reset",
+  "fixture_center_world": [
+    -0.14522188226670457,
+    -0.6028377051031475,
+    0.15
+  ],
+  "fixture_center_source": "map->real_sense camera_forward 1.200m (test fixture only)",
+  "fixture_camera_alignment_yaw_rad": 0.09867830240853248,
+  "min_background_edge_ratio": 0.0035,
+  "truth_usage": "仅在快照保存后由本脚本匹配；运行期检测器和运动策略不读取真值。",
+  "official_json_written": false,
+  "official_json_reason": "受控专项仅作内部回归；正式随机场景结果必须另走官方任务归档链。",
+  "annotated_collage": "active_partial_reobservation_annotated_collage.png",
+  "records": [
+    {
+      "case_id": "official_b_reobserve_left_15pct",
+      "suite": "active_partial_reobservation",
+      "description": "B阶段真实移动主动复查：left侧约 15% 可见红球",
+      "expected_red_ball_count": 1,
+      "initial_strict_count": 0,
+      "initial_partial_count": 1,
+      "initial_red_pixel_count": 5799,
+      "actual_visible_ratio": "",
+      "strict_counts_by_view": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1
+      ],
+      "partial_counts_by_view": [
+        1,
+        1,
+        1,
+        1,
+        1,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "final_confirmed_count": 1,
+      "actual_lateral_move_count": 10,
+      "actual_motion_count": 10,
+      "action_sequence": [
+        "move_right",
+        "move_right",
+        "move_right",
+        "move_right",
+        "move_right",
+        "move_right",
+        "move_right",
+        "move_right",
+        "move_right",
+        "move_right"
+      ],
+      "motions": [
+        {
+          "action": "move_right",
+          "duration_sec": 4.0,
+          "command": {
+            "linear_x": 0.0,
+            "linear_y": -0.4,
+            "angular_z": 0.0
+          },
+          "before": {
+            "x": 0.0,
+            "y": -0.0,
+            "z": 0.0,
+            "yaw_rad": 0.001
+          },
+          "after": {
+            "x": 0.005,
+            "y": -0.237,
+            "z": 0.0,
+            "yaw_rad": 0.038
+          },
+          "translation_m": 0.2371,
+          "yaw_change_deg": 2.1199,
+          "motion_evidence_topic": "tf://map/base",
+          "motion_evidence_status": "legal_slam"
+        },
+        {
+          "action": "move_right",
+          "duration_sec": 4.0,
+          "command": {
+            "linear_x": 0.0,
+            "linear_y": -0.4,
+            "angular_z": 0.0
+          },
+          "before": {
+            "x": 0.004,
+            "y": -0.239,
+            "z": 0.0,
+            "yaw_rad": 0.058
+          },
+          "after": {
+            "x": 0.016,
+            "y": -0.565,
+            "z": 0.0,
+            "yaw_rad": 0.115
+          },
+          "translation_m": 0.3262,
+          "yaw_change_deg": 3.2659,
+          "motion_evidence_topic": "tf://map/base",
+          "motion_evidence_status": "legal_slam"
+        },
+        {
+          "action": "move_right",
+          "duration_sec": 4.0,
+          "command": {
+            "linear_x": 0.0,
+            "linear_y": -0.4,
+            "angular_z": 0.0
+          },
+          "before": {
+            "x": 0.015,
+            "y": -0.567,
+            "z": 0.0,
+            "yaw_rad": 0.158
+          },
+          "after": {
+            "x": 0.039,
+            "y": -0.898,
+            "z": 0.0,
+            "yaw_rad": 0.208
+          },
+          "translation_m": 0.3319,
+          "yaw_change_deg": 2.8648,
+          "motion_evidence_topic": "tf://map/base",
+          "motion_evidence_status": "legal_slam"
+        },
+        {
+          "action": "move_right",
+          "duration_sec": 4.0,
+          "command": {
+            "linear_x": 0.0,
+            "linear_y": -0.4,
+            "angular_z": 0.0
+          },
+          "before": {
+            "x": 0.039,
+            "y": -0.9,
+            "z": 0.0,
+            "yaw_rad": 0.245
+          },
+          "after": {
+            "x": 0.112,
+            "y": -1.167,
+            "z": 0.0,
+            "yaw_rad": 0.295
+          },
+          "translation_m": 0.2768,
+          "yaw_change_deg": 2.8648,
+          "motion_evidence_topic": "tf://map/base",
+          "motion_evidence_status": "legal_slam"
+        },
+        {
+          "action": "move_right",
+          "duration_sec": 4.0,
+          "command": {
+            "linear_x": 0.0,
+            "linear_y": -0.4,
+            "angular_z": 0.0
+          },
+          "before": {
+            "x": 0.111,
+            "y": -1.169,
+            "z": 0.0,
+            "yaw_rad": 0.318
+          },
+          "after": {
+            "x": 0.185,
+            "y": -1.448,
+            "z": 0.0,
+            "yaw_rad": 0.367
+          },
+          "translation_m": 0.2886,
+          "yaw_change_deg": 2.8075,
+          "motion_evidence_topic": "tf://map/base",
+          "motion_evidence_status": "legal_slam"
+        },
+        {
+          "action": "move_right",
+          "duration_sec": 4.0,
+          "command": {
+            "linear_x": 0.0,
+            "linear_y": -0.4,
+            "angular_z": 0.0
+          },
+          "before": {
+            "x": 0.184,
+            "y": -1.449,
+            "z": 0.0,
+            "yaw_rad": 0.399
+          },
+          "after": {
+            "x": 0.243,
+            "y": -1.81,
+            "z": 0.0,
+            "yaw_rad": 0.486
+          },
+          "translation_m": 0.3658,
+          "yaw_change_deg": 4.9847,
+          "motion_evidence_topic": "tf://map/base",
+          "motion_evidence_status": "legal_slam"
+        },
+        {
+          "action": "move_right",
+          "duration_sec": 4.0,
+          "command": {
+            "linear_x": 0.0,
+            "linear_y": -0.4,
+            "angular_z": 0.0
+          },
+          "before": {
+            "x": 0.243,
+            "y": -1.812,
+            "z": 0.0,
+            "yaw_rad": 0.523
+          },
+          "after": {
+            "x": 0.334,
+            "y": -2.015,
+            "z": 0.0,
+            "yaw_rad": 0.591
+          },
+          "translation_m": 0.2225,
+          "yaw_change_deg": 3.8961,
+          "motion_evidence_topic": "tf://map/base",
+          "motion_evidence_status": "legal_slam"
+        },
+        {
+          "action": "move_right",
+          "duration_sec": 4.0,
+          "command": {
+            "linear_x": 0.0,
+            "linear_y": -0.4,
+            "angular_z": 0.0
+          },
+          "before": {
+            "x": 0.334,
+            "y": -2.016,
+            "z": 0.0,
+            "yaw_rad": 0.623
+          },
+          "after": {
+            "x": 0.473,
+            "y": -2.208,
+            "z": 0.0,
+            "yaw_rad": 0.67
+          },
+          "translation_m": 0.237,
+          "yaw_change_deg": 2.6929,
+          "motion_evidence_topic": "tf://map/base",
+          "motion_evidence_status": "legal_slam"
+        },
+        {
+          "action": "move_right",
+          "duration_sec": 4.0,
+          "command": {
+            "linear_x": 0.0,
+            "linear_y": -0.4,
+            "angular_z": 0.0
+          },
+          "before": {
+            "x": 0.472,
+            "y": -2.209,
+            "z": 0.0,
+            "yaw_rad": 0.708
+          },
+          "after": {
+            "x": 0.521,
+            "y": -2.376,
+            "z": 0.0,
+            "yaw_rad": 0.76
+          },
+          "translation_m": 0.174,
+          "yaw_change_deg": 2.9794,
+          "motion_evidence_topic": "tf://map/base",
+          "motion_evidence_status": "legal_slam"
+        },
+        {
+          "action": "move_right",
+          "duration_sec": 4.0,
+          "command": {
+            "linear_x": 0.0,
+            "linear_y": -0.4,
+            "angular_z": 0.0
+          },
+          "before": {
+            "x": 0.521,
+            "y": -2.378,
+            "z": 0.0,
+            "yaw_rad": 0.793
+          },
+          "after": {
+            "x": 0.601,
+            "y": -2.605,
+            "z": 0.0,
+            "yaw_rad": 0.849
+          },
+          "translation_m": 0.2407,
+          "yaw_change_deg": 3.2086,
+          "motion_evidence_topic": "tf://map/base",
+          "motion_evidence_status": "legal_slam"
+        }
+      ],
+      "localized_truth_count": 1,
+      "localization_status": "ok",
+      "localization_prediction_count": 1,
+      "localization_evaluation_frame": "world",
+      "localization_unmatched_prediction_count": 0,
+      "mean_localization_error_m": 0.6256,
+      "max_localization_error_m": 0.6256,
+      "criterion": "首帧必须为黄色局部候选；至少两次策略动作由合法SLAM位姿证明真实执行；后续恰好确认一个红球，完成三视角球面证据、三维定位和去重，且最大误差 <= 1.000 m。",
+      "result": "pass",
+      "metadata": {
+        "visible_ratio_design": 0.15,
+        "visible_ratio_precalibration_input": 0.426,
+        "occlusion_side": "left",
+        "occluder_center_x": -0.43775,
+        "circle_cut_x": -0.12775,
+        "requires_reobserve": true,
+        "delivery_stage": "20260730",
+        "required_initial_state": "partial_candidate",
+        "required_final_state": "single_confirmed_red_ball",
+        "runtime_policy_must_not_read_fixture_metadata": true,
+        "fixture_camera_alignment_yaw_rad": 0.0986783
+      },
+      "background_edge_ratios": [
+        0.004205729166666667,
+        0.004065755208333333,
+        0.0035904947916666667,
+        0.0034700520833333332,
+        0.00408203125,
+        0.0036263020833333334,
+        0.0035709635416666667,
+        0.0034505208333333332,
+        0.0038216145833333335,
+        0.004306640625,
+        0.005768229166666666
+      ]
+    },
+    {
+      "case_id": "official_b_reobserve_left_25pct",
+      "suite": "active_partial_reobservation",
+      "description": "B阶段真实移动主动复查：left侧约 25% 可见红球",
+      "expected_red_ball_count": 1,
+      "initial_strict_count": 0,
+      "initial_partial_count": 1,
+      "initial_red_pixel_count": 7776,
+      "actual_visible_ratio": "",
+      "strict_counts_by_view": [
+        0,
+        0,
+        0,
+        0,
+        1,
+        1,
+        1,
+        1,
+        1
+      ],
+      "partial_counts_by_view": [
+        1,
+        1,
+        1,
+        1,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "final_confirmed_count": 1,
+      "actual_lateral_move_count": 8,
+      "actual_motion_count": 8,
+      "action_sequence": [
+        "move_right",
+        "move_right",
+        "move_right",
+        "move_right",
+        "move_right",
+        "move_right",
+        "move_right",
+        "move_right"
+      ],
+      "motions": [
+        {
+          "action": "move_right",
+          "duration_sec": 4.0,
+          "command": {
+            "linear_x": 0.0,
+            "linear_y": -0.4,
+            "angular_z": 0.0
+          },
+          "before": {
+            "x": 0.0,
+            "y": -0.0,
+            "z": 0.0,
+            "yaw_rad": 0.001
+          },
+          "after": {
+            "x": 0.003,
+            "y": -0.278,
+            "z": 0.0,
+            "yaw_rad": 0.065
+          },
+          "translation_m": 0.278,
+          "yaw_change_deg": 3.6669,
+          "motion_evidence_topic": "tf://map/base",
+          "motion_evidence_status": "legal_slam"
+        },
+        {
+          "action": "move_right",
+          "duration_sec": 4.0,
+          "command": {
+            "linear_x": 0.0,
+            "linear_y": -0.4,
+            "angular_z": 0.0
+          },
+          "before": {
+            "x": 0.003,
+            "y": -0.279,
+            "z": 0.0,
+            "yaw_rad": 0.1
+          },
+          "after": {
+            "x": 0.031,
+            "y": -0.583,
+            "z": 0.0,
+            "yaw_rad": 0.136
+          },
+          "translation_m": 0.3053,
+          "yaw_change_deg": 2.0626,
+          "motion_evidence_topic": "tf://map/base",
+          "motion_evidence_status": "legal_slam"
+        },
+        {
+          "action": "move_right",
+          "duration_sec": 4.0,
+          "command": {
+            "linear_x": 0.0,
+            "linear_y": -0.4,
+            "angular_z": 0.0
+          },
+          "before": {
+            "x": 0.03,
+            "y": -0.585,
+            "z": 0.0,
+            "yaw_rad": 0.166
+          },
+          "after": {
+            "x": 0.039,
+            "y": -0.898,
+            "z": 0.0,
+            "yaw_rad": 0.234
+          },
+          "translation_m": 0.3131,
+          "yaw_change_deg": 3.8961,
+          "motion_evidence_topic": "tf://map/base",
+          "motion_evidence_status": "legal_slam"
+        },
+        {
+          "action": "move_right",
+          "duration_sec": 4.0,
+          "command": {
+            "linear_x": 0.0,
+            "linear_y": -0.4,
+            "angular_z": 0.0
+          },
+          "before": {
+            "x": 0.038,
+            "y": -0.9,
+            "z": 0.0,
+            "yaw_rad": 0.267
+          },
+          "after": {
+            "x": 0.086,
+            "y": -1.205,
+            "z": 0.0,
+            "yaw_rad": 0.337
+          },
+          "translation_m": 0.3088,
+          "yaw_change_deg": 4.0107,
+          "motion_evidence_topic": "tf://map/base",
+          "motion_evidence_status": "legal_slam"
+        },
+        {
+          "action": "move_right",
+          "duration_sec": 4.0,
+          "command": {
+            "linear_x": 0.0,
+            "linear_y": -0.4,
+            "angular_z": 0.0
+          },
+          "before": {
+            "x": 0.085,
+            "y": -1.206,
+            "z": 0.0,
+            "yaw_rad": 0.36
+          },
+          "after": {
+            "x": 0.203,
+            "y": -1.499,
+            "z": 0.0,
+            "yaw_rad": 0.41
+          },
+          "translation_m": 0.3159,
+          "yaw_change_deg": 2.8648,
+          "motion_evidence_topic": "tf://map/base",
+          "motion_evidence_status": "legal_slam"
+        },
+        {
+          "action": "move_right",
+          "duration_sec": 4.0,
+          "command": {
+            "linear_x": 0.0,
+            "linear_y": -0.4,
+            "angular_z": 0.0
+          },
+          "before": {
+            "x": 0.203,
+            "y": -1.501,
+            "z": 0.0,
+            "yaw_rad": 0.438
+          },
+          "after": {
+            "x": 0.253,
+            "y": -1.742,
+            "z": 0.0,
+            "yaw_rad": 0.506
+          },
+          "translation_m": 0.2461,
+          "yaw_change_deg": 3.8961,
+          "motion_evidence_topic": "tf://map/base",
+          "motion_evidence_status": "legal_slam"
+        },
+        {
+          "action": "move_right",
+          "duration_sec": 4.0,
+          "command": {
+            "linear_x": 0.0,
+            "linear_y": -0.4,
+            "angular_z": 0.0
+          },
+          "before": {
+            "x": 0.253,
+            "y": -1.743,
+            "z": 0.0,
+            "yaw_rad": 0.544
+          },
+          "after": {
+            "x": 0.286,
+            "y": -1.929,
+            "z": 0.0,
+            "yaw_rad": 0.589
+          },
+          "translation_m": 0.1889,
+          "yaw_change_deg": 2.5783,
+          "motion_evidence_topic": "tf://map/base",
+          "motion_evidence_status": "legal_slam"
+        },
+        {
+          "action": "move_right",
+          "duration_sec": 4.0,
+          "command": {
+            "linear_x": 0.0,
+            "linear_y": -0.4,
+            "angular_z": 0.0
+          },
+          "before": {
+            "x": 0.286,
+            "y": -1.931,
+            "z": 0.0,
+            "yaw_rad": 0.624
+          },
+          "after": {
+            "x": 0.387,
+            "y": -2.175,
+            "z": 0.0,
+            "yaw_rad": 0.706
+          },
+          "translation_m": 0.2641,
+          "yaw_change_deg": 4.6983,
+          "motion_evidence_topic": "tf://map/base",
+          "motion_evidence_status": "legal_slam"
+        }
+      ],
+      "localized_truth_count": 1,
+      "localization_status": "ok",
+      "localization_prediction_count": 1,
+      "localization_evaluation_frame": "world",
+      "localization_unmatched_prediction_count": 0,
+      "mean_localization_error_m": 0.7018,
+      "max_localization_error_m": 0.7018,
+      "criterion": "首帧必须为黄色局部候选；至少两次策略动作由合法SLAM位姿证明真实执行；后续恰好确认一个红球，完成三视角球面证据、三维定位和去重，且最大误差 <= 1.000 m。",
+      "result": "pass",
+      "metadata": {
+        "visible_ratio_design": 0.25,
+        "visible_ratio_precalibration_input": 0.515,
+        "occlusion_side": "left",
+        "occluder_center_x": -0.45876,
+        "circle_cut_x": -0.14876,
+        "requires_reobserve": true,
+        "delivery_stage": "20260730",
+        "required_initial_state": "partial_candidate",
+        "required_final_state": "single_confirmed_red_ball",
+        "runtime_policy_must_not_read_fixture_metadata": true,
+        "fixture_camera_alignment_yaw_rad": 0.0986783
+      },
+      "background_edge_ratios": [
+        0.0039029947916666666,
+        0.0038736979166666668,
+        0.00455078125,
+        0.004462890625,
+        0.003564453125,
+        0.0037760416666666667,
+        0.0037239583333333335,
+        0.0037044270833333334,
+        0.00376953125
+      ]
+    },
+    {
+      "case_id": "official_b_reobserve_left_35pct",
+      "suite": "active_partial_reobservation",
+      "description": "B阶段真实移动主动复查：left侧约 35% 可见红球",
+      "expected_red_ball_count": 1,
+      "initial_strict_count": 0,
+      "initial_partial_count": 1,
+      "initial_red_pixel_count": 8790,
+      "actual_visible_ratio": "",
+      "strict_counts_by_view": [
+        0,
+        0,
+        0,
+        0,
+        1,
+        1,
+        1,
+        1,
+        1
+      ],
+      "partial_counts_by_view": [
+        1,
+        1,
+        1,
+        1,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "final_confirmed_count": 1,
+      "actual_lateral_move_count": 8,
+      "actual_motion_count": 8,
+      "action_sequence": [
+        "move_right",
+        "move_right",
+        "move_right",
+        "move_right",
+        "move_right",
+        "move_right",
+        "move_right",
+        "move_right"
+      ],
+      "motions": [
+        {
+          "action": "move_right",
+          "duration_sec": 4.0,
+          "command": {
+            "linear_x": 0.0,
+            "linear_y": -0.4,
+            "angular_z": 0.0
+          },
+          "before": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0,
+            "yaw_rad": 0.001
+          },
+          "after": {
+            "x": 0.003,
+            "y": -0.316,
+            "z": 0.0,
+            "yaw_rad": 0.054
+          },
+          "translation_m": 0.316,
+          "yaw_change_deg": 3.0367,
+          "motion_evidence_topic": "tf://map/base",
+          "motion_evidence_status": "legal_slam"
+        },
+        {
+          "action": "move_right",
+          "duration_sec": 4.0,
+          "command": {
+            "linear_x": 0.0,
+            "linear_y": -0.4,
+            "angular_z": 0.0
+          },
+          "before": {
+            "x": 0.003,
+            "y": -0.318,
+            "z": 0.0,
+            "yaw_rad": 0.076
+          },
+          "after": {
+            "x": 0.003,
+            "y": -0.642,
+            "z": 0.0,
+            "yaw_rad": 0.12
+          },
+          "translation_m": 0.324,
+          "yaw_change_deg": 2.521,
+          "motion_evidence_topic": "tf://map/base",
+          "motion_evidence_status": "legal_slam"
+        },
+        {
+          "action": "move_right",
+          "duration_sec": 4.0,
+          "command": {
+            "linear_x": 0.0,
+            "linear_y": -0.4,
+            "angular_z": 0.0
+          },
+          "before": {
+            "x": 0.003,
+            "y": -0.643,
+            "z": 0.0,
+            "yaw_rad": 0.134
+          },
+          "after": {
+            "x": 0.035,
+            "y": -0.816,
+            "z": 0.0,
+            "yaw_rad": 0.167
+          },
+          "translation_m": 0.1759,
+          "yaw_change_deg": 1.8908,
+          "motion_evidence_topic": "tf://map/base",
+          "motion_evidence_status": "legal_slam"
+        },
+        {
+          "action": "move_right",
+          "duration_sec": 4.0,
+          "command": {
+            "linear_x": 0.0,
+            "linear_y": -0.4,
+            "angular_z": 0.0
+          },
+          "before": {
+            "x": 0.034,
+            "y": -0.817,
+            "z": 0.0,
+            "yaw_rad": 0.186
+          },
+          "after": {
+            "x": 0.039,
+            "y": -1.118,
+            "z": 0.0,
+            "yaw_rad": 0.243
+          },
+          "translation_m": 0.301,
+          "yaw_change_deg": 3.2659,
+          "motion_evidence_topic": "tf://map/base",
+          "motion_evidence_status": "legal_slam"
+        },
+        {
+          "action": "move_right",
+          "duration_sec": 4.0,
+          "command": {
+            "linear_x": 0.0,
+            "linear_y": -0.4,
+            "angular_z": 0.0
+          },
+          "before": {
+            "x": 0.039,
+            "y": -1.121,
+            "z": 0.0,
+            "yaw_rad": 0.291
+          },
+          "after": {
+            "x": 0.122,
+            "y": -1.385,
+            "z": 0.0,
+            "yaw_rad": 0.35
+          },
+          "translation_m": 0.2767,
+          "yaw_change_deg": 3.3805,
+          "motion_evidence_topic": "tf://map/base",
+          "motion_evidence_status": "legal_slam"
+        },
+        {
+          "action": "move_right",
+          "duration_sec": 4.0,
+          "command": {
+            "linear_x": 0.0,
+            "linear_y": -0.4,
+            "angular_z": 0.0
+          },
+          "before": {
+            "x": 0.121,
+            "y": -1.387,
+            "z": 0.0,
+            "yaw_rad": 0.395
+          },
+          "after": {
+            "x": 0.186,
+            "y": -1.688,
+            "z": 0.0,
+            "yaw_rad": 0.467
+          },
+          "translation_m": 0.3079,
+          "yaw_change_deg": 4.1253,
+          "motion_evidence_topic": "tf://map/base",
+          "motion_evidence_status": "legal_slam"
+        },
+        {
+          "action": "move_right",
+          "duration_sec": 4.0,
+          "command": {
+            "linear_x": 0.0,
+            "linear_y": -0.4,
+            "angular_z": 0.0
+          },
+          "before": {
+            "x": 0.186,
+            "y": -1.69,
+            "z": 0.0,
+            "yaw_rad": 0.499
+          },
+          "after": {
+            "x": 0.216,
+            "y": -1.942,
+            "z": 0.0,
+            "yaw_rad": 0.534
+          },
+          "translation_m": 0.2538,
+          "yaw_change_deg": 2.0054,
+          "motion_evidence_topic": "tf://map/base",
+          "motion_evidence_status": "legal_slam"
+        },
+        {
+          "action": "move_right",
+          "duration_sec": 4.0,
+          "command": {
+            "linear_x": 0.0,
+            "linear_y": -0.4,
+            "angular_z": 0.0
+          },
+          "before": {
+            "x": 0.215,
+            "y": -1.943,
+            "z": 0.0,
+            "yaw_rad": 0.558
+          },
+          "after": {
+            "x": 0.365,
+            "y": -2.176,
+            "z": 0.0,
+            "yaw_rad": 0.623
+          },
+          "translation_m": 0.2771,
+          "yaw_change_deg": 3.7242,
+          "motion_evidence_topic": "tf://map/base",
+          "motion_evidence_status": "legal_slam"
+        }
+      ],
+      "localized_truth_count": 1,
+      "localization_status": "ok",
+      "localization_prediction_count": 1,
+      "localization_evaluation_frame": "world",
+      "localization_unmatched_prediction_count": 0,
+      "mean_localization_error_m": 0.7766,
+      "max_localization_error_m": 0.7766,
+      "criterion": "首帧必须为黄色局部候选；至少两次策略动作由合法SLAM位姿证明真实执行；后续恰好确认一个红球，完成三视角球面证据、三维定位和去重，且最大误差 <= 1.000 m。",
+      "result": "pass",
+      "metadata": {
+        "visible_ratio_design": 0.35,
+        "visible_ratio_precalibration_input": 0.6,
+        "occlusion_side": "left",
+        "occluder_center_x": -0.47888,
+        "circle_cut_x": -0.16888,
+        "requires_reobserve": true,
+        "delivery_stage": "20260730",
+        "required_initial_state": "partial_candidate",
+        "required_final_state": "single_confirmed_red_ball",
+        "runtime_policy_must_not_read_fixture_metadata": true,
+        "fixture_camera_alignment_yaw_rad": 0.0986783
+      },
+      "background_edge_ratios": [
+        0.004479166666666667,
+        0.0038509114583333334,
+        0.003707682291666667,
+        0.004388020833333333,
+        0.004469401041666667,
+        0.0036653645833333334,
+        0.00380859375,
+        0.003671875,
+        0.004306640625
+      ]
+    },
+    {
+      "case_id": "official_b_reobserve_right_15pct",
+      "suite": "active_partial_reobservation",
+      "description": "B阶段真实移动主动复查：right侧约 15% 可见红球",
+      "expected_red_ball_count": 1,
+      "initial_strict_count": 0,
+      "initial_partial_count": 1,
+      "initial_red_pixel_count": 5960,
+      "actual_visible_ratio": "",
+      "strict_counts_by_view": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        1,
+        1,
+        1,
+        0,
+        1,
+        0
+      ],
+      "partial_counts_by_view": [
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        0,
+        0,
+        0,
+        1,
+        0,
+        1
+      ],
+      "final_confirmed_count": 1,
+      "actual_lateral_move_count": 13,
+      "actual_motion_count": 13,
+      "action_sequence": [
+        "move_left",
+        "move_left",
+        "move_left",
+        "move_left",
+        "turn_right",
+        "move_left",
+        "turn_right",
+        "move_left",
+        "move_left",
+        "turn_right",
+        "move_left",
+        "turn_right",
+        "move_left"
+      ],
+      "motions": [
+        {
+          "action": "move_left",
+          "duration_sec": 4.0,
+          "command": {
+            "linear_x": 0.0,
+            "linear_y": 0.4,
+            "angular_z": 0.0
+          },
+          "before": {
+            "x": -0.0,
+            "y": -0.0,
+            "z": 0.0,
+            "yaw_rad": 0.001
+          },
+          "after": {
+            "x": 0.001,
+            "y": 0.273,
+            "z": 0.0,
+            "yaw_rad": 0.014
+          },
+          "translation_m": 0.273,
+          "yaw_change_deg": 0.7448,
+          "motion_evidence_topic": "tf://map/base",
+          "motion_evidence_status": "legal_slam"
+        },
+        {
+          "action": "move_left",
+          "duration_sec": 4.0,
+          "command": {
+            "linear_x": 0.0,
+            "linear_y": 0.4,
+            "angular_z": 0.0
+          },
+          "before": {
+            "x": 0.001,
+            "y": 0.273,
+            "z": 0.0,
+            "yaw_rad": 0.016
+          },
+          "after": {
+            "x": 0.046,
+            "y": 0.507,
+            "z": 0.0,
+            "yaw_rad": 0.019
+          },
+          "translation_m": 0.2383,
+          "yaw_change_deg": 0.1719,
+          "motion_evidence_topic": "tf://map/base",
+          "motion_evidence_status": "legal_slam"
+        },
+        {
+          "action": "move_left",
+          "duration_sec": 4.0,
+          "command": {
+            "linear_x": 0.0,
+            "linear_y": 0.4,
+            "angular_z": 0.0
+          },
+          "before": {
+            "x": 0.047,
+            "y": 0.507,
+            "z": 0.0,
+            "yaw_rad": 0.007
+          },
+          "after": {
+            "x": 0.105,
+            "y": 0.781,
+            "z": 0.0,
+            "yaw_rad": 0.021
+          },
+          "translation_m": 0.2801,
+          "yaw_change_deg": 0.8021,
+          "motion_evidence_topic": "tf://map/base",
+          "motion_evidence_status": "legal_slam"
+        },
+        {
+          "action": "move_left",
+          "duration_sec": 4.0,
+          "command": {
+            "linear_x": 0.0,
+            "linear_y": 0.4,
+            "angular_z": 0.0
+          },
+          "before": {
+            "x": 0.105,
+            "y": 0.782,
+            "z": 0.0,
+            "yaw_rad": 0.016
+          },
+          "after": {
+            "x": 0.103,
+            "y": 1.056,
+            "z": 0.0,
+            "yaw_rad": 0.021
+          },
+          "translation_m": 0.274,
+          "yaw_change_deg": 0.2865,
+          "motion_evidence_topic": "tf://map/base",
+          "motion_evidence_status": "legal_slam"
+        },
+        {
+          "action": "turn_right",
+          "duration_sec": 4.0,
+          "command": {
+            "linear_x": 0.0,
+            "linear_y": 0.0,
+            "angular_z": -0.8
+          },
+          "before": {
+            "x": 0.103,
+            "y": 1.056,
+            "z": 0.0,
+            "yaw_rad": 0.018
+          },
+          "after": {
+            "x": 0.102,
+            "y": 1.05,
+            "z": 0.0,
+            "yaw_rad": -0.309
+          },
+          "translation_m": 0.0061,
+          "yaw_change_deg": 18.7357,
+          "motion_evidence_topic": "tf://map/base",
+          "motion_evidence_status": "legal_slam"
+        },
+        {
+          "action": "move_left",
+          "duration_sec": 4.0,
+          "command": {
+            "linear_x": 0.0,
+            "linear_y": 0.4,
+            "angular_z": 0.0
+          },
+          "before": {
+            "x": 0.101,
+            "y": 1.043,
+            "z": 0.0,
+            "yaw_rad": -0.176
+          },
+          "after": {
+            "x": 0.202,
+            "y": 1.293,
+            "z": 0.0,
+            "yaw_rad": -0.137
+          },
+          "translation_m": 0.2696,
+          "yaw_change_deg": 2.2345,
+          "motion_evidence_topic": "tf://map/base",
+          "motion_evidence_status": "legal_slam"
+        },
+        {
+          "action": "turn_right",
+          "duration_sec": 4.0,
+          "command": {
+            "linear_x": 0.0,
+            "linear_y": 0.0,
+            "angular_z": -0.8
+          },
+          "before": {
+            "x": 0.203,
+            "y": 1.293,
+            "z": 0.0,
+            "yaw_rad": -0.143
+          },
+          "after": {
+            "x": 0.202,
+            "y": 1.288,
+            "z": 0.0,
+            "yaw_rad": -0.492
+          },
+          "translation_m": 0.0051,
+          "yaw_change_deg": 19.9962,
+          "motion_evidence_topic": "tf://map/base",
+          "motion_evidence_status": "legal_slam"
+        },
+        {
+          "action": "move_left",
+          "duration_sec": 4.0,
+          "command": {
+            "linear_x": 0.0,
+            "linear_y": 0.4,
+            "angular_z": 0.0
+          },
+          "before": {
+            "x": 0.201,
+            "y": 1.282,
+            "z": 0.0,
+            "yaw_rad": -0.377
+          },
+          "after": {
+            "x": 0.32,
+            "y": 1.524,
+            "z": 0.0,
+            "yaw_rad": -0.337
+          },
+          "translation_m": 0.2697,
+          "yaw_change_deg": 2.2918,
+          "motion_evidence_topic": "tf://map/base",
+          "motion_evidence_status": "legal_slam"
+        },
+        {
+          "action": "move_left",
+          "duration_sec": 4.0,
+          "command": {
+            "linear_x": 0.0,
+            "linear_y": 0.4,
+            "angular_z": 0.0
+          },
+          "before": {
+            "x": 0.321,
+            "y": 1.525,
+            "z": 0.0,
+            "yaw_rad": -0.355
+          },
+          "after": {
+            "x": 0.427,
+            "y": 1.843,
+            "z": 0.0,
+            "yaw_rad": -0.367
+          },
+          "translation_m": 0.3352,
+          "yaw_change_deg": 0.6875,
+          "motion_evidence_topic": "tf://map/base",
+          "motion_evidence_status": "legal_slam"
+        },
+        {
+          "action": "turn_right",
+          "duration_sec": 4.0,
+          "command": {
+            "linear_x": 0.0,
+            "linear_y": 0.0,
+            "angular_z": -0.8
+          },
+          "before": {
+            "x": 0.427,
+            "y": 1.844,
+            "z": 0.0,
+            "yaw_rad": -0.386
+          },
+          "after": {
+            "x": 0.426,
+            "y": 1.84,
+            "z": 0.0,
+            "yaw_rad": -0.73
+          },
+          "translation_m": 0.0041,
+          "yaw_change_deg": 19.7097,
+          "motion_evidence_topic": "tf://map/base",
+          "motion_evidence_status": "legal_slam"
+        },
+        {
+          "action": "move_left",
+          "duration_sec": 4.0,
+          "command": {
+            "linear_x": 0.0,
+            "linear_y": 0.4,
+            "angular_z": 0.0
+          },
+          "before": {
+            "x": 0.425,
+            "y": 1.83,
+            "z": 0.0,
+            "yaw_rad": -0.541
+          },
+          "after": {
+            "x": 0.563,
+            "y": 2.107,
+            "z": 0.0,
+            "yaw_rad": -0.444
+          },
+          "translation_m": 0.3095,
+          "yaw_change_deg": 5.5577,
+          "motion_evidence_topic": "tf://map/base",
+          "motion_evidence_status": "legal_slam"
+        },
+        {
+          "action": "turn_right",
+          "duration_sec": 4.0,
+          "command": {
+            "linear_x": 0.0,
+            "linear_y": 0.0,
+            "angular_z": -0.8
+          },
+          "before": {
+            "x": 0.563,
+            "y": 2.107,
+            "z": 0.0,
+            "yaw_rad": -0.455
+          },
+          "after": {
+            "x": 0.562,
+            "y": 2.103,
+            "z": 0.0,
+            "yaw_rad": -0.741
+          },
+          "translation_m": 0.0041,
+          "yaw_change_deg": 16.3866,
+          "motion_evidence_topic": "tf://map/base",
+          "motion_evidence_status": "legal_slam"
+        },
+        {
+          "action": "move_left",
+          "duration_sec": 4.0,
+          "command": {
+            "linear_x": 0.0,
+            "linear_y": 0.4,
+            "angular_z": 0.0
+          },
+          "before": {
+            "x": 0.56,
+            "y": 2.09,
+            "z": 0.0,
+            "yaw_rad": -0.519
+          },
+          "after": {
+            "x": 0.663,
+            "y": 2.404,
+            "z": 0.0,
+            "yaw_rad": -0.477
+          },
+          "translation_m": 0.3305,
+          "yaw_change_deg": 2.4064,
+          "motion_evidence_topic": "tf://map/base",
+          "motion_evidence_status": "legal_slam"
+        }
+      ],
+      "localized_truth_count": 1,
+      "localization_status": "ok",
+      "localization_prediction_count": 1,
+      "localization_evaluation_frame": "world",
+      "localization_unmatched_prediction_count": 0,
+      "mean_localization_error_m": 0.2578,
+      "max_localization_error_m": 0.2578,
+      "criterion": "首帧必须为黄色局部候选；至少两次策略动作由合法SLAM位姿证明真实执行；后续恰好确认一个红球，完成三视角球面证据、三维定位和去重，且最大误差 <= 1.000 m。",
+      "result": "pass",
+      "metadata": {
+        "visible_ratio_design": 0.15,
+        "visible_ratio_precalibration_input": 0.426,
+        "occlusion_side": "right",
+        "occluder_center_x": 0.1473,
+        "circle_cut_x": -0.1627,
+        "requires_reobserve": true,
+        "delivery_stage": "20260730",
+        "required_initial_state": "partial_candidate",
+        "required_final_state": "single_confirmed_red_ball",
+        "runtime_policy_must_not_read_fixture_metadata": true,
+        "fixture_camera_alignment_yaw_rad": 0.0986783
+      },
+      "background_edge_ratios": [
+        0.004186197916666667,
+        0.0038736979166666668,
+        0.004371744791666667,
+        0.004186197916666667,
+        0.003984375,
+        0.0044140625,
+        0.00392578125,
+        0.005911458333333334,
+        0.004521484375,
+        0.004091796875,
+        0.0035514322916666667,
+        0.00416015625,
+        0.006145833333333333,
+        0.004013671875
+      ]
+    },
+    {
+      "case_id": "official_b_reobserve_right_25pct",
+      "suite": "active_partial_reobservation",
+      "description": "B阶段真实移动主动复查：right侧约 25% 可见红球",
+      "expected_red_ball_count": 1,
+      "initial_strict_count": 0,
+      "initial_partial_count": 1,
+      "initial_red_pixel_count": 7391,
+      "actual_visible_ratio": "",
+      "strict_counts_by_view": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        1,
+        0,
+        1,
+        0,
+        1,
+        0
+      ],
+      "partial_counts_by_view": [
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        0,
+        1,
+        0,
+        1,
+        0,
+        1
+      ],
+      "final_confirmed_count": 1,
+      "actual_lateral_move_count": 11,
+      "actual_motion_count": 11,
+      "action_sequence": [
+        "move_left",
+        "move_left",
+        "move_left",
+        "move_left",
+        "turn_right",
+        "move_left",
+        "move_left",
+        "turn_right",
+        "move_left",
+        "turn_right",
+        "move_left"
+      ],
+      "motions": [
+        {
+          "action": "move_left",
+          "duration_sec": 4.0,
+          "command": {
+            "linear_x": 0.0,
+            "linear_y": 0.4,
+            "angular_z": 0.0
+          },
+          "before": {
+            "x": -0.0,
+            "y": -0.0,
+            "z": 0.0,
+            "yaw_rad": 0.001
+          },
+          "after": {
+            "x": 0.003,
+            "y": 0.236,
+            "z": 0.0,
+            "yaw_rad": -0.011
+          },
+          "translation_m": 0.236,
+          "yaw_change_deg": 0.6875,
+          "motion_evidence_topic": "tf://map/base",
+          "motion_evidence_status": "legal_slam"
+        },
+        {
+          "action": "move_left",
+          "duration_sec": 4.0,
+          "command": {
+            "linear_x": 0.0,
+            "linear_y": 0.4,
+            "angular_z": 0.0
+          },
+          "before": {
+            "x": 0.003,
+            "y": 0.236,
+            "z": 0.0,
+            "yaw_rad": -0.009
+          },
+          "after": {
+            "x": 0.054,
+            "y": 0.45,
+            "z": 0.0,
+            "yaw_rad": 0.014
+          },
+          "translation_m": 0.22,
+          "yaw_change_deg": 1.3178,
+          "motion_evidence_topic": "tf://map/base",
+          "motion_evidence_status": "legal_slam"
+        },
+        {
+          "action": "move_left",
+          "duration_sec": 4.0,
+          "command": {
+            "linear_x": 0.0,
+            "linear_y": 0.4,
+            "angular_z": 0.0
+          },
+          "before": {
+            "x": 0.054,
+            "y": 0.45,
+            "z": 0.0,
+            "yaw_rad": 0.007
+          },
+          "after": {
+            "x": 0.103,
+            "y": 0.644,
+            "z": 0.0,
+            "yaw_rad": 0.022
+          },
+          "translation_m": 0.2001,
+          "yaw_change_deg": 0.8594,
+          "motion_evidence_topic": "tf://map/base",
+          "motion_evidence_status": "legal_slam"
+        },
+        {
+          "action": "move_left",
+          "duration_sec": 4.0,
+          "command": {
+            "linear_x": 0.0,
+            "linear_y": 0.4,
+            "angular_z": 0.0
+          },
+          "before": {
+            "x": 0.103,
+            "y": 0.644,
+            "z": 0.0,
+            "yaw_rad": 0.027
+          },
+          "after": {
+            "x": 0.095,
+            "y": 0.956,
+            "z": 0.0,
+            "yaw_rad": 0.042
+          },
+          "translation_m": 0.3121,
+          "yaw_change_deg": 0.8594,
+          "motion_evidence_topic": "tf://map/base",
+          "motion_evidence_status": "legal_slam"
+        },
+        {
+          "action": "turn_right",
+          "duration_sec": 4.0,
+          "command": {
+            "linear_x": 0.0,
+            "linear_y": 0.0,
+            "angular_z": -0.8
+          },
+          "before": {
+            "x": 0.095,
+            "y": 0.956,
+            "z": 0.0,
+            "yaw_rad": 0.046
+          },
+          "after": {
+            "x": 0.095,
+            "y": 0.951,
+            "z": 0.0,
+            "yaw_rad": -0.311
+          },
+          "translation_m": 0.005,
+          "yaw_change_deg": 20.4546,
+          "motion_evidence_topic": "tf://map/base",
+          "motion_evidence_status": "legal_slam"
+        },
+        {
+          "action": "move_left",
+          "duration_sec": 4.0,
+          "command": {
+            "linear_x": 0.0,
+            "linear_y": 0.4,
+            "angular_z": 0.0
+          },
+          "before": {
+            "x": 0.094,
+            "y": 0.945,
+            "z": 0.0,
+            "yaw_rad": -0.179
+          },
+          "after": {
+            "x": 0.212,
+            "y": 1.233,
+            "z": 0.0,
+            "yaw_rad": -0.139
+          },
+          "translation_m": 0.3112,
+          "yaw_change_deg": 2.2918,
+          "motion_evidence_topic": "tf://map/base",
+          "motion_evidence_status": "legal_slam"
+        },
+        {
+          "action": "move_left",
+          "duration_sec": 4.0,
+          "command": {
+            "linear_x": 0.0,
+            "linear_y": 0.4,
+            "angular_z": 0.0
+          },
+          "before": {
+            "x": 0.212,
+            "y": 1.233,
+            "z": 0.0,
+            "yaw_rad": -0.149
+          },
+          "after": {
+            "x": 0.268,
+            "y": 1.543,
+            "z": 0.0,
+            "yaw_rad": -0.133
+          },
+          "translation_m": 0.315,
+          "yaw_change_deg": 0.9167,
+          "motion_evidence_topic": "tf://map/base",
+          "motion_evidence_status": "legal_slam"
+        },
+        {
+          "action": "turn_right",
+          "duration_sec": 4.0,
+          "command": {
+            "linear_x": 0.0,
+            "linear_y": 0.0,
+            "angular_z": -0.8
+          },
+          "before": {
+            "x": 0.268,
+            "y": 1.544,
+            "z": 0.0,
+            "yaw_rad": -0.151
+          },
+          "after": {
+            "x": 0.267,
+            "y": 1.539,
+            "z": 0.0,
+            "yaw_rad": -0.484
+          },
+          "translation_m": 0.0051,
+          "yaw_change_deg": 19.0795,
+          "motion_evidence_topic": "tf://map/base",
+          "motion_evidence_status": "legal_slam"
+        },
+        {
+          "action": "move_left",
+          "duration_sec": 4.0,
+          "command": {
+            "linear_x": 0.0,
+            "linear_y": 0.4,
+            "angular_z": 0.0
+          },
+          "before": {
+            "x": 0.265,
+            "y": 1.525,
+            "z": 0.0,
+            "yaw_rad": -0.224
+          },
+          "after": {
+            "x": 0.324,
+            "y": 1.822,
+            "z": 0.0,
+            "yaw_rad": -0.159
+          },
+          "translation_m": 0.3028,
+          "yaw_change_deg": 3.7242,
+          "motion_evidence_topic": "tf://map/base",
+          "motion_evidence_status": "legal_slam"
+        },
+        {
+          "action": "turn_right",
+          "duration_sec": 4.0,
+          "command": {
+            "linear_x": 0.0,
+            "linear_y": 0.0,
+            "angular_z": -0.8
+          },
+          "before": {
+            "x": 0.324,
+            "y": 1.822,
+            "z": 0.0,
+            "yaw_rad": -0.166
+          },
+          "after": {
+            "x": 0.324,
+            "y": 1.815,
+            "z": 0.0,
+            "yaw_rad": -0.482
+          },
+          "translation_m": 0.007,
+          "yaw_change_deg": 18.1055,
+          "motion_evidence_topic": "tf://map/base",
+          "motion_evidence_status": "legal_slam"
+        },
+        {
+          "action": "move_left",
+          "duration_sec": 4.0,
+          "command": {
+            "linear_x": 0.0,
+            "linear_y": 0.4,
+            "angular_z": 0.0
+          },
+          "before": {
+            "x": 0.323,
+            "y": 1.809,
+            "z": 0.0,
+            "yaw_rad": -0.36
+          },
+          "after": {
+            "x": 0.458,
+            "y": 2.093,
+            "z": 0.0,
+            "yaw_rad": -0.318
+          },
+          "translation_m": 0.3145,
+          "yaw_change_deg": 2.4064,
+          "motion_evidence_topic": "tf://map/base",
+          "motion_evidence_status": "legal_slam"
+        }
+      ],
+      "localized_truth_count": 1,
+      "localization_status": "ok",
+      "localization_prediction_count": 1,
+      "localization_evaluation_frame": "world",
+      "localization_unmatched_prediction_count": 0,
+      "mean_localization_error_m": 0.2063,
+      "max_localization_error_m": 0.2063,
+      "criterion": "首帧必须为黄色局部候选；至少两次策略动作由合法SLAM位姿证明真实执行；后续恰好确认一个红球，完成三视角球面证据、三维定位和去重，且最大误差 <= 1.000 m。",
+      "result": "pass",
+      "metadata": {
+        "visible_ratio_design": 0.25,
+        "visible_ratio_precalibration_input": 0.515,
+        "occlusion_side": "right",
+        "occluder_center_x": 0.16831,
+        "circle_cut_x": -0.14169,
+        "requires_reobserve": true,
+        "delivery_stage": "20260730",
+        "required_initial_state": "partial_candidate",
+        "required_final_state": "single_confirmed_red_ball",
+        "runtime_policy_must_not_read_fixture_metadata": true,
+        "fixture_camera_alignment_yaw_rad": 0.0986783
+      },
+      "background_edge_ratios": [
+        0.004267578125,
+        0.004599609375,
+        0.004339192708333333,
+        0.004173177083333333,
+        0.003977864583333333,
+        0.004593098958333333,
+        0.004306640625,
+        0.004150390625,
+        0.0044986979166666665,
+        0.004762369791666667,
+        0.0044563802083333335,
+        0.0040071614583333335
+      ]
+    },
+    {
+      "case_id": "official_b_reobserve_right_35pct",
+      "suite": "active_partial_reobservation",
+      "description": "B阶段真实移动主动复查：right侧约 35% 可见红球",
+      "expected_red_ball_count": 1,
+      "initial_strict_count": 0,
+      "initial_partial_count": 1,
+      "initial_red_pixel_count": 8742,
+      "actual_visible_ratio": "",
+      "strict_counts_by_view": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        1,
+        0,
+        1,
+        0,
+        1,
+        1,
+        1,
+        1
+      ],
+      "partial_counts_by_view": [
+        1,
+        1,
+        1,
+        1,
+        1,
+        0,
+        1,
+        0,
+        1,
+        0,
+        0,
+        0,
+        0
+      ],
+      "final_confirmed_count": 1,
+      "actual_lateral_move_count": 12,
+      "actual_motion_count": 12,
+      "action_sequence": [
+        "move_left",
+        "move_left",
+        "move_left",
+        "turn_right",
+        "move_left",
+        "move_left",
+        "turn_right",
+        "move_left",
+        "turn_right",
+        "turn_right",
+        "move_left",
+        "move_left"
+      ],
+      "motions": [
+        {
+          "action": "move_left",
+          "duration_sec": 4.0,
+          "command": {
+            "linear_x": 0.0,
+            "linear_y": 0.4,
+            "angular_z": 0.0
+          },
+          "before": {
+            "x": -0.0,
+            "y": -0.0,
+            "z": 0.0,
+            "yaw_rad": 0.001
+          },
+          "after": {
+            "x": 0.001,
+            "y": 0.313,
+            "z": 0.0,
+            "yaw_rad": 0.003
+          },
+          "translation_m": 0.313,
+          "yaw_change_deg": 0.1146,
+          "motion_evidence_topic": "tf://map/base",
+          "motion_evidence_status": "legal_slam"
+        },
+        {
+          "action": "move_left",
+          "duration_sec": 4.0,
+          "command": {
+            "linear_x": 0.0,
+            "linear_y": 0.4,
+            "angular_z": 0.0
+          },
+          "before": {
+            "x": 0.001,
+            "y": 0.313,
+            "z": 0.0,
+            "yaw_rad": 0.004
+          },
+          "after": {
+            "x": 0.036,
+            "y": 0.615,
+            "z": 0.0,
+            "yaw_rad": 0.042
+          },
+          "translation_m": 0.304,
+          "yaw_change_deg": 2.1772,
+          "motion_evidence_topic": "tf://map/base",
+          "motion_evidence_status": "legal_slam"
+        },
+        {
+          "action": "move_left",
+          "duration_sec": 4.0,
+          "command": {
+            "linear_x": 0.0,
+            "linear_y": 0.4,
+            "angular_z": 0.0
+          },
+          "before": {
+            "x": 0.036,
+            "y": 0.615,
+            "z": 0.0,
+            "yaw_rad": 0.04
+          },
+          "after": {
+            "x": 0.072,
+            "y": 0.867,
+            "z": 0.0,
+            "yaw_rad": 0.081
+          },
+          "translation_m": 0.2546,
+          "yaw_change_deg": 2.3491,
+          "motion_evidence_topic": "tf://map/base",
+          "motion_evidence_status": "legal_slam"
+        },
+        {
+          "action": "turn_right",
+          "duration_sec": 4.0,
+          "command": {
+            "linear_x": 0.0,
+            "linear_y": 0.0,
+            "angular_z": -0.8
+          },
+          "before": {
+            "x": 0.072,
+            "y": 0.866,
+            "z": 0.0,
+            "yaw_rad": 0.087
+          },
+          "after": {
+            "x": 0.073,
+            "y": 0.861,
+            "z": 0.0,
+            "yaw_rad": -0.323
+          },
+          "translation_m": 0.0051,
+          "yaw_change_deg": 23.4913,
+          "motion_evidence_topic": "tf://map/base",
+          "motion_evidence_status": "legal_slam"
+        },
+        {
+          "action": "move_left",
+          "duration_sec": 4.0,
+          "command": {
+            "linear_x": 0.0,
+            "linear_y": 0.4,
+            "angular_z": 0.0
+          },
+          "before": {
+            "x": 0.071,
+            "y": 0.855,
+            "z": 0.0,
+            "yaw_rad": -0.215
+          },
+          "after": {
+            "x": 0.162,
+            "y": 1.031,
+            "z": 0.0,
+            "yaw_rad": -0.173
+          },
+          "translation_m": 0.1981,
+          "yaw_change_deg": 2.4064,
+          "motion_evidence_topic": "tf://map/base",
+          "motion_evidence_status": "legal_slam"
+        },
+        {
+          "action": "move_left",
+          "duration_sec": 4.0,
+          "command": {
+            "linear_x": 0.0,
+            "linear_y": 0.4,
+            "angular_z": 0.0
+          },
+          "before": {
+            "x": 0.162,
+            "y": 1.03,
+            "z": 0.0,
+            "yaw_rad": -0.172
+          },
+          "after": {
+            "x": 0.255,
+            "y": 1.329,
+            "z": 0.0,
+            "yaw_rad": -0.137
+          },
+          "translation_m": 0.3131,
+          "yaw_change_deg": 2.0054,
+          "motion_evidence_topic": "tf://map/base",
+          "motion_evidence_status": "legal_slam"
+        },
+        {
+          "action": "turn_right",
+          "duration_sec": 4.0,
+          "command": {
+            "linear_x": 0.0,
+            "linear_y": 0.0,
+            "angular_z": -0.8
+          },
+          "before": {
+            "x": 0.255,
+            "y": 1.329,
+            "z": 0.0,
+            "yaw_rad": -0.144
+          },
+          "after": {
+            "x": 0.254,
+            "y": 1.323,
+            "z": 0.0,
+            "yaw_rad": -0.401
+          },
+          "translation_m": 0.0061,
+          "yaw_change_deg": 14.725,
+          "motion_evidence_topic": "tf://map/base",
+          "motion_evidence_status": "legal_slam"
+        },
+        {
+          "action": "move_left",
+          "duration_sec": 4.0,
+          "command": {
+            "linear_x": 0.0,
+            "linear_y": 0.4,
+            "angular_z": 0.0
+          },
+          "before": {
+            "x": 0.253,
+            "y": 1.316,
+            "z": 0.0,
+            "yaw_rad": -0.241
+          },
+          "after": {
+            "x": 0.321,
+            "y": 1.62,
+            "z": 0.0,
+            "yaw_rad": -0.188
+          },
+          "translation_m": 0.3115,
+          "yaw_change_deg": 3.0367,
+          "motion_evidence_topic": "tf://map/base",
+          "motion_evidence_status": "legal_slam"
+        },
+        {
+          "action": "turn_right",
+          "duration_sec": 4.0,
+          "command": {
+            "linear_x": 0.0,
+            "linear_y": 0.0,
+            "angular_z": -0.8
+          },
+          "before": {
+            "x": 0.321,
+            "y": 1.619,
+            "z": 0.0,
+            "yaw_rad": -0.183
+          },
+          "after": {
+            "x": 0.321,
+            "y": 1.616,
+            "z": 0.0,
+            "yaw_rad": -0.496
+          },
+          "translation_m": 0.003,
+          "yaw_change_deg": 17.9336,
+          "motion_evidence_topic": "tf://map/base",
+          "motion_evidence_status": "legal_slam"
+        },
+        {
+          "action": "turn_right",
+          "duration_sec": 4.0,
+          "command": {
+            "linear_x": 0.0,
+            "linear_y": 0.0,
+            "angular_z": -0.8
+          },
+          "before": {
+            "x": 0.32,
+            "y": 1.61,
+            "z": 0.0,
+            "yaw_rad": -0.366
+          },
+          "after": {
+            "x": 0.319,
+            "y": 1.605,
+            "z": 0.0,
+            "yaw_rad": -0.78
+          },
+          "translation_m": 0.0051,
+          "yaw_change_deg": 23.7205,
+          "motion_evidence_topic": "tf://map/base",
+          "motion_evidence_status": "legal_slam"
+        },
+        {
+          "action": "move_left",
+          "duration_sec": 4.0,
+          "command": {
+            "linear_x": 0.0,
+            "linear_y": 0.4,
+            "angular_z": 0.0
+          },
+          "before": {
+            "x": 0.319,
+            "y": 1.603,
+            "z": 0.0,
+            "yaw_rad": -0.757
+          },
+          "after": {
+            "x": 0.469,
+            "y": 1.762,
+            "z": 0.0,
+            "yaw_rad": -0.741
+          },
+          "translation_m": 0.2186,
+          "yaw_change_deg": 0.9167,
+          "motion_evidence_topic": "tf://map/base",
+          "motion_evidence_status": "legal_slam"
+        },
+        {
+          "action": "move_left",
+          "duration_sec": 4.0,
+          "command": {
+            "linear_x": 0.0,
+            "linear_y": 0.4,
+            "angular_z": 0.0
+          },
+          "before": {
+            "x": 0.469,
+            "y": 1.762,
+            "z": 0.0,
+            "yaw_rad": -0.742
+          },
+          "after": {
+            "x": 0.449,
+            "y": 1.885,
+            "z": 0.0,
+            "yaw_rad": -0.726
+          },
+          "translation_m": 0.1246,
+          "yaw_change_deg": 0.9167,
+          "motion_evidence_topic": "tf://map/base",
+          "motion_evidence_status": "legal_slam"
+        }
+      ],
+      "localized_truth_count": 1,
+      "localization_status": "ok",
+      "localization_prediction_count": 1,
+      "localization_evaluation_frame": "world",
+      "localization_unmatched_prediction_count": 0,
+      "mean_localization_error_m": 0.2737,
+      "max_localization_error_m": 0.2737,
+      "criterion": "首帧必须为黄色局部候选；至少两次策略动作由合法SLAM位姿证明真实执行；后续恰好确认一个红球，完成三视角球面证据、三维定位和去重，且最大误差 <= 1.000 m。",
+      "result": "pass",
+      "metadata": {
+        "visible_ratio_design": 0.35,
+        "visible_ratio_precalibration_input": 0.6,
+        "occlusion_side": "right",
+        "occluder_center_x": 0.18844,
+        "circle_cut_x": -0.12156,
+        "requires_reobserve": true,
+        "delivery_stage": "20260730",
+        "required_initial_state": "partial_candidate",
+        "required_final_state": "single_confirmed_red_ball",
+        "runtime_policy_must_not_read_fixture_metadata": true,
+        "fixture_camera_alignment_yaw_rad": 0.0986783
+      },
+      "background_edge_ratios": [
+        0.003948567708333333,
+        0.00462890625,
+        0.004059244791666666,
+        0.003948567708333333,
+        0.004801432291666667,
+        0.004410807291666667,
+        0.004134114583333333,
+        0.00435546875,
+        0.004720052083333333,
+        0.004280598958333334,
+        0.0038704427083333334,
+        0.00392578125,
+        0.003896484375
+      ]
+    }
+  ]
+}

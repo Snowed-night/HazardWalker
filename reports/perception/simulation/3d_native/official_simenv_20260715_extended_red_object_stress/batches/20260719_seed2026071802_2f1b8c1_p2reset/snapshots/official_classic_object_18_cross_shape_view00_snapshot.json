@@ -1,0 +1,76 @@
+{
+  "case_id": "official_classic_object_18_cross_shape_view00",
+  "image_stamp": {
+    "sec": 1,
+    "nanosec": 63000000
+  },
+  "depth_stamp": {
+    "sec": 1,
+    "nanosec": 63000000
+  },
+  "localization_ready": true,
+  "detections_2d": [
+    {
+      "id": "untracked:1",
+      "frame_id": "real_sense",
+      "view_id": "xy:0.0:0.0|yaw:0",
+      "stamp": {
+        "sec": 1,
+        "nanosec": 13000000
+      },
+      "bbox": {
+        "x_min": 212,
+        "y_min": 307,
+        "x_max": 294,
+        "y_max": 378
+      },
+      "confidence": 0.2560611506016973,
+      "red_pixel_count": 2835,
+      "is_partial": true,
+      "requires_reobservation": true,
+      "may_be_merged": false,
+      "quality_reason": "partial_or_low_light",
+      "shape": {
+        "circularity": 0.367959226158493,
+        "aspect_ratio": 0.8674698795180723,
+        "extent": 0.44988286479250333
+      },
+      "depth_shape": {
+        "status": "flat",
+        "center_depth_m": 2.892624020576477,
+        "outer_depth_m": 2.898858070373535,
+        "curvature_m": 0.0062340497970581055,
+        "horizontal_curvature_m": null,
+        "vertical_curvature_m": null,
+        "diagonal_positive_curvature_m": null,
+        "diagonal_negative_curvature_m": null,
+        "curvature_isotropy_ratio": null,
+        "center_points": 562,
+        "outer_points": 1318,
+        "horizontal_points": 299,
+        "vertical_points": 348,
+        "diagonal_positive_points": 122,
+        "diagonal_negative_points": 122
+      },
+      "confirmation_eligible": false,
+      "depth_synchronized": true,
+      "depth_stamp_delta_sec": 0.0,
+      "localization_status": "suppressed_non_spherical_depth_shape",
+      "localized_position": [
+        2.8967,
+        0.3526,
+        -0.5328
+      ],
+      "track_id": "",
+      "track_status": "untracked",
+      "track_association": "none",
+      "source": "hsv_minimal",
+      "detector_backend": "hsv_opencv"
+    }
+  ],
+  "hazards": [],
+  "raw_image": "official_classic_object_18_cross_shape_view00_raw.png",
+  "annotated_image": "official_classic_object_18_cross_shape_view00_annotated.png",
+  "depth_metric_image": "official_classic_object_18_cross_shape_view00_depth_mm.png",
+  "depth_visual_image": "official_classic_object_18_cross_shape_view00_depth_visual.png"
+}

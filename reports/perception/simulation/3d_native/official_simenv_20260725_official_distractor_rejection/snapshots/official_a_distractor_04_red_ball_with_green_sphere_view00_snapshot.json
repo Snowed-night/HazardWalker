@@ -1,0 +1,90 @@
+{
+  "case_id": "official_a_distractor_04_red_ball_with_green_sphere_view00",
+  "image_stamp": {
+    "sec": 77,
+    "nanosec": 190000000
+  },
+  "depth_stamp": {
+    "sec": 77,
+    "nanosec": 190000000
+  },
+  "localization_ready": true,
+  "detections_2d": [
+    {
+      "id": "1",
+      "frame_id": "real_sense",
+      "view_id": "xy:0.4:0.0|yaw:0",
+      "stamp": {
+        "sec": 77,
+        "nanosec": 190000000
+      },
+      "bbox": {
+        "x_min": 230,
+        "y_min": 279,
+        "x_max": 285,
+        "y_max": 334
+      },
+      "confidence": 0.9646734622097316,
+      "red_pixel_count": 2496,
+      "is_partial": false,
+      "requires_reobservation": false,
+      "may_be_merged": false,
+      "quality_reason": "stable_shape",
+      "shape": {
+        "circularity": 0.905819253134326,
+        "aspect_ratio": 1.0,
+        "extent": 0.7705676020408163
+      },
+      "depth_shape": {
+        "status": "spherical",
+        "center_depth_m": 2.8405667543411255,
+        "outer_depth_m": 2.883301615715027,
+        "curvature_m": 0.04273486137390137,
+        "horizontal_curvature_m": 0.04369211196899414,
+        "vertical_curvature_m": 0.04302072525024414,
+        "diagonal_positive_curvature_m": 0.04385697841644287,
+        "diagonal_negative_curvature_m": 0.04015159606933594,
+        "curvature_isotropy_ratio": 0.9155121378421796,
+        "center_points": 300,
+        "outer_points": 1028,
+        "horizontal_points": 188,
+        "vertical_points": 188,
+        "diagonal_positive_points": 126,
+        "diagonal_negative_points": 126
+      },
+      "confirmation_eligible": true,
+      "depth_synchronized": true,
+      "depth_stamp_delta_sec": 0.04999999999999716,
+      "localization_status": "localized",
+      "localized_position": [
+        3.3088,
+        0.3441,
+        -0.3174
+      ],
+      "track_id": "1",
+      "track_status": "tentative",
+      "track_association": "image_projection",
+      "source": "hsv_minimal",
+      "detector_backend": "hsv_opencv"
+    }
+  ],
+  "hazards": [
+    {
+      "status": "tentative",
+      "position": [
+        3.3054,
+        0.3437,
+        -0.3174
+      ],
+      "position_frame_id": "base",
+      "confidence": 0.9647,
+      "observation_count": 8,
+      "distinct_view_count": 1,
+      "source": "hsv_depth_tf"
+    }
+  ],
+  "raw_image": "official_a_distractor_04_red_ball_with_green_sphere_view00_raw.png",
+  "annotated_image": "official_a_distractor_04_red_ball_with_green_sphere_view00_annotated.png",
+  "depth_metric_image": "official_a_distractor_04_red_ball_with_green_sphere_view00_depth_mm.png",
+  "depth_visual_image": "official_a_distractor_04_red_ball_with_green_sphere_view00_depth_visual.png"
+}

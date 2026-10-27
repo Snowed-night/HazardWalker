@@ -1,0 +1,127 @@
+{
+  "case_id": "official_b_reobserve_left_35pct_view08",
+  "image_stamp": {
+    "sec": 41,
+    "nanosec": 649000000
+  },
+  "depth_stamp": {
+    "sec": 41,
+    "nanosec": 649000000
+  },
+  "localization_ready": true,
+  "detections_2d": [
+    {
+      "id": "1",
+      "frame_id": "real_sense",
+      "view_id": "xy:2.0:-1.6|yaw:120",
+      "stamp": {
+        "sec": 41,
+        "nanosec": 549000000
+      },
+      "bbox": {
+        "x_min": 138,
+        "y_min": 312,
+        "x_max": 283,
+        "y_max": 437
+      },
+      "confidence": 0.9226023473312691,
+      "red_pixel_count": 15008,
+      "is_partial": false,
+      "requires_reobservation": false,
+      "may_be_merged": false,
+      "quality_reason": "stable_shape",
+      "shape": {
+        "circularity": 0.8756987129266385,
+        "aspect_ratio": 0.863013698630137,
+        "extent": 0.8047673407262448,
+        "visible_centroid_x_ratio": 0.49883815227041484
+      },
+      "depth_shape": {
+        "status": "spherical",
+        "center_depth_m": 1.0384741425514221,
+        "outer_depth_m": 1.0747712850570679,
+        "curvature_m": 0.03629714250564575,
+        "horizontal_curvature_m": 0.03871285915374756,
+        "vertical_curvature_m": 0.02197045087814331,
+        "diagonal_positive_curvature_m": 0.032871365547180176,
+        "diagonal_negative_curvature_m": 0.02625483274459839,
+        "curvature_isotropy_ratio": 0.5675233335488857,
+        "center_points": 1768,
+        "outer_points": 5984,
+        "horizontal_points": 1072,
+        "vertical_points": 1068,
+        "diagonal_positive_points": 762,
+        "diagonal_negative_points": 762
+      },
+      "confirmation_eligible": true,
+      "depth_synchronized": true,
+      "depth_stamp_delta_sec": 0.04999999999999716,
+      "localization_status": "localized",
+      "localized_position": [
+        1.0481,
+        -0.7758,
+        0.3414
+      ],
+      "raw_surface_depth_m": 1.07671719789505,
+      "candidate_id": "candidate-1",
+      "track_id": "1",
+      "track_status": "confirmed",
+      "track_association": "world_distance",
+      "source": "hsv_minimal",
+      "detector_backend": "hsv_opencv"
+    }
+  ],
+  "hazards": [
+    {
+      "id": 1,
+      "status": "confirmed",
+      "position": [
+        0.5961,
+        -0.7528,
+        0.3264
+      ],
+      "position_frame_id": "world",
+      "confidence": 0.9299,
+      "observation_count": 116,
+      "missed_count": 0,
+      "distinct_view_count": 4,
+      "eligible_observation_count": 116,
+      "eligible_view_ids": [
+        "xy:1.2:-2.0|yaw:90",
+        "xy:1.2:-2.0|yaw:120",
+        "xy:1.6:-1.6|yaw:120",
+        "xy:2.0:-1.6|yaw:120"
+      ],
+      "flat_view_ids": [],
+      "spherical_view_ids": [
+        "xy:1.2:-2.0|yaw:90",
+        "xy:1.2:-2.0|yaw:120",
+        "xy:1.6:-1.6|yaw:120",
+        "xy:2.0:-1.6|yaw:120"
+      ],
+      "apparent_diameter_cv": 0.0096,
+      "median_apparent_diameter_m": 0.2792,
+      "min_multiview_aspect_ratio": 0.8639,
+      "depth_curvature_cv": 0.0076,
+      "median_normalized_depth_curvature": 0.1299,
+      "view_bearing_span_deg": 27.377,
+      "evidence_status": "multi_view_sphere_consistent",
+      "required_min_eligible_observations": 3,
+      "required_min_distinct_views": 3,
+      "required_min_spherical_views": 2,
+      "required_min_view_bearing_span_deg": 25.0,
+      "localization_provenance": "slam_toolbox_scan_matching+public_floor_action",
+      "source": "hsv_depth_tf"
+    }
+  ],
+  "view_recommendation": {
+    "action": "continue_exploring",
+    "reason": "当前帧没有红球候选。",
+    "priority": 0,
+    "target_id": ""
+  },
+  "raw_image": "official_b_reobserve_left_35pct_view08_raw.png",
+  "annotated_image": "official_b_reobserve_left_35pct_view08_annotated.png",
+  "depth_metric_image": "official_b_reobserve_left_35pct_view08_depth_mm.png",
+  "depth_visual_image": "official_b_reobserve_left_35pct_view08_depth_visual.png"
+}

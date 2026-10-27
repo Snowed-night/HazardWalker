@@ -1,0 +1,229 @@
+{
+  "schema": "hazardwalker_official_simenv_classic_evidence_v2",
+  "run_id": "20260720_seed2026071802_A2base_v2",
+  "delivery_stage": "20260725",
+  "actual_start_utc": "2026-07-20T04:13:31.747506+00:00",
+  "actual_end_utc": "2026-07-20T04:14:20.896260+00:00",
+  "elapsed_sec": 49.149,
+  "seed": "2026071802",
+  "code_version": "b69613ec8543+worktree-752b61be",
+  "evidence_class": "internal_regression",
+  "official_score_eligible": false,
+  "suite": "red_ball_3d_localization",
+  "case_count": 5,
+  "pass_count": 5,
+  "fail_count": 0,
+  "target_case_count": 5,
+  "target_candidate_recall": 1.0,
+  "confirmed_false_positive_count": 0,
+  "confirmed_duplicate_count": 0,
+  "mean_localization_error_m": 0.0402,
+  "max_observed_localization_error_m": 0.0644,
+  "container": "hazardwalker_perception_isolated_v16",
+  "ros_domain_id": "78",
+  "camera_topic": "/hw/camera/image_raw",
+  "detection_topic": "/hw/perception/hazard_detections",
+  "detector_command": "/tmp/hazardwalker_stage_a_20260720_v2/scripts/run_official_simenv_stage_a_detector.sh",
+  "localization_evaluation_frame": "base",
+  "max_localization_error_m": 1.0,
+  "control_enabled": false,
+  "cleanup_mode": "gazebo_delete_model",
+  "fixture_center_world": [
+    0.0702018487922652,
+    1.1105965025442044,
+    0.15
+  ],
+  "fixture_center_source": "map->real_sense camera_forward 3.000m (test fixture only)",
+  "min_background_edge_ratio": 0.005,
+  "truth_usage": "仅在快照保存后由本脚本匹配；运行期检测器和运动策略不读取真值。",
+  "official_json_written": false,
+  "official_json_reason": "A阶段仅验证camera/base局部定位；缺少合法SLAM world位姿，禁止写官方JSON。",
+  "annotated_collage": "red_ball_3d_localization_annotated_collage.png",
+  "records": [
+    {
+      "case_id": "official_a_localization_01",
+      "suite": "red_ball_3d_localization",
+      "description": "A阶段官方0.15 m红球局部三维定位 01",
+      "expected_red_ball_count": 1,
+      "initial_strict_count": 1,
+      "initial_partial_count": 0,
+      "initial_red_pixel_count": 2473,
+      "actual_visible_ratio": "",
+      "strict_counts_by_view": [
+        1
+      ],
+      "partial_counts_by_view": [
+        0
+      ],
+      "final_confirmed_count": 0,
+      "actual_lateral_move_count": 0,
+      "motions": [],
+      "localized_truth_count": 1,
+      "localization_status": "ok",
+      "localization_prediction_count": 1,
+      "localization_evaluation_frame": "base",
+      "localization_unmatched_prediction_count": 0,
+      "mean_localization_error_m": 0.016,
+      "max_localization_error_m": 0.016,
+      "criterion": "合法局部坐标系内完整一对一定位；帧必须明确，预测数等于目标数，最大误差 <= 1.000 m。",
+      "result": "pass",
+      "metadata": {
+        "target_type": "red_sphere",
+        "target_radius_m": 0.15,
+        "official_target_spec": true,
+        "truth_usage": "post_capture_evaluation_only"
+      },
+      "background_edge_ratios": [
+        0.005618489583333333
+      ]
+    },
+    {
+      "case_id": "official_a_localization_02",
+      "suite": "red_ball_3d_localization",
+      "description": "A阶段官方0.15 m红球局部三维定位 02",
+      "expected_red_ball_count": 1,
+      "initial_strict_count": 1,
+      "initial_partial_count": 0,
+      "initial_red_pixel_count": 2478,
+      "actual_visible_ratio": "",
+      "strict_counts_by_view": [
+        1
+      ],
+      "partial_counts_by_view": [
+        0
+      ],
+      "final_confirmed_count": 0,
+      "actual_lateral_move_count": 0,
+      "motions": [],
+      "localized_truth_count": 1,
+      "localization_status": "ok",
+      "localization_prediction_count": 1,
+      "localization_evaluation_frame": "base",
+      "localization_unmatched_prediction_count": 0,
+      "mean_localization_error_m": 0.0414,
+      "max_localization_error_m": 0.0414,
+      "criterion": "合法局部坐标系内完整一对一定位；帧必须明确，预测数等于目标数，最大误差 <= 1.000 m。",
+      "result": "pass",
+      "metadata": {
+        "target_type": "red_sphere",
+        "target_radius_m": 0.15,
+        "official_target_spec": true,
+        "truth_usage": "post_capture_evaluation_only"
+      },
+      "background_edge_ratios": [
+        0.0057421875
+      ]
+    },
+    {
+      "case_id": "official_a_localization_03",
+      "suite": "red_ball_3d_localization",
+      "description": "A阶段官方0.15 m红球局部三维定位 03",
+      "expected_red_ball_count": 1,
+      "initial_strict_count": 1,
+      "initial_partial_count": 0,
+      "initial_red_pixel_count": 2459,
+      "actual_visible_ratio": "",
+      "strict_counts_by_view": [
+        1
+      ],
+      "partial_counts_by_view": [
+        0
+      ],
+      "final_confirmed_count": 0,
+      "actual_lateral_move_count": 0,
+      "motions": [],
+      "localized_truth_count": 1,
+      "localization_status": "ok",
+      "localization_prediction_count": 1,
+      "localization_evaluation_frame": "base",
+      "localization_unmatched_prediction_count": 0,
+      "mean_localization_error_m": 0.0644,
+      "max_localization_error_m": 0.0644,
+      "criterion": "合法局部坐标系内完整一对一定位；帧必须明确，预测数等于目标数，最大误差 <= 1.000 m。",
+      "result": "pass",
+      "metadata": {
+        "target_type": "red_sphere",
+        "target_radius_m": 0.15,
+        "official_target_spec": true,
+        "truth_usage": "post_capture_evaluation_only"
+      },
+      "background_edge_ratios": [
+        0.007770182291666667
+      ]
+    },
+    {
+      "case_id": "official_a_localization_04",
+      "suite": "red_ball_3d_localization",
+      "description": "A阶段官方0.15 m红球局部三维定位 04",
+      "expected_red_ball_count": 1,
+      "initial_strict_count": 1,
+      "initial_partial_count": 0,
+      "initial_red_pixel_count": 2847,
+      "actual_visible_ratio": "",
+      "strict_counts_by_view": [
+        1
+      ],
+      "partial_counts_by_view": [
+        0
+      ],
+      "final_confirmed_count": 0,
+      "actual_lateral_move_count": 0,
+      "motions": [],
+      "localized_truth_count": 1,
+      "localization_status": "ok",
+      "localization_prediction_count": 1,
+      "localization_evaluation_frame": "base",
+      "localization_unmatched_prediction_count": 0,
+      "mean_localization_error_m": 0.0343,
+      "max_localization_error_m": 0.0343,
+      "criterion": "合法局部坐标系内完整一对一定位；帧必须明确，预测数等于目标数，最大误差 <= 1.000 m。",
+      "result": "pass",
+      "metadata": {
+        "target_type": "red_sphere",
+        "target_radius_m": 0.15,
+        "official_target_spec": true,
+        "truth_usage": "post_capture_evaluation_only"
+      },
+      "background_edge_ratios": [
+        0.005458984375
+      ]
+    },
+    {
+      "case_id": "official_a_localization_05",
+      "suite": "red_ball_3d_localization",
+      "description": "A阶段官方0.15 m红球局部三维定位 05",
+      "expected_red_ball_count": 1,
+      "initial_strict_count": 1,
+      "initial_partial_count": 0,
+      "initial_red_pixel_count": 2172,
+      "actual_visible_ratio": "",
+      "strict_counts_by_view": [
+        1
+      ],
+      "partial_counts_by_view": [
+        0
+      ],
+      "final_confirmed_count": 0,
+      "actual_lateral_move_count": 0,
+      "motions": [],
+      "localized_truth_count": 1,
+      "localization_status": "ok",
+      "localization_prediction_count": 1,
+      "localization_evaluation_frame": "base",
+      "localization_unmatched_prediction_count": 0,
+      "mean_localization_error_m": 0.045,
+      "max_localization_error_m": 0.045,
+      "criterion": "合法局部坐标系内完整一对一定位；帧必须明确，预测数等于目标数，最大误差 <= 1.000 m。",
+      "result": "pass",
+      "metadata": {
+        "target_type": "red_sphere",
+        "target_radius_m": 0.15,
+        "official_target_spec": true,
+        "truth_usage": "post_capture_evaluation_only"
+      },
+      "background_edge_ratios": [
+        0.0076725260416666665
+      ]
+    }
+  ]
+}

@@ -21,14 +21,23 @@
 - 再在最小 demo 中检查 `/hw/mission/state`、`/hw/mission/result` 和 JSON 文件是否同步。
 """
 import json
+import math
 import os
+import time
 from datetime import datetime
+from pathlib import Path
 
 import rclpy
+from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
+from rclpy.qos import DurabilityPolicy, QoSProfile
 from std_msgs.msg import String
 
-from hazardwalker_decision.result_builder import build_mission_result
+from hazardwalker_decision.result_builder import (
+    build_mission_result,
+    build_official_detected_danger_result,
+    formal_navigation_sequence_completed,
+)
 
 
 class MissionStateMachineNode(Node):
@@ -36,18 +45,48 @@ class MissionStateMachineNode(Node):
         super().__init__('mission_state_machine_node')
         self.declare_parameter('result_dir', 'reports/run_results')
         self.declare_parameter('mission_id', 'minimal_demo')
+        # 官方 SimEnv 评估器只读取这个结果文件。正式运行时感知节点必须提供
+        # 合法 SLAM 的 world 坐标；Gazebo /Odometry_gazebo 与 ground_truth 均不得使用。
+        self.declare_parameter('official_result_path', 'results/detected_danger.json')
+        self.declare_parameter('official_result_frame', 'world')
+        # 正式任务在门外完成入门后才启动 SLAM，因此感知保留 map 坐标，
+        # 结果层用本轮公开入门里程计算出的 map 原点一次性转换到 world。
+        self.declare_parameter('official_hazard_source_frame', 'map')
+        self.declare_parameter('official_world_from_map_x', 0.0)
+        self.declare_parameter('official_world_from_map_y', 0.0)
+        self.declare_parameter('official_world_from_map_yaw', 0.0)
+        self.declare_parameter('official_floor_height_m', 2.6)
+        self.declare_parameter('official_sphere_center_height_m', 0.15)
+        self.declare_parameter('official_result_dedup_distance_m', 0.30)
+        self.declare_parameter('official_require_legal_localization', True)
+        self.declare_parameter('official_require_frontier_sequence', True)
+        self.declare_parameter('official_result_anchor_settle_s', 1.0)
+        self.declare_parameter(
+            'floor_map_anchor_topic', '/hazardwalker/slam/floor_anchors')
 
         # nav_state 保存导航组当前状态；hazards 用字典按 id 去重保存候选危险源。
         # 当前版本只做简单覆盖，后续要替换为多帧确认和状态管理。
         self.nav_state = 'IDLE'
         self.hazards = {}
         self.finished = False
-        self.start_time = self.get_clock().now()
+        self.nav_state_history = []
+        self.invalid_completion_reported = False
+        self.start_time = None
+        self.finish_received_monotonic = None
+        self.floor_world_from_map = {}
 
         # 导航状态来自导航组；危险源 JSON 来自感知组。
         self.nav_sub = self.create_subscription(String, '/hw/nav/state', self.on_nav_state, 10)
         self.hazard_sub = self.create_subscription(
             String, '/hw/perception/hazard_detections', self.on_hazards, 10
+        )
+        floor_anchor_qos = QoSProfile(depth=8)
+        floor_anchor_qos.durability = DurabilityPolicy.TRANSIENT_LOCAL
+        self.floor_anchor_sub = self.create_subscription(
+            String,
+            str(self.get_parameter('floor_map_anchor_topic').value),
+            self.on_floor_anchor,
+            floor_anchor_qos,
         )
         # mission/state 给其他模块和测试组观察；mission/result 用于发布最终结果 JSON。
         self.state_pub = self.create_publisher(String, '/hw/mission/state', 10)
@@ -57,8 +96,12 @@ class MissionStateMachineNode(Node):
         self.get_logger().info('Mission state machine started.')
 
     def on_nav_state(self, msg: String):
-        # 当前直接信任导航模块发布的状态。后续可以在这里加入合法状态检查。
         self.nav_state = msg.data
+        if self.nav_state == 'EXPLORING' and self.start_time is None:
+            # SLAM 可以在门外预热，但官方探索用时从入门后释放导航开始计算。
+            self.start_time = self.get_clock().now()
+        if not self.nav_state_history or self.nav_state_history[-1] != self.nav_state:
+            self.nav_state_history.append(self.nav_state)
 
     def on_hazards(self, msg: String):
         # 第一阶段感知结果用 String(JSON) 传递，方便快速集成。
@@ -74,6 +117,55 @@ class MissionStateMachineNode(Node):
             hazard_id = str(hazard.get('id', len(self.hazards) + 1))
             self.hazards[hazard_id] = hazard
 
+    def on_floor_anchor(self, msg: String):
+        """保存楼层闭环锚点；同层后续锚点可替换开层时的初始估计。"""
+
+        try:
+            payload = json.loads(msg.data)
+            floor = int(payload['floor'])
+            transform = tuple(float(value) for value in payload[
+                'world_from_map'])
+        except (KeyError, TypeError, ValueError, json.JSONDecodeError):
+            self.get_logger().warning(
+                'Rejected malformed floor map anchor.',
+                throttle_duration_sec=5.0)
+            return
+        if (payload.get('schema') != 'hazardwalker_floor_map_anchor_v1'
+                or floor < 0
+                or len(transform) != 3
+                or not all(math.isfinite(value) for value in transform)
+                or payload.get('source_frame') != str(
+                    self.get_parameter(
+                        'official_hazard_source_frame').value)
+                or payload.get('source') not in {
+                    'lidar_imu_slam+public_start',
+                    'lidar_imu_slam+public_elevator_arrival',
+                    'lidar_imu_slam+public_elevator_departure',
+                    'lidar_imu_slam+public_home',
+                }):
+            self.get_logger().warning(
+                'Rejected untrusted floor map anchor.',
+                throttle_duration_sec=5.0)
+            return
+        raw_floors = payload.get('applies_to_floors', [floor])
+        if (not isinstance(raw_floors, list)
+                or not raw_floors
+                or any(isinstance(value, bool) for value in raw_floors)):
+            self.get_logger().warning(
+                'Rejected malformed floor anchor scope.',
+                throttle_duration_sec=5.0)
+            return
+        try:
+            floors = [int(value) for value in raw_floors]
+        except (TypeError, ValueError):
+            return
+        if any(value < 0 for value in floors):
+            return
+        for anchored_floor in floors:
+            self.floor_world_from_map[anchored_floor] = transform
+        self.get_logger().info(
+            f'Accepted floors {floors} SLAM map anchor: {transform}')
+
     def on_timer(self):
         # 将导航状态转发为任务状态。当前最小版暂时没有独立决策逻辑。
         state = String()
@@ -81,6 +173,31 @@ class MissionStateMachineNode(Node):
         self.state_pub.publish(state)
 
         if self.nav_state == 'FINISHED' and not self.finished:
+            now_monotonic = time.monotonic()
+            if self.finish_received_monotonic is None:
+                self.finish_received_monotonic = now_monotonic
+                return
+            settle_elapsed = (
+                now_monotonic - self.finish_received_monotonic)
+            if settle_elapsed < max(
+                    0.0, float(self.get_parameter(
+                        'official_result_anchor_settle_s').value)):
+                return
+            if (
+                bool(self.get_parameter(
+                    'official_require_frontier_sequence',
+                ).value)
+                and not formal_navigation_sequence_completed(
+                    self.nav_state_history,
+                )
+            ):
+                if not self.invalid_completion_reported:
+                    self.get_logger().error(
+                        'Rejected FINISHED without ordered '
+                        'EXPLORING -> RETURNING -> FINISHED evidence.'
+                    )
+                    self.invalid_completion_reported = True
+                return
             # 防止重复写文件：第一次看到 FINISHED 时生成一次结果。
             self.finished = True
             result = self.build_result()
@@ -93,7 +210,8 @@ class MissionStateMachineNode(Node):
     def build_result(self):
         # 生成与当前文档约定一致的结果结构。
         now = self.get_clock().now()
-        duration = (now - self.start_time).nanoseconds / 1e9
+        started = self.start_time if self.start_time is not None else now
+        duration = (now - started).nanoseconds / 1e9
         return build_mission_result(
             mission_id=self.get_parameter('mission_id').value,
             status='FINISHED',
@@ -116,12 +234,85 @@ class MissionStateMachineNode(Node):
         with open(path, 'w', encoding='utf-8') as f:
             json.dump(result, f, ensure_ascii=False, indent=2)
 
+        # 另外写出官方评分格式。仅 `confirmed` 且 world 坐标的球体轨迹会进入此文件，
+        # 所以红圆柱/圆锥候选、部分可见候选和被拒绝的非球体不会形成虚警提交。
+        official = build_official_detected_danger_result(
+            result['hazards'],
+            result['metrics']['duration_sec'],
+            expected_frame=self.get_parameter('official_result_frame').value,
+            source_frame=self.get_parameter(
+                'official_hazard_source_frame').value,
+            world_from_source=(
+                float(self.get_parameter(
+                    'official_world_from_map_x').value),
+                float(self.get_parameter(
+                    'official_world_from_map_y').value),
+                float(self.get_parameter(
+                    'official_world_from_map_yaw').value),
+            ),
+            world_from_source_by_floor=self.floor_world_from_map,
+            snap_sphere_height_to_floor=True,
+            floor_height_m=float(self.get_parameter(
+                'official_floor_height_m').value),
+            sphere_center_height_m=float(self.get_parameter(
+                'official_sphere_center_height_m').value),
+            dedup_distance_m=float(
+                self.get_parameter('official_result_dedup_distance_m').value
+            ),
+            require_legal_localization=bool(
+                self.get_parameter('official_require_legal_localization').value
+            ),
+            require_sphere_evidence=True,
+            require_multiview_sphere_evidence=False,
+            require_explicit_floor_index=True,
+        )
+        official_value = self.get_parameter('official_result_path').value
+        official_path = Path(official_value)
+        if not official_path.is_absolute():
+            official_path = Path(repo_root) / official_path
+        official_path.parent.mkdir(parents=True, exist_ok=True)
+        temporary_path = official_path.with_suffix(official_path.suffix + '.tmp')
+        temporary_path.write_text(
+            json.dumps(official, ensure_ascii=False, indent=2) + '\n', encoding='utf-8',
+        )
+        temporary_path.replace(official_path)
+        anchors_path = official_path.parent / 'floor_map_anchors.json'
+        anchors_payload = {
+            'schema': 'hazardwalker_floor_map_anchor_set_v1',
+            'anchors': {
+                str(floor): [round(value, 9) for value in transform]
+                for floor, transform in sorted(
+                    self.floor_world_from_map.items())
+            },
+            'floor_0_fallback': [
+                float(self.get_parameter('official_world_from_map_x').value),
+                float(self.get_parameter('official_world_from_map_y').value),
+                float(self.get_parameter('official_world_from_map_yaw').value),
+            ],
+            'source': 'lidar_imu_slam+public_start/elevator_action',
+        }
+        anchors_temporary = anchors_path.with_suffix(
+            anchors_path.suffix + '.tmp')
+        anchors_temporary.write_text(
+            json.dumps(anchors_payload, ensure_ascii=False, indent=2) + '\n',
+            encoding='utf-8',
+        )
+        anchors_temporary.replace(anchors_path)
+        self.get_logger().info(
+            f'Official danger result written: {official_path} '
+            f'({len(official["detected_danger_sources"])} confirmed world-frame sources).'
+        )
+
 
 def main():
     rclpy.init()
     node = MissionStateMachineNode()
     try:
         rclpy.spin(node)
+    except ExternalShutdownException:
+        # 栈统一停止时避免二次 shutdown 产生误导性的 RCLError。
+        pass
     finally:
-        node.destroy_node()
-        rclpy.shutdown()
+        if rclpy.ok():
+            node.destroy_node()
+            rclpy.shutdown()

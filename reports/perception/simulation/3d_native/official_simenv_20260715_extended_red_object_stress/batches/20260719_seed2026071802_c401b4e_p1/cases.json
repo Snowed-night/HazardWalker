@@ -1,0 +1,313 @@
+[
+  {
+    "case_id": "official_classic_object_01_sphere_standard",
+    "suite": "red_objects",
+    "description": "官方复杂楼宇红色物品：sphere_standard",
+    "expected_red_ball_count": 1,
+    "initial_strict_count": 1,
+    "initial_partial_count": 0,
+    "initial_red_pixel_count": 2464,
+    "actual_visible_ratio": "",
+    "strict_counts_by_view": [
+      1
+    ],
+    "partial_counts_by_view": [
+      0
+    ],
+    "final_confirmed_count": 0,
+    "actual_lateral_move_count": 0,
+    "motions": [],
+    "localized_truth_count": 1,
+    "mean_localization_error_m": 3.0242,
+    "max_localization_error_m": 3.0242,
+    "criterion": "单视角红球应产生严格候选；所有红色非球体不得被确认，形状结论交给多视角套件。；背景结构边缘比例必须 >= 0.0060，防止近墙/空白画面充当复杂环境证据。",
+    "result": "fail",
+    "metadata": {
+      "shape_name": "sphere_standard",
+      "is_red_sphere_target": true
+    },
+    "background_edge_ratios": [
+      0.005325520833333333
+    ]
+  },
+  {
+    "case_id": "official_classic_object_02_sphere_small",
+    "suite": "red_objects",
+    "description": "官方复杂楼宇红色物品：sphere_small",
+    "expected_red_ball_count": 1,
+    "initial_strict_count": 1,
+    "initial_partial_count": 0,
+    "initial_red_pixel_count": 1092,
+    "actual_visible_ratio": "",
+    "strict_counts_by_view": [
+      1
+    ],
+    "partial_counts_by_view": [
+      0
+    ],
+    "final_confirmed_count": 0,
+    "actual_lateral_move_count": 0,
+    "motions": [],
+    "localized_truth_count": 1,
+    "mean_localization_error_m": 4.4693,
+    "max_localization_error_m": 4.4693,
+    "criterion": "单视角红球应产生严格候选；所有红色非球体不得被确认，形状结论交给多视角套件。",
+    "result": "pass",
+    "metadata": {
+      "shape_name": "sphere_small",
+      "is_red_sphere_target": true
+    },
+    "background_edge_ratios": [
+      0.007047526041666667
+    ]
+  },
+  {
+    "case_id": "official_classic_object_03_sphere_large",
+    "suite": "red_objects",
+    "description": "官方复杂楼宇红色物品：sphere_large",
+    "expected_red_ball_count": 1,
+    "initial_strict_count": 1,
+    "initial_partial_count": 0,
+    "initial_red_pixel_count": 4937,
+    "actual_visible_ratio": "",
+    "strict_counts_by_view": [
+      1
+    ],
+    "partial_counts_by_view": [
+      0
+    ],
+    "final_confirmed_count": 0,
+    "actual_lateral_move_count": 0,
+    "motions": [],
+    "localized_truth_count": 1,
+    "mean_localization_error_m": 2.226,
+    "max_localization_error_m": 2.226,
+    "criterion": "单视角红球应产生严格候选；所有红色非球体不得被确认，形状结论交给多视角套件。；背景结构边缘比例必须 >= 0.0060，防止近墙/空白画面充当复杂环境证据。",
+    "result": "fail",
+    "metadata": {
+      "shape_name": "sphere_large",
+      "is_red_sphere_target": true
+    },
+    "background_edge_ratios": [
+      0.005384114583333334
+    ]
+  },
+  {
+    "case_id": "official_classic_object_04_cube",
+    "suite": "red_objects",
+    "description": "官方复杂楼宇红色物品：cube",
+    "expected_red_ball_count": 0,
+    "initial_strict_count": 0,
+    "initial_partial_count": 1,
+    "initial_red_pixel_count": 3687,
+    "actual_visible_ratio": "",
+    "strict_counts_by_view": [
+      0
+    ],
+    "partial_counts_by_view": [
+      1
+    ],
+    "final_confirmed_count": 0,
+    "actual_lateral_move_count": 0,
+    "motions": [],
+    "localized_truth_count": 0,
+    "mean_localization_error_m": "",
+    "max_localization_error_m": "",
+    "criterion": "单视角红球应产生严格候选；所有红色非球体不得被确认，形状结论交给多视角套件。；背景结构边缘比例必须 >= 0.0060，防止近墙/空白画面充当复杂环境证据。",
+    "result": "fail",
+    "metadata": {
+      "shape_name": "cube",
+      "is_red_sphere_target": false
+    },
+    "background_edge_ratios": [
+      0.005384114583333334
+    ]
+  },
+  {
+    "case_id": "official_classic_object_05_tall_cuboid",
+    "suite": "red_objects",
+    "description": "官方复杂楼宇红色物品：tall_cuboid",
+    "expected_red_ball_count": 0,
+    "initial_strict_count": 0,
+    "initial_partial_count": 1,
+    "initial_red_pixel_count": 3173,
+    "actual_visible_ratio": "",
+    "strict_counts_by_view": [
+      0
+    ],
+    "partial_counts_by_view": [
+      1
+    ],
+    "final_confirmed_count": 0,
+    "actual_lateral_move_count": 0,
+    "motions": [],
+    "localized_truth_count": 0,
+    "mean_localization_error_m": "",
+    "max_localization_error_m": "",
+    "criterion": "单视角红球应产生严格候选；所有红色非球体不得被确认，形状结论交给多视角套件。；背景结构边缘比例必须 >= 0.0060，防止近墙/空白画面充当复杂环境证据。",
+    "result": "fail",
+    "metadata": {
+      "shape_name": "tall_cuboid",
+      "is_red_sphere_target": false
+    },
+    "background_edge_ratios": [
+      0.005406901041666667
+    ]
+  },
+  {
+    "case_id": "official_classic_object_06_flat_panel",
+    "suite": "red_objects",
+    "description": "官方复杂楼宇红色物品：flat_panel",
+    "expected_red_ball_count": 0,
+    "initial_strict_count": 0,
+    "initial_partial_count": 1,
+    "initial_red_pixel_count": 4419,
+    "actual_visible_ratio": "",
+    "strict_counts_by_view": [
+      0
+    ],
+    "partial_counts_by_view": [
+      1
+    ],
+    "final_confirmed_count": 0,
+    "actual_lateral_move_count": 0,
+    "motions": [],
+    "localized_truth_count": 0,
+    "mean_localization_error_m": "",
+    "max_localization_error_m": "",
+    "criterion": "单视角红球应产生严格候选；所有红色非球体不得被确认，形状结论交给多视角套件。",
+    "result": "pass",
+    "metadata": {
+      "shape_name": "flat_panel",
+      "is_red_sphere_target": false
+    },
+    "background_edge_ratios": [
+      0.01439453125
+    ]
+  },
+  {
+    "case_id": "official_classic_object_07_cylinder_vertical",
+    "suite": "red_objects",
+    "description": "官方复杂楼宇红色物品：cylinder_vertical",
+    "expected_red_ball_count": 0,
+    "initial_strict_count": 0,
+    "initial_partial_count": 1,
+    "initial_red_pixel_count": 3969,
+    "actual_visible_ratio": "",
+    "strict_counts_by_view": [
+      0
+    ],
+    "partial_counts_by_view": [
+      1
+    ],
+    "final_confirmed_count": 0,
+    "actual_lateral_move_count": 0,
+    "motions": [],
+    "localized_truth_count": 0,
+    "mean_localization_error_m": "",
+    "max_localization_error_m": "",
+    "criterion": "单视角红球应产生严格候选；所有红色非球体不得被确认，形状结论交给多视角套件。",
+    "result": "pass",
+    "metadata": {
+      "shape_name": "cylinder_vertical",
+      "is_red_sphere_target": false
+    },
+    "background_edge_ratios": [
+      0.008880208333333334
+    ]
+  },
+  {
+    "case_id": "official_classic_object_08_cylinder_face",
+    "suite": "red_objects",
+    "description": "官方复杂楼宇红色物品：cylinder_face",
+    "expected_red_ball_count": 0,
+    "initial_strict_count": 1,
+    "initial_partial_count": 0,
+    "initial_red_pixel_count": 2894,
+    "actual_visible_ratio": "",
+    "strict_counts_by_view": [
+      1
+    ],
+    "partial_counts_by_view": [
+      0
+    ],
+    "final_confirmed_count": 0,
+    "actual_lateral_move_count": 0,
+    "motions": [],
+    "localized_truth_count": 0,
+    "mean_localization_error_m": "",
+    "max_localization_error_m": "",
+    "criterion": "单视角红球应产生严格候选；所有红色非球体不得被确认，形状结论交给多视角套件。；背景结构边缘比例必须 >= 0.0060，防止近墙/空白画面充当复杂环境证据。",
+    "result": "fail",
+    "metadata": {
+      "shape_name": "cylinder_face",
+      "is_red_sphere_target": false
+    },
+    "background_edge_ratios": [
+      0.005592447916666667
+    ]
+  },
+  {
+    "case_id": "official_classic_object_09_disc_face",
+    "suite": "red_objects",
+    "description": "官方复杂楼宇红色物品：disc_face",
+    "expected_red_ball_count": 0,
+    "initial_strict_count": 1,
+    "initial_partial_count": 0,
+    "initial_red_pixel_count": 3410,
+    "actual_visible_ratio": "",
+    "strict_counts_by_view": [
+      1
+    ],
+    "partial_counts_by_view": [
+      0
+    ],
+    "final_confirmed_count": 0,
+    "actual_lateral_move_count": 0,
+    "motions": [],
+    "localized_truth_count": 0,
+    "mean_localization_error_m": "",
+    "max_localization_error_m": "",
+    "criterion": "单视角红球应产生严格候选；所有红色非球体不得被确认，形状结论交给多视角套件。",
+    "result": "pass",
+    "metadata": {
+      "shape_name": "disc_face",
+      "is_red_sphere_target": false
+    },
+    "background_edge_ratios": [
+      0.010745442708333334
+    ]
+  },
+  {
+    "case_id": "official_classic_object_10_cone_vertical",
+    "suite": "red_objects",
+    "description": "官方复杂楼宇红色物品：cone_vertical",
+    "expected_red_ball_count": 0,
+    "initial_strict_count": 0,
+    "initial_partial_count": 0,
+    "initial_red_pixel_count": 0,
+    "actual_visible_ratio": "",
+    "strict_counts_by_view": [
+      0
+    ],
+    "partial_counts_by_view": [
+      0
+    ],
+    "final_confirmed_count": 0,
+    "actual_lateral_move_count": 0,
+    "motions": [],
+    "localized_truth_count": 0,
+    "mean_localization_error_m": "",
+    "max_localization_error_m": "",
+    "criterion": "单视角红球应产生严格候选；所有红色非球体不得被确认，形状结论交给多视角套件。；背景结构边缘比例必须 >= 0.0060，防止近墙/空白画面充当复杂环境证据。",
+    "result": "fail",
+    "metadata": {
+      "shape_name": "cone_vertical",
+      "is_red_sphere_target": false
+    },
+    "background_edge_ratios": [
+      0.005335286458333333
+    ],
+    "error": "Gazebo 临时模型清理失败；为防止残留物污染，已中止该套件。"
+  }
+]

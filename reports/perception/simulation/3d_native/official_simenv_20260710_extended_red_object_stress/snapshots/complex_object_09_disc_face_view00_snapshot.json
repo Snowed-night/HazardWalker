@@ -1,0 +1,79 @@
+{
+  "case_id": "complex_object_09_disc_face_view00",
+  "image_stamp": {
+    "sec": 1667,
+    "nanosec": 325000000
+  },
+  "localization_ready": true,
+  "camera_stable": true,
+  "stable_view_frame_count": 31,
+  "detections_2d": [
+    {
+      "id": 1,
+      "frame_id": "hazardwalker_camera",
+      "view_id": "pos:3.2:8.4:3.6|yaw:90",
+      "stamp": {
+        "sec": 1667,
+        "nanosec": 260000000
+      },
+      "bbox": {
+        "x_min": 251,
+        "y_min": 182,
+        "x_max": 388,
+        "y_max": 318
+      },
+      "confidence": 0.960242801189625,
+      "red_pixel_count": 14788,
+      "is_partial": false,
+      "requires_reobservation": false,
+      "may_be_merged": false,
+      "from_merged_split": false,
+      "quality_reason": "stable_shape",
+      "shape": {
+        "circularity": 0.8965626495318155,
+        "aspect_ratio": 0.9927536231884058,
+        "extent": 0.7719242568496774
+      },
+      "depth_shape": {
+        "status": "flat",
+        "center_depth_m": 1.44461190700531,
+        "outer_depth_m": 1.4446119666099548,
+        "curvature_m": 5.960464477539063e-08,
+        "center_points": 1816,
+        "outer_points": 6168
+      },
+      "confirmation_eligible": false,
+      "apparent_diameter_m": 0.3056,
+      "localization_status": "suppressed_flat_depth_shape",
+      "source": "hsv_minimal",
+      "detector_backend": "hsv_opencv"
+    }
+  ],
+  "hazards": [
+    {
+      "status": "tentative",
+      "position": [
+        3.2989,
+        9.7641,
+        3.3256
+      ],
+      "position_frame_id": "world",
+      "confidence": 0.9602,
+      "observation_count": 29,
+      "distinct_view_count": 0,
+      "source": "hsv_depth_tf",
+      "eligible_observation_count": 0,
+      "eligible_view_ids": [],
+      "flat_view_ids": [
+        "pos:3.2:8.4:3.6|yaw:90"
+      ],
+      "apparent_diameter_cv": 0.0,
+      "min_multiview_aspect_ratio": 0.9928,
+      "depth_curvature_cv": 0.0,
+      "median_normalized_depth_curvature": 0.0,
+      "evidence_status": "collecting_views"
+    }
+  ],
+  "raw_image": "complex_object_09_disc_face_view00_raw.png",
+  "annotated_image": "complex_object_09_disc_face_view00_annotated.png"
+}

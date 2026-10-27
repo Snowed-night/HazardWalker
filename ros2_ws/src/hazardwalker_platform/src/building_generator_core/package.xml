@@ -1,0 +1,14 @@
+<?xml version="1.0"?>
+<package format="2">
+  <name>building_generator_core</name>
+  <version>0.1.0</version>
+  <description>Deterministic random building generator core for Gazebo training scenes.</description>
+  <maintainer email="2996199463@qq.com">tokou</maintainer>
+  <license>Apache-2.0</license>
+
+  <buildtool_depend>catkin</buildtool_depend>
+
+  <exec_depend>python3-yaml</exec_depend>
+
+  <test_depend>python3-nose</test_depend>
+</package>
