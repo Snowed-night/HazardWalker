@@ -138,6 +138,11 @@ class TransientCandidateMemory:
                 continue
             self._entries[candidate_id]['track_id'] = track_id
 
+    def clear(self):
+        """楼层切换时清空图像候选别名，禁止跨楼层复用同一目标 ID。"""
+
+        self._entries.clear()
+
 
 class ActiveViewDirectionMemory:
     """在同一候选复查会话内保持侧移方向，避免越过画面中心后左右振荡。"""
@@ -219,8 +224,7 @@ def attach_candidate_aliases_to_hazards(hazards, detections):
     return result
 
 
-def choose_active_view_action(
-        detections, image_width, image_height, config=None, hazards=None):
+def choose_active_view_action(detections, image_width, image_height, config=None):
     """为当前帧选择优先级最高的一次重观察动作。
 
     ``detections`` 兼容 HSV 节点发布的 dict；缺失形状或深度字段时按保守值处理。
@@ -228,14 +232,7 @@ def choose_active_view_action(
     """
 
     policy = config or ActiveViewPolicyConfig()
-    # 二维框只描述当前画面，无法解释轨迹为何仍未确认。把同一 track 的公开
-    # 多视角状态合入策略输入后，已经取得多个稳定视角但横向视差不足的目标
-    # 才不会被“小框先靠近”规则永久压住。这里只读取感知自身输出，不用真值。
-    enriched = _attach_hazard_evidence(detections, hazards or [])
-    normalized = [
-        _normalize_detection(item, index)
-        for index, item in enumerate(enriched, start=1)
-    ]
+    normalized = [_normalize_detection(item, index) for index, item in enumerate(detections, start=1)]
     if not normalized:
         return ViewRecommendation('continue_exploring', '当前帧没有红球候选。', 0)
 
@@ -279,6 +276,52 @@ def choose_active_view_action(
     )
 
 
+def choose_stable_localization_hold(detections, camera_stable):
+    """运动中看到球面正证据时先停车，禁止用运动帧建立最终三维轨迹。"""
+
+    if bool(camera_stable) or not isinstance(detections, list):
+        return None
+    candidates = [
+        item for item in detections
+        if isinstance(item, dict)
+        and bool(item.get('depth_synchronized'))
+        and bool(item.get('tf_synchronized'))
+        and isinstance(item.get('localized_position'), (list, tuple))
+        and item.get('track_status') not in (
+            'confirmed', 'rejected', 'rejected_non_spherical')
+    ]
+    if not candidates:
+        return None
+    target = max(
+        candidates,
+        key=lambda item: float(item.get('confidence', 0.0)),
+    )
+    target_id = str(
+        target.get('track_id')
+        or target.get('candidate_id')
+        or target.get('id')
+        or ''
+    )
+    return ViewRecommendation(
+        'hold_observation',
+        '运动中已发现可定位红色候选；先停稳，再用同步 RGB-D/TF 判断球体并确认位置。',
+        100,
+        target_id,
+    )
+
+
+def motion_command_is_stationary(
+        linear_xyz, angular_xyz, max_linear_mps, max_angular_rps):
+    """判断速度心跳是否已归零，供停稳定位门禁和离线测试共用。"""
+
+    linear_norm = math.sqrt(sum(float(value) ** 2 for value in linear_xyz))
+    angular_norm = math.sqrt(sum(float(value) ** 2 for value in angular_xyz))
+    return (
+        linear_norm <= float(max_linear_mps)
+        and angular_norm <= float(max_angular_rps)
+    )
+
+
 def _urgent_target_action(target, image_width, image_height, policy):
     """返回单候选的高优先级复查动作；普通稳定候选返回 ``None``。"""
 
@@ -286,31 +329,23 @@ def _urgent_target_action(target, image_width, image_height, policy):
     if edge_action:
         return edge_action
     if target['depth_shape_status'] in ('flat', 'anisotropic', 'non_spherical'):
-        return _lateral_action(
-            target, image_width, 94,
-            '深度轮廓为平面或单轴曲面，疑似红色非球体；从侧面复查轮廓变化后再决定是否丢弃。',
+        return ViewRecommendation(
+            'continue_exploring',
+            '停稳后深度轮廓仍为平面或单轴曲面，按赛场红色方块处理，不再横移复查。',
+            0,
+            target['id'],
         )
     if target['normalized_depth_curvature'] is not None and not (
         policy.min_normalized_depth_curvature
         <= target['normalized_depth_curvature']
         <= policy.max_normalized_depth_curvature
     ):
-        return _lateral_action(
-            target, image_width, 93,
-            '深度曲率不在球体稳定区间，疑似圆锥端面、扁平物或深度异常；必须侧向复查。',
+        return ViewRecommendation(
+            'continue_exploring',
+            '停稳后深度曲率不在球体区间，按非球体处理，不再横移复查。',
+            0,
+            target['id'],
         )
-    if target['track_status'] == 'needs_reobservation':
-        evidence_status = target['track_evidence_status']
-        if evidence_status == 'insufficient_lateral_parallax':
-            reason = (
-                '轨迹已累计稳定观测，但横向视差不足；停止继续直线靠近，'
-                '改从侧面取得独立视角。'
-            )
-        elif evidence_status == 'insufficient_multiview_spherical_depth':
-            reason = '轨迹缺少独立球面深度正证据；从侧面补充稳定 RGB-D 视角。'
-        else:
-            reason = '跨帧轨迹证据仍不一致；改从侧面复查形状与三维尺寸。'
-        return _lateral_action(target, image_width, 97, reason)
     if target['requires_reobservation']:
         # 极小/远距离局部弧段直接横移容易立刻丢出视场，而且可用视差仍不足。
         # 先把已居中的候选放大到可稳定定位的尺度，再获取侧视；贴边候选已由
@@ -407,16 +442,7 @@ def annotate_detections_with_tracks(
 
     result = [dict(detection) for detection in detections]
     threshold = max(0.0, float(merge_distance_m))
-    # 普通 rejected 表示轨迹已因长期丢失失效，不能再参与二维关联。否则同一
-    # 目标此前产生的多个失效轨迹会与当前有效轨迹形成“近距离歧义”，导致
-    # 当前框被错误标成 untracked，已确认红球也会被反复要求复查。
-    # rejected_non_spherical 属于永久反证轨迹，仍必须参与关联，防止圆柱或
-    # 圆锥端面在下一帧重新变成新候选。
-    track_by_id = {
-        str(track.track_id): track
-        for track in tracks
-        if str(getattr(track, 'status', '')) != 'rejected'
-    }
+    track_by_id = {str(track.track_id): track for track in tracks}
     projection_by_id = {
         str(item.get('track_id')): item for item in (projected_tracks or [])
     }
@@ -459,21 +485,6 @@ def annotate_detections_with_tracks(
 
     assignments = {}
     used_track_ids = set()
-    # 候选记忆已由逐帧一对一图像关联维护；当机器人快速横移导致合法 SLAM
-    # 坐标短时漂移、旧轨迹投影也落后时，应继续把二维框标成同一 track。
-    # 普通 rejected 已从 track_by_id 排除，明确非球体轨迹则保留永久反证语义。
-    for detection_index, item in enumerate(result):
-        hinted_track_id = str(
-            item.get('_candidate_track_id_hint') or ''
-        ).strip()
-        if (
-            hinted_track_id in track_by_id
-            and hinted_track_id not in used_track_ids
-        ):
-            assignments[detection_index] = (
-                hinted_track_id, 'candidate_memory',
-            )
-            used_track_ids.add(hinted_track_id)
     all_pairs = sorted(
         (
             (cost, detection_index, track_id, association)
@@ -588,37 +599,7 @@ def _normalize_detection(item, index):
         'depth_shape_status': str(depth_shape.get('status', 'unknown')),
         'normalized_depth_curvature': normalized_curvature,
         'requires_reobservation': bool(item.get('requires_reobservation', False)),
-        'track_status': str(item.get('track_status', '')),
-        'track_evidence_status': str(item.get('track_evidence_status', '')),
     }
-
-
-def _attach_hazard_evidence(detections, hazards):
-    """按公开 track ID 把多视角轨迹状态附到当前二维候选。"""
-
-    by_track_id = {}
-    for hazard in hazards:
-        if not isinstance(hazard, dict):
-            continue
-        track_id = str(
-            hazard.get('track_id', hazard.get('id', '')) or ''
-        ).strip()
-        if track_id:
-            by_track_id[track_id] = hazard
-    result = []
-    for detection in detections:
-        item = dict(detection)
-        track_id = str(item.get('track_id') or '').strip()
-        hazard = by_track_id.get(track_id)
-        if hazard is not None:
-            item['track_status'] = str(
-                hazard.get('status', item.get('track_status', ''))
-            )
-            item['track_evidence_status'] = str(
-                hazard.get('evidence_status', '')
-            )
-        result.append(item)
-    return result
 
 
 def _target_score(item, policy):

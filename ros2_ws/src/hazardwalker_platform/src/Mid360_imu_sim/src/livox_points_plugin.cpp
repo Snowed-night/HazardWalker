@@ -102,6 +102,9 @@ void LivoxPointsPlugin::Load(gazebo::sensors::SensorPtr _parent, sdf::ElementPtr
     laserCollision->SetShape(rayShape);
     samplesStep = sdfPtr->Get<int>("samples");
     downSample = sdfPtr->Get<int>("downsample");
+    if (sdfPtr->HasElement("repeat_pattern")) {
+        repeatPattern = sdfPtr->Get<bool>("repeat_pattern");
+    }
     if (downSample < 1) {
         downSample = 1;
     }
@@ -160,10 +163,19 @@ void LivoxPointsPlugin::OnNewLaserScans() {
             //   auto index = (verticalRayCount - verticle_index - 1) * rayCount + horizon_index;
                 auto range = rayShape->GetRange(pair.first);
                 auto intensity = rayShape->GetRetro(pair.first);
-                if (range >= RangeMax()) {
+                // ODE ray 从 minDist 处开始，GetRange() 返回的是相对射线起点
+                // 的长度。无回波值为 maxDist-minDist（例如 29.9 m），不能
+                // 与 maxDist=30 m 比较，否则会生成整圈伪球壳；真实命中则需
+                // 补回 minDist 才是相对传感器原点的物理距离。
+                const double ray_length = maxDist - minDist;
+                // Gazebo noise 会把 29.9 m 无回波向下扰动数毫米；保留 5 cm
+                // 余量，避免噪声后的量程上限再次进入有效点云。
+                if (range >= ray_length - 0.05) {
                     range = 0;
-                } else if (range <= RangeMin()) {
+                } else if (range <= 0.0) {
                     range = 0;
+                } else {
+                    range += minDist;
                 }
                 //scan->set_ranges(index, range);
                 //scan->set_intensities(index, intensity);
@@ -218,6 +230,12 @@ void LivoxPointsPlugin::InitializeRays(std::vector<std::pair<int, AviaRotateInfo
         ray_index++;
     }
     currStartIndex += samplesStep;
+    if (repeatPattern) {
+        // Gazebo 每帧同时完成全部 ray 查询，不具备真机逐点曝光时间。
+        // 重复一帧覆盖完整视场的确定性扫描，避免把不同稀疏子集误当成
+        // 运动畸变；该模式仅用于仿真，真机仍使用原始 Mid-360 时序。
+        currStartIndex = 0;
+    }
 }
 
 void LivoxPointsPlugin::InitializeScan(msgs::LaserScan *&scan) {

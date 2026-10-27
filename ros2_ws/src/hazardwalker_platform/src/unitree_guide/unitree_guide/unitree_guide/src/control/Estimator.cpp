@@ -118,6 +118,10 @@ void Estimator::_initSystem(){
     /* ROS odometry publisher */
     #ifdef COMPILE_WITH_MOVE_BASE
         _pub = _nh.advertise<nav_msgs::Odometry>("odom", 1);
+        _nh.param<bool>(
+            "/hazardwalker/publish_estimator_odom_tf",
+            _publishOdomTf,
+            true);
     #endif  // COMPILE_WITH_MOVE_BASE
 }
 
@@ -184,7 +188,12 @@ void Estimator::run(){
             _odomTF.transform.rotation.y = _lowState->imu.quaternion[2];
             _odomTF.transform.rotation.z = _lowState->imu.quaternion[3];
 
-            _odomBroadcaster.sendTransform(_odomTF);
+            // 官方 Gazebo 启动项中的 state_from_gazebo 已发布物理
+            // odom->base。两者同时广播会让 move_base 在物理位姿与足端
+            // 估计位姿之间跳变，最终把机器人判到滚动代价地图之外。
+            if(_publishOdomTf){
+                _odomBroadcaster.sendTransform(_odomTF);
+            }
 
             /* odometry */
             _odomMsg.header.stamp = _currentTime;

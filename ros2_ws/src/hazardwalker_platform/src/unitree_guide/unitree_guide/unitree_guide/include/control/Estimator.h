@@ -105,6 +105,9 @@ private:
     nav_msgs::Odometry _odomMsg;
     int _count = 0;
     double _pubFreq = 10;
+    // 仿真同时启动 state_from_gazebo 时，由后者唯一发布 odom->base。
+    // 保留默认 true，不改变宇树原始的实机/单节点运行行为。
+    bool _publishOdomTf = true;
 
     Vec3 _velBody, _wBody;
     boost::array<double, 36> _odom_pose_covariance = {1e-9, 0, 0, 0, 0, 0, 

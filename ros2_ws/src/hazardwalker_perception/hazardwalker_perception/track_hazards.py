@@ -4,8 +4,9 @@
 文件作用：
 把每帧三维定位结果合并成稳定危险源列表，降低重复上报和单帧误检。
 当前实现边界：
-按三维欧氏距离做最近邻合并，并同时检查真实离散视角、深度形状反证和
-目标三维尺寸稳定性。只有多视角证据一致时才标记为 confirmed。
+按三维欧氏距离做最近邻合并，并同时检查深度形状反证、目标三维尺寸
+稳定性和可配置的离散视角门槛。赛场仅有红色正方体干扰时可启用单视角
+RGB-D 球面确认；存在圆柱或圆盘干扰时仍可恢复多视角门槛。
 暂不做卡尔曼滤波或跨相机重识别，后续可在保持输出字段稳定的前提下升级。
 验证方式：
 使用 tests/offline/test_track_hazards.py 构造多帧观测，验证合并、确认、missed 计数和新目标创建。
@@ -38,6 +39,8 @@ class HazardObservation:
     # 有提示时可跨越 SLAM 世界坐标漂移恢复同一轨迹，同时仍由一帧一轨约束
     # 防止两个同时可见红球合并。
     track_id_hint: Optional[int] = None
+    # 楼层必须在观测发生时由公开电梯状态固定，不能事后从二维 SLAM z 猜测。
+    floor_index: int = 0
 
 
 @dataclass
@@ -73,6 +76,9 @@ class HazardTrack:
     # SLAM 单向漂移；运行期只使用公开 TF/深度观测，不读取测试真值。
     positions_by_view: dict = field(default_factory=dict)
     evidence_status: str = 'collecting_views'
+    floor_index: int = 0
+    # 同一 RGB-D 帧内同时匹配到的轨迹必定来自不同物体，最终漂移去重不得合并。
+    distinct_track_ids: list = field(default_factory=list)
 
 
 @dataclass
@@ -81,9 +87,6 @@ class HazardTrackerConfig:
 
     confirm_observation_count: int = 3
     reject_after_missed_count: int = 10
-    # 正值时按消息时间戳判断丢失，避免桥接器重复发布或帧率变化让固定帧数
-    # 在几秒内耗尽；零保留历史纯函数测试的按帧行为。
-    reject_after_missed_sec: float = 0.0
     merge_distance_m: float = 0.5
     min_distinct_views: int = 1
     max_apparent_diameter_cv: float = 0.35
@@ -92,6 +95,9 @@ class HazardTrackerConfig:
     expected_sphere_diameter_m: float = 0.0
     max_sphere_diameter_relative_error: float = 0.35
     min_non_spherical_views_to_reject: int = 2
+    # 通用场景可永久拒绝多次非球面轨迹；比赛配置关闭后改用“仅球面正证据
+    # 才确认”的门控，避免遮挡噪声让真实球体永远无法恢复。
+    reject_non_spherical_tracks: bool = True
     # 正式 RGB-D 模式可设为 2：至少两个独立视角的深度形状都应支持球面。
     # 默认为 0 以兼容不含深度的历史离线纯函数测试；ROS 节点会显式启用该门槛。
     min_spherical_views_for_confirm: int = 0
@@ -104,11 +110,6 @@ class HazardTrackerConfig:
     max_median_normalized_depth_curvature: float = 0.30
     # 为零表示兼容旧链路，不强制方位视差；正式 RGB-D 运行应设置约 20--30 度。
     min_view_bearing_span_deg: float = 0.0
-    # 强球面几何备用确认路径。只有配置了官方球直径、每个独立视角都有
-    # spherical 深度正证据且尺寸/曲率/轮廓全部一致时，才允许用两个侧移
-    # 视角和较小方位差确认；纯 RGB、未知深度和任一非球面反证均不能走此路。
-    strong_depth_min_distinct_views: int = 0
-    strong_depth_min_view_bearing_span_deg: float = 0.0
     # ``view_median`` 适合低漂移定位；``earliest_view_anchor`` 适合官方当前
     # scan-matching 位姿在长距离侧移中单向漂移的情况。后者仅锚定首个完整、
     # 可确认 RGB-D 视角，不会使用测试真值。
@@ -132,7 +133,9 @@ class HazardTracker:
         self.tracks = []
         self._next_track_id = 1
 
-    def update(self, observations, stamp_sec=0.0):
+    def update(
+            self, observations, stamp_sec=0.0,
+            active_floor_index=None):
         normalized_observations = []
         for observation in observations:
             normalized = _normalize_observation(observation, stamp_sec)
@@ -159,11 +162,33 @@ class HazardTracker:
                 )
             matched_track_ids.add(track.track_id)
 
+        floors_to_age = (
+            {int(active_floor_index)}
+            if active_floor_index is not None
+            else {item.floor_index for item in normalized_observations}
+            if normalized_observations
+            else None
+        )
         for track in self.tracks:
-            if track.track_id not in matched_track_ids:
+            if (track.track_id not in matched_track_ids
+                    and (floors_to_age is None
+                         or track.floor_index in floors_to_age)):
                 track.missed_count += 1
 
-        self._refresh_statuses(stamp_sec)
+        coobserved = sorted(matched_track_ids)
+        for left_index, left_id in enumerate(coobserved):
+            left = next(
+                track for track in self.tracks if track.track_id == left_id)
+            for right_id in coobserved[left_index + 1:]:
+                right = next(
+                    track for track in self.tracks
+                    if track.track_id == right_id)
+                if right_id not in left.distinct_track_ids:
+                    left.distinct_track_ids.append(right_id)
+                if left_id not in right.distinct_track_ids:
+                    right.distinct_track_ids.append(left_id)
+
+        self._refresh_statuses()
         return self.active_tracks()
 
     def active_tracks(self):
@@ -196,12 +221,9 @@ class HazardTracker:
             for track in self.tracks:
                 if (
                     track.track_id == int(hinted_track_id)
+                    and track.floor_index == observation.floor_index
                     and track.track_id not in already_matched
-                    # 二维候选记忆给出的明确提示允许复活普通 lost_track：
-                    # 主动横移时红球可能短暂出画，候选别名仍连续，不能因此
-                    # 创建新 track 并丢失已经累计的视角。多视角证明为非球体
-                    # 的轨迹保持永久拒绝，绝不因正面圆形投影复活。
-                    and track.status != 'rejected_non_spherical'
+                    and track.status != 'rejected'
                 ):
                     return track
         best_track = None
@@ -211,6 +233,8 @@ class HazardTracker:
         # 导致导航无限复查并可能在噪声下重新确认。普通 lost_track 才不再复用。
         for track in self.tracks:
             if track.status == 'rejected':
+                continue
+            if track.floor_index != observation.floor_index:
                 continue
             if track.track_id in already_matched:
                 continue
@@ -236,6 +260,7 @@ class HazardTracker:
         for track in self.tracks:
             if (
                 track.status in ('rejected', 'rejected_non_spherical')
+                or track.floor_index != observation.floor_index
                 or track.track_id in already_matched
                 or track.missed_count <= 0
                 or not track.spherical_view_ids
@@ -257,6 +282,7 @@ class HazardTracker:
             track_id=self._next_track_id,
             position=tuple(float(v) for v in observation.position),
             confidence=float(observation.confidence),
+            floor_index=int(observation.floor_index),
             observation_count=1,
             missed_count=0,
             first_seen_sec=float(observation.stamp_sec),
@@ -316,37 +342,16 @@ class HazardTracker:
         self.tracks.append(track)
         return track
 
-    def _refresh_statuses(self, stamp_sec=0.0):
+    def _refresh_statuses(self):
         for track in self.tracks:
             if track.status == 'rejected_non_spherical':
                 # 两个独立稳定视角已经给出明确非球面证据后，本轮任务内永久拒绝。
                 # 后续正面圆形投影可能只是同一圆柱/圆锥的端面，绝不能用更多
                 # RGB 圆形帧把已拒绝物体“复活”为 confirmed。
                 continue
-            reject_after_sec = max(
-                0.0, float(self.config.reject_after_missed_sec),
-            )
-            missed_age_sec = (
-                max(0.0, float(stamp_sec) - float(track.last_seen_sec))
-                if reject_after_sec > 0.0 and stamp_sec and track.last_seen_sec
-                else 0.0
-            )
-            lost_by_time = reject_after_sec > 0.0 and missed_age_sec >= reject_after_sec
-            lost_by_count = (
-                reject_after_sec <= 0.0
-                and track.missed_count >= self.config.reject_after_missed_count
-            )
-            if lost_by_time or lost_by_count:
-                confirmed_grace_active = (
-                    track.status == 'confirmed'
-                    and (
-                        missed_age_sec < reject_after_sec * 10.0
-                        if reject_after_sec > 0.0
-                        else track.missed_count
-                        < self.config.reject_after_missed_count * 10
-                    )
-                )
-                if confirmed_grace_active:
+            if track.missed_count >= self.config.reject_after_missed_count:
+                if (track.status == 'confirmed'
+                        and track.missed_count < self.config.reject_after_missed_count * 10):
                     # 已确认危险源短时离开视场时保留，避免一次转向就从任务结果消失。
                     continue
                 track.status = 'rejected'
@@ -360,10 +365,15 @@ class HazardTracker:
             representative_diameter_m = _median(
                 _view_medians(track.diameters_by_view), default=0.0,
             )
-            diameter_prior_ok = _matches_expected_diameter(
-                representative_diameter_m,
-                self.config.expected_sphere_diameter_m,
-                self.config.max_sphere_diameter_relative_error,
+            # 遮挡球只有球面深度而没有可靠完整直径时，不能用残缺 bbox 的
+            # 尺寸否决正证据；完整候选仍严格执行 0.30 m 直径先验。
+            diameter_prior_ok = (
+                (not track.diameters_by_view and spherical_views > 0)
+                or _matches_expected_diameter(
+                    representative_diameter_m,
+                    self.config.expected_sphere_diameter_m,
+                    self.config.max_sphere_diameter_relative_error,
+                )
             )
             representative_aspect_ratio = min(_view_medians(track.aspects_by_view), default=1.0)
             curvature_cv = _coefficient_of_variation(_view_medians(track.curvatures_by_view))
@@ -381,61 +391,39 @@ class HazardTracker:
                     and normalized_curvature <= self.config.max_median_normalized_depth_curvature
                 )
             )
-            strong_depth_min_views = max(
-                0, int(self.config.strong_depth_min_distinct_views),
-            )
-            strong_depth_geometry_ok = (
-                strong_depth_min_views >= 2
-                and self.config.expected_sphere_diameter_m > 0.0
-                and eligible_views >= strong_depth_min_views
-                and spherical_views >= max(
-                    strong_depth_min_views,
-                    self.config.min_spherical_views_for_confirm,
-                )
-                and len(normalized_curvatures) >= strong_depth_min_views
-                and view_bearing_span_deg >= max(
-                    0.0,
-                    self.config.strong_depth_min_view_bearing_span_deg,
-                )
-                and flat_views == 0
-            )
-            regular_multiview_ok = (
-                eligible_views >= self.config.min_distinct_views
-                and lateral_parallax_ok
-            )
-            confirmation_view_geometry_ok = (
-                regular_multiview_ok or strong_depth_geometry_ok
-            )
-            if (flat_views >= self.config.min_non_spherical_views_to_reject
+            if (self.config.reject_non_spherical_tracks
+                    and flat_views >= self.config.min_non_spherical_views_to_reject
                     and flat_views >= eligible_views):
                 track.status = 'rejected_non_spherical'
-                track.evidence_status = 'multi_view_flat_or_non_spherical'
+                track.evidence_status = (
+                    'single_view_flat_or_non_spherical'
+                    if flat_views == 1
+                    else 'multi_view_flat_or_non_spherical'
+                )
             elif flat_views > 0 and eligible_views == 0:
                 # 第一帧就取得平面深度时，尚不足以把圆柱/圆盘永久拒绝，
                 # 但也不能继续显示为普通 tentative；必须明确要求换到侧视。
                 track.status = 'needs_reobservation'
                 track.evidence_status = 'single_view_flat_or_non_spherical'
             elif (track.eligible_observation_count >= self.config.confirm_observation_count
-                  and confirmation_view_geometry_ok
+                  and eligible_views >= self.config.min_distinct_views
                   and diameter_cv <= self.config.max_apparent_diameter_cv
                   and diameter_prior_ok
                   and representative_aspect_ratio >= self.config.min_multiview_aspect_ratio
                   and curvature_cv <= self.config.max_depth_curvature_cv
                   and normalized_curvature_ok
+                  and lateral_parallax_ok
                   and spherical_views >= self.config.min_spherical_views_for_confirm
-                  and (flat_views == 0 or eligible_views >= flat_views + 2)):
+                  and (not self.config.reject_non_spherical_tracks
+                       or flat_views == 0
+                       or eligible_views >= flat_views + 2)):
                 track.status = 'confirmed'
                 track.evidence_status = (
-                    'strong_rgbd_sphere_geometry_consistent'
-                    if strong_depth_geometry_ok and not regular_multiview_ok
+                    'single_view_sphere_confirmed'
+                    if eligible_views == 1
                     else 'multi_view_sphere_consistent'
                 )
-            elif (eligible_views >= min(
-                      self.config.min_distinct_views,
-                      strong_depth_min_views
-                      if strong_depth_min_views >= 2
-                      else self.config.min_distinct_views,
-                  )
+            elif (eligible_views >= self.config.min_distinct_views
                   and (diameter_cv > self.config.max_apparent_diameter_cv
                        or not diameter_prior_ok
                        or representative_aspect_ratio < self.config.min_multiview_aspect_ratio
@@ -483,27 +471,18 @@ def distance_m(a, b):
 
 """将 HazardTrack 转为后续 JSON/结果文件可直接使用的 dict。"""
 def track_to_hazard_dict(track):
-    # 长时运行若每帧重复序列化从任务开始累积的全部 source_id，记录体积会
-    # 二次增长。轨迹内部仍保留完整统计；公开载荷只保留首条和最近证据，
-    # 并用 source_observation_count 明确原始总数，足以完成结果链路追溯。
-    source_ids = list(track.source_ids)
-    maximum_serialized_source_ids = 32
-    if len(source_ids) > maximum_serialized_source_ids:
-        serialized_source_ids = [source_ids[0], *source_ids[-31:]]
-    else:
-        serialized_source_ids = source_ids
     return {
         'id': track.track_id,
         'position': [round(float(v), 4) for v in track.position],
         'position_frame_id': 'start',
+        'floor_index': int(track.floor_index),
         'confidence': round(float(track.confidence), 4),
         'status': track.status,
         'observation_count': track.observation_count,
         'missed_count': track.missed_count,
         'first_seen_sec': track.first_seen_sec,
         'last_seen_sec': track.last_seen_sec,
-        'source_ids': serialized_source_ids,
-        'source_observation_count': len(source_ids),
+        'source_ids': list(track.source_ids),
         'distinct_view_count': _eligible_distinct_view_count(track),
         'view_ids': list(track.view_ids),
         'eligible_observation_count': track.eligible_observation_count,
@@ -527,6 +506,8 @@ def track_to_hazard_dict(track):
         ),
         'view_bearing_span_deg': round(_bearing_span_deg(track.bearings_by_view), 3),
         'evidence_status': track.evidence_status,
+        'distinct_track_ids': sorted(
+            int(value) for value in track.distinct_track_ids),
     }
 
 
@@ -537,6 +518,7 @@ def _normalize_observation(observation, default_stamp_sec):
         return HazardObservation(
             position=tuple(float(v) for v in observation.position),
             confidence=float(observation.confidence),
+            floor_index=int(observation.floor_index),
             stamp_sec=float(stamp),
             source_id=observation.source_id,
             view_id=observation.view_id,
@@ -556,6 +538,7 @@ def _normalize_observation(observation, default_stamp_sec):
     return HazardObservation(
         position=tuple(float(v) for v in position),
         confidence=float(observation.get('confidence', 0.0)),
+        floor_index=int(observation.get('floor_index', 0)),
         stamp_sec=float(stamp),
         source_id=str(observation.get('source_id', observation.get('id', ''))),
         view_id=str(observation.get('view_id', '')),
@@ -671,6 +654,8 @@ def _same_frame_duplicate_index(existing, candidate, config):
     )
     for index, current in enumerate(existing):
         if (
+            current.floor_index != candidate.floor_index
+            or
             not current.confirmation_eligible
             or current.depth_shape_status != 'spherical'
             or not _valid_diameter(current.apparent_diameter_m)

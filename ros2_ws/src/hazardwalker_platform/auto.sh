@@ -24,6 +24,7 @@ PAUSED="${PAUSED:-true}"
 START_CONTROLLER="${START_CONTROLLER:-1}"
 START_VIRTUAL_JOY="${START_VIRTUAL_JOY:-0}"
 START_ROSBRIDGE="${START_ROSBRIDGE:-1}"
+ROSBRIDGE_PORT="${ROSBRIDGE_PORT:-9090}"
 START_ODOM_RELAY="${START_ODOM_RELAY:-1}"
 CONTROLLER_FOREGROUND="${CONTROLLER_FOREGROUND:-0}"
 SIMENV_AUTO_RL="${SIMENV_AUTO_RL:-1}"
@@ -31,7 +32,11 @@ SIMENV_AUTO_RL="${SIMENV_AUTO_RL:-1}"
 # 不能只设置 SIMENV_AUTO_RL，否则节点会存在却不对速度命令产生有效运动。
 SIMENV_HEADLESS_MODE="${SIMENV_HEADLESS_MODE:-move_base}"
 START_BUILDING_CONTROL="${START_BUILDING_CONTROL:-1}"
+AUTO_OPEN_MAIN_ENTRANCE="${AUTO_OPEN_MAIN_ENTRANCE:-1}"
+START_UNITREE_MOVE_BASE="${START_UNITREE_MOVE_BASE:-0}"
 UNITREE_CTRL_DT="${UNITREE_CTRL_DT:-0.004}"
+UNITREE_MOVE_BASE_FILTER_SELF_SCAN="${UNITREE_MOVE_BASE_FILTER_SELF_SCAN:-1}"
+UNITREE_MOVE_BASE_FILTERED_SCAN_TOPIC="${UNITREE_MOVE_BASE_FILTERED_SCAN_TOPIC:-/hazardwalker/unitree_move_base/scan_filtered}"
 AUTO_UNPAUSE_AFTER_CONTROLLER="${AUTO_UNPAUSE_AFTER_CONTROLLER:-1}"
 CONTROLLER_SENSOR_READY_TIMEOUT_SEC="${CONTROLLER_SENSOR_READY_TIMEOUT_SEC:-5}"
 # GUI=false 只禁用 gzclient；相机与激光的 headless 渲染仍由 Xvfb 提供软件 GL。
@@ -39,6 +44,10 @@ GAZEBO_HEADLESS="${GAZEBO_HEADLESS:-false}"
 # 默认不加载激光雷达：感知组的 RGB-D 与平台控制不依赖 /scan，关闭可显著降低
 # Gazebo 图形与物理负载。导航/SLAM 测试显式设置 ENABLE_LIDAR=true。
 ENABLE_LIDAR="${ENABLE_LIDAR:-false}"
+ENABLE_LIVOX_3D="${ENABLE_LIVOX_3D:-false}"
+# 三维点云是旁路展示；DWA 始终使用已验收的独立水平 /scan，不能因开启
+# 录像而悄悄切换到稀疏三维投影，改变避障和房间路线。
+UNITREE_MOVE_BASE_SCAN_TOPIC="${UNITREE_MOVE_BASE_SCAN_TOPIC:-/scan}"
 # 第一人称和感知均复用 RealSense RGB。官方插件默认仅 2 Hz，浏览器画面会明显跳帧；
 # 设为 10 Hz 以匹配当前低负载 profile。JPEG 质量仅在压缩话题有订阅者时生效。
 CAMERA_IMAGER_RATE_HZ="${CAMERA_IMAGER_RATE_HZ:-10}"
@@ -64,6 +73,7 @@ CONTROLLER_PROBE_MIN_DISPLACEMENT_M="${CONTROLLER_PROBE_MIN_DISPLACEMENT_M:-0.01
 CONTROLLER_PROBE_MAX_DISPLACEMENT_M="${CONTROLLER_PROBE_MAX_DISPLACEMENT_M:-1.00}"
 CONTROLLER_PROBE_MIN_BASE_HEIGHT_M="${CONTROLLER_PROBE_MIN_BASE_HEIGHT_M:-0.30}"
 CONTROLLER_STAND_SETTLE_SEC="${CONTROLLER_STAND_SETTLE_SEC:-6.0}"
+CONTROLLER_STAND_STABLE_SAMPLES="${CONTROLLER_STAND_STABLE_SAMPLES:-3}"
 # 等仿真时钟稳定后再启动 rosbridge，避免新客户端收到启动期陈旧队列。
 ROSBRIDGE_START_AFTER_SIM_TIME_SEC="${ROSBRIDGE_START_AFTER_SIM_TIME_SEC:-1}"
 ROBOT_X="${ROBOT_X:-0.0}"
@@ -78,6 +88,8 @@ pkill -f "gzserver|gzclient|gazebo" 2>/dev/null || true
 pkill -f "junior_ctrl" 2>/dev/null || true
 pkill -f "virtual_joy.py" 2>/dev/null || true
 pkill -f "rosbridge_odom_relay.py" 2>/dev/null || true
+pkill -f "roslaunch unitree_move_base hazardwalker_move_base.launch" 2>/dev/null || true
+pkill -f "hazardwalker_unitree_scan_filter" 2>/dev/null || true
 
 echo "Sourcing ROS environment..."
 export ROS_MASTER_URI="${ROS_MASTER_URI:-http://127.0.0.1:11311}"
@@ -201,11 +213,15 @@ else
   XVFB_PID=$!
   DISPLAY_READY=0
   for _ in $(seq 1 50); do
-    if ! kill -0 "$XVFB_PID" 2>/dev/null; then
-      break
-    fi
     if display_is_ready; then
       DISPLAY_READY=1
+      break
+    fi
+    # 并发启动的另一个 Xvfb 可能先取得显示锁，使本进程立即退出；先检查
+    # 显示是否已经可用，再根据本进程存活性决定失败，避免健康启动被误杀。
+    if ! kill -0 "$XVFB_PID" 2>/dev/null; then
+      sleep 0.1
+      display_is_ready && DISPLAY_READY=1
       break
     fi
     sleep 0.1
@@ -221,18 +237,22 @@ export LIBGL_ALWAYS_SOFTWARE=1
 echo "Xvfb ready on DISPLAY=$DISPLAY"
 
 echo "Launching Gazebo, Unitree A1 model, sensors, and ROS interfaces..."
-roslaunch unitree_guide multi_floor_gazeboSim.launch \
+python3 "$WORKSPACE_DIR/scripts/bounded_process_logger.py" \
+  --log "$WORKSPACE_DIR/logs/competition_gazebo.log" \
+  --max-bytes "${GAZEBO_LOG_MAX_BYTES:-67108864}" \
+  --backups "${GAZEBO_LOG_BACKUPS:-2}" \
+  -- roslaunch unitree_guide multi_floor_gazeboSim.launch \
   gui:="$GUI" \
   headless:="$GAZEBO_HEADLESS" \
   paused:="$PAUSED" \
   enable_lidar:="$ENABLE_LIDAR" \
+  enable_livox_3d:="$ENABLE_LIVOX_3D" \
   user_debug:=False \
   rname:=a1 \
   robot_x:="$ROBOT_X" \
   robot_y:="$ROBOT_Y" \
   robot_z:="$ROBOT_Z" \
-  robot_yaw:="$ROBOT_YAW" \
-  > "$WORKSPACE_DIR/logs/competition_gazebo.log" 2>&1 &
+  robot_yaw:="$ROBOT_YAW" &
 LAUNCH_PID=$!
 echo "$LAUNCH_PID" > "$WORKSPACE_DIR/logs/competition_gazebo.pid"
 
@@ -290,6 +310,19 @@ if [ "$START_BUILDING_CONTROL" = "1" ]; then
     --elevator-config "$SCENE_OUTPUT_DIR/elevator_config.yaml" \
     > "$WORKSPACE_DIR/logs/building_control.log" 2>&1 &
   echo $! > "$WORKSPACE_DIR/logs/building_control.pid"
+  timeout "$CONTROLLER_READY_TIMEOUT_SEC" bash -lc \
+    'until rosservice info /set_door_state >/dev/null 2>&1; do sleep 0.2; done' || {
+      echo "Building door control service did not become ready." >&2
+      exit 1
+    }
+  if [ "$AUTO_OPEN_MAIN_ENTRANCE" = "1" ]; then
+    door_response="$(rosservice call /set_door_state main_entrance true)"
+    if ! grep -q 'accepted: True' <<<"$door_response"; then
+      echo "Main entrance open request failed: $door_response" >&2
+      exit 1
+    fi
+    echo "Main entrance opened by /set_door_state before navigation startup."
+  fi
 fi
 
 if [ "$START_CONTROLLER" = "1" ]; then
@@ -382,20 +415,36 @@ if [ "$START_CONTROLLER" = "1" ] && [ "$SIMENV_HEADLESS_MODE" = "move_base" ]; t
     fi
     sleep 0.2
   done
-  # 状态切换日志不等于真的站稳。等待关节插值结束后用官方诊断里程计只做
+  # 状态切换日志不等于真的站稳。高负载三维雷达会显著降低实时倍率，固定
+  # 墙钟等待不能代表关节已经经历足够仿真时间，因此先保留最短等待，再持续
+  # 采样机体高度，直到连续多帧达标或统一启动超时。官方诊断里程计只用于
   # 平台健康门禁；该真值不进入感知、SLAM、导航或比赛结果。
   sleep "$CONTROLLER_STAND_SETTLE_SEC"
-  controller_base_z="$(
-    timeout 10 rostopic echo -n 1 /Odometry_gazebo 2>/dev/null |
-      awk '/^    position:/{in_position=1; next} in_position && /^      z:/{print $2; exit}' \
-      || true
-  )"
-  if [ -z "$controller_base_z" ] || ! python3 -c '
+  controller_stand_deadline=$((SECONDS + CONTROLLER_READY_TIMEOUT_SEC))
+  controller_stable_samples=0
+  controller_base_z=''
+  while [ "$SECONDS" -lt "$controller_stand_deadline" ]; do
+    controller_base_z="$(
+      timeout 10 rostopic echo -n 1 /Odometry_gazebo 2>/dev/null |
+        awk '/^    position:/{in_position=1; next} in_position && /^      z:/{print $2; exit}' \
+        || true
+    )"
+    if [ -n "$controller_base_z" ] && python3 -c '
 import math, sys
 height, minimum = map(float, sys.argv[1:])
 raise SystemExit(0 if math.isfinite(height) and height >= minimum else 1)
 ' "$controller_base_z" "$CONTROLLER_PROBE_MIN_BASE_HEIGHT_M"; then
-    echo "Controller fixed-stand posture failed: base_z=${controller_base_z:-missing}m." >&2
+      controller_stable_samples=$((controller_stable_samples + 1))
+      if [ "$controller_stable_samples" -ge "$CONTROLLER_STAND_STABLE_SAMPLES" ]; then
+        break
+      fi
+    else
+      controller_stable_samples=0
+    fi
+    sleep 0.5
+  done
+  if [ "$controller_stable_samples" -lt "$CONTROLLER_STAND_STABLE_SAMPLES" ]; then
+    echo "Controller fixed-stand posture timed out: base_z=${controller_base_z:-missing}m." >&2
     exit 1
   fi
   echo "junior_ctrl fixed stand is physically upright: base_z=${controller_base_z}m."
@@ -460,6 +509,66 @@ raise SystemExit(0 if minimum <= distance <= maximum and height >= min_height el
   controller_motion_verified=1
 fi
 
+if [ "$START_UNITREE_MOVE_BASE" = "1" ]; then
+  # TrajectoryPlannerROS/DWA 只订阅二维 /scan；Livox 三维点云属于 SLAM
+  # 展示能力，不能与局部避障强绑定。低负载二维验收可显式关闭 3D 点云。
+  if [ "$ENABLE_LIDAR" != "true" ]; then
+    echo "START_UNITREE_MOVE_BASE=1 requires ENABLE_LIDAR=true." >&2
+    exit 1
+  fi
+  if [ ! -x /opt/ros/noetic/lib/move_base/move_base ]; then
+    echo "ROS1 move_base executable is missing from the image; rebuild the platform image." >&2
+    exit 1
+  fi
+  move_base_scan_topic="$UNITREE_MOVE_BASE_SCAN_TOPIC"
+  if [ "$UNITREE_MOVE_BASE_SCAN_TOPIC" = "/scan" ] \
+      && [ "$UNITREE_MOVE_BASE_FILTER_SELF_SCAN" = "1" ]; then
+    if [ ! -x /opt/ros/noetic/lib/laser_filters/scan_to_scan_filter_chain ]; then
+      echo "ROS1 laser_filters is missing from the image; rebuild the platform image." >&2
+      exit 1
+    fi
+    rosparam load "$WORKSPACE_DIR/config/unitree_scan_filter.yaml" \
+      /hazardwalker_unitree_scan_filter
+    rosrun laser_filters scan_to_scan_filter_chain \
+      scan:="$UNITREE_MOVE_BASE_SCAN_TOPIC" \
+      scan_filtered:="$UNITREE_MOVE_BASE_FILTERED_SCAN_TOPIC" \
+      __name:=hazardwalker_unitree_scan_filter \
+      > "$WORKSPACE_DIR/logs/unitree_scan_filter.log" 2>&1 &
+    echo $! > "$WORKSPACE_DIR/logs/unitree_scan_filter.pid"
+    timeout "$CONTROLLER_READY_TIMEOUT_SEC" \
+      rostopic echo -n 1 "$UNITREE_MOVE_BASE_FILTERED_SCAN_TOPIC" \
+      >/dev/null || {
+        echo "Filtered LaserScan $UNITREE_MOVE_BASE_FILTERED_SCAN_TOPIC is unavailable." >&2
+        exit 1
+      }
+    move_base_scan_topic="$UNITREE_MOVE_BASE_FILTERED_SCAN_TOPIC"
+    echo "Unitree move_base scan self-return filter ready: $move_base_scan_topic"
+  fi
+  echo "Starting Unitree upstream move_base/TrajectoryPlannerROS local planner..."
+  timeout "$CONTROLLER_READY_TIMEOUT_SEC" \
+    rostopic echo -n 1 "$UNITREE_MOVE_BASE_SCAN_TOPIC" >/dev/null || {
+      echo "LaserScan $UNITREE_MOVE_BASE_SCAN_TOPIC is unavailable for move_base." >&2
+      exit 1
+    }
+  roslaunch unitree_move_base hazardwalker_move_base.launch \
+    cmd_vel_topic:=/hazardwalker/unitree_move_base/cmd_vel \
+    scan_topic:="$move_base_scan_topic" \
+    > "$WORKSPACE_DIR/logs/unitree_move_base.log" 2>&1 &
+  MOVE_BASE_LAUNCH_PID=$!
+  echo "$MOVE_BASE_LAUNCH_PID" > "$WORKSPACE_DIR/logs/unitree_move_base.pid"
+  timeout "$CONTROLLER_READY_TIMEOUT_SEC" bash -lc \
+    'until pgrep -x move_base >/dev/null 2>&1 && rosnode ping -c 1 /move_base >/dev/null 2>&1; do sleep 0.2; done' || {
+      echo "Unitree move_base did not become ready." >&2
+      tail -n 80 "$WORKSPACE_DIR/logs/unitree_move_base.log" >&2 || true
+      exit 1
+    }
+  if ! kill -0 "$MOVE_BASE_LAUNCH_PID" 2>/dev/null; then
+    echo "Unitree move_base roslaunch exited during startup." >&2
+    tail -n 80 "$WORKSPACE_DIR/logs/unitree_move_base.log" >&2 || true
+    exit 1
+  fi
+fi
+
 # 正式 rosbridge 必须在控制器、当前里程计和 /clock 稳定后启动。
 if [ "$START_ROSBRIDGE" = "1" ]; then
   echo "Waiting for current odometry and stable simulation time before starting rosbridge..."
@@ -492,6 +601,7 @@ if [ "$START_ROSBRIDGE" = "1" ]; then
       }
   fi
   roslaunch rosbridge_server rosbridge_websocket.launch \
+    port:="$ROSBRIDGE_PORT" \
     > "$WORKSPACE_DIR/logs/rosbridge.log" 2>&1 &
   echo $! > "$WORKSPACE_DIR/logs/rosbridge.pid"
   timeout "$CONTROLLER_READY_TIMEOUT_SEC" bash -lc \

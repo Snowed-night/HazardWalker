@@ -1,2 +1,0 @@
-data: '{"adapter": "rosbridge_ros2", "clock_throttle_rate_ms": 20, "clock_topic": "/clock", "dropped_inconsistent_tf": 0, "dropped_inva...'
----

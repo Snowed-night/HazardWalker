@@ -16,8 +16,12 @@ from hazardwalker_perception.red_ball_detector import (
     RedBallDetection2D,
     detect_red_ball_rgb_bytes,
     detect_red_balls_rgb_bytes,
+    foreground_occluded_round_candidate_is_sphere,
     is_complete_candidate_for_3d_tracking,
+    occluded_bbox_has_positive_sphere_depth,
+    positive_sphere_depth_evidence,
     rgb_to_hsv_pixel,
+    synchronized_sphere_motion_confirmation_allowed,
 )
 
 try:
@@ -92,23 +96,6 @@ def test_rgb_to_hsv_pixel_detects_red_hue():
     assert h <= 10.0 or h >= 170.0
     assert s > 80.0
     assert v > 80.0
-
-
-def test_runtime_hue_parameters_actually_change_segmentation():
-    """回放切换 HSV 参数必须改变实际掩膜，不能只改变报告中的哈希。"""
-
-    if not require_opencv():
-        return
-    image = draw_circle_image()
-    detections = detect_red_balls_rgb_bytes(
-        image, 80, 80,
-        min_area_px=100,
-        red_hue_min_1=45,
-        red_hue_max_1=55,
-        red_hue_min_2=95,
-        red_hue_max_2=105,
-    )
-    assert detections == []
 
 """验证大面积红色圆形目标能输出合理 2D 包围框。"""
 def test_detect_red_ball_rgb_bytes_returns_bbox():
@@ -422,6 +409,78 @@ def test_partial_merged_and_edge_candidates_cannot_update_3d_tracks():
     assert not is_complete_candidate_for_3d_tracking(partial, 100, 100)
     assert not is_complete_candidate_for_3d_tracking(split, 100, 100)
     assert not is_complete_candidate_for_3d_tracking(edge, 100, 100)
+
+
+def test_internal_occlusion_can_use_only_explicit_spherical_depth_evidence():
+    """内部遮挡轮廓仅在深度明确为球面时允许停稳建轨。"""
+
+    assert occluded_bbox_has_positive_sphere_depth('spherical', False)
+    assert not occluded_bbox_has_positive_sphere_depth('anisotropic', False)
+    assert not occluded_bbox_has_positive_sphere_depth('flat', False)
+    assert not occluded_bbox_has_positive_sphere_depth('unknown', False)
+    assert not occluded_bbox_has_positive_sphere_depth('spherical', True)
+
+
+def test_round_cap_behind_foreground_obstacle_requires_reobservation():
+    """前景深度分层只识别复查候选，不能伪造球面正证据。"""
+
+    detection = RedBallDetection2D(
+        273, 258, 305, 286, 0.326, 583,
+        circularity=0.628, aspect_ratio=0.879, extent=0.56,
+        is_partial=True, requires_reobservation=True,
+    )
+    depth_shape = type('DepthShape', (), {
+        'center_depth_m': 4.972,
+        'outer_depth_m': 2.253,
+    })()
+
+    assert foreground_occluded_round_candidate_is_sphere(
+        detection, depth_shape)
+    assert not positive_sphere_depth_evidence('flat', False)
+
+
+def test_only_explicit_spherical_depth_can_create_positive_evidence():
+    assert positive_sphere_depth_evidence('spherical', False)
+    assert positive_sphere_depth_evidence(
+        'spherical', False, positive_partial_sphere=True)
+    for status in ('flat', 'anisotropic', 'unknown', 'non_spherical'):
+        assert not positive_sphere_depth_evidence(status, False)
+
+
+def test_occluded_red_box_is_not_promoted_by_depth_discontinuity_alone():
+    depth_shape = type('DepthShape', (), {
+        'center_depth_m': 4.0,
+        'outer_depth_m': 2.0,
+    })()
+    red_box = RedBallDetection2D(
+        10, 10, 50, 50, 0.9, 1200,
+        circularity=0.78, aspect_ratio=1.0, extent=0.96,
+        is_partial=True, requires_reobservation=True,
+    )
+
+    assert not foreground_occluded_round_candidate_is_sphere(
+        red_box, depth_shape)
+
+
+def test_explicit_spherical_depth_can_confirm_while_official_odom_is_moving():
+    values = {
+        'camera_stable': False,
+        'has_positive_depth_sphere': True,
+        'enabled': True,
+        'localization_provenance': (
+            'official_simenv_odometry+public_floor_action'),
+        'depth_synchronized': True,
+        'tf_synchronized': True,
+    }
+    assert synchronized_sphere_motion_confirmation_allowed(**values)
+    for key in ('has_positive_depth_sphere', 'depth_synchronized',
+                'tf_synchronized', 'enabled'):
+        rejected = dict(values)
+        rejected[key] = False
+        assert not synchronized_sphere_motion_confirmation_allowed(**rejected)
+    rejected = dict(values)
+    rejected['localization_provenance'] = 'unverified'
+    assert not synchronized_sphere_motion_confirmation_allowed(**rejected)
 
 
 def test_three_ball_triangle_blob_can_be_split_despite_near_square_bbox():

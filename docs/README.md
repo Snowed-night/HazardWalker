@@ -1,29 +1,14 @@
-# HazardWalker 文档入口
+# HazardWalker 旧版复用文档
 
-本文档定义仓库内资料的唯一入口与边界。先按“使用目的”找文档，不把阶段汇报、历史证据和日常操作混在一起。
+本目录对应`release/stable-20260910`分支，建议依次阅读：
 
-## 当前操作入口
+1. [环境准备](guidebook/environment.md)：宿主、镜像、策略和SDK资源。
+2. [快速开始](guidebook/quickstart.md)：连接、构建、完整运行、观看和取回结果。
+3. [运行与结果核验](guidebook/run-and-results.md)：成功条件、输出与常见故障。
+4. [架构与接口](guidebook/architecture-and-interfaces.md)：模块职责与源码入口。
+5. [复用与开发](guidebook/reuse-and-develop.md)：更换检测器、定位来源和机器人。
+6. [旧版实验记录](experiments/stable-20260910.md)：历史成绩及整理验证。
 
-- [使用手册总目录](guidebook/README.md)：仅放当前可执行的操作规范。
-- [官方 SimEnv 平台环境使用手册](guidebook/官方SimEnv平台环境使用手册.md)：当前确认可用的官方平台入口。
-- [官方人工巡检感知录制与回放](groups/perception/官方人工巡检感知录制与回放.md)：感知组固定 SEED 录包、隔离回放和人工标注评估入口。
-- [Git 提交手册](guidebook/git提交手册.md)：分支、提交与 PR 规则。
+来源与哈希以`reproduction/baseline.json`、`frozen-files.json`追溯；运行资源以`runtime-assets.json`核验。修改公共运行方式时同步更新本目录和根README。
 
-## 按用途归档
-
-| 目录 | 内容 | 是否可直接作为当前操作依据 |
-|---|---|---|
-| `guidebook/` | 已确认或明确标为“待确认”的操作手册 | 仅使用未标“待确认”的资料 |
-| `groups/` | 各组接口约定、阶段交付、技术记录 | 视文件状态，不替代统一手册 |
-| `overview/` | 赛题背景、项目定位、评分指标等稳定信息 | 是 |
-| `history/` | 已过期的平台方案、历史环境与复盘材料 | 否；不得按其中命令操作 |
-| `meeting_notes/` | 会议纪要 | 否；需由后续任务文档确认 |
-| `experiments/` | 实验计划、实验记录、失败案例 | 作为证据，不替代操作手册 |
-
-## 文档规则
-
-- 日常功能性文档统一写入 `guidebook/`；同一主题只保留一个当前入口。
-- 每组提交材料只放在 `groups/`，实验图片、原始结果与测试记录放 `reports/`，不复制到使用手册。
-- 已过期但有追溯价值的资料移入 `history/`，在文件名或首页标明历史状态；无价值的重复副本直接删除。
-- 不能确认仍有效的资料放 `guidebook/待确认/`，不得据此执行控制、账号、网络或环境变更。
-- 不在仓库文档中保存明文密码、令牌、管理员凭据或设备地址。
+`groups/nav/phase5.2-progress-20260717.md`与`patches/`中的兼容补丁保留给原离线检查读取，属于历史测试输入，不作为当前启动指南。

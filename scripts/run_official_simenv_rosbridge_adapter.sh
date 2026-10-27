@@ -9,9 +9,10 @@ CONTAINER="${SIMENV_CONTAINER:-simenv_ros1_${DOCKER_SIMENV_USER:-${USER:-default
 # 多组账号共享同一 ROS_DOMAIN_ID 时禁用按用户隔离的 Fast DDS SHM，保证平台
 # 账号发布的 /hw/* 能被导航、感知、决策和测试账号实际接收。
 export FASTDDS_BUILTIN_TRANSPORTS="${FASTDDS_BUILTIN_TRANSPORTS:-UDPv4}"
-ROSBRIDGE_URL="${OFFICIAL_SIMENV_ROSBRIDGE_URL:-ws://127.0.0.1:9090}"
+ROSBRIDGE_URL="${OFFICIAL_SIMENV_ROSBRIDGE_URL:-}"
 ROSBRIDGE_HOST_HEADER="${OFFICIAL_SIMENV_ROSBRIDGE_HOST_HEADER:-}"
 ENABLE_CONTROL="${OFFICIAL_SIMENV_ENABLE_CONTROL:-0}"
+ENABLE_UNITREE_MOVE_BASE_BRIDGE="${OFFICIAL_SIMENV_ENABLE_UNITREE_MOVE_BASE_BRIDGE:-0}"
 MANAGED_LIFECYCLE="${OFFICIAL_SIMENV_MANAGED_LIFECYCLE:-0}"
 LIFECYCLE_CONTAINER="${OFFICIAL_SIMENV_LIFECYCLE_CONTAINER:-$CONTAINER}"
 SCENARIO_SEED="${OFFICIAL_SIMENV_SCENARIO_SEED:-}"
@@ -29,13 +30,19 @@ ODOM_THROTTLE_RATE_MS="${OFFICIAL_SIMENV_ODOM_THROTTLE_RATE_MS:-20}"
 SCAN_THROTTLE_RATE_MS="${OFFICIAL_SIMENV_SCAN_THROTTLE_RATE_MS:-50}"
 SCAN_SELF_FILTER_RANGE_M="${OFFICIAL_SIMENV_SCAN_SELF_FILTER_RANGE_M:-0.40}"
 POINTCLOUD_THROTTLE_RATE_MS="${OFFICIAL_SIMENV_POINTCLOUD_THROTTLE_RATE_MS:-200}"
+POINTCLOUD_TOPIC="${OFFICIAL_SIMENV_POINTCLOUD_TOPIC:-/livox/Pointcloud2}"
+POINTCLOUD_POINT_STRIDE="${OFFICIAL_SIMENV_POINTCLOUD_POINT_STRIDE:-1}"
 IMU_THROTTLE_RATE_MS="${OFFICIAL_SIMENV_IMU_THROTTLE_RATE_MS:-20}"
 ENABLE_POINTCLOUD_RELAY="${OFFICIAL_SIMENV_ENABLE_POINTCLOUD_RELAY:-0}"
 ENABLE_LIVOX_IMU_RELAY="${OFFICIAL_SIMENV_ENABLE_LIVOX_IMU_RELAY:-0}"
 ENABLE_TRUNK_IMU_RELAY="${OFFICIAL_SIMENV_ENABLE_TRUNK_IMU_RELAY:-1}"
-ODOM_TOPIC="${OFFICIAL_SIMENV_ODOM_TOPIC:-/hazardwalker/odom}"
+ODOM_TOPIC="${OFFICIAL_SIMENV_ODOM_TOPIC:-/Odometry_gazebo}"
 # 平台诊断默认转发容器内最新值中继；它与控制、点云互相独立，且不构成合法 SLAM 位姿。
 ENABLE_ODOM_RELAY="${OFFICIAL_SIMENV_ENABLE_ODOM_RELAY:-1}"
+ENABLE_ODOM_TF_RELAY="${OFFICIAL_SIMENV_ENABLE_ODOM_TF_RELAY:-0}"
+PROPRIO_ODOM_TOPIC="${OFFICIAL_SIMENV_PROPRIO_ODOM_TOPIC:-/odom}"
+ENABLE_PROPRIO_ODOM_RELAY="${OFFICIAL_SIMENV_ENABLE_PROPRIO_ODOM_RELAY:-0}"
+PROPRIO_ODOM_THROTTLE_RATE_MS="${OFFICIAL_SIMENV_PROPRIO_ODOM_THROTTLE_RATE_MS:-20}"
 PUBLIC_START_X="${OFFICIAL_PUBLIC_START_X:-0.0}"
 PUBLIC_START_Y="${OFFICIAL_PUBLIC_START_Y:--2.2}"
 PUBLIC_START_Z="${OFFICIAL_PUBLIC_START_Z:-0.6}"
@@ -52,9 +59,12 @@ as_ros_bool() {
   esac
 }
 ENABLE_CONTROL="$(as_ros_bool "$ENABLE_CONTROL")"
+ENABLE_UNITREE_MOVE_BASE_BRIDGE="$(as_ros_bool "$ENABLE_UNITREE_MOVE_BASE_BRIDGE")"
 MANAGED_LIFECYCLE="$(as_ros_bool "$MANAGED_LIFECYCLE")"
 ENABLE_IMAGE_RELAY="$(as_ros_bool "$ENABLE_IMAGE_RELAY")"
 ENABLE_ODOM_RELAY="$(as_ros_bool "$ENABLE_ODOM_RELAY")"
+ENABLE_ODOM_TF_RELAY="$(as_ros_bool "$ENABLE_ODOM_TF_RELAY")"
+ENABLE_PROPRIO_ODOM_RELAY="$(as_ros_bool "$ENABLE_PROPRIO_ODOM_RELAY")"
 ENABLE_POINTCLOUD_RELAY="$(as_ros_bool "$ENABLE_POINTCLOUD_RELAY")"
 ENABLE_LIVOX_IMU_RELAY="$(as_ros_bool "$ENABLE_LIVOX_IMU_RELAY")"
 ENABLE_TRUNK_IMU_RELAY="$(as_ros_bool "$ENABLE_TRUNK_IMU_RELAY")"
@@ -93,6 +103,15 @@ fi
 if ! docker inspect -f '{{.State.Running}}' "$CONTAINER" 2>/dev/null | grep -qx true; then
   echo "[rosbridge-adapter] 官方容器未运行：$CONTAINER" >&2; exit 1
 fi
+# 未显式覆盖时始终连接目标容器实际声明的 rosbridge 端口。多容器 host
+# 网络隔离会为每个属主分配不同端口，不能继续假设所有实例都在 9090。
+if [[ -z "$ROSBRIDGE_URL" ]]; then
+  CONTAINER_ROSBRIDGE_PORT="$(
+    docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' "$CONTAINER" |
+      sed -n 's/^ROSBRIDGE_PORT=//p' | tail -n 1
+  )"
+  ROSBRIDGE_URL="ws://127.0.0.1:${CONTAINER_ROSBRIDGE_PORT:-9090}"
+fi
 # 以容器实际环境为准；宿主 shell 中后来修改的 SEED 不能冒充本轮场景。
 CONTAINER_SCENARIO_SEED="$(
   docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' "$CONTAINER" |
@@ -110,6 +129,10 @@ if [[ "$ENABLE_ODOM_RELAY" == "true" ]] && ! docker exec "$CONTAINER" bash -lc "
   echo "[rosbridge-adapter] 官方最新值里程计未就绪：$ODOM_TOPIC；请用修复后的 auto_docker.sh 重建并启动容器。" >&2
   exit 1
 fi
+if [[ "$ENABLE_PROPRIO_ODOM_RELAY" == "true" ]] && ! docker exec "$CONTAINER" bash -lc "source /opt/ros/noetic/setup.bash; timeout 5 rostopic echo -n 1 '$PROPRIO_ODOM_TOPIC' >/dev/null"; then
+  echo "[rosbridge-adapter] 宇树本体里程计未就绪：$PROPRIO_ODOM_TOPIC；请确认 Estimator 已随控制器启动。" >&2
+  exit 1
+fi
 ARGS=(--ros-args -p rosbridge_url:="$ROSBRIDGE_URL")
 if [[ -n "$ROSBRIDGE_HOST_HEADER" ]]; then
   ARGS+=(-p rosbridge_host_header:="$ROSBRIDGE_HOST_HEADER")
@@ -123,17 +146,24 @@ exec "$PYTHON_BIN" "$ROOT/scripts/official_simenv_rosbridge_ros2_adapter_node.py
   -p enable_clock_relay:=true \
   -p clock_throttle_rate_ms:="$CLOCK_THROTTLE_RATE_MS" \
   -p enable_cmd_vel_relay:="$ENABLE_CONTROL" \
+  -p enable_unitree_move_base_bridge:="$ENABLE_UNITREE_MOVE_BASE_BRIDGE" \
   -p rgb_topic:="$RGB_TOPIC" -p depth_topic:="$DEPTH_TOPIC" \
   -p rgb_camera_info_topic:="$RGB_INFO_TOPIC" \
   -p depth_camera_info_topic:="$DEPTH_INFO_TOPIC" \
   -p enable_image_relay:="$ENABLE_IMAGE_RELAY" \
   -p image_throttle_rate_ms:="$IMAGE_THROTTLE_RATE_MS" \
   -p enable_odom_relay:="$ENABLE_ODOM_RELAY" \
+  -p enable_odom_tf_relay:="$ENABLE_ODOM_TF_RELAY" \
   -p ros1_odom_topic:="$ODOM_TOPIC" \
   -p odom_throttle_rate_ms:="$ODOM_THROTTLE_RATE_MS" \
+  -p enable_proprio_odom_relay:="$ENABLE_PROPRIO_ODOM_RELAY" \
+  -p ros1_proprio_odom_topic:="$PROPRIO_ODOM_TOPIC" \
+  -p proprio_odom_throttle_rate_ms:="$PROPRIO_ODOM_THROTTLE_RATE_MS" \
   -p scan_throttle_rate_ms:="$SCAN_THROTTLE_RATE_MS" \
   -p scan_self_filter_range_m:="$SCAN_SELF_FILTER_RANGE_M" \
   -p pointcloud_throttle_rate_ms:="$POINTCLOUD_THROTTLE_RATE_MS" \
+  -p livox_cloud_topic:="$POINTCLOUD_TOPIC" \
+  -p pointcloud_point_stride:="$POINTCLOUD_POINT_STRIDE" \
   -p imu_throttle_rate_ms:="$IMU_THROTTLE_RATE_MS" \
   -p enable_pointcloud_relay:="$ENABLE_POINTCLOUD_RELAY" \
   -p enable_livox_imu_relay:="$ENABLE_LIVOX_IMU_RELAY" \

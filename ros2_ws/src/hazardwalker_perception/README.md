@@ -21,7 +21,6 @@
 
 `allow_latest_tf_fallback` 默认开启：相机帧时间比公开 world TF 新数毫秒时，节点会回退到最新变换而非丢弃整帧定位；对高速运动且要求严格时序的硬件平台可关闭它。
 - `dynamic_detection_recorder_node`：订阅 `/hw/camera/image_raw` 和 `/hw/perception/hazard_detections`，写入逐帧记录、精选截图、`summary.json` 与测试组 CSV/JSON；可选订阅显式传入的合法 SLAM `Odometry` 话题，默认不记录 `/hw/odom`，避免将官方禁用的 Gazebo 真值桥接链路混入正式证据；发布建议动作到 `/hw/perception/view_recommendation`，但不直接控制机器人。
-- `patrol_coverage_node`：只订阅合法 SLAM 的 `/hazardwalker/slam/odometry`，发布 `/hw/perception/patrol_coverage` 巡检覆盖摘要，并提供 `/hw/perception/patrol_coverage/reset`。正式录包会在开始前清零统计，并要求至少 60 秒、20 个位姿样本、8 m 平面路径和 3 m 平面跨度；该门槛用于排除静止或仅在入口晃动的无效记录，不代表已完成全楼层探索。
 
 上述节点收到官方一键栈的正常停止信号时会安静收尾；记录节点仍先落盘 `frames.jsonl`、`summary.json` 和
 测试表，避免把 ROS2 外部 shutdown 误报为感知崩溃。
@@ -123,7 +122,7 @@ SIMENV_ROOT=/path/to/SimEnv \
 
 每个 RGB-D 视角的球面正证据不仅检查“中心比外环更近”，还分别计算水平、竖直和两条对角线
 四个方向的深度曲率。四个方向都有凸曲率且最小/最大曲率比例不低于
-`min_sphere_axis_curvature_ratio`（默认 `0.35`）时才记为 `spherical`；只在一个方向弯曲的
+`min_sphere_axis_curvature_ratio`（默认 `0.25`）时才记为 `spherical`；只在一个方向弯曲的
 任意角度的圆柱侧面或弧形板标为 `anisotropic`，只可触发侧向复查。方向有效深度不足时标为 `unknown`，
 不会误充球面正证据，也不会永久拒绝可能被遮挡的真实红球。
 

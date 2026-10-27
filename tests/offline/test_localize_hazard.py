@@ -17,7 +17,6 @@ from hazardwalker_perception.localize_hazard import (
     Point3D,
     RigidTransform3D,
     camera_intrinsics_from_k,
-    bbox_supports_depth_shape_evaluation,
     camera_link_point_to_optical,
     estimate_depth_from_bbox,
     estimate_sphere_center_depth_from_bbox,
@@ -41,15 +40,6 @@ def test_camera_intrinsics_from_k_reads_expected_values():
     assert intrinsics.fy == 260.0
     assert intrinsics.cx == 160.0
     assert intrinsics.cy == 120.0
-
-
-def test_depth_shape_requires_sufficient_bbox_resolution():
-    assert not bbox_supports_depth_shape_evaluation(
-        {'x_min': 10, 'y_min': 20, 'x_max': 46, 'y_max': 56}, 40,
-    )
-    assert bbox_supports_depth_shape_evaluation(
-        {'x_min': 10, 'y_min': 20, 'x_max': 49, 'y_max': 59}, 40,
-    )
 
 
 """验证中心像素反投影时 x/y 为 0，深度沿相机 z 轴。"""
@@ -189,6 +179,37 @@ def test_depth_shape_accepts_spherical_curvature():
     assert evidence.curvature_m is not None and evidence.curvature_m > 0.02
 
 
+def test_depth_shape_ignores_one_gross_negative_edge_axis_for_sphere():
+    """球体一个对角扇区采到近处遮挡边缘时，另外三轴仍可给出球面正证据。"""
+    depth_image = [[0.0 for _x in range(41)] for _y in range(41)]
+    for y in range(5, 36):
+        for x in range(5, 36):
+            dx = (x - 20) / 15.5
+            dy = (y - 20) / 15.5
+            radial = math.sqrt(dx * dx + dy * dy)
+            if radial <= 0.90:
+                depth = 2.00 + 0.08 * radial * radial
+                # 只污染正对角方向的外环，模拟障碍边缘落入窄扇区。
+                if (0.60 <= radial <= 0.88
+                        and abs(dy - dx) <= 0.28 * radial):
+                    depth = 0.80
+                depth_image[y][x] = depth
+
+    evidence = evaluate_sphere_depth_shape(
+        depth_image, {'x_min': 5, 'y_min': 5, 'x_max': 35, 'y_max': 35},
+        min_points_per_region=8, min_curvature_m=0.008,
+        min_axis_points=4, min_axis_curvature_ratio=0.35,
+    )
+
+    assert evidence.status == 'spherical'
+    assert evidence.diagonal_positive_curvature_m is not None
+    assert evidence.diagonal_positive_curvature_m < -0.5
+    assert evidence.horizontal_curvature_m is not None
+    assert evidence.horizontal_curvature_m > 0.02
+    assert evidence.vertical_curvature_m is not None
+    assert evidence.vertical_curvature_m > 0.02
+
+
 """验证红色圆柱端面等近似平面会被明确抑制，而非作为已确认红球。"""
 def test_depth_shape_marks_flat_surface_as_non_spherical():
     depth_image = [[2.0 for _x in range(41)] for _y in range(41)]
@@ -226,6 +247,33 @@ def test_depth_shape_marks_single_axis_cylinder_surface_as_anisotropic():
     assert evidence.vertical_curvature_m < 0.008
     assert evidence.curvature_isotropy_ratio is not None
     assert evidence.curvature_isotropy_ratio < 0.35
+
+
+def test_occluded_sphere_with_measured_axis_ratio_passes_relaxed_gate():
+    """遮挡半球约0.30轴向曲率比应通过0.25门槛，但仍不通过旧0.35门槛。"""
+
+    depth_image = [[0.0 for _x in range(41)] for _y in range(41)]
+    for y in range(5, 36):
+        for x in range(5, 36):
+            dx = (x - 20) / 15.5
+            dy = (y - 20) / 15.5
+            if dx * dx + dy * dy <= 0.90 * 0.90:
+                depth_image[y][x] = 2.00 + 0.08 * dx * dx + 0.024 * dy * dy
+
+    relaxed = evaluate_sphere_depth_shape(
+        depth_image, {'x_min': 5, 'y_min': 5, 'x_max': 35, 'y_max': 35},
+        min_points_per_region=8, min_curvature_m=0.008,
+        min_axis_points=4, min_axis_curvature_ratio=0.25,
+    )
+    strict = evaluate_sphere_depth_shape(
+        depth_image, {'x_min': 5, 'y_min': 5, 'x_max': 35, 'y_max': 35},
+        min_points_per_region=8, min_curvature_m=0.008,
+        min_axis_points=4, min_axis_curvature_ratio=0.35,
+    )
+
+    assert relaxed.status == 'spherical'
+    assert strict.status == 'anisotropic'
+    assert 0.25 <= relaxed.curvature_isotropy_ratio < 0.35
 
 
 """验证斜放圆柱也会在对角方向暴露平坦轴，不能绕过固定横纵检查。"""

@@ -15,6 +15,7 @@
 """
 import os
 import inspect
+import math
 import sys
 
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
@@ -78,6 +79,31 @@ def test_official_result_only_exports_confirmed_world_frame_unique_sources():
     }
 
 
+def test_official_result_uses_independent_floor_map_anchors():
+    result = build_official_detected_danger_result(
+        hazards=[
+            {'id': 1, 'status': 'confirmed', 'position_frame_id': 'map',
+             'position': [1.0, 2.0, 0.0], 'confidence': 0.9},
+            {'id': 2, 'status': 'confirmed', 'position_frame_id': 'map',
+             'position': [1.0, 2.0, 2.6], 'confidence': 0.8},
+        ],
+        exploration_time_sec=20.0,
+        expected_frame='world',
+        source_frame='map',
+        world_from_source=(99.0, 99.0, 0.0),
+        world_from_source_by_floor={
+            0: (0.0, 0.0, 0.0),
+            1: (10.0, 0.0, math.pi / 2.0),
+        },
+        snap_sphere_height_to_floor=True,
+    )
+
+    assert result['detected_danger_sources'] == [
+        {'position': [1.0, 2.0, 0.15]},
+        {'position': [8.0, 1.0, 2.75]},
+    ]
+
+
 def test_official_result_can_require_legal_slam_provenance():
     """比赛模式不得把未验证/Gazebo 真值定位的 confirmed 轨迹写入提交文件。"""
     result = build_official_detected_danger_result(
@@ -94,6 +120,99 @@ def test_official_result_can_require_legal_slam_provenance():
     )
 
     assert result['detected_danger_sources'] == [{'position': [2.0, 2.0, 0.3]}]
+
+
+def test_official_result_requires_observation_time_floor_in_formal_multifloor():
+    evidence = {
+        'source': 'hsv_depth_tf',
+        'evidence_status': 'single_view_sphere_confirmed',
+        'distinct_view_count': 1,
+        'eligible_observation_count': 1,
+        'eligible_view_ids': ['stable'],
+        'spherical_view_ids': ['stable'],
+        'required_min_eligible_observations': 1,
+        'required_min_distinct_views': 1,
+        'required_min_spherical_views': 1,
+    }
+    result = build_official_detected_danger_result(
+        hazards=[
+            {'id': 1, 'status': 'confirmed', 'position_frame_id': 'map',
+             'position': [1.0, 2.0, 0.0], 'confidence': 0.9,
+             **evidence},
+            {'id': 2, 'status': 'confirmed', 'position_frame_id': 'map',
+             'position': [1.0, 2.0, 0.0], 'floor_index': 1,
+             'confidence': 0.8, **evidence},
+        ],
+        exploration_time_sec=20.0,
+        source_frame='map',
+        world_from_source_by_floor={1: (10.0, 0.0, math.pi / 2.0)},
+        snap_sphere_height_to_floor=True,
+        require_sphere_evidence=True,
+        require_explicit_floor_index=True,
+    )
+    assert result['detected_danger_sources'] == [
+        {'position': [8.0, 1.0, 2.75]}]
+
+
+def test_final_result_merges_compatible_same_floor_drift_tracks():
+    evidence = {
+        'status': 'confirmed',
+        'position_frame_id': 'world',
+        'floor_index': 0,
+        'source': 'hsv_depth_tf',
+        'evidence_status': 'single_view_sphere_confirmed',
+        'distinct_view_count': 1,
+        'eligible_observation_count': 1,
+        'eligible_view_ids': ['stable'],
+        'spherical_view_ids': ['stable'],
+        'required_min_eligible_observations': 1,
+        'required_min_distinct_views': 1,
+        'required_min_spherical_views': 1,
+        'median_apparent_diameter_m': 0.30,
+    }
+    result = build_official_detected_danger_result(
+        hazards=[
+            {'id': 1, 'position': [1.0, 2.0, 0.15],
+             'confidence': 0.95, **evidence},
+            {'id': 2, 'position': [2.3, 2.1, 0.15],
+             'confidence': 0.90, **evidence},
+        ],
+        exploration_time_sec=20.0,
+        require_sphere_evidence=True,
+        require_explicit_floor_index=True,
+    )
+    assert result['detected_danger_sources'] == [
+        {'position': [1.0, 2.0, 0.15]}]
+
+
+def test_final_result_keeps_same_frame_distinct_targets_inside_drift_radius():
+    common = {
+        'status': 'confirmed',
+        'position_frame_id': 'world',
+        'floor_index': 2,
+        'source': 'hsv_depth_tf',
+        'evidence_status': 'single_view_sphere_confirmed',
+        'distinct_view_count': 1,
+        'eligible_observation_count': 1,
+        'eligible_view_ids': ['stable'],
+        'spherical_view_ids': ['stable'],
+        'required_min_eligible_observations': 1,
+        'required_min_distinct_views': 1,
+        'required_min_spherical_views': 1,
+        'median_apparent_diameter_m': 0.30,
+    }
+    result = build_official_detected_danger_result(
+        hazards=[
+            {'id': 1, 'position': [1.0, 2.0, 5.35],
+             'confidence': 0.95, 'distinct_track_ids': [2], **common},
+            {'id': 2, 'position': [2.0, 2.0, 5.35],
+             'confidence': 0.90, 'distinct_track_ids': [1], **common},
+        ],
+        exploration_time_sec=20.0,
+        require_sphere_evidence=True,
+        require_explicit_floor_index=True,
+    )
+    assert len(result['detected_danger_sources']) == 2
 
 
 def test_official_result_accepts_slam_with_public_floor_action_provenance():
@@ -120,6 +239,10 @@ def test_official_result_legal_localization_default_allowlist_is_exact():
     assert set(allowed) == {
         'lidar_imu_slam',
         'lidar_imu_slam+public_floor_action',
+        'lidar_imu_proprio_slam',
+        'lidar_imu_proprio_slam+public_floor_action',
+        'official_simenv_odometry',
+        'official_simenv_odometry+public_floor_action',
         'visual_inertial_slam',
     }
 
@@ -155,75 +278,83 @@ def test_official_result_can_require_multiview_sphere_evidence():
     assert result['detected_danger_sources'] == [{'position': [2.0, 2.0, 0.3]}]
 
 
-def test_official_result_accepts_strong_rgbd_geometry_fallback():
-    """低于 25° 的轨迹仅在球面深度、官方尺寸和曲率摘要齐全时导出。"""
-
+def test_official_result_accepts_verified_single_view_sphere_evidence():
+    """比赛简化配置按上游合同接受单帧球面正证据，仍拒绝零证据。"""
     evidence = {
-        'id': 7,
-        'status': 'confirmed',
-        'position_frame_id': 'world',
-        'position': [2.0, 2.0, 0.3],
-        'confidence': 0.97,
         'source': 'hsv_depth_tf',
-        'confirmation_path': 'strong_rgbd_geometry',
-        'evidence_status': 'strong_rgbd_sphere_geometry_consistent',
-        'distinct_view_count': 2,
-        'eligible_observation_count': 46,
-        'eligible_view_ids': ['left', 'right'],
-        'spherical_view_ids': ['left', 'right'],
-        'flat_view_ids': [],
-        'view_bearing_span_deg': 7.5,
-        'median_apparent_diameter_m': 0.295,
-        'min_multiview_aspect_ratio': 0.99,
-        'depth_curvature_cv': 0.02,
-        'median_normalized_depth_curvature': 0.155,
-        'required_min_eligible_observations': 3,
-        'required_min_distinct_views': 2,
-        'required_min_spherical_views': 2,
-        'required_min_view_bearing_span_deg': 5.0,
+        'evidence_status': 'single_view_sphere_confirmed',
+        'distinct_view_count': 1,
+        'eligible_observation_count': 1,
+        'eligible_view_ids': ['stable_front'],
+        'spherical_view_ids': ['stable_front'],
+        'required_min_eligible_observations': 1,
+        'required_min_distinct_views': 1,
+        'required_min_spherical_views': 1,
     }
-
     result = build_official_detected_danger_result(
-        [evidence],
+        hazards=[{
+            'id': 1, 'status': 'confirmed',
+            'position_frame_id': 'world', 'position': [1.0, 2.0, 0.15],
+            'confidence': 0.95, **evidence,
+        }],
         exploration_time_sec=12.0,
-        require_multiview_sphere_evidence=True,
+        require_sphere_evidence=True,
     )
-
     assert result['detected_danger_sources'] == [
-        {'position': [2.0, 2.0, 0.3]},
-    ]
+        {'position': [1.0, 2.0, 0.15]}]
 
-
-def test_official_result_rejects_forged_strong_rgbd_summary():
-    """仅写 strong 标签但缺尺寸/曲率摘要时必须 fail-closed。"""
-
-    forged = {
-        'id': 7,
-        'status': 'confirmed',
-        'position_frame_id': 'world',
-        'position': [2.0, 2.0, 0.3],
-        'confidence': 0.97,
-        'source': 'hsv_depth_tf',
-        'confirmation_path': 'strong_rgbd_geometry',
-        'evidence_status': 'strong_rgbd_sphere_geometry_consistent',
-        'distinct_view_count': 2,
-        'eligible_observation_count': 46,
-        'eligible_view_ids': ['left', 'right'],
-        'spherical_view_ids': ['left', 'right'],
-        'flat_view_ids': [],
-        'view_bearing_span_deg': 7.5,
-        'required_min_eligible_observations': 3,
-        'required_min_distinct_views': 2,
-        'required_min_spherical_views': 2,
-        'required_min_view_bearing_span_deg': 5.0,
-    }
-
-    result = build_official_detected_danger_result(
-        [forged], exploration_time_sec=12.0,
-        require_multiview_sphere_evidence=True,
+    evidence['eligible_observation_count'] = 0
+    rejected = build_official_detected_danger_result(
+        hazards=[{
+            'id': 1, 'status': 'confirmed',
+            'position_frame_id': 'world', 'position': [1.0, 2.0, 0.15],
+            'confidence': 0.95, **evidence,
+        }],
+        exploration_time_sec=12.0,
+        require_sphere_evidence=True,
     )
+    assert rejected['detected_danger_sources'] == []
 
-    assert result['detected_danger_sources'] == []
+
+def test_post_ingress_map_transform_and_floor_height_meet_official_meter_gate():
+    """真实回放坐标经合法入门原点和球心高度恢复后应进入 1 m 匹配门。"""
+    # 此 map 坐标由既有正式帧和旧出生点静态别名反解，不在运行期读取真值。
+    map_position = [22.3925, 3.5312, -0.2354]
+    ingress_distance = 3.603
+    world_from_map = (
+        math.cos(math.pi / 2.0) * ingress_distance,
+        -2.2 + math.sin(math.pi / 2.0) * ingress_distance,
+        math.pi / 2.0,
+    )
+    evidence = {
+        'source': 'hsv_depth_tf',
+        'evidence_status': 'single_view_sphere_confirmed',
+        'distinct_view_count': 1,
+        'eligible_observation_count': 3,
+        'eligible_view_ids': ['stable_front'],
+        'spherical_view_ids': ['stable_front'],
+        'required_min_eligible_observations': 3,
+        'required_min_distinct_views': 1,
+        'required_min_spherical_views': 1,
+    }
+    result = build_official_detected_danger_result(
+        hazards=[{
+            'id': 1, 'status': 'confirmed', 'position_frame_id': 'map',
+            'position': map_position, 'confidence': 0.81, **evidence,
+        }],
+        exploration_time_sec=12.0,
+        source_frame='map',
+        world_from_source=world_from_map,
+        snap_sphere_height_to_floor=True,
+        floor_height_m=2.6,
+        sphere_center_height_m=0.15,
+        require_sphere_evidence=True,
+    )
+    detected = result['detected_danger_sources'][0]['position']
+    truth = (-4.098, 22.984, 0.15)
+    error = math.sqrt(sum(
+        (detected[index] - truth[index]) ** 2 for index in range(3)))
+    assert error < 1.0
 
 
 def test_official_result_rejects_forged_multiview_evidence_label():

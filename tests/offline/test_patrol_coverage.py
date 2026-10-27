@@ -78,10 +78,11 @@ def test_patrol_coverage_runtime_contract_is_wired_into_launch_and_bag():
         REPO_ROOT
         / 'ros2_ws/src/hazardwalker_bringup/launch/official_simenv_business.launch.py'
     ).read_text(encoding='utf-8')
-    bag_text = (REPO_ROOT / 'scripts/official_perception_bag.py').read_text(
-        encoding='utf-8'
-    )
+    runner_text = (
+        REPO_ROOT / 'scripts/run_official_slam_exploration.py'
+    ).read_text(encoding='utf-8')
 
     assert 'patrol_coverage_node' in setup_text
     assert "executable='patrol_coverage_node'" in launch_text
-    assert '/hw/perception/patrol_coverage' in bag_text
+    assert 'start_evidence_recorder:=' in runner_text
+    assert 'evidence_output_dir:=' in runner_text

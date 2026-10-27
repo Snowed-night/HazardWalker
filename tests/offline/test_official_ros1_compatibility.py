@@ -275,7 +275,9 @@ def test_ros2_legal_localizer_uses_only_public_scan_imu_and_floor_action():
     assert "'/hazardwalker/navigation/floor_index'" in source
     assert "TransformBroadcaster(self)" in source
     assert '/hw/odom' in source  # 文件头的显式禁止说明必须存在。
-    assert "create_subscription(\n            Odometry" not in source
+    assert "declare_parameter('proprio_odom_topic', '/hw/proprio_odom')" in source
+    assert "str(self.get_parameter('proprio_odom_topic').value)" in source
+    assert "Odometry, '/hw/odom'" not in source
     assert '/Odometry_gazebo' in source  # 文件头的显式禁止说明必须存在。
 
 

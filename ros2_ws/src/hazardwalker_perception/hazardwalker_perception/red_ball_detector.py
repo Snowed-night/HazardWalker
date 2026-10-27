@@ -68,6 +68,95 @@ def is_complete_candidate_for_3d_tracking(detection, image_width, image_height,
         or int(detection.y_max) >= height - 1 - margin
     )
 
+
+def occluded_bbox_has_positive_sphere_depth(
+        depth_shape_status, complete_for_3d_tracking):
+    """判断不完整二维轮廓是否已有足够的球面深度正证据。
+
+    家具遮挡可能发生在画面内部，不能只依赖 ``is_partial`` 或贴边标志。
+    只有同步深度明确判为 spherical 才放行；unknown、flat 和 anisotropic
+    均继续复查，因此红立方体不会仅凭红色轮廓进入三维轨迹。
+    """
+
+    return (
+        not bool(complete_for_3d_tracking)
+        and str(depth_shape_status).strip().lower() == 'spherical'
+    )
+
+
+def positive_sphere_depth_evidence(
+        depth_shape_status, complete_for_3d_tracking,
+        positive_partial_sphere=False):
+    """只接受深度明确判为 spherical 的球体正证据。
+
+    前景/背景深度分层只能说明候选被遮挡，不能证明远处红色区域是球面；
+    flat、anisotropic 和 unknown 都必须继续主动复查，不能写入三维轨迹。
+    """
+
+    return (
+        bool(positive_partial_sphere)
+        or occluded_bbox_has_positive_sphere_depth(
+            depth_shape_status, complete_for_3d_tracking)
+    )
+
+
+def foreground_occluded_round_candidate_is_sphere(
+        detection, depth_shape, *, min_depth_separation_m=0.50,
+        min_circularity=0.55, min_aspect_ratio=0.70,
+        max_extent=0.78, min_red_pixel_count=200):
+    """识别“红色圆弧位于近前景之后”的主动复查模式。
+
+    该模式只能触发重观察，不能作为球体正证据。最终三层轮证明家具边缘也
+    会满足同样的深度分层和圆弧条件；只有后续明确 spherical 的同步深度帧
+    才能进入三维轨迹。
+    """
+
+    if not bool(getattr(detection, 'is_partial', False)) or depth_shape is None:
+        return False
+    center_depth = getattr(depth_shape, 'center_depth_m', None)
+    outer_depth = getattr(depth_shape, 'outer_depth_m', None)
+    try:
+        depth_separation = float(center_depth) - float(outer_depth)
+    except (TypeError, ValueError):
+        return False
+    values = (
+        depth_separation,
+        float(getattr(detection, 'circularity', 0.0)),
+        float(getattr(detection, 'aspect_ratio', 0.0)),
+        float(getattr(detection, 'extent', 1.0)),
+    )
+    if not all(math.isfinite(value) for value in values):
+        return False
+    return (
+        depth_separation >= float(min_depth_separation_m)
+        and values[1] >= float(min_circularity)
+        and values[2] >= float(min_aspect_ratio)
+        and values[3] <= float(max_extent)
+        and int(getattr(detection, 'red_pixel_count', 0))
+        >= int(min_red_pixel_count)
+    )
+
+
+def synchronized_sphere_motion_confirmation_allowed(
+        *, camera_stable, has_positive_depth_sphere, enabled,
+        localization_provenance, depth_synchronized, tf_synchronized):
+    """判断明确球面证据能否在运动中直接写入轨迹。
+
+    仅赛事公开米制里程计、同步 RGB-D 和同步 TF 的组合可放行。unknown、
+    flat、anisotropic 候选由调用方以 ``has_positive_depth_sphere=False``
+    拒绝，避免把“边走边确认”误扩展到普通红色轮廓。
+    """
+
+    return (
+        not bool(camera_stable)
+        and bool(has_positive_depth_sphere)
+        and bool(enabled)
+        and str(localization_provenance).startswith(
+            'official_simenv_odometry')
+        and bool(depth_synchronized)
+        and bool(tf_synchronized)
+    )
+
 """二维检测后端接口，后续 YOLO/分割模型只要实现 detect 即可接入 ROS 节点。"""
 class DetectionBackend:
     name = 'base'
@@ -145,10 +234,7 @@ def detect_red_balls_rgb_bytes(data, width, height, step=None, encoding='rgb8',
                                min_extent=0.35, max_extent=0.92, max_detections=None,
                                split_touching=True, include_partial_candidates=False,
                                partial_min_area_px=20, partial_min_circularity=0.30,
-                               partial_min_aspect_ratio=0.30, partial_min_value=50,
-                               red_hue_min_1=0, red_hue_max_1=10,
-                               red_hue_min_2=170, red_hue_max_2=180,
-                               red_min_saturation=80, red_min_value=80):
+                               partial_min_aspect_ratio=0.30, partial_min_value=50):
     """
     Args:
         data: 图像原始 bytes/bytearray。
@@ -200,12 +286,6 @@ def detect_red_balls_rgb_bytes(data, width, height, step=None, encoding='rgb8',
             partial_min_circularity=partial_min_circularity,
             partial_min_aspect_ratio=partial_min_aspect_ratio,
             partial_min_value=partial_min_value,
-            red_hue_min_1=red_hue_min_1,
-            red_hue_max_1=red_hue_max_1,
-            red_hue_min_2=red_hue_min_2,
-            red_hue_max_2=red_hue_max_2,
-            red_min_saturation=red_min_saturation,
-            red_min_value=red_min_value,
         )
         if max_detections is not None:
             return detections[:max_detections]
@@ -219,12 +299,6 @@ def detect_red_balls_rgb_bytes(data, width, height, step=None, encoding='rgb8',
         encoding=normalized_encoding,
         min_area_px=min_area_px,
         min_confidence=min_confidence,
-        red_hue_min_1=red_hue_min_1,
-        red_hue_max_1=red_hue_max_1,
-        red_hue_min_2=red_hue_min_2,
-        red_hue_max_2=red_hue_max_2,
-        red_min_saturation=red_min_saturation,
-        red_min_value=red_min_value,
     )
     return [] if detection is None else [detection]
 
@@ -251,11 +325,7 @@ def detect_red_ball_rgb_bytes(data, width, height, step=None, encoding='rgb8',
     return detections[0] if detections else None
 
 """OpenCV 不可用时的保底像素扫描，只验证颜色，不做形状筛选。"""
-def _detect_red_region_by_pixel_scan(
-        data, width, height, step, encoding, min_area_px, min_confidence,
-        red_hue_min_1=0, red_hue_max_1=10,
-        red_hue_min_2=170, red_hue_max_2=180,
-        red_min_saturation=80, red_min_value=80):
+def _detect_red_region_by_pixel_scan(data, width, height, step, encoding, min_area_px, min_confidence):
 
     red_pixels = []
     is_bgr = encoding == 'bgr8'
@@ -270,14 +340,7 @@ def _detect_red_region_by_pixel_scan(
             c2 = data[index + 2]
             r, g, b = (c2, c1, c0) if is_bgr else (c0, c1, c2)
             h, s, v = rgb_to_hsv_pixel(r, g, b)
-            if is_red_hsv(
-                    h, s, v,
-                    lower_h_1=red_hue_min_1,
-                    upper_h_1=red_hue_max_1,
-                    lower_h_2=red_hue_min_2,
-                    upper_h_2=red_hue_max_2,
-                    min_s=red_min_saturation,
-                    min_v=red_min_value):
+            if is_red_hsv(h, s, v):
                 red_pixels.append((x, y))
 
     if len(red_pixels) < min_area_px:
@@ -314,25 +377,14 @@ def _detect_red_balls_with_opencv(data, width, height, step, encoding, min_area_
                                   min_circularity, min_aspect_ratio, min_extent, max_extent,
                                   split_touching, include_partial_candidates,
                                   partial_min_area_px, partial_min_circularity,
-                                  partial_min_aspect_ratio, partial_min_value,
-                                  red_hue_min_1, red_hue_max_1,
-                                  red_hue_min_2, red_hue_max_2,
-                                  red_min_saturation, red_min_value):
+                                  partial_min_aspect_ratio, partial_min_value):
 
 
     image = _image_bytes_to_array(data, width, height, step)
     color_code = cv2.COLOR_BGR2HSV if encoding == 'bgr8' else cv2.COLOR_RGB2HSV
     hsv = cv2.cvtColor(image, color_code)
 
-    mask = _red_mask_from_hsv(
-        hsv,
-        hue_min_1=red_hue_min_1,
-        hue_max_1=red_hue_max_1,
-        hue_min_2=red_hue_min_2,
-        hue_max_2=red_hue_max_2,
-        min_saturation=red_min_saturation,
-        min_value=red_min_value,
-    )
+    mask = _red_mask_from_hsv(hsv, min_value=80)
 
     contours, _hierarchy = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     detections = []
@@ -374,15 +426,7 @@ def _detect_red_balls_with_opencv(data, width, height, step, encoding, min_area_
     # 前者存在而静默漏检。这里始终生成宽松候选，再仅剔除和已有严格框明显重叠的
     # 同一物体，确保候选不会与完整球重复计数。
     if include_partial_candidates:
-        relaxed_mask = _red_mask_from_hsv(
-            hsv,
-            hue_min_1=red_hue_min_1,
-            hue_max_1=red_hue_max_1,
-            hue_min_2=red_hue_min_2,
-            hue_max_2=red_hue_max_2,
-            min_saturation=red_min_saturation,
-            min_value=partial_min_value,
-        )
+        relaxed_mask = _red_mask_from_hsv(hsv, min_value=partial_min_value)
         partial_contours, _hierarchy = cv2.findContours(
             relaxed_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE,
         )
@@ -400,17 +444,13 @@ def _detect_red_balls_with_opencv(data, width, height, step, encoding, min_area_
     return detections
 
 
-def _red_mask_from_hsv(
-        hsv, min_value, min_saturation=80,
-        hue_min_1=0, hue_max_1=10, hue_min_2=170, hue_max_2=180):
+def _red_mask_from_hsv(hsv, min_value):
     """生成红色掩膜；局部候选可使用较低亮度阈值但不会放宽最终确认。"""
 
-    lower_red_1 = np.array(
-        [int(hue_min_1), int(min_saturation), int(min_value)], dtype=np.uint8)
-    upper_red_1 = np.array([int(hue_max_1), 255, 255], dtype=np.uint8)
-    lower_red_2 = np.array(
-        [int(hue_min_2), int(min_saturation), int(min_value)], dtype=np.uint8)
-    upper_red_2 = np.array([int(hue_max_2), 255, 255], dtype=np.uint8)
+    lower_red_1 = np.array([0, 80, int(min_value)], dtype=np.uint8)
+    upper_red_1 = np.array([10, 255, 255], dtype=np.uint8)
+    lower_red_2 = np.array([170, 80, int(min_value)], dtype=np.uint8)
+    upper_red_2 = np.array([180, 255, 255], dtype=np.uint8)
     mask = cv2.bitwise_or(
         cv2.inRange(hsv, lower_red_1, upper_red_1),
         cv2.inRange(hsv, lower_red_2, upper_red_2),
