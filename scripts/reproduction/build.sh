@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 构建源码并运行旧版离线检查。ROS1只使用已准备的镜像，不在此下载大型依赖。
+# 构建源码并运行核心离线测试。ROS1只使用已准备的镜像，不在此下载大型依赖。
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 if [[ "${1:-}" == --help ]]; then

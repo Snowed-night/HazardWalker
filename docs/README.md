@@ -1,14 +1,11 @@
-# HazardWalker 旧版复用文档
+# 文档
 
-本目录对应`release/stable-20260910`分支，建议依次阅读：
+| 文档 | 内容 |
+| --- | --- |
+| [环境配置](guidebook/environment.md) | 宿主依赖、仿真镜像和官方运行资源 |
+| [快速开始](guidebook/quickstart.md) | 获取代码、构建、运行、观看和导出结果 |
+| [架构与接口](guidebook/architecture-and-interfaces.md) | 模块入口、话题和坐标关系 |
+| [结果核验](guidebook/run-and-results.md) | 成功条件、输出文件和故障排查 |
+| [复用与开发](guidebook/reuse-and-develop.md) | 替换模块和迁移其他机器人 |
 
-1. [环境准备](guidebook/environment.md)：宿主、镜像、策略和SDK资源。
-2. [快速开始](guidebook/quickstart.md)：连接、构建、完整运行、观看和取回结果。
-3. [运行与结果核验](guidebook/run-and-results.md)：成功条件、输出与常见故障。
-4. [架构与接口](guidebook/architecture-and-interfaces.md)：模块职责与源码入口。
-5. [复用与开发](guidebook/reuse-and-develop.md)：更换检测器、定位来源和机器人。
-6. [旧版实验记录](experiments/stable-20260910.md)：历史成绩及整理验证。
-
-来源与哈希以`reproduction/baseline.json`、`frozen-files.json`追溯；运行资源以`runtime-assets.json`核验。修改公共运行方式时同步更新本目录和根README。
-
-`groups/nav/phase5.2-progress-20260717.md`与`patches/`中的兼容补丁保留给原离线检查读取，属于历史测试输入，不作为当前启动指南。
+源码与资源校验清单位于 `reproduction/`。历史开发记录、旧版本和实验录像在项目服务器归档，当前仓库只维护代码、测试和使用文档。

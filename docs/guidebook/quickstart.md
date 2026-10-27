@@ -14,7 +14,7 @@ ssh your-user@your-server
 
 ```bash
 bash
-git clone --branch release/stable-20260910 --single-branch https://github.com/Snowed-night/HazardWalker.git
+git clone --depth 1 --branch main https://github.com/Snowed-night/HazardWalker.git
 cd HazardWalker
 ```
 
@@ -51,7 +51,7 @@ bash run.sh 202609102
 
 一次调用只运行一次。Ctrl+C中止本轮并进入清理，不自动换种子、补跑或删除历史结果。
 
-## 4 可选观看两路画面
+## 4 可选观看仿真画面
 
 等待本轮容器就绪，在第二个SSH终端执行：
 
@@ -61,19 +61,17 @@ cd /absolute/path/to/HazardWalker/ros2_ws/src/hazardwalker_platform
 export DOCKER_SIMENV_USER=station_cluster
 export ROS_DOMAIN_ID=43
 ./auto_docker.sh gui up
-./auto_docker.sh first_person up
 ```
 
 在本机PowerShell另开终端，建立隧道并保持打开：
 
 ```powershell
-ssh -N -o ServerAliveInterval=30 -o ServerAliveCountMax=3 -L 6081:127.0.0.1:6081 -L 6082:127.0.0.1:6082 your-user@your-server
+ssh -N -o ServerAliveInterval=30 -o ServerAliveCountMax=3 -L 6081:127.0.0.1:6081 your-user@your-server
 ```
 
 本机浏览器打开：
 
 - 上帝视角：`http://127.0.0.1:6081/hazardwalker.html`
-- 第一人称：`http://127.0.0.1:6082/first_person`
 
 GUI需要对应sidecar镜像和图形依赖。不能使用GUI时，仍可检查本轮自动保存的视频。黑屏时先检查`gui status`和SSH隧道。
 
@@ -91,4 +89,4 @@ python3 scripts/reproduction_check_result.py reports/nav/demo_seed202609102
 scp -r your-user@your-server:/absolute/path/to/HazardWalker/reports/nav/demo_seed202609102 .
 ```
 
-关闭观看服务时，在第二个SSH终端执行`./auto_docker.sh first_person down`和`./auto_docker.sh gui down`。
+关闭观看服务时，在第二个SSH终端执行`./auto_docker.sh gui down`。

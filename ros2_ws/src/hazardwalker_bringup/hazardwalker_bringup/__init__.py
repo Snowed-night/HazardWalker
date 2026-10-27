@@ -8,7 +8,7 @@
 
 当前职责：
 - 保持包可被 ROS 2 Python 打包工具识别。
-- 一键启动逻辑放在 `launch/minimal_demo.launch.py` 和 `scripts/run_minimal_demo.sh`。
+- 一键启动逻辑放在 `launch/official_simenv_control_interface.launch.py`。
 
 后续扩展：
 - 如果需要共享 launch 辅助函数，可新增独立 Python 模块，例如 `launch_utils.py`。

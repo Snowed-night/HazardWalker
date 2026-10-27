@@ -3,7 +3,6 @@ from pathlib import Path
 import hashlib
 import importlib.util
 import json
-import shutil
 import tempfile
 import unittest
 
@@ -69,9 +68,31 @@ class ResultAcceptanceTests(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.output = Path(self.temp.name) / 'result'
-        shutil.copytree(ROOT / 'reproduction/history/seed_202609102', self.output)
+        # 人工构造最小合法结果，不依赖历史实验归档或服务器路径。
+        (self.output / 'navigation').mkdir(parents=True)
+        manifest = {
+            'status': 'complete', 'final_nav_state': 'FINISHED',
+            'scenario_seed': 'unit-test',
+            'navigation_acceptance': {'passed': True},
+            'slam_physical_alignment': {'accepted': True, 'floor_count': 3},
+            'preflight': {'world_from_map': {'x': 0.0, 'y': 0.0}},
+        }
+        (self.output / 'run_manifest.json').write_text(json.dumps(manifest), encoding='utf-8')
+        (self.output / 'evaluation_result.json').write_text(json.dumps({
+            'metrics': {'truth_count': 1, 'correct': 1, 'missed': 0, 'false_alarms': 0},
+        }), encoding='utf-8')
+        rooms = [
+            {'floor': f, 'sector': s, 'phase': 'completed'}
+            for f in range(3)
+            for s in ('near_left', 'near_right', 'far_left', 'far_right')
+        ]
+        (self.output / 'navigation/room_coverage.jsonl').write_text(
+            '\n'.join(json.dumps(row) for row in rooms) + '\n', encoding='utf-8')
+        (self.output / 'navigation/trajectory.jsonl').write_text(json.dumps({
+            'floor_index': 0, 'official_x': 0.2, 'official_y': 0.0,
+        }) + '\n', encoding='utf-8')
 
-    def test_historical_success_has_all_required_evidence(self):
+    def test_complete_result_has_all_required_evidence(self):
         report = results.evaluate(self.output)
         self.assertTrue(report['passed'], report)
 
