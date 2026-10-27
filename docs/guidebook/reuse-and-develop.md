@@ -18,3 +18,28 @@ bash build.sh
 ```
 
 原文件有意变化后，基线哈希检查失败是预期行为。新分支应建立自己的版本记录和验证结论。
+
+## 运行自己的开发变体
+
+根目录入口专门保护旧冻结版。需要修改算法时，先建立功能分支，使用原构建与实验脚本，保留旧冻结清单用于对照：
+
+```bash
+git switch -c feature/my-variant
+source /opt/ros/jazzy/setup.bash
+colcon build --symlink-install --base-paths ros2_ws/src --packages-select \
+  hazardwalker_bringup hazardwalker_decision hazardwalker_msgs hazardwalker_nav hazardwalker_perception hazardwalker_platform
+python3 scripts/run_offline_tests.py
+```
+
+如果改动ROS1控制器，另执行`python3 scripts/reproduction/build_noetic.py`。提交自己修改的文件，确认工作树满足原运行器要求，并协调服务器独占后运行：
+
+```bash
+export HAZARDWALKER_SEED=202609102
+export DOCKER_SIMENV_USER=station_cluster
+export ROS_DOMAIN_ID=43
+export USE_GPU=0
+bash scripts/run_stable_three_floor_experiment.sh reports/nav/my_variant_seed202609102
+python3 scripts/reproduction_check_result.py reports/nav/my_variant_seed202609102
+```
+
+为变体记录新的Git提交、参数和本次结果，不将其标记为旧冻结版成绩。
